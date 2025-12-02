@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { WebhookSourcesController } from './webhook-sources.controller';
 import { WebhookBindingsController } from './webhook-bindings.controller';
 import { WebhookEventsController } from './webhook-events.controller';
@@ -8,8 +9,17 @@ import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 
 @Module({
+  imports: [
+    BullModule.registerQueue({
+      name: 'trade-execution-real',
+    }),
+    BullModule.registerQueue({
+      name: 'trade-execution-sim',
+    }),
+  ],
   controllers: [
     WebhookSourcesController,
     WebhookBindingsController,
@@ -18,6 +28,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
   ],
   providers: [
     WebhooksService,
+    TradeJobQueueService,
     PrismaService,
     {
       provide: EncryptionService,
@@ -30,7 +41,6 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
       },
       inject: [ConfigService],
     },
-    JwtAuthGuard,
   ],
   exports: [WebhooksService],
 })

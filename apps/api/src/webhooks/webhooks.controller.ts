@@ -17,11 +17,15 @@ import {
   ApiHeader,
 } from '@nestjs/swagger';
 import { WebhooksService } from './webhooks.service';
+import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
 export class WebhooksController {
-  constructor(private webhooksService: WebhooksService) {}
+  constructor(
+    private webhooksService: WebhooksService,
+    private tradeJobQueueService: TradeJobQueueService
+  ) {}
 
   @Post(':code')
   @HttpCode(HttpStatus.OK)
@@ -143,6 +147,17 @@ export class WebhooksController {
         });
 
         console.log(`[WEBHOOK] Evento criado. Jobs criados: ${result.jobsCreated}`);
+
+        // Enfileirar jobs criados para execução
+        if (result.jobIds && result.jobIds.length > 0) {
+          try {
+            await this.tradeJobQueueService.enqueueTradeJobs(result.jobIds);
+            console.log(`[WEBHOOK] ${result.jobIds.length} jobs enfileirados para execução`);
+          } catch (enqueueError: any) {
+            console.error(`[WEBHOOK] Erro ao enfileirar jobs: ${enqueueError.message}`);
+            // Não falhar o webhook se apenas o enfileiramento falhar
+          }
+        }
 
         if (result.jobsCreated > 0) {
           accountsTriggered++;

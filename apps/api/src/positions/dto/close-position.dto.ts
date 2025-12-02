@@ -9,10 +9,10 @@ export class ClosePositionDto {
   @Min(0)
   quantity?: number;
 
-  @ApiProperty({ required: false, enum: OrderType, example: OrderType.MARKET })
+  @ApiProperty({ required: false, enum: [OrderType.MARKET, OrderType.LIMIT], example: OrderType.MARKET, description: 'Apenas MARKET ou LIMIT são permitidos para fechamento de posição' })
   @IsOptional()
-  @IsEnum(OrderType)
-  orderType?: OrderType;
+  @IsEnum([OrderType.MARKET, OrderType.LIMIT])
+  orderType?: OrderType.MARKET | OrderType.LIMIT;
 
   @ApiProperty({ required: false, example: 216.00 })
   @IsOptional()

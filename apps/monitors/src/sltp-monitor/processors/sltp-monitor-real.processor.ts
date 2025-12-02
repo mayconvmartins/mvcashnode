@@ -1,5 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Job, Queue } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { TradeJobService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
@@ -10,7 +11,8 @@ import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 export class SLTPMonitorRealProcessor extends WorkerHost {
   constructor(
     private prisma: PrismaService,
-    private encryptionService: EncryptionService
+    private encryptionService: EncryptionService,
+    @InjectQueue('trade-execution-real') private tradeExecutionQueue: Queue
   ) {
     super();
   }
@@ -64,13 +66,20 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         // Check Stop Loss
         if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
           if (!position.sl_triggered) {
-            await tradeJobService.createJob({
+            const tradeJob = await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
               tradeMode: TradeMode.REAL,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',
               baseQuantity: position.qty_remaining.toNumber(),
+              skipParameterValidation: true,
+            });
+
+            // Enfileirar job para execução
+            await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
+              jobId: `trade-job-${tradeJob.id}`,
+              attempts: 3,
             });
 
             await this.prisma.tradePosition.update({
@@ -84,13 +93,20 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         // Check Take Profit
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
           if (!position.tp_triggered) {
-            await tradeJobService.createJob({
+            const tradeJob = await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
               tradeMode: TradeMode.REAL,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',
               baseQuantity: position.qty_remaining.toNumber(),
+              skipParameterValidation: true,
+            });
+
+            // Enfileirar job para execução
+            await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
+              jobId: `trade-job-${tradeJob.id}`,
+              attempts: 3,
             });
 
             await this.prisma.tradePosition.update({
@@ -117,13 +133,20 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           const trailingTriggerPrice = trailingMaxPrice * (1 - trailingDistance / 100);
 
           if (currentPrice <= trailingTriggerPrice && !position.trailing_triggered) {
-            await tradeJobService.createJob({
+            const tradeJob = await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
               tradeMode: TradeMode.REAL,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',
               baseQuantity: position.qty_remaining.toNumber(),
+              skipParameterValidation: true,
+            });
+
+            // Enfileirar job para execução
+            await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
+              jobId: `trade-job-${tradeJob.id}`,
+              attempts: 3,
             });
 
             await this.prisma.tradePosition.update({

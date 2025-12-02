@@ -14,6 +14,12 @@ import { ConfigService } from '@nestjs/config';
     BullModule.registerQueue({
       name: 'limit-orders-monitor-sim',
     }),
+    BullModule.registerQueue({
+      name: 'trade-execution-real',
+    }),
+    BullModule.registerQueue({
+      name: 'trade-execution-sim',
+    }),
   ],
   providers: [
     LimitOrdersMonitorRealProcessor,

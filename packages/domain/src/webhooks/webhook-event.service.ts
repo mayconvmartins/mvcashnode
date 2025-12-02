@@ -18,7 +18,7 @@ export class WebhookEventService {
     private tradeJobService: TradeJobService
   ) {}
 
-  async createEvent(dto: CreateWebhookEventDto): Promise<{ event: any; jobsCreated: number }> {
+  async createEvent(dto: CreateWebhookEventDto): Promise<{ event: any; jobsCreated: number; jobIds: number[] }> {
     // Parse signal
     const parsed = this.parser.parseSignal(dto.payload);
 
@@ -32,7 +32,7 @@ export class WebhookEventService {
     });
 
     if (existing) {
-      return { event: existing, jobsCreated: 0 };
+      return { event: existing, jobsCreated: 0, jobIds: [] };
     }
 
     // Create event
@@ -54,7 +54,7 @@ export class WebhookEventService {
     });
 
     // Create jobs from event
-    const jobsCreated = await this.createJobsFromEvent(event.id);
+    const { count: jobsCreated, jobIds } = await this.createJobsFromEvent(event.id);
 
     // Update event status
     await this.prisma.webhookEvent.update({
@@ -65,10 +65,10 @@ export class WebhookEventService {
       },
     });
 
-    return { event, jobsCreated };
+    return { event, jobsCreated, jobIds };
   }
 
-  private async createJobsFromEvent(eventId: number): Promise<number> {
+  private async createJobsFromEvent(eventId: number): Promise<{ count: number; jobIds: number[] }> {
     const event = await this.prisma.webhookEvent.findUnique({
       where: { id: eventId },
       include: {
@@ -90,10 +90,11 @@ export class WebhookEventService {
     });
 
     if (!event || event.action === WebhookAction.UNKNOWN) {
-      return 0;
+      return { count: 0, jobIds: [] };
     }
 
     let jobsCreated = 0;
+    const jobIds: number[] = [];
 
     for (const binding of event.webhook_source.bindings) {
       // Match trade mode: is_simulation true = SIMULATION, false = REAL
@@ -104,7 +105,7 @@ export class WebhookEventService {
       }
 
       try {
-        await this.tradeJobService.createJob({
+        const tradeJob = await this.tradeJobService.createJob({
           webhookEventId: event.id,
           exchangeAccountId: binding.exchange_account.id,
           tradeMode: event.trade_mode as TradeMode,
@@ -113,13 +114,14 @@ export class WebhookEventService {
           orderType: 'MARKET',
         });
         jobsCreated++;
+        jobIds.push(tradeJob.id);
       } catch (error) {
         // Log error but continue
         console.error(`Failed to create job for binding ${binding.id}:`, error);
       }
     }
 
-    return jobsCreated;
+    return { count: jobsCreated, jobIds };
   }
 }
 

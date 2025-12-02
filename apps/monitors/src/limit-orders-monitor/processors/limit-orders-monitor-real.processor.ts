@@ -57,8 +57,21 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
 
         // Get API keys
         const keys = await accountService.decryptApiKeys(order.exchange_account_id);
+        if (!keys) continue;
+
+        // Se não há execution ainda, significa que a ordem ainda não foi criada na exchange
+        // Isso pode acontecer se o job foi criado mas não foi processado pelo executor ainda
         const existingExecution = order.executions && order.executions.length > 0 ? order.executions[0] : null;
-        if (!keys || !existingExecution?.exchange_order_id) continue;
+        
+        if (!existingExecution?.exchange_order_id) {
+          // Ordem ainda não foi criada na exchange - enfileirar no executor para criar
+          const { TradeJobQueueService } = await import('../../../../api/src/trade-jobs/trade-job-queue.service');
+          // Não podemos usar o serviço da API aqui, então vamos usar a fila diretamente
+          // Mas primeiro, vamos verificar se o job já está enfileirado
+          // Por enquanto, apenas logar e continuar - o executor processará quando enfileirado
+          console.log(`[LIMIT-MONITOR] Ordem LIMIT ${order.id} ainda não tem execution. Aguardando processamento pelo executor.`);
+          continue;
+        }
 
         // Create adapter
         const adapter = new BinanceSpotAdapter(

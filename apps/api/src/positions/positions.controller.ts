@@ -26,13 +26,20 @@ import { ClosePositionDto } from './dto/close-position.dto';
 import { SellLimitDto } from './dto/sell-limit.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
+import { PrismaService } from '@mvcashnode/db';
+import { OrderType } from '@mvcashnode/shared';
 
 @ApiTags('Positions')
 @Controller('positions')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class PositionsController {
-  constructor(private positionsService: PositionsService) {}
+  constructor(
+    private positionsService: PositionsService,
+    private tradeJobQueueService: TradeJobQueueService,
+    private prisma: PrismaService
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Listar posições' })
@@ -129,21 +136,55 @@ export class PositionsController {
   @ApiResponse({ status: 201, description: 'Job de fechamento criado' })
   async close(
     @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any,
     @Body() closeDto?: ClosePositionDto
   ) {
     try {
+      // Verificar se a posição pertence ao usuário
+      const position = await this.prisma.tradePosition.findUnique({
+        where: { id },
+        include: { exchange_account: true },
+      });
+
+      if (!position) {
+        throw new NotFoundException('Posição não encontrada');
+      }
+
+      if (position.exchange_account.user_id !== user.userId) {
+        throw new ForbiddenException('Você não tem permissão para fechar esta posição');
+      }
+
+      // Validar e converter orderType - apenas MARKET ou LIMIT são permitidos
+      let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
+      if (closeDto?.orderType === OrderType.LIMIT) {
+        orderType = 'LIMIT';
+      } else if (closeDto?.orderType && closeDto.orderType !== OrderType.MARKET) {
+        throw new BadRequestException('Apenas MARKET ou LIMIT são permitidos para fechamento de posição');
+      }
+      
+      // Se orderType é LIMIT, limitPrice é obrigatório
+      if (orderType === 'LIMIT' && !closeDto?.limitPrice) {
+        throw new BadRequestException('Preço limite é obrigatório para ordens LIMIT');
+      }
+
       const result = await this.positionsService
         .getDomainService()
-        .closePosition(id, closeDto?.quantity);
+        .closePosition(id, closeDto?.quantity, orderType, closeDto?.limitPrice);
 
-      // Create trade job for selling
-      // Implementation would create trade job
+      // Enfileirar job para execução
+      await this.tradeJobQueueService.enqueueTradeJob(result.tradeJobId);
+
       return {
         message: 'Job de venda criado com sucesso',
         positionId: result.positionId,
         qtyToClose: result.qtyToClose,
+        tradeJobId: result.tradeJobId,
       };
     } catch (error: any) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+        throw error;
+      }
+
       const errorMessage = error?.message || 'Erro ao fechar posição';
       
       if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
@@ -168,25 +209,60 @@ export class PositionsController {
   @ApiResponse({ status: 201, description: 'Ordem LIMIT criada' })
   async sellLimit(
     @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any,
     @Body() sellLimitDto: SellLimitDto
   ) {
     try {
-      // Implementation would create limit order trade job
       if (!sellLimitDto.limitPrice || sellLimitDto.limitPrice <= 0) {
         throw new BadRequestException('Preço limite inválido');
       }
-      
-      if (!sellLimitDto.quantity || sellLimitDto.quantity <= 0) {
+
+      // Verificar se a posição pertence ao usuário
+      const position = await this.prisma.tradePosition.findUnique({
+        where: { id },
+        include: { exchange_account: true },
+      });
+
+      if (!position) {
+        throw new NotFoundException('Posição não encontrada');
+      }
+
+      if (position.exchange_account.user_id !== user.userId) {
+        throw new ForbiddenException('Você não tem permissão para criar ordem LIMIT nesta posição');
+      }
+
+      // Validar quantidade se fornecida
+      if (sellLimitDto.quantity && sellLimitDto.quantity <= 0) {
         throw new BadRequestException('Quantidade inválida');
       }
-      
+
+      if (sellLimitDto.quantity && sellLimitDto.quantity > position.qty_remaining.toNumber()) {
+        throw new BadRequestException('Quantidade excede o disponível na posição');
+      }
+
+      // Criar ordem LIMIT
+      const result = await this.positionsService
+        .getDomainService()
+        .createLimitSellOrder(
+          id,
+          sellLimitDto.limitPrice,
+          sellLimitDto.quantity,
+          sellLimitDto.expiresInHours
+        );
+
+      // Para ordens LIMIT em modo REAL, precisamos criar a ordem na exchange primeiro
+      // Por enquanto, apenas enfileiramos o job (o monitor de limit orders cuidará da criação na exchange)
+      // Para modo SIMULATION, apenas enfileiramos
+      await this.tradeJobQueueService.enqueueTradeJob(result.tradeJobId);
+
       return {
         message: 'Ordem LIMIT de venda criada com sucesso',
-        limitPrice: sellLimitDto.limitPrice,
-        quantity: sellLimitDto.quantity,
+        tradeJobId: result.tradeJobId,
+        limitPrice: result.limitPrice,
+        quantity: result.quantity,
       };
     } catch (error: any) {
-      if (error instanceof BadRequestException) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       
@@ -194,6 +270,10 @@ export class PositionsController {
       
       if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
         throw new NotFoundException('Posição não encontrada');
+      }
+
+      if (errorMessage.includes('already has a pending LIMIT order')) {
+        throw new BadRequestException(errorMessage);
       }
       
       throw new BadRequestException('Erro ao criar ordem LIMIT de venda');

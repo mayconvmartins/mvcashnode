@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, ParseIntPipe, NotFoundException } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@mvcashnode/shared';
+import { PrismaService } from '@mvcashnode/db';
 
 @ApiTags('Admin')
 @Controller('admin/audit-logs')
@@ -19,7 +20,10 @@ import { UserRole } from '@mvcashnode/shared';
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth()
 export class AdminAuditController {
-  constructor(private adminService: AdminService) {}
+  constructor(
+    private adminService: AdminService,
+    private prisma: PrismaService
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Logs de auditoria de usuários' })
@@ -79,12 +83,35 @@ export class AdminAuditController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obter log de auditoria por ID' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 200, description: 'Log encontrado' })
-  async getOne(@Param('id', ParseIntPipe) id: number) {
-    // Implementation would get audit log by ID
-    return {};
+  @ApiOperation({
+    summary: 'Obter log de auditoria por ID',
+    description: 'Retorna os detalhes completos de um log de auditoria específico.',
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID do log de auditoria', example: 1 })
+  @ApiResponse({
+    status: 200,
+    description: 'Log de auditoria encontrado',
+    schema: {
+      example: {
+        id: 1,
+        user_id: 1,
+        entity_type: 'EXCHANGE_ACCOUNT',
+        entity_id: 1,
+        action: 'CREATE',
+        details_json: { label: 'Binance Spot Real' },
+        ip: '192.168.1.1',
+        user_agent: 'Mozilla/5.0...',
+        created_at: '2025-02-12T10:00:00.000Z',
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Log de auditoria não encontrado' })
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<any> {
+    const log = await this.prisma.auditLog.findUnique({ where: { id } });
+    if (!log) {
+      throw new NotFoundException('Log de auditoria não encontrado');
+    }
+    return log;
   }
 }
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -18,6 +19,25 @@ import * as path from 'path';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), '.env'),
+    }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => {
+        const redisHost = configService.get<string>('REDIS_HOST') || 'localhost';
+        const redisPort = parseInt(configService.get<string>('REDIS_PORT') || '6379');
+        const redisPassword = configService.get<string>('REDIS_PASSWORD');
+        
+        console.log(`[BullMQ] Configurando conexão Redis: ${redisHost}:${redisPort} (password: ${redisPassword ? '***' : 'não configurado'})`);
+        
+        return {
+          connection: {
+            host: redisHost,
+            port: redisPort,
+            password: redisPassword || undefined,
+          },
+        };
+      },
+      inject: [ConfigService],
     }),
     AuthModule,
     ExchangeAccountsModule,

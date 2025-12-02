@@ -1,5 +1,6 @@
 import { PrismaClient } from '@mvcashnode/db';
 import { TradeMode, TradeJobStatus } from '@mvcashnode/shared';
+import { TradeParameterService } from './trade-parameter.service';
 
 export interface CreateTradeJobDto {
   webhookEventId?: number;
@@ -13,12 +14,57 @@ export interface CreateTradeJobDto {
   limitPrice?: number;
   vaultId?: number;
   limitOrderExpiresAt?: Date;
+  skipParameterValidation?: boolean; // Para casos onde já temos quantidade definida
 }
 
 export class TradeJobService {
-  constructor(private prisma: PrismaClient) {}
+  private tradeParameterService: TradeParameterService;
+
+  constructor(private prisma: PrismaClient) {
+    this.tradeParameterService = new TradeParameterService(prisma);
+  }
 
   async createJob(dto: CreateTradeJobDto): Promise<any> {
+    let quoteAmount = dto.quoteAmount;
+    let baseQuantity = dto.baseQuantity;
+
+    // Se não forneceu quantidade e não pediu para pular validação, calcular usando TradeParameterService
+    if (!dto.skipParameterValidation && !quoteAmount && !baseQuantity && dto.side === 'BUY') {
+      try {
+        // Validar se pode abrir nova ordem
+        const canOpen = await this.tradeParameterService.canOpenNewOrder(
+          dto.exchangeAccountId,
+          dto.symbol,
+          dto.side
+        );
+
+        if (!canOpen) {
+          throw new Error('Cannot open new order: rate limit or interval restriction');
+        }
+
+        // Calcular quote amount
+        quoteAmount = await this.tradeParameterService.computeQuoteAmount(
+          dto.exchangeAccountId,
+          dto.symbol,
+          dto.side,
+          dto.tradeMode
+        );
+      } catch (error: any) {
+        // Se não encontrou parâmetro, permitir criar job sem quantidade (será calculado depois)
+        if (error.message.includes('not found')) {
+          // Permitir criar job sem quantidade
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    // Determinar status inicial baseado no order type
+    let initialStatus = TradeJobStatus.PENDING;
+    if (dto.orderType === 'LIMIT') {
+      initialStatus = TradeJobStatus.PENDING_LIMIT;
+    }
+
     return this.prisma.tradeJob.create({
       data: {
         webhook_event_id: dto.webhookEventId || null,
@@ -27,12 +73,12 @@ export class TradeJobService {
         symbol: dto.symbol,
         side: dto.side,
         order_type: dto.orderType,
-        quote_amount: dto.quoteAmount || null,
-        base_quantity: dto.baseQuantity || null,
+        quote_amount: quoteAmount || null,
+        base_quantity: baseQuantity || null,
         limit_price: dto.limitPrice || null,
         vault_id: dto.vaultId || null,
         limit_order_expires_at: dto.limitOrderExpiresAt || null,
-        status: TradeJobStatus.PENDING,
+        status: initialStatus,
       },
     });
   }

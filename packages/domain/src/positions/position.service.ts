@@ -180,9 +180,15 @@ export class PositionService {
     });
   }
 
-  async closePosition(positionId: number, quantity?: number) {
+  async closePosition(
+    positionId: number,
+    quantity?: number,
+    orderType: 'MARKET' | 'LIMIT' = 'MARKET',
+    limitPrice?: number
+  ): Promise<{ positionId: number; qtyToClose: number; tradeJobId: number }> {
     const position = await this.prisma.tradePosition.findUnique({
       where: { id: positionId },
+      include: { exchange_account: true },
     });
 
     if (!position || position.status === PositionStatus.CLOSED) {
@@ -194,9 +200,100 @@ export class PositionService {
       throw new Error('Quantity exceeds remaining');
     }
 
-    // This would create a trade job for selling
-    // Implementation depends on TradeJobService
-    return { positionId, qtyToClose };
+    if (qtyToClose <= 0) {
+      throw new Error('Quantity must be greater than zero');
+    }
+
+    // Create trade job for selling
+    const { TradeJobService } = await import('../trading/trade-job.service');
+    const tradeJobService = new TradeJobService(this.prisma);
+
+    const tradeJob = await tradeJobService.createJob({
+      exchangeAccountId: position.exchange_account_id,
+      tradeMode: position.trade_mode as TradeMode,
+      symbol: position.symbol,
+      side: 'SELL',
+      orderType: orderType,
+      baseQuantity: qtyToClose,
+      limitPrice: limitPrice,
+      skipParameterValidation: true, // Já temos a quantidade definida
+    });
+
+    return { positionId, qtyToClose, tradeJobId: tradeJob.id };
+  }
+
+  async createLimitSellOrder(
+    positionId: number,
+    limitPrice: number,
+    quantity?: number,
+    expiresInHours?: number
+  ): Promise<{ positionId: number; tradeJobId: number; limitPrice: number; quantity: number }> {
+    const position = await this.prisma.tradePosition.findUnique({
+      where: { id: positionId },
+      include: { exchange_account: true },
+    });
+
+    if (!position || position.status === PositionStatus.CLOSED) {
+      throw new Error('Position not found or already closed');
+    }
+
+    if (limitPrice <= 0) {
+      throw new Error('Limit price must be greater than zero');
+    }
+
+    const qtyToSell = quantity || position.qty_remaining.toNumber();
+    if (qtyToSell > position.qty_remaining.toNumber()) {
+      throw new Error('Quantity exceeds remaining');
+    }
+
+    if (qtyToSell <= 0) {
+      throw new Error('Quantity must be greater than zero');
+    }
+
+    // Verificar se já existe ordem LIMIT pendente para esta posição
+    const existingLimitOrder = await this.prisma.tradeJob.findFirst({
+      where: {
+        exchange_account_id: position.exchange_account_id,
+        trade_mode: position.trade_mode,
+        symbol: position.symbol,
+        side: 'SELL',
+        order_type: 'LIMIT',
+        status: 'PENDING_LIMIT',
+      },
+      include: {
+        position_open: {
+          where: { id: positionId },
+        },
+      },
+    });
+
+    if (existingLimitOrder) {
+      throw new Error(`Position already has a pending LIMIT order (job_id: ${existingLimitOrder.id})`);
+    }
+
+    // Calcular data de expiração se fornecida
+    let expiresAt: Date | undefined;
+    if (expiresInHours && expiresInHours > 0) {
+      expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+    }
+
+    // Create trade job with LIMIT order
+    const { TradeJobService } = await import('../trading/trade-job.service');
+    const tradeJobService = new TradeJobService(this.prisma);
+
+    const tradeJob = await tradeJobService.createJob({
+      exchangeAccountId: position.exchange_account_id,
+      tradeMode: position.trade_mode as TradeMode,
+      symbol: position.symbol,
+      side: 'SELL',
+      orderType: 'LIMIT',
+      baseQuantity: qtyToSell,
+      limitPrice: limitPrice,
+      limitOrderExpiresAt: expiresAt,
+      skipParameterValidation: true, // Já temos a quantidade definida
+    });
+
+    return { positionId, tradeJobId: tradeJob.id, limitPrice, quantity: qtyToSell };
   }
 
   private getCloseReason(origin: string): CloseReason {
