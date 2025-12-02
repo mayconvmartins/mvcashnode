@@ -64,13 +64,21 @@ export class WebhookEventsController {
   })
   async list(
     @CurrentUser() user: any,
-    @Query('webhookSourceId') webhookSourceId?: number,
+    @Query('webhookSourceId') webhookSourceIdStr?: string,
     @Query('status') status?: string,
     @Query('trade_mode') tradeMode?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number
+    @Query('page') pageStr?: string,
+    @Query('limit') limitStr?: string
   ): Promise<any> {
     try {
+      // Converter parâmetros de string para número
+      const webhookSourceId = webhookSourceIdStr ? Number(webhookSourceIdStr) : undefined;
+      const page = pageStr ? Number(pageStr) : 1;
+      const limit = limitStr ? Number(limitStr) : 50;
+
+      console.log(`[WEBHOOK-EVENTS] Listando eventos para usuário ${user.userId}`);
+      console.log(`[WEBHOOK-EVENTS] Filtros: webhookSourceId=${webhookSourceId}, status=${status}, tradeMode=${tradeMode}, page=${page}, limit=${limit}`);
+
       // Buscar IDs dos webhook sources do usuário
       const userSources = await this.prisma.webhookSource.findMany({
         where: { owner_user_id: user.userId },
@@ -78,18 +86,21 @@ export class WebhookEventsController {
       });
 
       const sourceIds = userSources.map((src) => src.id);
+      console.log(`[WEBHOOK-EVENTS] Webhook sources do usuário: ${sourceIds.join(', ') || 'nenhum'}`);
 
       if (sourceIds.length === 0) {
-        return { data: [], pagination: { current_page: 1, per_page: 20, total_items: 0, total_pages: 0 } };
+        console.log(`[WEBHOOK-EVENTS] Usuário não tem webhook sources, retornando lista vazia`);
+        return { data: [], pagination: { current_page: 1, per_page: limit, total_items: 0, total_pages: 0 } };
       }
 
       const where: any = {
         webhook_source_id: { in: sourceIds },
       };
 
-      if (webhookSourceId) {
+      if (webhookSourceId && !isNaN(webhookSourceId)) {
         // Validar que o source pertence ao usuário
         if (!sourceIds.includes(webhookSourceId)) {
+          console.warn(`[WEBHOOK-EVENTS] Webhook source ${webhookSourceId} não pertence ao usuário`);
           throw new BadRequestException('Webhook source não encontrado ou não pertence ao usuário');
         }
         where.webhook_source_id = webhookSourceId;
@@ -103,7 +114,9 @@ export class WebhookEventsController {
         where.trade_mode = tradeMode;
       }
 
-      const skip = page && limit ? (page - 1) * limit : undefined;
+      console.log(`[WEBHOOK-EVENTS] Query where:`, JSON.stringify(where));
+
+      const skip = (page - 1) * limit;
       const take = limit;
 
       const events = await this.prisma.webhookEvent.findMany({
@@ -126,16 +139,19 @@ export class WebhookEventsController {
 
       const total = await this.prisma.webhookEvent.count({ where });
 
+      console.log(`[WEBHOOK-EVENTS] Encontrados ${events.length} eventos (total: ${total})`);
+
       return {
         data: events,
         pagination: {
-          current_page: page || 1,
-          per_page: limit || 20,
+          current_page: page,
+          per_page: limit,
           total_items: total,
-          total_pages: limit ? Math.ceil(total / limit) : 1,
+          total_pages: Math.ceil(total / limit),
         },
       };
     } catch (error: any) {
+      console.error(`[WEBHOOK-EVENTS] Erro ao listar eventos:`, error?.message || error);
       if (error instanceof BadRequestException) {
         throw error;
       }

@@ -12,7 +12,9 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  Request,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@mvcashnode/db';
 import {
   ApiTags,
@@ -27,6 +29,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@mvcashnode/shared';
+import * as jwt from 'jsonwebtoken';
 
 @ApiTags('Admin')
 @Controller('admin/users')
@@ -36,7 +39,8 @@ import { UserRole } from '@mvcashnode/shared';
 export class AdminUsersController {
   constructor(
     private adminService: AdminService,
-    private prisma: PrismaService
+    private prisma: PrismaService,
+    private configService: ConfigService
   ) {}
 
   @Get()
@@ -465,6 +469,137 @@ export class AdminUsersController {
       undefined,
       page && limit ? { page, limit } : undefined
     );
+  }
+
+  @Post(':id/impersonate')
+  @ApiOperation({ 
+    summary: 'Logar como outro usuário',
+    description: 'Permite que um admin gere um token de acesso para logar como outro usuário. Útil para verificar posições, contas, etc. Ação registrada em audit log.'
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID do usuário alvo', example: 2 })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Token de impersonation gerado',
+    schema: {
+      example: {
+        message: 'Token de impersonation gerado com sucesso',
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        user: {
+          id: 2,
+          email: 'usuario@example.com',
+          full_name: 'Nome do Usuário'
+        },
+        expiresIn: 3600
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Não é possível impersonar a si mesmo ou usuário inativo',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Não é possível logar como você mesmo',
+        error: 'Bad Request'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Usuário não encontrado',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: 'Usuário não encontrado',
+        error: 'Not Found'
+      }
+    }
+  })
+  async impersonate(
+    @Param('id', ParseIntPipe) targetUserId: number,
+    @Request() req: any
+  ) {
+    const adminUserId = req.user.userId;
+    const adminEmail = req.user.email;
+    const ip = req.ip || req.connection?.remoteAddress;
+    const userAgent = req.get('user-agent');
+
+    try {
+      // Verificar se não está tentando impersonar a si mesmo
+      if (adminUserId === targetUserId) {
+        throw new BadRequestException('Não é possível logar como você mesmo');
+      }
+
+      // Buscar usuário alvo
+      const targetUser = await this.prisma.user.findUnique({
+        where: { id: targetUserId },
+        include: {
+          profile: true,
+          roles: true,
+        },
+      });
+
+      if (!targetUser) {
+        throw new NotFoundException('Usuário não encontrado');
+      }
+
+      if (!targetUser.is_active) {
+        throw new BadRequestException('Não é possível logar como um usuário inativo');
+      }
+
+      // Gerar token JWT para o usuário alvo
+      const jwtSecret = this.configService.get<string>('JWT_SECRET');
+      const token = jwt.sign(
+        {
+          userId: targetUser.id,
+          email: targetUser.email,
+          roles: targetUser.roles.map(r => r.role),
+          impersonatedBy: adminUserId,
+          isImpersonation: true,
+        },
+        jwtSecret!,
+        { expiresIn: 3600 } // 1 hora
+      );
+
+      // Registrar ação em audit log
+      await this.adminService.getDomainAuditService().logUserAction({
+        userId: adminUserId,
+        entityType: 'USER' as any,
+        entityId: targetUserId,
+        action: 'IMPERSONATE' as any,
+        changes: {
+          after: {
+            admin_user_id: adminUserId,
+            admin_email: adminEmail,
+            target_user_id: targetUserId,
+            target_email: targetUser.email,
+          }
+        },
+        ip,
+        userAgent,
+      });
+
+      return {
+        message: 'Token de impersonation gerado com sucesso',
+        accessToken: token,
+        user: {
+          id: targetUser.id,
+          email: targetUser.email,
+          full_name: targetUser.profile?.full_name || targetUser.email,
+          roles: targetUser.roles.map(r => r.role),
+        },
+        expiresIn: 3600, // 1 hora
+        impersonatedBy: {
+          id: adminUserId,
+          email: adminEmail,
+        }
+      };
+    } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException('Erro ao gerar token de impersonation');
+    }
   }
 }
 

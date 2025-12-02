@@ -40,6 +40,7 @@ export interface AuditLogFilters {
     to?: string
     page?: number
     limit?: number
+    search?: string
 }
 
 export interface SystemAuditLogFilters {
@@ -114,6 +115,35 @@ export const adminService = {
         return response.data
     },
 
+    // Admin Dashboard Stats
+    getStats: async (): Promise<{
+        totalUsers: number
+        activeUsers: number
+        activeSessions: number
+        auditEvents: number
+        uptime: string
+        openPositions: number
+        totalTrades: number
+        recentActivity: Array<{
+            id: number
+            action: string
+            user: string
+            timestamp: string
+            entityType?: string
+            entityId?: number
+        }>
+        alerts: Array<{
+            id: number
+            level: string
+            title: string
+            message: string
+            timestamp: string
+        }>
+    }> => {
+        const response = await apiClient.get('/admin/stats')
+        return response.data
+    },
+
     // Audit Logs
     getAuditLogs: async (filters?: AuditLogFilters): Promise<PaginatedResponse<any>> => {
         const response = await apiClient.get<PaginatedResponse<any>>('/admin/audit-logs', {
@@ -133,6 +163,26 @@ export const adminService = {
 
     getAuditLog: async (id: number): Promise<any> => {
         const response = await apiClient.get(`/admin/audit-logs/${id}`)
+        return response.data
+    },
+
+    // User Impersonation
+    impersonateUser: async (id: number): Promise<{
+        message: string
+        accessToken: string
+        user: {
+            id: number
+            email: string
+            full_name: string
+            roles: string[]
+        }
+        expiresIn: number
+        impersonatedBy: {
+            id: number
+            email: string
+        }
+    }> => {
+        const response = await apiClient.post(`/admin/users/${id}/impersonate`)
         return response.data
     },
 }

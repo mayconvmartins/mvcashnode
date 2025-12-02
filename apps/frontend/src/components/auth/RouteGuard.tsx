@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/lib/stores/authStore'
+import { authService } from '@/lib/api/auth.service'
+import { apiClient } from '@/lib/api/client'
 import { Spinner } from '@/components/ui/spinner'
 
 interface RouteGuardProps {
@@ -14,11 +16,79 @@ interface RouteGuardProps {
 export function RouteGuard({ children, requireAuth = true, requireAdmin = false }: RouteGuardProps) {
     const router = useRouter()
     const pathname = usePathname()
+    const searchParams = useSearchParams()
     const { isAuthenticated, user, setTokens, setUser } = useAuthStore()
     const [isLoading, setIsLoading] = useState(true)
     const [hasToken, setHasToken] = useState(false)
+    const [processingImpersonation, setProcessingImpersonation] = useState(false)
 
     useEffect(() => {
+        // Verificar se há token de impersonation na URL
+        const impersonateToken = searchParams.get('impersonate_token')
+        
+        if (impersonateToken && typeof window !== 'undefined') {
+            setProcessingImpersonation(true)
+            
+            // Salvar o token temporariamente do admin
+            const originalToken = localStorage.getItem('accessToken')
+            const originalRefreshToken = localStorage.getItem('refreshToken')
+            
+            // Limpar tokens anteriores
+            localStorage.removeItem('accessToken')
+            localStorage.removeItem('refreshToken')
+            
+            // Aguardar um pouco para garantir que o localStorage foi limpo
+            setTimeout(() => {
+                // Usar o token de impersonation para fazer requisições
+                localStorage.setItem('accessToken', impersonateToken)
+                // Não salvar refresh token para impersonation (token expira em 1h)
+                
+                // Buscar dados do usuário com o token de impersonation
+                // Usar apiClient diretamente com o token no header
+                apiClient.get('/users/me', {
+                    headers: {
+                        Authorization: `Bearer ${impersonateToken}`
+                    }
+                })
+                    .then((response) => {
+                        const userData = response.data
+                        
+                        // Marcar que está em modo impersonation
+                        localStorage.setItem('isImpersonating', 'true')
+                        if (originalToken) {
+                            localStorage.setItem('originalAdminToken', originalToken)
+                        }
+                        
+                        // Salvar token e usuário
+                        setTokens(impersonateToken, impersonateToken) // Usar o mesmo token como refresh temporário
+                        setUser(userData)
+                        
+                        // Remover o token da URL
+                        const newUrl = new URL(window.location.href)
+                        newUrl.searchParams.delete('impersonate_token')
+                        window.history.replaceState({}, '', newUrl.toString())
+                        
+                        setProcessingImpersonation(false)
+                        setIsLoading(false)
+                    })
+                    .catch((error) => {
+                        console.error('Erro ao processar token de impersonation:', error)
+                        // Restaurar token original se houver
+                        if (originalToken) {
+                            localStorage.setItem('accessToken', originalToken)
+                        }
+                        if (originalRefreshToken) {
+                            localStorage.setItem('refreshToken', originalRefreshToken)
+                        }
+                        setProcessingImpersonation(false)
+                        setIsLoading(false)
+                        router.push('/login?error=invalid_impersonation_token')
+                    })
+            }, 100)
+            
+            return
+        }
+
         // Verificar se há token nos cookies ou localStorage
         const checkAuth = () => {
             if (typeof window === 'undefined') return
@@ -31,6 +101,36 @@ export function RouteGuard({ children, requireAuth = true, requireAdmin = false 
             const accessTokenLS = localStorage.getItem('accessToken')
             const refreshTokenLS = localStorage.getItem('refreshToken')
             
+            // Verificar se o token atual é de impersonation (sem flag isImpersonating no localStorage)
+            // Se não há flag mas o token tem isImpersonation=true, limpar tudo
+            if (accessTokenLS) {
+                try {
+                    const parts = accessTokenLS.split('.')
+                    if (parts.length === 3) {
+                        const payload = JSON.parse(atob(parts[1]))
+                        const isImpersonationToken = payload.isImpersonation === true
+                        const hasImpersonationFlag = localStorage.getItem('isImpersonating') === 'true'
+                        
+                        // Se é token de impersonation mas não há flag (sessão anterior), limpar
+                        if (isImpersonationToken && !hasImpersonationFlag) {
+                            console.warn('[AUTH] Token de impersonation detectado sem flag, limpando sessão...')
+                            localStorage.removeItem('accessToken')
+                            localStorage.removeItem('refreshToken')
+                            localStorage.removeItem('isImpersonating')
+                            localStorage.removeItem('originalAdminToken')
+                            document.cookie = 'accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+                            document.cookie = 'refreshToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+                            setIsLoading(false)
+                            router.push('/login?error=impersonation_session_expired')
+                            return
+                        }
+                    }
+                } catch (e) {
+                    // Se não conseguir decodificar, continuar normalmente
+                    console.warn('[AUTH] Erro ao verificar token:', e)
+                }
+            }
+            
             const hasAuthToken = !!(accessTokenCookie || accessTokenLS)
             setHasToken(hasAuthToken)
 
@@ -38,18 +138,25 @@ export function RouteGuard({ children, requireAuth = true, requireAdmin = false 
             if (hasAuthToken && !isAuthenticated && accessTokenLS && refreshTokenLS) {
                 setTokens(accessTokenLS, refreshTokenLS)
                 
-                // Tentar carregar o usuário do localStorage
-                try {
-                    const authStorage = localStorage.getItem('auth-storage')
-                    if (authStorage) {
-                        const parsed = JSON.parse(authStorage)
-                        if (parsed.state?.user) {
-                            setUser(parsed.state.user)
+                // Buscar dados do usuário da API
+                authService.getMe()
+                    .then((userData) => {
+                        setUser(userData)
+                    })
+                    .catch(() => {
+                        // Se falhar, tentar carregar do localStorage
+                        try {
+                            const authStorage = localStorage.getItem('auth-storage')
+                            if (authStorage) {
+                                const parsed = JSON.parse(authStorage)
+                                if (parsed.state?.user) {
+                                    setUser(parsed.state.user)
+                                }
+                            }
+                        } catch (e) {
+                            console.error('Erro ao restaurar usuário:', e)
                         }
-                    }
-                } catch (e) {
-                    console.error('Erro ao restaurar usuário:', e)
-                }
+                    })
             }
 
             setIsLoading(false)
@@ -58,10 +165,10 @@ export function RouteGuard({ children, requireAuth = true, requireAdmin = false 
         // Aguardar um pouco para o store hidratar
         const timer = setTimeout(checkAuth, 100)
         return () => clearTimeout(timer)
-    }, [isAuthenticated, setTokens, setUser])
+    }, [isAuthenticated, setTokens, setUser, router, searchParams])
 
     useEffect(() => {
-        if (isLoading) return
+        if (isLoading || processingImpersonation) return
 
         if (requireAuth && !isAuthenticated && !hasToken) {
             router.push(`/login?redirect=${encodeURIComponent(pathname)}`)
@@ -72,12 +179,19 @@ export function RouteGuard({ children, requireAuth = true, requireAdmin = false 
             router.push('/')
             return
         }
-    }, [isLoading, isAuthenticated, hasToken, user, requireAuth, requireAdmin, router, pathname])
+    }, [isLoading, processingImpersonation, isAuthenticated, hasToken, user, requireAuth, requireAdmin, router, pathname])
 
-    if (isLoading) {
+    if (isLoading || processingImpersonation) {
         return (
             <div className="flex min-h-screen items-center justify-center">
-                <Spinner size="lg" />
+                <div className="text-center">
+                    <Spinner size="lg" />
+                    {processingImpersonation && (
+                        <p className="mt-4 text-sm text-muted-foreground">
+                            Fazendo login como outro usuário...
+                        </p>
+                    )}
+                </div>
             </div>
         )
     }

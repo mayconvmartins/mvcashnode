@@ -26,14 +26,17 @@ export class AdminAuditController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Logs de auditoria de usuários' })
-  @ApiQuery({ name: 'user_id', required: false, type: Number })
-  @ApiQuery({ name: 'entity_type', required: false, type: String })
-  @ApiQuery({ name: 'action', required: false, type: String })
-  @ApiQuery({ name: 'from', required: false, type: String })
-  @ApiQuery({ name: 'to', required: false, type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiOperation({ 
+    summary: 'Logs de auditoria de usuários',
+    description: 'Lista todos os logs de auditoria com filtros opcionais. Se user_id não for informado, retorna logs de todos os usuários.'
+  })
+  @ApiQuery({ name: 'user_id', required: false, type: Number, description: 'Filtrar por ID do usuário' })
+  @ApiQuery({ name: 'entity_type', required: false, type: String, description: 'Filtrar por tipo de entidade' })
+  @ApiQuery({ name: 'action', required: false, type: String, description: 'Filtrar por ação (CREATE, UPDATE, DELETE, LOGIN, etc.)' })
+  @ApiQuery({ name: 'from', required: false, type: String, description: 'Data inicial (ISO 8601)' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: 'Data final (ISO 8601)' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número da página', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Itens por página', example: 50 })
   @ApiResponse({ status: 200, description: 'Logs de auditoria' })
   async getAuditLogs(
     @Query('user_id') userId?: number,
@@ -43,17 +46,80 @@ export class AdminAuditController {
     @Query('to') to?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number
-  ) {
-    return this.adminService.getDomainAuditService().getUserAuditLogs(
-      userId || 0,
-      {
-        entityType: entityType as any,
-        action: action as any,
-        from: from ? new Date(from) : undefined,
-        to: to ? new Date(to) : undefined,
-      },
-      page && limit ? { page, limit } : undefined
-    );
+  ): Promise<{
+    items: any[];
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    // Construir filtros para query direta no Prisma
+    const where: any = {};
+    
+    if (userId) {
+      where.user_id = Number(userId);
+    }
+    
+    if (entityType && entityType !== 'all') {
+      where.entity_type = entityType;
+    }
+    
+    if (action && action !== 'all') {
+      where.action = action;
+    }
+    
+    if (from || to) {
+      where.created_at = {};
+      if (from) where.created_at.gte = new Date(from);
+      if (to) where.created_at.lte = new Date(to);
+    }
+
+    const pageNum = page ? Number(page) : 1;
+    const limitNum = limit ? Number(limit) : 50;
+    const skip = (pageNum - 1) * limitNum;
+
+    const [data, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limitNum,
+        include: {
+          user: {
+            select: { email: true }
+          }
+        }
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    // Mapear para o formato esperado pelo frontend
+    const items = data.map(log => ({
+      id: log.id,
+      user_id: log.user_id,
+      user: log.user ? { email: log.user.email } : null,
+      entity_type: log.entity_type,
+      entity: log.entity_type,
+      entity_id: log.entity_id,
+      action: log.action,
+      description: `${log.action} ${log.entity_type || ''}`.trim(),
+      changes_json: log.changes_json,
+      ip: log.ip,
+      userAgent: log.user_agent,
+      request_id: log.request_id,
+      timestamp: log.created_at,
+      created_at: log.created_at,
+    }));
+
+    return {
+      items,
+      data: items, // Para compatibilidade
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum)
+    };
   }
 
   @Get('system')

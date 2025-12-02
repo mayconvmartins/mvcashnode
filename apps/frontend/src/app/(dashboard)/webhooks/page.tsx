@@ -129,12 +129,20 @@ export default function WebhooksPage() {
                     <h1 className="text-3xl font-bold gradient-text">Webhooks</h1>
                     <p className="text-muted-foreground mt-1">Gerencie seus webhooks de trading</p>
                 </div>
-                <Link href="/webhooks/new">
-                    <Button variant="gradient">
-                        <Plus className="h-4 w-4 mr-2" />
-                        Novo Webhook
-                    </Button>
-                </Link>
+                <div className="flex gap-2">
+                    <Link href="/webhooks/events">
+                        <Button variant="outline">
+                            <Eye className="h-4 w-4 mr-2" />
+                            Ver Eventos
+                        </Button>
+                    </Link>
+                    <Link href="/webhooks/new">
+                        <Button variant="gradient">
+                            <Plus className="h-4 w-4 mr-2" />
+                            Novo Webhook
+                        </Button>
+                    </Link>
+                </div>
             </div>
 
             <Card className="glass">

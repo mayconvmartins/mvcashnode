@@ -1,23 +1,78 @@
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios'
 import type { ApiError } from '@/lib/types'
 
+// Sanitizar strings para prevenir XSS
+const sanitizeString = (str: string): string => {
+    if (typeof str !== 'string') return str
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;')
+}
+
+// Sanitizar objeto recursivamente
+const sanitizeObject = (obj: any): any => {
+    if (obj === null || obj === undefined) return obj
+    if (typeof obj === 'string') return sanitizeString(obj)
+    if (Array.isArray(obj)) return obj.map(sanitizeObject)
+    if (typeof obj === 'object') {
+        const sanitized: any = {}
+        for (const key of Object.keys(obj)) {
+            sanitized[key] = sanitizeObject(obj[key])
+        }
+        return sanitized
+    }
+    return obj
+}
+
 const apiClient = axios.create({
     baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010',
     headers: {
         'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest', // Proteção básica CSRF
     },
     timeout: 30000,
+    withCredentials: false, // Não enviar cookies automaticamente
 })
 
-// Request interceptor para adicionar token
+// Request interceptor para adicionar token e sanitizar dados
 apiClient.interceptors.request.use(
     (config) => {
         if (typeof window !== 'undefined') {
             const token = localStorage.getItem('accessToken')
             if (token) {
-                config.headers.Authorization = `Bearer ${token}`
+                // Validar formato do token (JWT básico)
+                if (/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/.test(token)) {
+                    config.headers.Authorization = `Bearer ${token}`
+                } else {
+                    // Token inválido, remover tudo incluindo flags de impersonation
+                    localStorage.removeItem('accessToken')
+                    localStorage.removeItem('refreshToken')
+                    localStorage.removeItem('isImpersonating')
+                    localStorage.removeItem('originalAdminToken')
+                }
             }
         }
+        
+        // Sanitizar dados de entrada para prevenir XSS no backend
+        if (config.data && typeof config.data === 'object') {
+            // Não sanitizar senhas ou campos específicos
+            const sensitiveFields = ['password', 'api_key', 'api_secret', 'signing_secret']
+            const sanitizedData: any = {}
+            
+            for (const key of Object.keys(config.data)) {
+                if (sensitiveFields.includes(key)) {
+                    sanitizedData[key] = config.data[key]
+                } else {
+                    sanitizedData[key] = sanitizeObject(config.data[key])
+                }
+            }
+            
+            config.data = sanitizedData
+        }
+        
         return config
     },
     (error) => {
@@ -29,7 +84,14 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
     (response) => {
         // Backend retorna { data: {...} }, então extraímos o data interno
+        // MAS: se a resposta já tem pagination (PaginatedResponse), não extrair
         if (response.data && typeof response.data === 'object' && 'data' in response.data) {
+            // Se tem pagination, é uma resposta paginada, manter como está
+            if ('pagination' in response.data) {
+                // Já está no formato correto { data: [...], pagination: {...} }
+                return response
+            }
+            // Caso contrário, extrair o data interno
             response.data = response.data.data
         }
         return response
@@ -65,8 +127,13 @@ apiClient.interceptors.response.use(
                 }
             } catch (refreshError) {
                 if (typeof window !== 'undefined') {
+                    // Limpar todos os tokens e flags de impersonation
                     localStorage.removeItem('accessToken')
                     localStorage.removeItem('refreshToken')
+                    localStorage.removeItem('isImpersonating')
+                    localStorage.removeItem('originalAdminToken')
+                    document.cookie = 'accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+                    document.cookie = 'refreshToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
                     window.location.href = '/login'
                 }
                 return Promise.reject(refreshError)

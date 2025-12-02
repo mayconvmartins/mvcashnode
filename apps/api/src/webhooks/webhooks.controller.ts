@@ -1,7 +1,6 @@
 import {
   Controller,
   Post,
-  Body,
   Param,
   Headers,
   Request,
@@ -38,9 +37,8 @@ export class WebhooksController {
   @ApiResponse({ status: 429, description: 'Rate limit excedido' })
   async receiveWebhook(
     @Param('code') code: string,
-    @Body() payload: any,
-    @Headers('x-signature') signature?: string,
-    @Request() req?: any
+    @Request() req: any,
+    @Headers('x-signature') signature?: string
   ) {
     // Detectar IP do cliente (suporta proxies e load balancers)
     let ip = req?.ip || 
@@ -55,9 +53,57 @@ export class WebhooksController {
       ip = ip.substring(7);
     }
     
+    // Capturar payload baseado no Content-Type
+    const contentType = req.headers['content-type'] || '';
+    let payload: any;
+    
     console.log(`[WEBHOOK] Recebendo requisição para código: ${code}`);
     console.log(`[WEBHOOK] IP do cliente: ${ip}`);
-    console.log(`[WEBHOOK] Payload:`, JSON.stringify(payload, null, 2));
+    console.log(`[WEBHOOK] Content-Type: ${contentType}`);
+    console.log(`[WEBHOOK] Raw Body disponível: ${!!req.rawBody}`);
+    console.log(`[WEBHOOK] req.body tipo: ${typeof req.body}`);
+    console.log(`[WEBHOOK] req.body valor:`, req.body);
+    if (req.rawBody) {
+      console.log(`[WEBHOOK] req.rawBody tipo: ${typeof req.rawBody}, tamanho: ${req.rawBody.length}`);
+      console.log(`[WEBHOOK] req.rawBody conteúdo: "${req.rawBody.toString('utf8').substring(0, 200)}"`);
+    }
+    
+    if (contentType.includes('text/plain')) {
+      // Para text/plain, usar rawBody ou body como string
+      if (req.rawBody) {
+        payload = req.rawBody.toString('utf8').trim();
+        console.log(`[WEBHOOK] Payload capturado do rawBody (text/plain): "${payload}"`);
+      } else if (typeof req.body === 'string') {
+        payload = req.body.trim();
+        console.log(`[WEBHOOK] Payload capturado do body (string): "${payload}"`);
+      } else {
+        // Fallback: tentar converter body para string
+        payload = req.body ? String(req.body).trim() : '';
+        console.log(`[WEBHOOK] Payload capturado (fallback): "${payload}"`);
+      }
+    } else if (contentType.includes('application/json')) {
+      // Para JSON, usar body parseado
+      payload = req.body || {};
+      console.log(`[WEBHOOK] Payload capturado (JSON):`, JSON.stringify(payload, null, 2));
+    } else {
+      // Para outros tipos, tentar rawBody primeiro, depois body
+      if (req.rawBody) {
+        try {
+          // Tentar parsear como JSON
+          payload = JSON.parse(req.rawBody.toString('utf8'));
+          console.log(`[WEBHOOK] Payload parseado de rawBody (JSON):`, JSON.stringify(payload, null, 2));
+        } catch (e) {
+          // Se não for JSON, usar como string
+          payload = req.rawBody.toString('utf8').trim();
+          console.log(`[WEBHOOK] Payload capturado de rawBody (texto): "${payload}"`);
+        }
+      } else {
+        payload = req.body || {};
+        console.log(`[WEBHOOK] Payload capturado (fallback):`, JSON.stringify(payload, null, 2));
+      }
+    }
+    
+    console.log(`[WEBHOOK] Payload final (tipo: ${typeof payload}):`, typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2));
     console.log(`[WEBHOOK] Signature: ${signature || 'não fornecida'}`);
 
     // Get webhook source

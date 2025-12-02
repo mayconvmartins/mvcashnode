@@ -255,12 +255,24 @@ export interface WebhookEvent {
     action: WebhookAction
     timeframe?: string
     price_reference?: number
-    raw_text: string
-    raw_payload_json: any
+    raw_text: string | null
+    raw_payload_json: any | null
     status: WebhookEventStatus
-    validation_error?: string
+    validation_error?: string | null
     created_at: string
-    processed_at?: string
+    processed_at?: string | null
+    webhook_source?: {
+        id: number
+        label: string
+        webhook_code: string
+    }
+    jobs_created?: Array<{
+        id: number
+        symbol: string
+        side: string
+        status: string
+        executions_count?: number
+    }>
 }
 
 export interface CreateWebhookSourceDto {
@@ -458,7 +470,8 @@ export interface LimitOrderFilters {
 
 export interface WebhookEventFilters {
     webhookSourceId?: number
-    status?: WebhookEventStatus
+    status?: string
+    trade_mode?: string
     page?: number
     limit?: number
 }
@@ -475,10 +488,15 @@ export interface ReportFilters {
 // ============================================
 
 export interface PaginationMeta {
-    page: number
-    limit: number
-    total: number
-    totalPages: number
+    current_page: number
+    per_page: number
+    total_items: number
+    total_pages: number
+    // Campos alternativos para compatibilidade
+    page?: number
+    limit?: number
+    total?: number
+    totalPages?: number
 }
 
 export interface PaginatedResponse<T> {

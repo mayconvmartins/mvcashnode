@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { adminService } from '@/lib/api/admin.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Users, Activity, AlertCircle, CheckCircle } from 'lucide-react'
+import { Users, Activity, AlertCircle, CheckCircle, MessageSquare } from 'lucide-react'
 import { formatDate } from '@/lib/utils/format'
 
 export default function AdminDashboardPage() {
@@ -174,7 +174,7 @@ export default function AdminDashboardPage() {
                 <CardHeader>
                     <CardTitle>Acesso Rápido</CardTitle>
                 </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-4">
+                <CardContent className="grid gap-4 md:grid-cols-5">
                     <a
                         href="/admin/users"
                         className="flex flex-col items-center justify-center p-6 border rounded-lg hover:bg-accent/50 transition-colors"
@@ -183,11 +183,11 @@ export default function AdminDashboardPage() {
                         <span className="text-sm font-medium">Usuários</span>
                     </a>
                     <a
-                        href="/admin/health"
+                        href="/monitoring"
                         className="flex flex-col items-center justify-center p-6 border rounded-lg hover:bg-accent/50 transition-colors"
                     >
                         <Activity className="h-8 w-8 mb-2 text-primary" />
-                        <span className="text-sm font-medium">Health Check</span>
+                        <span className="text-sm font-medium">Monitoramento</span>
                     </a>
                     <a
                         href="/admin/audit"
@@ -195,6 +195,13 @@ export default function AdminDashboardPage() {
                     >
                         <AlertCircle className="h-8 w-8 mb-2 text-primary" />
                         <span className="text-sm font-medium">Audit Logs</span>
+                    </a>
+                    <a
+                        href="/admin/notifications"
+                        className="flex flex-col items-center justify-center p-6 border rounded-lg hover:bg-accent/50 transition-colors"
+                    >
+                        <MessageSquare className="h-8 w-8 mb-2 text-primary" />
+                        <span className="text-sm font-medium">WhatsApp</span>
                     </a>
                     <a
                         href="/"

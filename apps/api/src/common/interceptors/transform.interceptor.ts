@@ -16,11 +16,21 @@ export class TransformInterceptor<T> implements NestInterceptor<T, Response<T>> 
   intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
     return next.handle().pipe(
       map((data) => {
-        // If data already has pagination, return as is
-        if (data && typeof data === 'object' && 'pagination' in data) {
-          return data;
+        // Se data já tem pagination (PaginatedResponse), retornar como está
+        // O formato esperado é { data: [...], pagination: {...} }
+        if (data && typeof data === 'object' && 'pagination' in data && 'data' in data) {
+          // Já está no formato correto, retornar sem envolver
+          return data as any;
         }
-        // Otherwise wrap in data property
+        // Se data é um array, envolver em { data: [...] }
+        if (Array.isArray(data)) {
+          return { data };
+        }
+        // Se data é um objeto sem pagination, envolver em { data: {...} }
+        if (data && typeof data === 'object') {
+          return { data };
+        }
+        // Caso contrário, envolver em { data: ... }
         return { data };
       })
     );

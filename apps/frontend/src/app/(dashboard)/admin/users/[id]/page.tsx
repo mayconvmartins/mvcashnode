@@ -8,35 +8,60 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ArrowLeft, Shield, ShieldOff, Key, Smartphone } from 'lucide-react'
-import { formatDate } from '@/lib/utils/format'
+import { ArrowLeft, Shield, ShieldOff, Key, Smartphone, UserCheck, ExternalLink, Loader2 } from 'lucide-react'
+import { formatDateTime } from '@/lib/utils/format'
 import { toast } from 'sonner'
 import { useState } from 'react'
-import { ResetPasswordModal } from '@/components/admin/ResetPasswordModal'
-import { Reset2FAModal } from '@/components/admin/Reset2FAModal'
 
 export default function UserDetailPage() {
     const params = useParams()
     const router = useRouter()
     const queryClient = useQueryClient()
-    const userId = params.id as string
-
-    const [showResetPassword, setShowResetPassword] = useState(false)
-    const [showReset2FA, setShowReset2FA] = useState(false)
+    const userId = Number(params.id)
 
     const { data: user, isLoading } = useQuery({
         queryKey: ['admin', 'user', userId],
-        queryFn: () => adminService.getUserById(userId),
+        queryFn: () => adminService.getUser(userId),
     })
 
     const toggleActiveMutation = useMutation({
-        mutationFn: () => adminService.toggleUserActive(userId),
+        mutationFn: async () => {
+            if (user?.is_active) {
+                await adminService.deleteUser(userId) // Soft delete = desativar
+            } else {
+                await adminService.activateUser(userId)
+            }
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['admin', 'user', userId] })
             toast.success('Status do usuário atualizado!')
         },
         onError: () => {
             toast.error('Falha ao atualizar status')
+        },
+    })
+
+    const impersonateMutation = useMutation({
+        mutationFn: () => adminService.impersonateUser(userId),
+        onSuccess: (data) => {
+            // Abrir nova janela com o token de impersonation
+            const url = new URL(window.location.origin)
+            url.pathname = '/'
+            url.searchParams.set('impersonate_token', data.accessToken)
+            
+            // Abrir em nova janela
+            const newWindow = window.open(url.toString(), '_blank', 'noopener,noreferrer')
+            
+            if (newWindow) {
+                toast.success(`Logado como ${data.user.email} em nova janela`)
+            } else {
+                // Se popup foi bloqueado, copiar token para clipboard
+                navigator.clipboard.writeText(data.accessToken)
+                toast.info('Popup bloqueado. Token copiado para clipboard.')
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error?.response?.data?.message || 'Erro ao logar como usuário')
         },
     })
 
@@ -75,15 +100,27 @@ export default function UserDetailPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Badge variant={user.active ? 'default' : 'secondary'}>
-                        {user.active ? 'Ativo' : 'Inativo'}
+                    <Badge 
+                        variant={user.is_active ? 'default' : 'secondary'}
+                        className={user.is_active ? 'bg-green-500' : ''}
+                    >
+                        {user.is_active ? 'Ativo' : 'Inativo'}
                     </Badge>
-                    {user.twoFactorEnabled && (
+                    {user.profile?.twofa_enabled && (
                         <Badge variant="outline">
                             <Smartphone className="mr-1 h-3 w-3" />
                             2FA
                         </Badge>
                     )}
+                    {(user.roles || []).map((role: string) => (
+                        <Badge 
+                            key={role}
+                            variant={role === 'admin' ? 'default' : 'outline'}
+                            className={role === 'admin' ? 'bg-purple-500' : ''}
+                        >
+                            {role === 'admin' ? 'Admin' : 'Usuário'}
+                        </Badge>
+                    ))}
                 </div>
             </div>
 
@@ -101,30 +138,48 @@ export default function UserDetailPage() {
                         <CardHeader>
                             <CardTitle>Informações do Usuário</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-2">
-                            <div className="flex justify-between">
+                        <CardContent className="space-y-3">
+                            <div className="flex justify-between py-2 border-b">
                                 <span className="text-muted-foreground">ID:</span>
-                                <span className="font-mono">{user.id}</span>
+                                <span className="font-mono">#{user.id}</span>
                             </div>
-                            <div className="flex justify-between">
+                            <div className="flex justify-between py-2 border-b">
                                 <span className="text-muted-foreground">Email:</span>
                                 <span>{user.email}</span>
                             </div>
-                            <div className="flex justify-between">
+                            <div className="flex justify-between py-2 border-b">
                                 <span className="text-muted-foreground">Nome Completo:</span>
                                 <span>{user.profile?.full_name || 'N/A'}</span>
                             </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-foreground">Role:</span>
-                                <Badge>{user.role || 'USER'}</Badge>
+                            <div className="flex justify-between py-2 border-b">
+                                <span className="text-muted-foreground">Telefone:</span>
+                                <span>{user.profile?.phone || 'N/A'}</span>
                             </div>
-                            <div className="flex justify-between">
+                            <div className="flex justify-between py-2 border-b">
+                                <span className="text-muted-foreground">WhatsApp:</span>
+                                <span>{user.profile?.whatsapp_phone || 'N/A'}</span>
+                            </div>
+                            <div className="flex justify-between py-2 border-b">
+                                <span className="text-muted-foreground">Permissões:</span>
+                                <div className="flex gap-1">
+                                    {(user.roles || []).map((role: string) => (
+                                        <Badge key={role} variant="outline">{role}</Badge>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="flex justify-between py-2 border-b">
                                 <span className="text-muted-foreground">Criado em:</span>
-                                <span>{formatDate(user.createdAt)}</span>
+                                <span>{formatDateTime(user.created_at)}</span>
                             </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-foreground">Último Login:</span>
-                                <span>{user.lastLoginAt ? formatDate(user.lastLoginAt) : 'Nunca'}</span>
+                            <div className="flex justify-between py-2 border-b">
+                                <span className="text-muted-foreground">Atualizado em:</span>
+                                <span>{formatDateTime(user.updated_at)}</span>
+                            </div>
+                            <div className="flex justify-between py-2">
+                                <span className="text-muted-foreground">Deve trocar senha:</span>
+                                <Badge variant={user.must_change_password ? 'destructive' : 'secondary'}>
+                                    {user.must_change_password ? 'Sim' : 'Não'}
+                                </Badge>
                             </div>
                         </CardContent>
                     </Card>
@@ -136,11 +191,12 @@ export default function UserDetailPage() {
                         </CardHeader>
                         <CardContent className="flex flex-wrap gap-2">
                             <Button
-                                variant={user.active ? 'destructive' : 'default'}
+                                variant={user.is_active ? 'destructive' : 'default'}
                                 onClick={() => toggleActiveMutation.mutate()}
                                 disabled={toggleActiveMutation.isPending}
                             >
-                                {user.active ? (
+                                {toggleActiveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                {user.is_active ? (
                                     <>
                                         <ShieldOff className="mr-2 h-4 w-4" />
                                         Desativar Usuário
@@ -152,16 +208,31 @@ export default function UserDetailPage() {
                                     </>
                                 )}
                             </Button>
-                            <Button variant="outline" onClick={() => setShowResetPassword(true)}>
+                            <Button variant="outline" onClick={() => adminService.resetPassword(userId).then(() => toast.success('Senha resetada!')).catch(() => toast.error('Erro ao resetar senha'))}>
                                 <Key className="mr-2 h-4 w-4" />
                                 Resetar Senha
                             </Button>
-                            {user.twoFactorEnabled && (
-                                <Button variant="outline" onClick={() => setShowReset2FA(true)}>
+                            {user.profile?.twofa_enabled && (
+                                <Button variant="outline" onClick={() => toast.info('Funcionalidade em desenvolvimento')}>
                                     <Smartphone className="mr-2 h-4 w-4" />
                                     Resetar 2FA
                                 </Button>
                             )}
+                            <Button 
+                                variant="outline" 
+                                className="bg-purple-500/10 border-purple-500 text-purple-500 hover:bg-purple-500/20"
+                                onClick={() => impersonateMutation.mutate()}
+                                disabled={impersonateMutation.isPending || !user.is_active}
+                                title={!user.is_active ? 'Não é possível logar como usuário inativo' : 'Logar como este usuário'}
+                            >
+                                {impersonateMutation.isPending ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                    <UserCheck className="mr-2 h-4 w-4" />
+                                )}
+                                Logar Como
+                                <ExternalLink className="ml-2 h-3 w-3" />
+                            </Button>
                         </CardContent>
                     </Card>
                 </TabsContent>
@@ -173,78 +244,79 @@ export default function UserDetailPage() {
                             <CardDescription>Dispositivos e localizações recentes</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {user.sessions && user.sessions.length > 0 ? (
-                                <div className="space-y-4">
-                                    {user.sessions.map((session: any) => (
-                                        <div key={session.id} className="flex items-center justify-between p-3 border rounded-lg">
-                                            <div>
-                                                <p className="font-medium">{session.device || 'Dispositivo Desconhecido'}</p>
-                                                <p className="text-sm text-muted-foreground">
-                                                    {session.ip} • {formatDate(session.lastActivity)}
-                                                </p>
-                                            </div>
-                                            <Badge variant={session.active ? 'default' : 'secondary'}>
-                                                {session.active ? 'Ativa' : 'Expirada'}
-                                            </Badge>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-center text-muted-foreground py-4">
-                                    Nenhuma sessão ativa
-                                </p>
-                            )}
+                            <p className="text-center text-muted-foreground py-8">
+                                Funcionalidade em desenvolvimento
+                            </p>
                         </CardContent>
                     </Card>
                 </TabsContent>
 
                 <TabsContent value="audit">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Histórico de Auditoria</CardTitle>
-                            <CardDescription>Últimas ações do usuário</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            {user.auditLogs && user.auditLogs.length > 0 ? (
-                                <div className="space-y-3">
-                                    {user.auditLogs.map((log: any, index: number) => (
-                                        <div key={index} className="flex items-start gap-3 text-sm">
-                                            <div className="w-2 h-2 rounded-full bg-primary mt-2" />
-                                            <div className="flex-1">
-                                                <p className="font-medium">{log.action}</p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {formatDate(log.timestamp)}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-center text-muted-foreground py-4">
-                                    Nenhum histórico
-                                </p>
-                            )}
-                        </CardContent>
-                    </Card>
+                    <UserAuditLogs userId={userId} />
                 </TabsContent>
             </Tabs>
-
-            {/* Modals */}
-            {showResetPassword && (
-                <ResetPasswordModal
-                    userId={userId}
-                    open={showResetPassword}
-                    onClose={() => setShowResetPassword(false)}
-                />
-            )}
-            {showReset2FA && (
-                <Reset2FAModal
-                    userId={userId}
-                    open={showReset2FA}
-                    onClose={() => setShowReset2FA(false)}
-                />
-            )}
         </div>
+    )
+}
+
+// Componente para exibir logs de auditoria do usuário
+function UserAuditLogs({ userId }: { userId: number }) {
+    const { data: logs, isLoading } = useQuery({
+        queryKey: ['admin', 'user', userId, 'audit-logs'],
+        queryFn: () => adminService.getUserAuditLogs(userId, 1, 20),
+    })
+
+    if (isLoading) {
+        return (
+            <Card>
+                <CardHeader>
+                    <CardTitle>Histórico de Auditoria</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <Skeleton className="h-32" />
+                </CardContent>
+            </Card>
+        )
+    }
+
+    const items = logs?.data || logs?.items || []
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Histórico de Auditoria</CardTitle>
+                <CardDescription>Últimas ações do usuário</CardDescription>
+            </CardHeader>
+            <CardContent>
+                {items.length > 0 ? (
+                    <div className="space-y-3">
+                        {items.map((log: any) => (
+                            <div key={log.id} className="flex items-start gap-3 text-sm p-3 border rounded-lg">
+                                <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <Badge variant="outline" className="text-xs">
+                                            {log.action}
+                                        </Badge>
+                                        <span className="text-muted-foreground text-xs">
+                                            {log.entity_type}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        {formatDateTime(log.created_at)}
+                                        {log.ip && ` • IP: ${log.ip}`}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-center text-muted-foreground py-8">
+                        Nenhum histórico de auditoria
+                    </p>
+                )}
+            </CardContent>
+        </Card>
     )
 }
 

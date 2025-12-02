@@ -2,20 +2,50 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { ExchangeAccountService } from '@mvcashnode/domain';
-import { EncryptionService } from '@mvcashnode/shared';
+import { EncryptionService, NtpService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeMode } from '@mvcashnode/shared';
 
 @Processor('balances-sync-real')
 export class BalancesSyncProcessor extends WorkerHost {
+  private ntpService: NtpService | null = null;
+
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService
   ) {
     super();
+    // Inicializar NTP service (mesmo método usado no main.ts)
+    this.initializeNtpService();
+  }
+
+  private initializeNtpService() {
+    // Verificar se NTP está habilitado
+    const ntpEnabled = process.env.NTP_ENABLED === 'true';
+    if (ntpEnabled) {
+      const ntpServer = process.env.NTP_SERVER || 'pool.ntp.org';
+      const ntpSyncInterval = parseInt(process.env.NTP_SYNC_INTERVAL || '3600000');
+      
+      this.ntpService = new NtpService(ntpServer, ntpSyncInterval, ntpEnabled);
+      
+      // Garantir que AdapterFactory está usando o NTP service
+      AdapterFactory.setNtpService(this.ntpService);
+      console.log('[BalancesSync] NTP Service inicializado');
+    }
   }
 
   async process(_job: Job<any>): Promise<any> {
+    // Sincronizar NTP antes de processar (garantir offset atualizado)
+    // Isso garante que o timestamp usado nas requisições está correto
+    if (this.ntpService) {
+      await this.ntpService.sync();
+      const ntpInfo = this.ntpService.getInfo();
+      console.log(`[BalancesSync] NTP sincronizado - Offset: ${ntpInfo.offset}ms`);
+      
+      // Garantir que AdapterFactory está usando o NTP service atualizado
+      AdapterFactory.setNtpService(this.ntpService);
+    }
+
     // Get all active real accounts
     const accounts = await this.prisma.exchangeAccount.findMany({
       where: {
@@ -35,6 +65,11 @@ export class BalancesSyncProcessor extends WorkerHost {
         // Get API keys
         const keys = await accountService.decryptApiKeys(account.id);
         if (!keys) continue;
+
+        // Garantir que NTP está configurado antes de criar adapter
+        if (this.ntpService) {
+          AdapterFactory.setNtpService(this.ntpService);
+        }
 
         // Create adapter
         const adapter = AdapterFactory.createAdapter(

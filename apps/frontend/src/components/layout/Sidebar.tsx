@@ -17,11 +17,21 @@ import {
     LogOut,
     Menu,
     X,
-    Activity
+    Activity,
+    Users,
+    FileText,
+    MessageSquare,
+    ChevronDown,
+    ChevronRight
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
 import { useState } from 'react'
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 
 const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
@@ -34,15 +44,77 @@ const menuItems = [
     { icon: History, label: 'Operações', href: '/operations' },
     { icon: FileBarChart, label: 'Relatórios', href: '/reports' },
     { icon: Activity, label: 'Monitoramento', href: '/monitoring', adminOnly: true },
-    { icon: ShieldAlert, label: 'Admin', href: '/admin', adminOnly: true },
 ]
+
+const adminMenuItems = [
+    { icon: LayoutDashboard, label: 'Painel Admin', href: '/admin' },
+    { icon: Users, label: 'Usuários', href: '/admin/users' },
+    { icon: FileText, label: 'Audit Logs', href: '/admin/audit' },
+    { icon: MessageSquare, label: 'WhatsApp', href: '/admin/notifications' },
+]
+
+function AdminDropdown({ pathname, onNavigate }: { pathname: string; onNavigate: () => void }) {
+    const [isOpen, setIsOpen] = useState(pathname.startsWith('/admin'))
+    const isAdminActive = pathname.startsWith('/admin')
+
+    return (
+        <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+            <CollapsibleTrigger
+                className={cn(
+                    "w-full flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    isAdminActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+            >
+                <div className="flex items-center gap-3">
+                    <ShieldAlert className={cn("h-5 w-5", isAdminActive ? "text-primary" : "text-muted-foreground")} />
+                    <span>Admin</span>
+                </div>
+                {isOpen ? (
+                    <ChevronDown className="h-4 w-4 transition-transform duration-200 rotate-180" />
+                ) : (
+                    <ChevronRight className="h-4 w-4 transition-transform duration-200" />
+                )}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-1 mt-1 ml-4 pl-4 border-l border-border">
+                {adminMenuItems.map((item) => {
+                    const isActive = pathname === item.href || (item.href === '/admin' && pathname === '/admin')
+
+                    return (
+                        <Link
+                            key={item.href}
+                            href={item.href}
+                            className={cn(
+                                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                                isActive
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                            )}
+                            onClick={onNavigate}
+                        >
+                            <item.icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-muted-foreground")} />
+                            {item.label}
+                        </Link>
+                    )
+                })}
+            </CollapsibleContent>
+        </Collapsible>
+    )
+}
 
 export function Sidebar() {
     const pathname = usePathname()
     const { logout, user } = useAuthStore()
     const [isOpen, setIsOpen] = useState(false)
 
-    const isAdmin = user?.roles?.includes('admin')
+    // Verificar se o usuário é admin
+    // roles pode vir como array de strings ['admin'] ou array de objetos [{role: 'admin'}]
+    const isAdmin = user?.roles?.some((role: any) => {
+        // Se role é um objeto, acessar a propriedade 'role'
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === 'admin' || roleValue === 'ADMIN' || roleValue?.toLowerCase?.() === 'admin'
+    })
 
     return (
         <>
@@ -93,6 +165,14 @@ export function Sidebar() {
                                 </Link>
                             )
                         })}
+
+                        {/* Admin Dropdown */}
+                        {isAdmin && (
+                            <AdminDropdown 
+                                pathname={pathname} 
+                                onNavigate={() => setIsOpen(false)} 
+                            />
+                        )}
                     </nav>
 
                     {/* User & Logout */}

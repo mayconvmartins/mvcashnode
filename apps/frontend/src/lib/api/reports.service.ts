@@ -58,4 +58,58 @@ export const reportsService = {
         })
         return response.data
     },
+
+    getDashboardSummary: async (): Promise<{
+        openPositions: number
+        dailyPnL: number
+        totalBalance: number
+        activeAccounts: number
+        positionsTrend?: number
+        pnlTrend?: number
+        recentTrades: Array<{
+            id: number
+            symbol: string
+            side: string
+            status: string
+            created_at: string
+        }>
+        topSymbols: Array<{
+            symbol: string
+            pnl: number
+            trades: number
+        }>
+    }> => {
+        try {
+            // Buscar dados de múltiplas fontes em paralelo
+            const [pnlSummary, openPositions] = await Promise.all([
+                apiClient.get('/reports/pnl/summary').catch(() => ({ data: null })),
+                apiClient.get('/reports/open-positions/summary').catch(() => ({ data: [] })),
+            ])
+
+            const openCount = Array.isArray(openPositions.data) 
+                ? openPositions.data.reduce((sum: number, p: any) => sum + (p.total_positions || 0), 0)
+                : 0
+
+            return {
+                openPositions: openCount,
+                dailyPnL: pnlSummary.data?.net_pnl || 0,
+                totalBalance: pnlSummary.data?.total_profit || 0,
+                activeAccounts: Array.isArray(openPositions.data) ? openPositions.data.length : 0,
+                positionsTrend: undefined,
+                pnlTrend: pnlSummary.data?.win_rate ? (pnlSummary.data.win_rate > 50 ? 1 : -1) : undefined,
+                recentTrades: [],
+                topSymbols: [],
+            }
+        } catch (error) {
+            // Retornar valores padrão se houver erro
+            return {
+                openPositions: 0,
+                dailyPnL: 0,
+                totalBalance: 0,
+                activeAccounts: 0,
+                recentTrades: [],
+                topSymbols: [],
+            }
+        }
+    },
 }

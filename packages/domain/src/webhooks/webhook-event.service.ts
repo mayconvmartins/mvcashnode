@@ -89,38 +89,103 @@ export class WebhookEventService {
       },
     });
 
-    if (!event || event.action === WebhookAction.UNKNOWN) {
+    console.log(`[WEBHOOK-EVENT] Criando jobs para evento ${eventId}`);
+    console.log(`[WEBHOOK-EVENT] Evento:`, {
+      id: event?.id,
+      action: event?.action,
+      symbol_normalized: event?.symbol_normalized,
+      trade_mode: event?.trade_mode,
+      bindings_count: event?.webhook_source?.bindings?.length || 0,
+    });
+
+    if (!event) {
+      console.error(`[WEBHOOK-EVENT] Evento ${eventId} não encontrado`);
+      return { count: 0, jobIds: [] };
+    }
+
+    if (event.action === WebhookAction.UNKNOWN) {
+      console.warn(`[WEBHOOK-EVENT] Ação desconhecida para evento ${eventId}. Payload:`, event.raw_text || event.raw_payload_json);
       return { count: 0, jobIds: [] };
     }
 
     let jobsCreated = 0;
     const jobIds: number[] = [];
 
+    if (!event.webhook_source?.bindings || event.webhook_source.bindings.length === 0) {
+      console.warn(`[WEBHOOK-EVENT] Nenhum binding ativo encontrado para webhook source ${event.webhook_source_id}`);
+      return { count: 0, jobIds: [] };
+    }
+
     for (const binding of event.webhook_source.bindings) {
+      console.log(`[WEBHOOK-EVENT] Processando binding ${binding.id} para account ${binding.exchange_account_id}`);
+      
       // Match trade mode: is_simulation true = SIMULATION, false = REAL
       const accountIsSim = binding.exchange_account.is_simulation;
       const eventIsSim = event.trade_mode === 'SIMULATION';
+      
+      console.log(`[WEBHOOK-EVENT] Trade mode check: account_is_sim=${accountIsSim}, event_is_sim=${eventIsSim}`);
+      
       if (accountIsSim !== eventIsSim) {
+        console.log(`[WEBHOOK-EVENT] Trade mode não corresponde, pulando binding ${binding.id}`);
         continue;
       }
 
       try {
+        const side = event.action === WebhookAction.BUY_SIGNAL ? 'BUY' : 'SELL';
+        
+        console.log(`[WEBHOOK-EVENT] Criando job para binding ${binding.id}:`, {
+          symbol: event.symbol_normalized,
+          side,
+          tradeMode: event.trade_mode,
+        });
+
+        // Para SELL, buscar posição aberta e usar quantidade restante
+        let baseQuantity: number | undefined = undefined;
+        if (side === 'SELL') {
+          const openPosition = await this.prisma.tradePosition.findFirst({
+            where: {
+              exchange_account_id: binding.exchange_account.id,
+              symbol: event.symbol_normalized,
+              trade_mode: event.trade_mode,
+              status: 'OPEN',
+              lock_sell_by_webhook: false, // Não vender se estiver bloqueado
+            },
+            orderBy: {
+              created_at: 'asc', // FIFO - vender a posição mais antiga primeiro
+            },
+          });
+
+          if (openPosition) {
+            baseQuantity = openPosition.qty_remaining.toNumber();
+            console.log(`[WEBHOOK-EVENT] Posição aberta encontrada: ID ${openPosition.id}, quantidade restante: ${baseQuantity}`);
+          } else {
+            console.warn(`[WEBHOOK-EVENT] Nenhuma posição aberta encontrada para vender ${event.symbol_normalized} na conta ${binding.exchange_account.id}`);
+            // Continuar mesmo sem posição - o executor vai falhar mas pelo menos o evento será registrado
+          }
+        }
+
         const tradeJob = await this.tradeJobService.createJob({
           webhookEventId: event.id,
           exchangeAccountId: binding.exchange_account.id,
           tradeMode: event.trade_mode as TradeMode,
           symbol: event.symbol_normalized,
-          side: event.action === WebhookAction.BUY_SIGNAL ? 'BUY' : 'SELL',
+          side,
           orderType: 'MARKET',
+          baseQuantity, // Passar quantidade para SELL
+          skipParameterValidation: side === 'SELL' && baseQuantity !== undefined, // Pular validação se já temos quantidade
         });
+        
+        console.log(`[WEBHOOK-EVENT] Job criado com sucesso: ${tradeJob.id}, quantidade: ${baseQuantity || 'calculada automaticamente'}`);
         jobsCreated++;
         jobIds.push(tradeJob.id);
-      } catch (error) {
+      } catch (error: any) {
         // Log error but continue
-        console.error(`Failed to create job for binding ${binding.id}:`, error);
+        console.error(`[WEBHOOK-EVENT] Erro ao criar job para binding ${binding.id}:`, error?.message || error);
+        console.error(`[WEBHOOK-EVENT] Stack:`, error?.stack);
       }
     }
 
+    console.log(`[WEBHOOK-EVENT] Total de jobs criados: ${jobsCreated} de ${event.webhook_source.bindings.length} bindings`);
     return { count: jobsCreated, jobIds };
   }
 }

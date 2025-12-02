@@ -69,6 +69,7 @@ export const webhooksService = {
         const response = await apiClient.get<PaginatedResponse<WebhookEvent>>('/webhook-events', {
             params: filters,
         })
+        // O interceptor do Axios agora preserva respostas paginadas
         return response.data
     },
 

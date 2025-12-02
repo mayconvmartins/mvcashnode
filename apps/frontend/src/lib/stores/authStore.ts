@@ -43,8 +43,11 @@ export const useAuthStore = create<AuthState>()(
 
             logout: () => {
                 if (typeof window !== 'undefined') {
+                    // Limpar todos os tokens e flags de impersonation
                     localStorage.removeItem('accessToken')
                     localStorage.removeItem('refreshToken')
+                    localStorage.removeItem('isImpersonating')
+                    localStorage.removeItem('originalAdminToken')
                     
                     // Remover dos cookies
                     document.cookie = 'accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'

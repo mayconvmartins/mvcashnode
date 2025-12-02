@@ -65,7 +65,58 @@ async function bootstrap() {
   AdapterFactory.setNtpService(ntpService);
   console.log('[Exchange] ✅ AdapterFactory configurado para usar NTP Service');
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    bodyParser: false, // Desabilitar body parser padrão globalmente
+  });
+  
+  // Aplicar body parsers customizados - IMPORTANTE: aplicar ANTES de qualquer outro middleware
+  const bodyParser = require('body-parser');
+  
+  // Para rotas de webhook, usar parser que captura raw body
+  // Aplicar diretamente na rota /webhooks
+  app.use('/webhooks', bodyParser.raw({ 
+    type: '*/*',
+    limit: '10mb',
+    verify: (req: any, res: any, buf: Buffer) => {
+      // Salvar o buffer raw
+      req.rawBody = buf;
+      const contentType = req.headers['content-type'] || '';
+      const bodyStr = buf.toString('utf8');
+      
+      console.log(`[WEBHOOK-MIDDLEWARE] ✅ Middleware executado!`);
+      console.log(`[WEBHOOK-MIDDLEWARE] Content-Type: ${contentType}`);
+      console.log(`[WEBHOOK-MIDDLEWARE] Raw body capturado (${buf.length} bytes): "${bodyStr.substring(0, 200)}${bodyStr.length > 200 ? '...' : ''}"`);
+      
+      // Processar baseado no Content-Type
+      if (contentType.includes('text/plain')) {
+        req.body = bodyStr;
+        console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string: "${req.body}"`);
+      } else if (contentType.includes('application/json')) {
+        try {
+          req.body = JSON.parse(bodyStr);
+          console.log(`[WEBHOOK-MIDDLEWARE] Body parseado como JSON`);
+        } catch (e) {
+          req.body = bodyStr;
+          console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string (JSON parse falhou)`);
+        }
+      } else {
+        // Tentar JSON primeiro, depois string
+        try {
+          req.body = JSON.parse(bodyStr);
+          console.log(`[WEBHOOK-MIDDLEWARE] Body parseado como JSON (tentativa)`);
+        } catch (e) {
+          req.body = bodyStr;
+          console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string (fallback)`);
+        }
+      }
+    }
+  }));
+  
+  // Para outras rotas, usar body parser JSON padrão
+  app.use(bodyParser.json());
+  app.use(bodyParser.urlencoded({ extended: true }));
+  
+  console.log('[WEBHOOK-MIDDLEWARE] ✅ Middleware de raw body configurado para /webhooks/*');
 
   // Configuração de CORS
   const corsDisabled = process.env.CORS_DISABLED === 'true';
@@ -73,18 +124,50 @@ async function bootstrap() {
     app.enableCors({
       origin: true, // Permite todas as origens
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
+        'Access-Control-Request-Method',
+        'Access-Control-Request-Headers',
+      ],
+      exposedHeaders: ['Content-Length', 'Content-Type'],
+      preflightContinue: false,
+      optionsSuccessStatus: 204,
     });
-    console.log('[CORS] CORS desabilitado - permitindo todas as origens');
+    console.log('[CORS] ✅ CORS desabilitado - permitindo todas as origens');
   } else {
+    const allowedOrigins = process.env.CORS_ORIGIN 
+      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+      : ['http://localhost:3000', 'http://localhost:5010'];
+    
     app.enableCors({
-      origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
+        'Access-Control-Request-Method',
+        'Access-Control-Request-Headers',
+      ],
+      exposedHeaders: ['Content-Length', 'Content-Type'],
+      preflightContinue: false,
+      optionsSuccessStatus: 204,
     });
-    console.log(`[CORS] CORS habilitado - origem permitida: ${process.env.CORS_ORIGIN || 'http://localhost:3000'}`);
+    console.log(`[CORS] ✅ CORS habilitado - origens permitidas: ${allowedOrigins.join(', ')}`);
   }
 
   app.useGlobalPipes(

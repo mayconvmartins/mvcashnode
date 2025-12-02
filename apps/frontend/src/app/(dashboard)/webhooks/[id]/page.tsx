@@ -27,7 +27,10 @@ import {
     Plus,
     Settings,
     Users,
-    List
+    List,
+    RefreshCw,
+    Radio,
+    Loader2
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDateTime } from '@/lib/utils/format'
@@ -51,10 +54,19 @@ export default function WebhookDetailsPage() {
         enabled: !isNaN(webhookId),
     })
 
-    const { data: events } = useQuery({
-        queryKey: ['webhook-events', webhookId],
-        queryFn: () => webhooksService.listEvents({ webhookSourceId: webhookId }),
+    const [eventsPage, setEventsPage] = useState(1)
+    const [isRealtime, setIsRealtime] = useState(false)
+    const eventsLimit = 20
+
+    const { data: events, refetch: refetchEvents, isRefetching: isRefetchingEvents, isLoading: isLoadingEvents } = useQuery({
+        queryKey: ['webhook-events', webhookId, eventsPage],
+        queryFn: () => webhooksService.listEvents({ 
+            webhookSourceId: webhookId,
+            page: eventsPage,
+            limit: eventsLimit,
+        }),
         enabled: !isNaN(webhookId),
+        refetchInterval: isRealtime ? 5000 : false, // Atualiza a cada 5 segundos quando realtime está ativo
     })
 
     const { data: accounts } = useQuery({
@@ -155,45 +167,100 @@ export default function WebhookDetailsPage() {
 
     const eventsColumns: Column<any>[] = [
         {
-            key: 'event_uid',
+            key: 'id',
             label: 'ID',
             render: (event) => (
-                <span className="font-mono text-sm">{event.event_uid}</span>
+                <span className="font-mono text-sm">#{event.id}</span>
             ),
         },
         {
             key: 'symbol',
             label: 'Símbolo',
             render: (event) => (
-                <span className="font-medium">{event.symbol_normalized || event.symbol_raw}</span>
+                <div>
+                    <div className="font-medium">{event.symbol_normalized || event.symbol_raw || 'N/A'}</div>
+                    {event.symbol_raw && event.symbol_raw !== event.symbol_normalized && (
+                        <div className="text-xs text-muted-foreground font-mono">{event.symbol_raw}</div>
+                    )}
+                </div>
             ),
         },
         {
             key: 'action',
             label: 'Ação',
-            render: (event) => (
-                <Badge variant="outline">{event.action}</Badge>
-            ),
+            render: (event) => {
+                if (event.action === 'BUY_SIGNAL') {
+                    return <Badge variant="success" className="bg-green-500">COMPRA</Badge>
+                } else if (event.action === 'SELL_SIGNAL') {
+                    return <Badge variant="destructive">VENDA</Badge>
+                }
+                return <Badge variant="secondary">{event.action}</Badge>
+            },
         },
         {
             key: 'status',
             label: 'Status',
             render: (event) => {
-                const statusColors: Record<string, any> = {
-                    JOB_CREATED: { variant: 'default', label: 'Job Criado' },
-                    RECEIVED: { variant: 'secondary', label: 'Recebido' },
-                    SKIPPED: { variant: 'outline', label: 'Ignorado' },
-                    FAILED: { variant: 'destructive', label: 'Falhou' },
+                const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'; label: string; icon: any }> = {
+                    JOB_CREATED: { variant: 'success', label: 'Job Criado', icon: CheckCircle },
+                    RECEIVED: { variant: 'secondary', label: 'Recebido', icon: Clock },
+                    SKIPPED: { variant: 'outline', label: 'Ignorado', icon: XCircle },
+                    FAILED: { variant: 'destructive', label: 'Falhou', icon: XCircle },
                 }
-                const config = statusColors[event.status] || { variant: 'secondary', label: event.status }
-                return <Badge variant={config.variant}>{config.label}</Badge>
+                const config = statusConfig[event.status] || { variant: 'secondary' as const, label: event.status, icon: Clock }
+                const Icon = config.icon
+                return (
+                    <Badge variant={config.variant} className="flex items-center gap-1 w-fit">
+                        <Icon className="h-3 w-3" />
+                        {config.label}
+                    </Badge>
+                )
             },
+        },
+        {
+            key: 'trade_mode',
+            label: 'Modo',
+            render: (event) => (
+                <Badge variant={event.trade_mode === 'REAL' ? 'destructive' : 'secondary'}>
+                    {event.trade_mode}
+                </Badge>
+            ),
+        },
+        {
+            key: 'timeframe',
+            label: 'Timeframe',
+            render: (event) => (
+                <span className="text-sm">{event.timeframe || '-'}</span>
+            ),
+        },
+        {
+            key: 'price_reference',
+            label: 'Preço',
+            render: (event) => (
+                <span className="text-sm font-medium">
+                    {event.price_reference ? `$${event.price_reference}` : '-'}
+                </span>
+            ),
         },
         {
             key: 'created_at',
             label: 'Recebido em',
             render: (event) => (
-                <span className="text-sm">{formatDateTime(event.created_at)}</span>
+                <div className="text-sm">
+                    <div>{formatDateTime(event.created_at).split(' ')[0]}</div>
+                    <div className="text-muted-foreground">{formatDateTime(event.created_at).split(' ')[1]}</div>
+                </div>
+            ),
+        },
+        {
+            key: 'actions',
+            label: 'Ações',
+            render: (event) => (
+                <Link href={`/webhooks/events/${event.id}`}>
+                    <Button variant="ghost" size="sm">
+                        <Activity className="h-4 w-4" />
+                    </Button>
+                </Link>
             ),
         },
     ]
@@ -273,7 +340,7 @@ export default function WebhookDetailsPage() {
                     </TabsTrigger>
                     <TabsTrigger value="events">
                         <List className="h-4 w-4 mr-2" />
-                        Eventos ({events?.data?.length || 0})
+                        Eventos ({events?.pagination?.total_items || events?.data?.length || 0})
                     </TabsTrigger>
                 </TabsList>
 
@@ -410,24 +477,105 @@ export default function WebhookDetailsPage() {
                 <TabsContent value="events" className="space-y-6">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Eventos Recebidos</CardTitle>
-                            <CardDescription>
-                                Histórico de eventos enviados para este webhook
-                            </CardDescription>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle>Eventos Recebidos</CardTitle>
+                                    <CardDescription>
+                                        Histórico de eventos enviados para este webhook
+                                        {events?.pagination?.total_items !== undefined && (
+                                            <span className="ml-2">
+                                                ({events.pagination.total_items} total)
+                                            </span>
+                                        )}
+                                    </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {/* Botão Atualizar */}
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={() => refetchEvents()}
+                                        disabled={isRefetchingEvents}
+                                    >
+                                        {isRefetchingEvents ? (
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        ) : (
+                                            <RefreshCw className="h-4 w-4 mr-2" />
+                                        )}
+                                        Atualizar
+                                    </Button>
+                                    
+                                    {/* Botão Realtime */}
+                                    <Button 
+                                        variant={isRealtime ? "default" : "outline"}
+                                        size="sm"
+                                        onClick={() => setIsRealtime(!isRealtime)}
+                                        className={isRealtime ? "bg-green-600 hover:bg-green-700" : ""}
+                                    >
+                                        <Radio className={`h-4 w-4 mr-2 ${isRealtime ? 'animate-pulse' : ''}`} />
+                                        {isRealtime ? 'Realtime ON' : 'Realtime OFF'}
+                                    </Button>
+                                    
+                                    <Link href="/webhooks/events">
+                                        <Button variant="outline" size="sm">
+                                            Ver Todos os Eventos
+                                        </Button>
+                                    </Link>
+                                </div>
+                            </div>
                         </CardHeader>
                         <CardContent>
-                            {events?.data && events.data.length > 0 ? (
-                                <DataTable
-                                    data={events.data}
-                                    columns={eventsColumns}
-                                />
+                            {isLoadingEvents ? (
+                                <div className="space-y-4">
+                                    <Skeleton className="h-10 w-full" />
+                                    <Skeleton className="h-10 w-full" />
+                                    <Skeleton className="h-10 w-full" />
+                                </div>
+                            ) : events?.data && events.data.length > 0 ? (
+                                <>
+                                    <DataTable
+                                        data={events.data}
+                                        columns={eventsColumns}
+                                        loading={isLoadingEvents}
+                                    />
+                                    {events.pagination && events.pagination.total_pages > 1 && (
+                                        <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                                            <div className="text-sm text-muted-foreground">
+                                                Página {eventsPage} de {events.pagination.total_pages}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={eventsPage <= 1 || isLoadingEvents}
+                                                    onClick={() => setEventsPage(prev => Math.max(1, prev - 1))}
+                                                >
+                                                    Anterior
+                                                </Button>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={eventsPage >= events.pagination.total_pages || isLoadingEvents}
+                                                    onClick={() => setEventsPage(prev => prev + 1)}
+                                                >
+                                                    Próxima
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             ) : (
-                                <div className="text-center py-8 text-muted-foreground">
-                                    <Activity className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                                    <p>Nenhum evento recebido</p>
-                                    <p className="text-sm mt-1">
+                                <div className="text-center py-12 text-muted-foreground">
+                                    <Activity className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                                    <p className="text-lg font-medium mb-2">Nenhum evento recebido</p>
+                                    <p className="text-sm">
                                         Os eventos aparecerão aqui quando forem enviados para este webhook
                                     </p>
+                                    {events && events.pagination && events.pagination.total_items === 0 && (
+                                        <p className="text-xs mt-2 text-muted-foreground">
+                                            Total de eventos: {events.pagination.total_items}
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </CardContent>

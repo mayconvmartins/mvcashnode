@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import { authService } from '@/lib/api/auth.service'
@@ -15,15 +15,49 @@ import { toast } from 'sonner'
 export default function LoginPage() {
     const router = useRouter()
     const searchParams = useSearchParams()
-    const { setTokens, setUser } = useAuthStore()
+    const { setTokens, setUser, logout } = useAuthStore()
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [twoFactorCode, setTwoFactorCode] = useState('')
     const [error, setError] = useState('')
 
+    // Limpar qualquer token de impersonation ao carregar a página de login
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            // Verificar se há token de impersonation
+            const accessToken = localStorage.getItem('accessToken')
+            if (accessToken) {
+                try {
+                    const parts = accessToken.split('.')
+                    if (parts.length === 3) {
+                        const payload = JSON.parse(atob(parts[1]))
+                        if (payload.isImpersonation === true) {
+                            // Limpar tokens de impersonation
+                            logout()
+                        }
+                    }
+                } catch (e) {
+                    // Se não conseguir decodificar, limpar flags de qualquer forma
+                    localStorage.removeItem('isImpersonating')
+                    localStorage.removeItem('originalAdminToken')
+                }
+            } else {
+                // Limpar flags mesmo sem token
+                localStorage.removeItem('isImpersonating')
+                localStorage.removeItem('originalAdminToken')
+            }
+        }
+    }, [logout])
+
     const loginMutation = useMutation({
         mutationFn: authService.login,
         onSuccess: (data) => {
+            // Limpar qualquer flag de impersonation antes de salvar novos tokens
+            if (typeof window !== 'undefined') {
+                localStorage.removeItem('isImpersonating')
+                localStorage.removeItem('originalAdminToken')
+            }
+            
             // Salvar tokens e usuário
             setTokens(data.accessToken, data.refreshToken)
             setUser(data.user)

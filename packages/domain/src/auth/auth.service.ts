@@ -241,6 +241,30 @@ export class AuthService {
     };
   }
 
+  /**
+   * Gera um token de impersonation para um admin logar como outro usuário
+   * O token tem validade de 1 hora e inclui informação de quem está impersonando
+   */
+  generateImpersonationToken(
+    targetUserId: number,
+    targetEmail: string,
+    targetRoles: string[],
+    adminUserId: number
+  ): string {
+    const payload = {
+      userId: targetUserId,
+      email: targetEmail,
+      roles: targetRoles,
+      impersonatedBy: adminUserId,
+      isImpersonation: true,
+    };
+
+    // Token de impersonation tem validade de 1 hora
+    return jwt.sign(payload, this.jwtSecret, {
+      expiresIn: 3600,
+    });
+  }
+
   private async logLoginAttempt(
     userIdOrEmail: number | string,
     success: boolean,
