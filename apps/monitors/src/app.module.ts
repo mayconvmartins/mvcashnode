@@ -4,11 +4,13 @@ import { BullModule } from '@nestjs/bullmq';
 import { SLTPMonitorModule } from './sltp-monitor/sltp-monitor.module';
 import { LimitOrdersMonitorModule } from './limit-orders-monitor/limit-orders-monitor.module';
 import { BalancesSyncModule } from './balances-sync/balances-sync.module';
+import * as path from 'path';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: path.resolve(__dirname, '../../../.env'),
     }),
     BullModule.forRoot({
       connection: {

@@ -140,7 +140,8 @@ REDIS_PASSWORD=sua-senha-redis  # Obrigatório para serviços remotos
 JWT_SECRET=your-32-char-min-secret-here
 JWT_REFRESH_SECRET=your-32-char-min-secret-here
 
-# Encryption Key (exatamente 32 bytes, gerar com: openssl rand -base64 32)
+# Encryption Key (exatamente 32 bytes, gerar com: openssl rand -base64 32 ou node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
+# IMPORTANTE: Deve ter pelo menos 32 caracteres!
 ENCRYPTION_KEY=your-exactly-32-byte-key-here
 
 # API
