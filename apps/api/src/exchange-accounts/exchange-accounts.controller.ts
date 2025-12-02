@@ -64,7 +64,32 @@ export class ExchangeAccountsController {
   @Post()
   @ApiOperation({ 
     summary: 'Criar conta de exchange',
-    description: 'Cria uma nova conta de exchange. As credenciais (API key e secret) são criptografadas antes de serem armazenadas. Para contas de simulação, as credenciais são opcionais.'
+    description: `Cria uma nova conta de exchange. As credenciais (API key e secret) são criptografadas antes de serem armazenadas. 
+    
+**Campos aceitos:**
+- \`exchange\`: Tipo de exchange (BINANCE_SPOT, BYBIT_SPOT, etc.) - **obrigatório**
+- \`label\`: Nome da conta - **obrigatório**
+- \`tradeMode\`: "REAL" ou "SIMULATION" - **recomendado** (ou use \`isSimulation\`)
+- \`apiKey\`: API Key da exchange - **obrigatório para contas reais**
+- \`apiSecret\`: API Secret da exchange - **obrigatório para contas reais**
+- \`isTestnet\`: true/false - se usa testnet da exchange
+- \`isActive\`: true/false - se conta fica ativa imediatamente
+- \`proxyUrl\`: URL do proxy (opcional)
+- \`initialBalances\`: Saldos iniciais para simulação (opcional)
+
+**Exemplo de requisição:**
+\`\`\`json
+{
+  "label": "Minha Conta Bybit",
+  "exchange": "BYBIT_SPOT",
+  "tradeMode": "REAL",
+  "apiKey": "sua-api-key",
+  "apiSecret": "seu-api-secret",
+  "isTestnet": false,
+  "isActive": true
+}
+\`\`\`
+`
   })
   @ApiResponse({ 
     status: 201, 
@@ -72,8 +97,8 @@ export class ExchangeAccountsController {
     schema: {
       example: {
         id: 1,
-        exchange: 'BINANCE_SPOT',
-        label: 'Minha Conta Binance',
+        exchange: 'BYBIT_SPOT',
+        label: 'Minha Conta Bybit',
         is_simulation: false,
         is_active: true,
         testnet: false,
@@ -97,10 +122,42 @@ export class ExchangeAccountsController {
     @Body() createDto: CreateExchangeAccountDto
   ) {
     try {
-      return await this.exchangeAccountsService.getDomainService().createAccount({
-        ...createDto,
+      // Mapear campos do frontend para o formato esperado pelo domain service
+      const mappedDto: any = {
+        exchange: createDto.exchange,
+        label: createDto.label,
         userId: user.userId,
-      });
+        apiKey: createDto.apiKey,
+        apiSecret: createDto.apiSecret,
+        proxyUrl: createDto.proxyUrl,
+        initialBalances: createDto.initialBalances,
+      };
+
+      // Mapear tradeMode para isSimulation
+      if (createDto.tradeMode !== undefined) {
+        mappedDto.isSimulation = createDto.tradeMode === 'SIMULATION';
+      } else if (createDto.isSimulation !== undefined) {
+        mappedDto.isSimulation = createDto.isSimulation;
+      } else {
+        // Default: se não especificado, assume REAL (não simulação)
+        mappedDto.isSimulation = false;
+      }
+
+      // Mapear isTestnet para testnet
+      if (createDto.isTestnet !== undefined) {
+        mappedDto.testnet = createDto.isTestnet;
+      } else if (createDto.testnet !== undefined) {
+        mappedDto.testnet = createDto.testnet;
+      } else {
+        mappedDto.testnet = false;
+      }
+
+      // isActive será tratado pelo domain service se necessário
+      if (createDto.isActive !== undefined) {
+        mappedDto.isActive = createDto.isActive;
+      }
+
+      return await this.exchangeAccountsService.getDomainService().createAccount(mappedDto);
     } catch (error: any) {
       const errorMessage = error?.message || 'Erro ao criar conta';
       
@@ -239,18 +296,18 @@ export class ExchangeAccountsController {
     schema: {
       example: {
         success: true,
-        message: 'Connection successful'
+        message: 'Connection successful. API key validated and account accessible.'
       }
     }
   })
   @ApiResponse({ 
     status: 400, 
-    description: 'Falha na conexão',
+    description: 'Falha na conexão com detalhes do erro',
     schema: {
       example: {
         success: false,
-        message: 'Connection failed',
-        error: 'Invalid API credentials'
+        message: 'Connection failed: INVALID_API_KEY',
+        error: 'API Key is invalid or has been deleted'
       }
     }
   })
@@ -258,11 +315,11 @@ export class ExchangeAccountsController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any
   ) {
-    const success = await this.exchangeAccountsService.testConnection(
+    const result = await this.exchangeAccountsService.testConnection(
       id,
       user.userId
     );
-    return { success, message: success ? 'Connection successful' : 'Connection failed' };
+    return result;
   }
 }
 

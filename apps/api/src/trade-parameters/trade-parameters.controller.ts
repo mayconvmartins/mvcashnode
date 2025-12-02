@@ -136,7 +136,7 @@ export class TradeParametersController {
       // Validar que a exchange account pertence ao usuário
       const account = await this.prisma.exchangeAccount.findFirst({
         where: {
-          id: createDto.exchangeAccountId,
+          id: createDto.accountId || createDto.exchangeAccountId,
           user_id: user.userId,
         },
       });
@@ -159,15 +159,36 @@ export class TradeParametersController {
         }
       }
 
-      return this.tradeParametersService.getDomainService().createParameter({
-        ...createDto,
+      // Mapear campos do frontend para o formato esperado
+      const mappedDto = {
         userId: user.userId,
-      });
+        exchangeAccountId: createDto.accountId || createDto.exchangeAccountId,
+        symbol: createDto.symbol,
+        side: createDto.side,
+        quoteAmountFixed: 
+          createDto.orderSizeType === 'FIXED' ? createDto.orderSizeValue : undefined,
+        quoteAmountPctBalance: 
+          createDto.orderSizeType === 'PERCENT_BALANCE' ? createDto.orderSizeValue : undefined,
+        maxOrdersPerHour: createDto.maxOrdersPerHour,
+        minIntervalSec: createDto.minIntervalSec,
+        orderTypeDefault: createDto.orderType || 'MARKET',
+        slippageBps: createDto.slippageBps,
+        defaultSlEnabled: createDto.stopLoss !== undefined || createDto.stopLossPercent !== undefined,
+        defaultSlPct: createDto.stopLossPercent || createDto.stopLoss,
+        defaultTpEnabled: createDto.takeProfit !== undefined || createDto.takeProfitPercent !== undefined,
+        defaultTpPct: createDto.takeProfitPercent || createDto.takeProfit,
+        trailingStopEnabled: createDto.trailingStop || false,
+        trailingDistancePct: createDto.trailingDistancePct,
+        vaultId: createDto.vaultId,
+      };
+
+      return this.tradeParametersService.getDomainService().createParameter(mappedDto);
     } catch (error: any) {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      throw new BadRequestException('Erro ao criar parâmetro de trading');
+      console.error('[TradeParameters] Erro ao criar:', error);
+      throw new BadRequestException(error.message || 'Erro ao criar parâmetro de trading');
     }
   }
 

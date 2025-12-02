@@ -1,0 +1,126 @@
+import { apiClient } from './client'
+
+export interface ProcessMetrics {
+    pid: number
+    name: string
+    cpu: number
+    memory: number
+    uptime: number
+    status: 'running' | 'stopped' | 'error'
+    lastUpdate: string
+}
+
+export interface SystemMetrics {
+    cpu: {
+        usage: number
+        cores: number
+        speed: number
+    }
+    memory: {
+        total: number
+        used: number
+        free: number
+        usagePercent: number
+    }
+    disk: {
+        total: number
+        used: number
+        free: number
+        usagePercent: number
+    }
+    uptime: number
+    timestamp: string
+}
+
+export interface JobMetrics {
+    name: string
+    description: string
+    status: 'active' | 'paused' | 'disabled'
+    lastExecution?: {
+        timestamp: string
+        duration: number
+        result: 'success' | 'failed'
+        data?: any
+    }
+    nextExecution?: string
+    statistics: {
+        totalRuns: number
+        successCount: number
+        failureCount: number
+        avgDuration: number
+    }
+}
+
+export interface SystemAlert {
+    id: number
+    alert_type: string
+    severity: 'low' | 'medium' | 'high' | 'critical'
+    message: string
+    service_name?: string
+    metadata_json?: any
+    created_at: string
+    resolved_at?: string
+    resolved_by?: number
+}
+
+export interface SystemStatus {
+    services: {
+        api: ProcessMetrics
+        executor?: ProcessMetrics
+        monitors?: ProcessMetrics
+    }
+    resources: {
+        database: { status: string; responseTime?: number }
+        redis: { status: string; responseTime?: number }
+    }
+    system: SystemMetrics
+    alerts: {
+        critical: number
+        high: number
+        medium: number
+        low: number
+    }
+}
+
+class MonitoringService {
+    async getStatus(): Promise<SystemStatus> {
+        const { data } = await apiClient.get('/monitoring/status')
+        return data
+    }
+
+    async getProcesses(): Promise<ProcessMetrics[]> {
+        const { data } = await apiClient.get('/monitoring/processes')
+        return data
+    }
+
+    async getJobs(): Promise<JobMetrics[]> {
+        const { data } = await apiClient.get('/monitoring/jobs')
+        return data
+    }
+
+    async getAlerts(): Promise<SystemAlert[]> {
+        const { data } = await apiClient.get('/monitoring/alerts')
+        return data
+    }
+
+    async resolveAlert(alertId: number): Promise<void> {
+        await apiClient.post(`/monitoring/alerts/${alertId}/resolve`)
+    }
+
+    async getHistory(service?: string, limit?: number): Promise<any[]> {
+        const { data } = await apiClient.get('/monitoring/history', {
+            params: { service, limit },
+        })
+        return data
+    }
+
+    async getMetrics(hours?: number): Promise<Record<string, any[]>> {
+        const { data } = await apiClient.get('/monitoring/metrics', {
+            params: { hours },
+        })
+        return data
+    }
+}
+
+export const monitoringService = new MonitoringService()
+

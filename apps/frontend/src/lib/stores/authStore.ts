@@ -24,6 +24,15 @@ export const useAuthStore = create<AuthState>()(
                 if (typeof window !== 'undefined') {
                     localStorage.setItem('accessToken', accessToken)
                     localStorage.setItem('refreshToken', refreshToken)
+                    
+                    // Salvar nos cookies para o middleware do Next.js
+                    const expiresAccess = new Date()
+                    expiresAccess.setDate(expiresAccess.getDate() + 7) // 7 dias
+                    document.cookie = `accessToken=${accessToken}; path=/; expires=${expiresAccess.toUTCString()}; SameSite=Lax`
+                    
+                    const expiresRefresh = new Date()
+                    expiresRefresh.setDate(expiresRefresh.getDate() + 30) // 30 dias
+                    document.cookie = `refreshToken=${refreshToken}; path=/; expires=${expiresRefresh.toUTCString()}; SameSite=Lax`
                 }
                 set({ accessToken, refreshToken, isAuthenticated: true })
             },
@@ -36,6 +45,10 @@ export const useAuthStore = create<AuthState>()(
                 if (typeof window !== 'undefined') {
                     localStorage.removeItem('accessToken')
                     localStorage.removeItem('refreshToken')
+                    
+                    // Remover dos cookies
+                    document.cookie = 'accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+                    document.cookie = 'refreshToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
                 }
                 set({
                     user: null,

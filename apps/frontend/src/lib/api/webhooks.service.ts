@@ -11,6 +11,11 @@ import type {
 
 export const webhooksService = {
     // Webhook Sources
+    list: async (): Promise<WebhookSource[]> => {
+        const response = await apiClient.get<WebhookSource[]>('/webhook-sources')
+        return response.data
+    },
+
     listSources: async (): Promise<WebhookSource[]> => {
         const response = await apiClient.get<WebhookSource[]>('/webhook-sources')
         return response.data
@@ -29,6 +34,10 @@ export const webhooksService = {
     updateSource: async (id: number, data: Partial<CreateWebhookSourceDto>): Promise<WebhookSource> => {
         const response = await apiClient.put<WebhookSource>(`/webhook-sources/${id}`, data)
         return response.data
+    },
+
+    delete: async (id: number): Promise<void> => {
+        await apiClient.delete(`/webhook-sources/${id}`)
     },
 
     deleteSource: async (id: number): Promise<void> => {

@@ -8,7 +8,7 @@ import {
   VaultService,
 } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
 
 @Processor('trade-execution-real')
@@ -84,7 +84,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       this.logger.debug(`[EXECUTOR] API keys obtidas para conta ${tradeJob.exchange_account_id}`);
 
       // Create adapter
-      const adapter = new BinanceSpotAdapter(
+      const adapter = AdapterFactory.createAdapter(
         tradeJob.exchange_account.exchange as ExchangeType,
         keys.apiKey,
         keys.apiSecret,
@@ -96,7 +96,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         try {
           const balance = await adapter.fetchBalance();
           const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
-          const available = balance[quoteAsset]?.free || 0;
+          const available = balance.free[quoteAsset] || 0;
 
           const requiredAmount = quoteAmount > 0 ? quoteAmount : baseQty * (tradeJob.limit_price?.toNumber() || 0);
 
@@ -173,7 +173,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             executed_qty: 0,
             cumm_quote_qty: 0,
             avg_price: tradeJob.limit_price?.toNumber() || 0,
-            fills_json: order.fills || null,
+            fills_json: order.fills || undefined,
             raw_response_json: JSON.parse(JSON.stringify(order)),
           },
         });
@@ -216,7 +216,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           executed_qty: executedQty,
           cumm_quote_qty: cummQuoteQty,
           avg_price: avgPrice,
-          fills_json: order.fills || null,
+          fills_json: order.fills || undefined,
           raw_response_json: JSON.parse(JSON.stringify(order)),
         },
       });

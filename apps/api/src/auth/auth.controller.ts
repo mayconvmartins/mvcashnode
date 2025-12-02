@@ -149,11 +149,13 @@ export class AuthController {
   @ApiResponse({ 
     status: 200, 
     description: '2FA configurado com sucesso',
+    type: Setup2FAResponseDto,
     schema: {
       example: {
         secret: 'JBSWY3DPEHPK3PXP',
-        qrCode: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
-        backupCodes: ['12345678', '87654321']
+        qrCode: 'otpauth://totp/Trading%20Automation:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Trading%20Automation',
+        qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=...',
+        backupCodes: []
       }
     }
   })

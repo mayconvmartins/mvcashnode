@@ -2,32 +2,29 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
+    const pathname = request.nextUrl.pathname
+    
     // Rotas públicas que não precisam de autenticação
     const publicRoutes = ['/login', '/setup-2fa']
-    const isPublicRoute = publicRoutes.some((route) => request.nextUrl.pathname.startsWith(route))
-
-    // Rotas admin que precisam de permissão admin
-    const adminRoutes = ['/admin']
-    const isAdminRoute = adminRoutes.some((route) => request.nextUrl.pathname.startsWith(route))
-
-    // Se for rota pública, permitir acesso
-    if (isPublicRoute) {
+    const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route))
+    
+    // Permitir acesso à rota raiz (dashboard principal)
+    // A proteção será feita no lado do cliente
+    if (isPublicRoute || pathname === '/') {
         return NextResponse.next()
     }
 
-    // Verificar token no cookie ou header (será verificado no cliente também)
+    // Para todas as outras rotas dentro de (dashboard), verificar token
     const token = request.cookies.get('accessToken')?.value || 
                   request.headers.get('authorization')?.replace('Bearer ', '')
 
-    // Se não tiver token e não for rota pública, redirecionar para login
+    // Se não tiver token, redirecionar para login
     if (!token) {
         const loginUrl = new URL('/login', request.url)
-        loginUrl.searchParams.set('redirect', request.nextUrl.pathname)
+        loginUrl.searchParams.set('redirect', pathname)
         return NextResponse.redirect(loginUrl)
     }
 
-    // Para rotas admin, a verificação de permissão será feita no cliente
-    // pois precisamos verificar os roles do usuário
     return NextResponse.next()
 }
 

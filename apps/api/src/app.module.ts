@@ -12,6 +12,7 @@ import { ReportsModule } from './reports/reports.module';
 import { AdminModule } from './admin/admin.module';
 import { TradeParametersModule } from './trade-parameters/trade-parameters.module';
 import { TradeJobsModule } from './trade-jobs/trade-jobs.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
 import * as path from 'path';
 
 @Module({
@@ -48,6 +49,7 @@ import * as path from 'path';
     AdminModule,
     TradeParametersModule,
     TradeJobsModule,
+    MonitoringModule,
   ],
   controllers: [AppController],
   providers: [AppService],

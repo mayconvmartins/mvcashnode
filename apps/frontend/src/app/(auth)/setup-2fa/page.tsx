@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
-import { QRCodeSVG } from 'react-qr-code'
+import QRCode from 'react-qr-code'
 import { authService } from '@/lib/api/auth.service'
 import { useAuthStore } from '@/lib/stores/authStore'
 import { Button } from '@/components/ui/button'
@@ -26,13 +26,22 @@ export default function Setup2FAPage() {
     const setupMutation = useMutation({
         mutationFn: authService.setup2FA,
         onSuccess: (data) => {
-            setSecret(data.secret)
-            setQrCode(data.qrCode)
-            setBackupCodes(data.backupCodes)
+            console.log('[Setup2FA] Dados recebidos:', data)
+            setSecret(data.secret || '')
+            // Usar qrCode (otpauth string) se disponível, senão usar qrCodeUrl
+            const qrValue = data.qrCode || data.qrCodeUrl || ''
+            setQrCode(qrValue)
+            setBackupCodes(data.backupCodes || [])
+            
+            if (!qrValue && data.secret) {
+                console.warn('[Setup2FA] QR Code não recebido, mas secret está disponível')
+            }
+            
             setStep('verify')
             toast.success('QR Code gerado com sucesso!')
         },
         onError: (error: any) => {
+            console.error('[Setup2FA] Erro:', error)
             toast.error(error.message || 'Erro ao configurar 2FA')
         },
     })
@@ -119,7 +128,13 @@ export default function Setup2FAPage() {
                         <div className="space-y-6">
                             <div className="space-y-4">
                                 <div className="flex justify-center p-4 bg-white rounded-lg">
-                                    {qrCode && <QRCodeSVG value={qrCode} size={256} />}
+                                    {qrCode ? (
+                                        <QRCode value={qrCode} size={256} />
+                                    ) : secret ? (
+                                        <div className="text-center text-muted-foreground">
+                                            <p className="text-sm">Gerando QR Code...</p>
+                                        </div>
+                                    ) : null}
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Secret Key (Backup)</Label>
@@ -141,22 +156,28 @@ export default function Setup2FAPage() {
                                 <div className="space-y-2">
                                     <Label>Códigos de Backup</Label>
                                     <div className="grid grid-cols-2 gap-2">
-                                        {backupCodes.map((code, index) => (
-                                            <div
-                                                key={index}
-                                                className="flex items-center justify-between p-2 bg-muted rounded-md font-mono text-sm"
-                                            >
-                                                <span>{code}</span>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-6 w-6"
-                                                    onClick={() => copyToClipboard(code)}
+                                        {backupCodes && Array.isArray(backupCodes) && backupCodes.length > 0 ? (
+                                            backupCodes.map((code, index) => (
+                                                <div
+                                                    key={index}
+                                                    className="flex items-center justify-between p-2 bg-muted rounded-md font-mono text-sm"
                                                 >
-                                                    <Copy className="h-3 w-3" />
-                                                </Button>
-                                            </div>
-                                        ))}
+                                                    <span>{code}</span>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-6 w-6"
+                                                        onClick={() => copyToClipboard(code)}
+                                                    >
+                                                        <Copy className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <p className="col-span-2 text-sm text-muted-foreground">
+                                                Nenhum código de backup disponível
+                                            </p>
+                                        )}
                                     </div>
                                     <p className="text-xs text-muted-foreground">
                                         Guarde estes códigos em local seguro. Eles podem ser usados para

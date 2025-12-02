@@ -24,7 +24,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PrismaService } from '@mvcashnode/db';
 import { ExchangeAccountService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
 
@@ -264,7 +264,7 @@ export class LimitOrdersController {
           const keys = await accountService.decryptApiKeys(job.exchange_account_id);
 
           if (keys) {
-            const adapter = new BinanceSpotAdapter(
+            const adapter = AdapterFactory.createAdapter(
               job.exchange_account.exchange as ExchangeType,
               keys.apiKey,
               keys.apiSecret,
@@ -387,7 +387,7 @@ export class LimitOrdersController {
             throw new BadRequestException('Credenciais da exchange não encontradas');
           }
 
-          const adapter = new BinanceSpotAdapter(
+          const adapter = AdapterFactory.createAdapter(
             job.exchange_account.exchange as ExchangeType,
             keys.apiKey,
             keys.apiSecret,

@@ -2,7 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { PositionService } from '@mvcashnode/domain';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
 
@@ -45,7 +45,7 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
         }
 
         // Create read-only adapter
-        const adapter = new BinanceSpotAdapter(
+        const adapter = AdapterFactory.createAdapter(
           order.exchange_account.exchange as ExchangeType
         );
 

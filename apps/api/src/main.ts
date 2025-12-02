@@ -7,6 +7,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import * as path from 'path';
 import { config } from 'dotenv';
 import * as fs from 'fs';
+import { NtpService, TimezoneService } from '@mvcashnode/shared';
 
 // Carregar .env da raiz do projeto antes de inicializar o NestJS
 // Tentar múltiplos caminhos possíveis
@@ -33,7 +34,44 @@ if (!envLoaded) {
 }
 
 async function bootstrap() {
+  // Inicializar serviços de tempo
+  const ntpEnabled = process.env.NTP_ENABLED === 'true';
+  const ntpServer = process.env.NTP_SERVER || 'pool.ntp.org';
+  const ntpSyncInterval = parseInt(process.env.NTP_SYNC_INTERVAL || '3600000');
+  const timezone = process.env.TIMEZONE || 'America/Sao_Paulo'; // Timezone padrão: São Paulo
+
+  const ntpService = new NtpService(ntpServer, ntpSyncInterval, ntpEnabled);
+  const timezoneService = new TimezoneService(timezone);
+
+  if (ntpEnabled) {
+    ntpService.startPeriodicSync();
+    console.log(`[NTP] Serviço iniciado - servidor: ${ntpServer}, intervalo: ${ntpSyncInterval}ms`);
+  }
+
+  console.log(`[Timezone] Configurado: ${timezone}`);
+  console.log(`[Timezone] Info:`, timezoneService.getInfo());
+
   const app = await NestFactory.create(AppModule);
+
+  // Configuração de CORS
+  const corsDisabled = process.env.CORS_DISABLED === 'true';
+  if (corsDisabled) {
+    app.enableCors({
+      origin: true, // Permite todas as origens
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    });
+    console.log('[CORS] CORS desabilitado - permitindo todas as origens');
+  } else {
+    app.enableCors({
+      origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    });
+    console.log(`[CORS] CORS habilitado - origem permitida: ${process.env.CORS_ORIGIN || 'http://localhost:3000'}`);
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -58,6 +96,7 @@ async function bootstrap() {
     .addTag('Positions', 'Posições abertas e fechadas')
     .addTag('Webhooks', 'Fontes de webhook e eventos')
     .addTag('Reports', 'Relatórios de PnL e performance')
+    .addTag('Monitoring', 'Monitoramento do sistema e alertas')
     .addTag('Admin', 'Administração do sistema')
     .addServer('http://localhost:4010', 'Desenvolvimento Local')
     .build();

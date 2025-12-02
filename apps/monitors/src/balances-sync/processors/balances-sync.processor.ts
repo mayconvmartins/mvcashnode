@@ -3,7 +3,7 @@ import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { ExchangeAccountService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeMode } from '@mvcashnode/shared';
 
 @Processor('balances-sync-real')
@@ -37,7 +37,7 @@ export class BalancesSyncProcessor extends WorkerHost {
         if (!keys) continue;
 
         // Create adapter
-        const adapter = new BinanceSpotAdapter(
+        const adapter = AdapterFactory.createAdapter(
           account.exchange as ExchangeType,
           keys.apiKey,
           keys.apiSecret,

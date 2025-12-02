@@ -6,7 +6,7 @@ import {
   PositionService,
   VaultService,
 } from '@mvcashnode/domain';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
 
@@ -70,7 +70,7 @@ export class TradeExecutionSimProcessor extends WorkerHost {
 
       // For simulation, we need to get current price
       // Create read-only adapter (no API keys needed for simulation)
-      const adapter = new BinanceSpotAdapter(
+      const adapter = AdapterFactory.createAdapter(
         tradeJob.exchange_account.exchange as ExchangeType
       );
 

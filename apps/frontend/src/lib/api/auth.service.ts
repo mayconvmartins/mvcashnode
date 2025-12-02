@@ -24,7 +24,7 @@ export const authService = {
         return response.data
     },
 
-    setup2FA: async (): Promise<{ secret: string; qrCode: string; backupCodes: string[] }> => {
+    setup2FA: async (): Promise<{ secret: string; qrCode: string; qrCodeUrl?: string; backupCodes?: string[] }> => {
         const response = await apiClient.post('/auth/2fa/setup')
         return response.data
     },
@@ -35,17 +35,17 @@ export const authService = {
     },
 
     getMe: async (): Promise<User> => {
-        const response = await apiClient.get<User>('/me')
+        const response = await apiClient.get<User>('/users/me')
         return response.data
     },
 
     updateMe: async (data: Partial<User>): Promise<User> => {
-        const response = await apiClient.put<User>('/me', data)
+        const response = await apiClient.put<User>('/users/me', data)
         return response.data
     },
 
     getLoginHistory: async (): Promise<any[]> => {
-        const response = await apiClient.get('/me/login-history')
+        const response = await apiClient.get('/users/me/login-history')
         return response.data
     },
 }

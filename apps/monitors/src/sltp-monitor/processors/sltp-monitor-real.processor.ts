@@ -4,7 +4,7 @@ import { Job, Queue } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { TradeJobService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 
 @Processor('sl-tp-monitor-real')
@@ -12,7 +12,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService,
-    @InjectQueue('trade-execution-real') private tradeExecutionQueue: Queue
+    @InjectQueue('trade-execution-real') private readonly tradeExecutionQueue: Queue
   ) {
     super();
   }
@@ -50,7 +50,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         if (!keys) continue;
 
         // Create read-only adapter
-        const adapter = new BinanceSpotAdapter(
+        const adapter = AdapterFactory.createAdapter(
           position.exchange_account.exchange as ExchangeType,
           keys.apiKey,
           keys.apiSecret,

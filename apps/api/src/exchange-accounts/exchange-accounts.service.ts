@@ -2,8 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { ExchangeAccountService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType } from '@mvcashnode/shared';
+
+export interface TestConnectionResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
 
 @Injectable()
 export class ExchangeAccountsService {
@@ -20,25 +26,51 @@ export class ExchangeAccountsService {
     return this.domainService;
   }
 
-  async testConnection(accountId: number, userId: number): Promise<boolean> {
-    const account = await this.domainService.getAccountById(accountId, userId);
-    if (!account || account.is_simulation) {
-      return false;
+  async testConnection(accountId: number, userId: number): Promise<TestConnectionResult> {
+    try {
+      const account = await this.domainService.getAccountById(accountId, userId);
+      
+      if (!account) {
+        return {
+          success: false,
+          message: 'Account not found',
+          error: 'Exchange account does not exist or you do not have permission to access it'
+        };
+      }
+
+      if (account.is_simulation) {
+        return {
+          success: true,
+          message: 'Simulation account - no real connection test needed',
+        };
+      }
+
+      const keys = await this.domainService.decryptApiKeys(accountId);
+      if (!keys || !keys.apiKey || !keys.apiSecret) {
+        return {
+          success: false,
+          message: 'Missing credentials',
+          error: 'API Key or Secret not configured for this account'
+        };
+      }
+
+      // Usar factory para criar o adapter correto baseado no tipo de exchange
+      const adapter = AdapterFactory.createAdapter(
+        account.exchange as ExchangeType,
+        keys.apiKey,
+        keys.apiSecret,
+        { testnet: account.testnet }
+      );
+
+      return await adapter.testConnection();
+    } catch (error: any) {
+      console.error('[ExchangeAccountsService] Test connection error:', error);
+      return {
+        success: false,
+        message: 'Unexpected error',
+        error: error.message || 'An unexpected error occurred while testing connection'
+      };
     }
-
-    const keys = await this.domainService.decryptApiKeys(accountId);
-    if (!keys) {
-      return false;
-    }
-
-    const adapter = new BinanceSpotAdapter(
-      account.exchange as ExchangeType,
-      keys.apiKey,
-      keys.apiSecret,
-      { testnet: account.testnet }
-    );
-
-    return adapter.testConnection();
   }
 }
 

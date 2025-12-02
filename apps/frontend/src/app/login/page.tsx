@@ -25,11 +25,17 @@ export default function LoginPage() {
     const loginMutation = useMutation({
         mutationFn: authService.login,
         onSuccess: (data) => {
+            // Salvar tokens e usuário
             setTokens(data.accessToken, data.refreshToken)
             setUser(data.user)
-            const redirect = searchParams.get('redirect')
-            router.push(redirect || '/')
             toast.success('Login realizado com sucesso!')
+            
+            // Aguardar para garantir que os cookies foram salvos
+            setTimeout(() => {
+                const redirect = searchParams.get('redirect')
+                // Usar window.location.replace para forçar reload completo
+                window.location.replace(redirect || '/')
+            }, 200)
         },
         onError: (error: any) => {
             const errorMessage = error.message || error.response?.data?.message || 'Falha no login'

@@ -522,3 +522,85 @@ model VaultAlertSent {
   @@map("vault_alerts_sent")
 }
 
+// ============================================
+// SYSTEM MONITORING
+// ============================================
+
+model SystemMonitoringLog {
+  id             Int      @id @default(autoincrement())
+  timestamp      DateTime @default(now())
+  service_name   String   @db.VarChar(50) // 'API', 'EXECUTOR', 'MONITORS'
+  process_id     Int?
+  status         String   @db.VarChar(20) // 'running', 'stopped', 'error'
+  cpu_usage      Decimal? @db.Decimal(5, 2)
+  memory_usage   Decimal? @db.Decimal(10, 2)
+  metrics_json   Json?    @db.Json
+
+  @@index([service_name, timestamp])
+  @@index([timestamp])
+  @@map("system_monitoring_logs")
+}
+
+model SystemAlert {
+  id           Int       @id @default(autoincrement())
+  alert_type   String    @db.VarChar(50) // 'PROCESS_STUCK', 'HIGH_CPU', 'HIGH_MEMORY', 'SERVICE_DOWN'
+  severity     String    @db.VarChar(20) // 'low', 'medium', 'high', 'critical'
+  message      String    @db.Text
+  service_name String?   @db.VarChar(50)
+  metadata_json Json?    @db.Json
+  created_at   DateTime  @default(now())
+  resolved_at  DateTime?
+  resolved_by  Int?      // user_id que resolveu o alerta
+
+  @@index([alert_type, severity])
+  @@index([created_at])
+  @@index([resolved_at])
+  @@map("system_alerts")
+}
+
+// ============================================
+// CRON JOBS MANAGEMENT
+// ============================================
+
+model CronJobConfig {
+  id                Int       @id @default(autoincrement())
+  name              String    @unique @db.VarChar(100) // Nome único do job (ex: 'sl-tp-monitor-real')
+  description       String    @db.VarChar(255)
+  queue_name        String    @db.VarChar(100) // Nome da fila BullMQ
+  job_id            String    @db.VarChar(100) // jobId do BullMQ
+  interval_ms       Int       // Intervalo em milissegundos
+  status            String    @default("ACTIVE") @db.VarChar(20) // 'ACTIVE', 'PAUSED', 'DISABLED'
+  enabled           Boolean   @default(true)
+  timeout_ms        Int?      // Timeout para execução
+  max_retries       Int       @default(3)
+  config_json       Json?     @db.Json // Configurações adicionais
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  updated_by        Int?      // user_id que atualizou
+
+  executions        CronJobExecution[]
+
+  @@index([name])
+  @@index([status])
+  @@map("cron_job_configs")
+}
+
+model CronJobExecution {
+  id              Int       @id @default(autoincrement())
+  job_config_id   Int
+  started_at      DateTime  @default(now())
+  finished_at     DateTime?
+  duration_ms     Int?
+  status          String    @db.VarChar(20) // 'SUCCESS', 'FAILED', 'TIMEOUT', 'RUNNING'
+  result_json     Json?     @db.Json
+  error_message   String?   @db.Text
+  triggered_by    String    @default("SCHEDULED") @db.VarChar(20) // 'SCHEDULED', 'MANUAL'
+
+  job_config      CronJobConfig @relation(fields: [job_config_id], references: [id], onDelete: Cascade)
+
+  @@index([job_config_id, started_at])
+  @@index([started_at])
+  @@index([status])
+  @@map("cron_job_executions")
+}
+

@@ -25,9 +25,15 @@ apiClient.interceptors.request.use(
     }
 )
 
-// Response interceptor para refresh token e tratamento de erros
+// Response interceptor para extrair data e refresh token
 apiClient.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        // Backend retorna { data: {...} }, então extraímos o data interno
+        if (response.data && typeof response.data === 'object' && 'data' in response.data) {
+            response.data = response.data.data
+        }
+        return response
+    },
     async (error: AxiosError<ApiError>) => {
         const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean }
 

@@ -1,6 +1,12 @@
 import { Exchange } from 'ccxt';
 import { ExchangeType } from '@mvcashnode/shared';
 
+export type TestConnectionResult = {
+  success: boolean;
+  message?: string;
+  error?: string;
+};
+
 export interface OrderResult {
   id: string;
   symbol: string;
@@ -13,6 +19,7 @@ export interface OrderResult {
   remaining?: number;
   cost?: number;
   average?: number;
+  fills?: any[]; // Array de fills da ordem (pode conter informações detalhadas de cada preenchimento)
 }
 
 export interface Balance {
@@ -47,12 +54,85 @@ export abstract class ExchangeAdapter {
     options?: any
   ): Exchange;
 
-  async testConnection(): Promise<boolean> {
+  async testConnection(): Promise<TestConnectionResult> {
     try {
+      // PRIMEIRO: Sincronizar timestamp com o servidor (crítico!)
+      try {
+        await this.exchange.loadTimeDifference();
+        console.log(`[ExchangeAdapter] Timestamp sincronizado: ${this.exchange.options.timeDifference || 0}ms`);
+      } catch (timeError) {
+        console.warn('[ExchangeAdapter] Aviso ao sincronizar timestamp:', timeError);
+      }
+
+      // SEGUNDO: Carregar mercados
       await this.exchange.loadMarkets();
-      return true;
-    } catch (error) {
-      return false;
+      
+      // TERCEIRO: Se tem API key, tentar buscar balance para validar permissões
+      if (this.exchange.apiKey) {
+        try {
+          await this.exchange.fetchBalance();
+          return { 
+            success: true, 
+            message: 'Connection successful. API key validated and account accessible.' 
+          };
+        } catch (balanceError: any) {
+          // Se loadMarkets passou mas fetchBalance falhou, ainda é considerado sucesso parcial
+          return { 
+            success: true, 
+            message: 'Connection successful but limited permissions detected.',
+            error: `Balance check failed: ${balanceError.message || balanceError.toString()}`
+          };
+        }
+      }
+      
+      return { 
+        success: true, 
+        message: 'Connection successful. Market data accessible.' 
+      };
+    } catch (error: any) {
+      // Extrair mensagem de erro específica do CCXT
+      let errorMessage = 'Unknown error';
+      let errorType = 'CONNECTION_ERROR';
+
+      if (error.name) {
+        errorType = error.name;
+      }
+
+      if (error.message) {
+        errorMessage = error.message;
+      }
+
+      // Erros comuns do CCXT
+      if (errorMessage.includes('Invalid API-key')) {
+        errorType = 'INVALID_API_KEY';
+        errorMessage = 'API Key is invalid or has been deleted';
+      } else if (errorMessage.includes('Signature for this request is not valid')) {
+        errorType = 'INVALID_SIGNATURE';
+        errorMessage = 'API Secret is incorrect';
+      } else if (errorMessage.includes('IP address')) {
+        errorType = 'IP_RESTRICTION';
+        errorMessage = 'IP address not whitelisted in exchange settings';
+      } else if (errorMessage.includes('Timestamp') || errorMessage.includes('1000ms ahead') || errorMessage.includes('time')) {
+        errorType = 'TIMESTAMP_ERROR';
+        errorMessage = 'System clock is out of sync with exchange server. Please sync your system time or enable NTP.';
+      } else if (errorMessage.includes('banned')) {
+        errorType = 'BANNED';
+        errorMessage = 'API key or IP has been banned by the exchange';
+      } else if (errorMessage.includes('Permission')) {
+        errorType = 'PERMISSION_ERROR';
+        errorMessage = 'API key does not have required permissions';
+      } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('ETIMEDOUT')) {
+        errorType = 'NETWORK_ERROR';
+        errorMessage = 'Cannot reach exchange servers. Check internet connection.';
+      }
+
+      console.error(`[ExchangeAdapter] Test connection failed (${errorType}):`, errorMessage);
+
+      return { 
+        success: false, 
+        message: `Connection failed: ${errorType}`,
+        error: errorMessage
+      };
     }
   }
 
@@ -85,6 +165,7 @@ export abstract class ExchangeAdapter {
       remaining: order.remaining ? Number(order.remaining) : undefined,
       cost: order.cost ? Number(order.cost) : undefined,
       average: order.average ? Number(order.average) : undefined,
+      fills: (order as any).fills || undefined,
     };
   }
 
@@ -102,6 +183,7 @@ export abstract class ExchangeAdapter {
       remaining: order.remaining ? Number(order.remaining) : undefined,
       cost: order.cost ? Number(order.cost) : undefined,
       average: order.average ? Number(order.average) : undefined,
+      fills: (order as any).fills || undefined,
     };
   }
 

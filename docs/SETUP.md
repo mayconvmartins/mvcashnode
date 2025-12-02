@@ -147,6 +147,16 @@ ENCRYPTION_KEY=your-exactly-32-byte-key-here
 # API
 API_PORT=4010
 NODE_ENV=development
+
+# CORS (para desenvolvimento)
+CORS_DISABLED=true  # Define como true para desabilitar CORS e permitir todas as origens em dev
+CORS_ORIGIN=http://localhost:3000  # Origem permitida quando CORS_DISABLED=false
+
+# NTP e Timezone
+TIMEZONE=America/Sao_Paulo  # Timezone do sistema
+NTP_SERVER=pool.ntp.org  # Servidor NTP para sincronização
+NTP_SYNC_INTERVAL=3600000  # Intervalo de sincronização NTP em ms (1 hora)
+NTP_ENABLED=true  # Habilitar sincronização NTP
 ```
 
 ### 4. Executar Migrations

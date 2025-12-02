@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import {
     LayoutDashboard,
     Wallet,
-    Safe,
+    Vault,
     Settings2,
     Webhook,
     LineChart,
@@ -16,7 +16,8 @@ import {
     ShieldAlert,
     LogOut,
     Menu,
-    X
+    X,
+    Activity
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -25,13 +26,14 @@ import { useState } from 'react'
 const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
     { icon: Wallet, label: 'Contas', href: '/accounts' },
-    { icon: Safe, label: 'Cofres', href: '/vaults' },
+    { icon: Vault, label: 'Cofres', href: '/vaults' },
     { icon: Settings2, label: 'Parâmetros', href: '/parameters' },
     { icon: Webhook, label: 'Webhooks', href: '/webhooks' },
     { icon: LineChart, label: 'Posições', href: '/positions' },
     { icon: ArrowLeftRight, label: 'Ordens Limit', href: '/limit-orders' },
     { icon: History, label: 'Operações', href: '/operations' },
     { icon: FileBarChart, label: 'Relatórios', href: '/reports' },
+    { icon: Activity, label: 'Monitoramento', href: '/monitoring', adminOnly: true },
     { icon: ShieldAlert, label: 'Admin', href: '/admin', adminOnly: true },
 ]
 

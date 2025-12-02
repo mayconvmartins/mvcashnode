@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { TradeJobService } from '@mvcashnode/domain';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 
 @Processor('sl-tp-monitor-sim')
@@ -39,7 +39,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
     for (const position of positions) {
       try {
         // Create read-only adapter (no API keys needed for simulation)
-        const adapter = new BinanceSpotAdapter(
+        const adapter = AdapterFactory.createAdapter(
           position.exchange_account.exchange as ExchangeType
         );
 

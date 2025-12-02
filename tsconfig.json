@@ -9,6 +9,8 @@
     "outDir": "./dist",
     "composite": true,
     "removeComments": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,

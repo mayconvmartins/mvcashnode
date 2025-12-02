@@ -3,7 +3,7 @@ import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { PositionService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
-import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 
 @Processor('limit-orders-monitor-real')
@@ -64,17 +64,14 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
         const existingExecution = order.executions && order.executions.length > 0 ? order.executions[0] : null;
         
         if (!existingExecution?.exchange_order_id) {
-          // Ordem ainda não foi criada na exchange - enfileirar no executor para criar
-          const { TradeJobQueueService } = await import('../../../../api/src/trade-jobs/trade-job-queue.service');
-          // Não podemos usar o serviço da API aqui, então vamos usar a fila diretamente
-          // Mas primeiro, vamos verificar se o job já está enfileirado
+          // Ordem ainda não foi criada na exchange - aguardar processamento pelo executor
           // Por enquanto, apenas logar e continuar - o executor processará quando enfileirado
           console.log(`[LIMIT-MONITOR] Ordem LIMIT ${order.id} ainda não tem execution. Aguardando processamento pelo executor.`);
           continue;
         }
 
         // Create adapter
-        const adapter = new BinanceSpotAdapter(
+        const adapter = AdapterFactory.createAdapter(
           order.exchange_account.exchange as ExchangeType,
           keys.apiKey,
           keys.apiSecret,

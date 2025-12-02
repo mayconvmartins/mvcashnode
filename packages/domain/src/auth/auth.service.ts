@@ -77,7 +77,7 @@ export class AuthService {
     }
   }
 
-  async setup2FA(userId: number): Promise<{ secret: string; qrCodeUrl: string }> {
+  async setup2FA(userId: number): Promise<{ secret: string; qrCode: string; qrCodeUrl: string; backupCodes: string[] }> {
     const secret = authenticator.generateSecret();
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -105,6 +105,8 @@ export class AuthService {
     return {
       secret,
       qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpauth)}`,
+      qrCode: otpauth, // String otpauth para gerar QR code no frontend
+      backupCodes: [], // Códigos de backup podem ser gerados aqui se necessário
     };
   }
 

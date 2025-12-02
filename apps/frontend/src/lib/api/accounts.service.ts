@@ -35,6 +35,28 @@ export const accountsService = {
         const response = await apiClient.post<TestConnectionResponse>(
             `/exchange-accounts/${id}/test-connection`
         )
+        // Backend retorna { success, message }, não { data: { success, message } }
+        return response.data
+    },
+
+    // Novos métodos para ações da conta
+    getBalances: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/exchange-accounts/${id}/balances`)
+        return response.data
+    },
+
+    syncBalances: async (id: number): Promise<any> => {
+        const response = await apiClient.post(`/exchange-accounts/${id}/sync-balances`)
+        return response.data
+    },
+
+    getPositions: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/exchange-accounts/${id}/positions`)
+        return response.data
+    },
+
+    syncPositions: async (id: number): Promise<any> => {
+        const response = await apiClient.post(`/exchange-accounts/${id}/sync-positions`)
         return response.data
     },
 }
