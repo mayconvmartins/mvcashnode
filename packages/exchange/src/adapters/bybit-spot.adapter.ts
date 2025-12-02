@@ -38,19 +38,38 @@ export class BybitSpotAdapter extends ExchangeAdapter {
     // Configurações adicionais
     exchange.options['warnOnFetchOpenOrdersWithoutSymbol'] = false;
     
-    // Substituir a função nonce() do CCXT para usar NTP
-    if (ntpServiceInstance) {
-      const ntpService = ntpServiceInstance; // Capturar no closure
-      exchange.nonce = function() {
-        const timestamp = ntpService.getTimestamp();
-        const intTimestamp = Math.floor(timestamp);
-        console.log(`[Bybit.nonce] NTP timestamp: ${intTimestamp} (offset: ${ntpService.getOffset()}ms)`);
-        return intTimestamp;
-      };
-      console.log('[Bybit] ✅ Timestamp NTP customizado configurado');
-    } else {
-      console.error('[Bybit] ❌ NTP Service NÃO configurado! Timestamps estarão incorretos!');
-    }
+      // Substituir TODOS os métodos de timestamp para usar NTP
+      if (ntpServiceInstance) {
+        const ntpService = ntpServiceInstance; // Capturar no closure
+        const originalSign = exchange.sign.bind(exchange);
+        const ntpOffset = ntpService.getOffset();
+        
+        // nonce() usado para gerar IDs únicos
+        exchange.nonce = function() {
+          const timestamp = ntpService.getTimestamp();
+          return Math.floor(timestamp);
+        };
+        
+        // milliseconds() usado para timestamps em assinaturas e requisições
+        exchange.milliseconds = function() {
+          const timestamp = ntpService.getTimestamp();
+          const intTimestamp = Math.floor(timestamp);
+          return intTimestamp;
+        };
+        
+        // Sobrescrever sign() para garantir que timestamp seja sempre usado
+        exchange.sign = function(path: string, api: string = 'private', method: string = 'GET', params: any = {}, headers: any = {}, body: any = undefined) {
+          // Garantir que timestamp está presente nos params
+          if (api === 'private' && !params.timestamp) {
+            params.timestamp = this.milliseconds();
+          }
+          return originalSign(path, api, method, params, headers, body);
+        };
+        
+        console.log(`[Bybit] ✅ NTP configurado - Offset: ${ntpOffset}ms (nonce + milliseconds + sign customizados)`);
+      } else {
+        console.error('[Bybit] ❌ NTP Service NÃO configurado! Timestamps estarão incorretos!');
+      }
     
     return exchange;
   }

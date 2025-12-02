@@ -322,6 +322,44 @@ export class ExchangeAccountsController {
     return result;
   }
 
+  @Get(':id/balances')
+  @ApiOperation({ 
+    summary: 'Obter saldos da conta',
+    description: 'Retorna os saldos sincronizados da conta de exchange armazenados no cache local.'
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da conta de exchange', example: 1 })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Saldos obtidos com sucesso',
+    schema: {
+      example: {
+        success: true,
+        balances: {
+          BTC: { free: 0.5, locked: 0.1, lastSync: '2025-12-02T16:00:00.000Z' },
+          USDT: { free: 1000, locked: 200, lastSync: '2025-12-02T16:00:00.000Z' }
+        },
+        lastSync: '2025-12-02T16:00:00.000Z'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Conta não encontrada',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: 'Exchange account not found',
+        error: 'Not Found'
+      }
+    }
+  })
+  async getBalances(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any
+  ) {
+    return await this.exchangeAccountsService.getBalances(id, user.userId);
+  }
+
   @Post(':id/sync-balances')
   @ApiOperation({ 
     summary: 'Sincronizar saldos da exchange',

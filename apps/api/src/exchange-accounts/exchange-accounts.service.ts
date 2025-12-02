@@ -73,6 +73,62 @@ export class ExchangeAccountsService {
     }
   }
 
+  async getBalances(accountId: number, userId: number): Promise<any> {
+    try {
+      const account = await this.domainService.getAccountById(accountId, userId);
+      
+      if (!account) {
+        throw new Error('Exchange account not found');
+      }
+
+      const tradeMode = account.is_simulation ? TradeMode.SIMULATION : TradeMode.REAL;
+
+      // Buscar saldos do cache
+      const balancesCache = await this.prisma.accountBalanceCache.findMany({
+        where: {
+          exchange_account_id: accountId,
+          trade_mode: tradeMode,
+        },
+        orderBy: {
+          asset: 'asc',
+        },
+      });
+
+      // Converter para formato esperado pelo frontend
+      const balances: Record<string, { free: number; locked: number; lastSync?: string }> = {};
+      
+      for (const cache of balancesCache) {
+        balances[cache.asset] = {
+          free: cache.free.toNumber(),
+          locked: cache.locked.toNumber(),
+          lastSync: cache.last_sync_at?.toISOString(),
+        };
+      }
+
+      // Se for conta de simulação e não houver cache, retornar saldos iniciais
+      if (account.is_simulation && Object.keys(balances).length === 0) {
+        const initialBalances = account.initial_balances_json as Record<string, number> || {};
+        for (const [asset, amount] of Object.entries(initialBalances)) {
+          balances[asset] = {
+            free: amount,
+            locked: 0,
+          };
+        }
+      }
+
+      return {
+        success: true,
+        balances,
+        lastSync: balancesCache.length > 0 
+          ? balancesCache[0].last_sync_at?.toISOString() 
+          : null,
+      };
+    } catch (error: any) {
+      console.error('[ExchangeAccountsService] Get balances error:', error);
+      throw new Error(`Failed to get balances: ${error.message}`);
+    }
+  }
+
   async syncBalances(accountId: number, userId: number): Promise<any> {
     try {
       const account = await this.domainService.getAccountById(accountId, userId);

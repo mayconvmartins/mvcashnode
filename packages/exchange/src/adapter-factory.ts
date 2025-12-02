@@ -1,4 +1,4 @@
-import { ExchangeType } from '@mvcashnode/shared';
+import { ExchangeType, NtpService } from '@mvcashnode/shared';
 import { ExchangeAdapter } from './exchange-adapter';
 import { BinanceSpotAdapter } from './adapters/binance-spot.adapter';
 import { BybitSpotAdapter } from './adapters/bybit-spot.adapter';
@@ -7,6 +7,20 @@ import { BybitSpotAdapter } from './adapters/bybit-spot.adapter';
  * Factory para criar adapters de exchange baseado no tipo
  */
 export class AdapterFactory {
+  private static ntpService: NtpService | null = null;
+
+  /**
+   * Configura o NTP Service para todos os adapters criados
+   * Deve ser chamado ANTES de criar qualquer adapter
+   */
+  static setNtpService(ntpService: NtpService): void {
+    AdapterFactory.ntpService = ntpService;
+    // Configurar diretamente nos adapters também (para compatibilidade)
+    BinanceSpotAdapter.setNtpService(ntpService);
+    BybitSpotAdapter.setNtpService(ntpService);
+    console.log('[AdapterFactory] NTP Service configurado para todos os adapters');
+  }
+
   /**
    * Cria um adapter apropriado para o tipo de exchange
    */
@@ -16,18 +30,30 @@ export class AdapterFactory {
     apiSecret?: string,
     options?: any
   ): ExchangeAdapter {
+    let adapter: ExchangeAdapter;
+
     switch (exchangeType) {
       case ExchangeType.BINANCE_SPOT:
       case ExchangeType.BINANCE_FUTURES:
-        return new BinanceSpotAdapter(exchangeType, apiKey, apiSecret, options);
+        adapter = new BinanceSpotAdapter(exchangeType, apiKey, apiSecret, options);
+        break;
 
       case ExchangeType.BYBIT_SPOT:
       case ExchangeType.BYBIT_FUTURES:
-        return new BybitSpotAdapter(exchangeType, apiKey, apiSecret, options);
+        adapter = new BybitSpotAdapter(exchangeType, apiKey, apiSecret, options);
+        break;
 
       default:
         throw new Error(`Exchange type ${exchangeType} is not supported`);
     }
+
+    // Garantir que o NTP está configurado (caso não tenha sido configurado antes)
+    if (AdapterFactory.ntpService) {
+      BinanceSpotAdapter.setNtpService(AdapterFactory.ntpService);
+      BybitSpotAdapter.setNtpService(AdapterFactory.ntpService);
+    }
+
+    return adapter;
   }
 
   /**

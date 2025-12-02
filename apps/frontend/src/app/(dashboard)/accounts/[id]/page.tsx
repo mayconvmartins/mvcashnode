@@ -19,11 +19,13 @@ import {
     Activity,
     Clock,
     Shield,
-    AlertCircle
+    AlertCircle,
+    PiggyBank
 } from 'lucide-react'
-import { formatDateTime, formatCurrency } from '@/lib/utils/format'
+import { formatDateTime, formatCurrency, formatAssetAmount } from '@/lib/utils/format'
 import { toast } from 'sonner'
 import { TestConnectionButton } from '@/components/accounts/TestConnectionButton'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 export default function AccountDetailPage() {
     const params = useParams()
@@ -56,6 +58,12 @@ export default function AccountDetailPage() {
         onError: (error: any) => {
             toast.error(error.response?.data?.message || 'Falha ao sincronizar posições')
         },
+    })
+
+    const { data: balances, isLoading: isLoadingBalances, error: balancesError, refetch: refetchBalances } = useQuery({
+        queryKey: ['accountBalances', accountId],
+        queryFn: () => accountsService.getBalances(accountId),
+        enabled: !isNaN(accountId),
     })
 
     if (isLoading) {
@@ -299,7 +307,13 @@ export default function AccountDetailPage() {
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => syncBalancesMutation.mutate()}
+                                    onClick={() => {
+                                        syncBalancesMutation.mutate(undefined, {
+                                            onSuccess: () => {
+                                                refetchBalances()
+                                            }
+                                        })
+                                    }}
                                     disabled={syncBalancesMutation.isPending}
                                 >
                                     <RefreshCw className={`h-4 w-4 mr-2 ${syncBalancesMutation.isPending ? 'animate-spin' : ''}`} />
@@ -326,18 +340,142 @@ export default function AccountDetailPage() {
                                 </div>
                             )}
 
-                            <div className="text-center py-12 text-muted-foreground">
-                                <Wallet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                                <p className="mb-2">Sincronize os saldos para ver os ativos disponíveis</p>
-                                <Button 
-                                    variant="outline"
-                                    onClick={() => syncBalancesMutation.mutate()}
-                                    disabled={syncBalancesMutation.isPending}
-                                >
-                                    <RefreshCw className={`h-4 w-4 mr-2 ${syncBalancesMutation.isPending ? 'animate-spin' : ''}`} />
-                                    {syncBalancesMutation.isPending ? 'Sincronizando...' : 'Sincronizar Agora'}
-                                </Button>
-                            </div>
+                            {isLoadingBalances ? (
+                                <div className="text-center py-8">
+                                    <RefreshCw className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+                                    <p className="text-muted-foreground mt-4">Carregando saldos...</p>
+                                </div>
+                            ) : balancesError ? (
+                                <div className="text-center py-8 text-destructive">
+                                    <XCircle className="h-8 w-8 mx-auto mb-4" />
+                                    <p>Erro ao carregar saldos: {(balancesError as any)?.response?.data?.message || 'Erro desconhecido'}</p>
+                                    <Button onClick={() => refetchBalances()} className="mt-4">
+                                        Tentar Novamente
+                                    </Button>
+                                </div>
+                            ) : balances && balances.balances && Object.keys(balances.balances).length > 0 ? (
+                                <div className="space-y-4">
+                                    {balances.lastSync && (
+                                        <div className="text-sm text-muted-foreground">
+                                            Última sincronização: {formatDateTime(balances.lastSync)}
+                                        </div>
+                                    )}
+                                    
+                                    {/* Card de Valor Total em USDT */}
+                                    {(() => {
+                                        // Buscar USDT disponível (pode ser USDT ou USDT.P)
+                                        const usdtBalance = balances.balances['USDT'] || balances.balances['USDT.P'] || { free: 0, locked: 0 }
+                                        const totalUsdtAvailable = usdtBalance.free
+                                        
+                                        // Calcular total de todos os ativos (quantidade)
+                                        const totalAssets = Object.entries(balances.balances)
+                                            .filter(([_, balance]) => {
+                                                const total = balance.free + balance.locked
+                                                return total > 0.00000001
+                                            })
+                                            .length
+                                        
+                                        return (
+                                            <Card className="glass border-2 border-primary/30 bg-gradient-to-br from-primary/10 via-primary/5 to-background shadow-lg">
+                                                <CardContent className="pt-6 pb-6">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex-1">
+                                                            <p className="text-sm font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                                                                Saldo Disponível em USDT
+                                                            </p>
+                                                            <p className="text-5xl font-bold gradient-text mb-2">
+                                                                {formatCurrency(totalUsdtAvailable, 'USD')}
+                                                            </p>
+                                                            <div className="flex items-center gap-4 mt-3">
+                                                                <div className="text-xs text-muted-foreground">
+                                                                    <span className="font-medium">{totalAssets}</span> ativo{totalAssets !== 1 ? 's' : ''} com saldo
+                                                                </div>
+                                                                {totalUsdtAvailable === 0 && (
+                                                                    <div className="text-xs text-amber-600 dark:text-amber-400">
+                                                                        Nenhum USDT disponível
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="h-20 w-20 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center border-2 border-primary/30">
+                                                            <Wallet className="h-10 w-10 text-primary" />
+                                                        </div>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        )
+                                    })()}
+                                    
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Ativo</TableHead>
+                                                <TableHead className="text-right">Disponível</TableHead>
+                                                <TableHead className="text-right">Bloqueado</TableHead>
+                                                <TableHead className="text-right">Total</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {Object.entries(balances.balances)
+                                                .filter(([_, balance]) => {
+                                                    const total = balance.free + balance.locked
+                                                    return total > 0.00000001 // Filtrar apenas valores > 0
+                                                })
+                                                .sort(([assetA, balanceA], [assetB, balanceB]) => {
+                                                    // Ordenar por quantidade total (maior primeiro)
+                                                    const totalA = balanceA.free + balanceA.locked
+                                                    const totalB = balanceB.free + balanceB.locked
+                                                    return totalB - totalA
+                                                })
+                                                .map(([asset, balance]) => {
+                                                    const totalAmount = balance.free + balance.locked
+                                                    return (
+                                                        <TableRow key={asset}>
+                                                            <TableCell className="font-medium">{asset}</TableCell>
+                                                            <TableCell className="text-right">
+                                                                <div className="font-mono text-sm">{formatAssetAmount(balance.free)}</div>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                <div className="font-mono text-sm">{formatAssetAmount(balance.locked)}</div>
+                                                            </TableCell>
+                                                            <TableCell className="text-right font-semibold">
+                                                                <div className="font-mono">{formatAssetAmount(totalAmount)}</div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    )
+                                                })}
+                                        </TableBody>
+                                    </Table>
+                                    {Object.entries(balances.balances).filter(([_, balance]) => {
+                                        const total = balance.free + balance.locked
+                                        return total > 0.00000001
+                                    }).length === 0 && (
+                                        <div className="text-center py-8 text-muted-foreground">
+                                            <PiggyBank className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                                            <p>Nenhum saldo disponível para exibir.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="text-center py-8 text-muted-foreground">
+                                    <PiggyBank className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                                    <p className="mb-2">Nenhum saldo encontrado para esta conta.</p>
+                                    <Button 
+                                        variant="outline"
+                                        onClick={() => {
+                                            syncBalancesMutation.mutate(undefined, {
+                                                onSuccess: () => {
+                                                    refetchBalances()
+                                                }
+                                            })
+                                        }}
+                                        disabled={syncBalancesMutation.isPending}
+                                    >
+                                        <RefreshCw className={`h-4 w-4 mr-2 ${syncBalancesMutation.isPending ? 'animate-spin' : ''}`} />
+                                        {syncBalancesMutation.isPending ? 'Sincronizando...' : 'Sincronizar Agora'}
+                                    </Button>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 </TabsContent>

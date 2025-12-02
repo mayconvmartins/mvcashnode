@@ -66,3 +66,24 @@ export function formatSymbol(symbol: string): string {
     return symbol.replace('/', ' / ')
 }
 
+export function formatAssetAmount(amount: number, decimals = 8): string {
+    // Formatar quantidade de ativo com decimais apropriados
+    if (amount === 0) return '0'
+    
+    // Determinar decimais baseado no valor
+    if (amount >= 1) {
+        decimals = 2
+    } else if (amount >= 0.01) {
+        decimals = 4
+    } else if (amount >= 0.0001) {
+        decimals = 6
+    } else {
+        decimals = 8
+    }
+    
+    return new Intl.NumberFormat('pt-BR', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: decimals,
+    }).format(amount)
+}
+

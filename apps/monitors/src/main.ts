@@ -17,17 +17,25 @@ async function bootstrap() {
   new TimezoneService(timezone);
 
   if (ntpEnabled) {
+    // Sincronizar IMEDIATAMENTE antes de configurar adapters
+    console.log(`[NTP] Sincronizando com ${ntpServer}...`);
+    await ntpService.sync();
+    const ntpInfo = ntpService.getInfo();
+    console.log(`[NTP] Offset atual: ${ntpInfo.offset}ms`);
+    
+    // Iniciar sincronização periódica
     ntpService.startPeriodicSync();
-    console.log(`[NTP] Serviço iniciado - servidor: ${ntpServer}`);
+    console.log(`[NTP] Serviço iniciado - servidor: ${ntpServer}, intervalo: ${ntpSyncInterval}ms`);
+  } else {
+    console.warn('[NTP] ⚠️ NTP desabilitado - timestamps podem estar incorretos!');
   }
 
   console.log(`[Timezone] Configurado: ${timezone}`);
 
-  // Configurar adapters de exchange para usar NTP
-  const { BinanceSpotAdapter, BybitSpotAdapter } = await import('@mvcashnode/exchange');
-  BinanceSpotAdapter.setNtpService(ntpService);
-  BybitSpotAdapter.setNtpService(ntpService);
-  console.log('[Exchange] Adapters configurados para usar NTP Service');
+  // Configurar AdapterFactory com o NtpService ANTES de criar qualquer adapter
+  const { AdapterFactory } = await import('@mvcashnode/exchange');
+  AdapterFactory.setNtpService(ntpService);
+  console.log('[Exchange] ✅ AdapterFactory configurado para usar NTP Service');
 
   const app = await NestFactory.createApplicationContext(AppModule);
   

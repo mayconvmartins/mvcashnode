@@ -56,15 +56,10 @@ export abstract class ExchangeAdapter {
 
   async testConnection(): Promise<TestConnectionResult> {
     try {
-      // PRIMEIRO: Sincronizar timestamp com o servidor (crítico!)
-      try {
-        await this.exchange.loadTimeDifference();
-        console.log(`[ExchangeAdapter] Timestamp sincronizado: ${this.exchange.options.timeDifference || 0}ms`);
-      } catch (timeError) {
-        console.warn('[ExchangeAdapter] Aviso ao sincronizar timestamp:', timeError);
-      }
-
-      // SEGUNDO: Carregar mercados
+      // NÃO chamar loadTimeDifference() - estamos usando NTP diretamente via nonce() e milliseconds()
+      // O timestamp é gerenciado pelo NtpService através dos métodos customizados nos adapters
+      
+      // Carregar mercados
       await this.exchange.loadMarkets();
       
       // TERCEIRO: Se tem API key, tentar buscar balance para validar permissões
