@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "composite": true,
+    "removeComments": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "@mvcashnode/shared": ["./packages/shared/src"],
+      "@mvcashnode/shared/*": ["./packages/shared/src/*"],
+      "@mvcashnode/db": ["./packages/db/src"],
+      "@mvcashnode/db/*": ["./packages/db/src/*"],
+      "@mvcashnode/domain": ["./packages/domain/src"],
+      "@mvcashnode/domain/*": ["./packages/domain/src/*"],
+      "@mvcashnode/exchange": ["./packages/exchange/src"],
+      "@mvcashnode/exchange/*": ["./packages/exchange/src/*"],
+      "@mvcashnode/notifications": ["./packages/notifications/src"],
+      "@mvcashnode/notifications/*": ["./packages/notifications/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
+}
+

@@ -1,0 +1,3043 @@
+CRIE UM PRD COMPLETO e profissional para o seguinte :
+
+
+# 1. Visão Geral
+
+Backend de automação de trading para exchanges (inicialmente Binance Spot via CCXT), com:
+
+* Recebimento de **sinais de trading via webhooks** (TradingView etc.).
+* Execução de **ordens automáticas** em múltiplas contas e múltiplas corretoras.
+* **Gerenciamento de cofres virtuais** (vaults) para controlar capital.
+* **Posições agregadas** com suporte a:
+
+  * múltiplas compras/vendas,
+  * vendas parciais,
+  * FIFO,
+  * SL/TP/Trailing,
+  * **trava de venda por webhook**.
+* **Modo de simulação** (backtesting “online” via webhooks de teste).
+* Notificações via **WhatsApp (Evolution API)**.
+* APIs específicas para **relatórios e dashboards**.
+
+Frontend será feito depois; este PRD cobre apenas o **backend/API + workers**.
+
+---
+
+# 2. Stack Técnica
+
+* **Runtime**: Node.js 22+
+* **Gerenciador**: `pnpm` (monorepo)
+* **Framework API**: NestJS (recomendado) ou Fastify com estrutura modular equivalente.
+* **Banco de Dados**: MySQL 8 (InnoDB, UTF8MB4)
+* **ORM**: Prisma
+* **Filas & Locks**: Redis + BullMQ
+* **Exchange**: CCXT (`binance`, etc.) para modo REAL e leitura de preço; no modo SIMULAÇÃO, apenas leitura de preço.
+* **Notificações**: Evolution API (WhatsApp) via HTTP client.
+* **Auth**: JWT + 2FA (TOTP)
+* **Documentação API**: OpenAPI 3.0 (Swagger) com UI interativa e export JSON
+
+---
+
+# 3. Arquitetura de Alto Nível
+
+## 3.1. Monorepo
+
+```text
+/apps
+  /api         -> API HTTP (REST) para frontend + webhooks + admin
+  /executor    -> worker de execução de ordens (real e simulação)
+  /monitors    -> jobs agendados: SL/TP, simulação, cofres, sync, relatórios
+/packages
+  /db          -> Prisma Client, migrations e tipos DB
+  /domain      -> regras de negócio (trading, cofres, webhooks, posições)
+  /exchange    -> adapters CCXT por exchange
+  /notifications -> cliente WhatsApp, abstração de notificação
+  /shared      -> config, logger, helpers, tipos compartilhados
+```
+
+## 3.2. Componentes
+
+* **API Service (`apps/api`)**:
+
+  * Autenticação usuários.
+  * CRUD de contas de exchange, parâmetros, cofres, webhooks.
+  * Endpoints de posições, jobs, execuções, relatórios.
+  * Endpoint público de webhook (`/webhooks/:code`) com segurança.
+
+* **Executor Service (`apps/executor`)**:
+
+  * Worker BullMQ para:
+
+    * execução de ordens REAL (CCXT),
+    * execução de ordens SIMULAÇÃO (sem enviar nada à exchange).
+  * Atualiza jobs, execuções, posições e cofres.
+
+* **Monitors Service (`apps/monitors`)**:
+
+  * Jobs repetitivos:
+
+    * Monitor de SL/TP / trailing.
+    * Monitor para modo SIMULAÇÃO (separado).
+    * Sync de saldos e ordens reais.
+    * Monitores de cofres (alertas).
+    * Geração de métricas agregadas (materialized views simples para relatórios).
+
+---
+
+# 4. Domínios e Funcionalidades
+
+## 4.1. Usuários e Autenticação
+
+**Tabelas:**
+
+* `users`
+
+  * `id`
+  * `email` (único)
+  * `password_hash`
+  * `is_active`
+  * `must_change_password`
+  * `created_at`, `updated_at`
+
+* `profiles`
+
+  * `user_id` (FK)
+  * `full_name`
+  * `phone`
+  * `whatsapp_phone`
+  * flags de alertas (position_alerts_enabled, etc.)
+  * `twofa_enabled`, `twofa_secret`
+  * `created_at`, `updated_at`
+
+* `user_roles`
+
+  * `user_id`
+  * `role` (`admin` | `user`)
+
+* `login_history`
+
+  * `id`
+  * `user_id`
+  * `ip`
+  * `user_agent`
+  * `success` (bool)
+  * `created_at`
+
+* `audit_logs`
+
+  * `id`
+  * `user_id` (quem executou a ação)
+  * `entity_type` (enum: `USER`, `EXCHANGE_ACCOUNT`, `VAULT`, `POSITION`, `WEBHOOK_SOURCE`, `TRADE_JOB`, etc.)
+  * `entity_id` (ID do registro afetado)
+  * `action` (enum: `CREATE`, `UPDATE`, `DELETE`, `LOGIN`, `LOGOUT`, `PASSWORD_CHANGE`, `2FA_ENABLE`, `2FA_DISABLE`, etc.)
+  * `changes_json` (antes/depois em JSON para UPDATEs)
+  * `ip`
+  * `user_agent`
+  * `request_id` (correlação com logs da aplicação)
+  * `created_at`
+
+* `system_audit_logs`
+
+  * `id`
+  * `service` (enum: `API`, `EXECUTOR`, `MONITORS`)
+  * `event_type` (ex: `CRON_EXECUTED`, `ORDER_PLACED`, `WEBHOOK_RECEIVED`, `POSITION_CLOSED`, etc.)
+  * `entity_type` (opcional)
+  * `entity_id` (opcional)
+  * `severity` (enum: `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
+  * `message`
+  * `metadata_json`
+  * `created_at`
+
+**Funcionalidades:**
+
+* Login (email + senha) → JWT Access + Refresh.
+* Setup e verificação de 2FA (TOTP).
+* Forçar troca de senha em primeiro login / reset.
+* Autorização baseada em role (`admin` vs `user`).
+
+---
+
+## 4.2. Contas de Exchange
+
+**Tabela: `exchange_accounts`**
+
+* `id`
+* `user_id` (owner)
+* `exchange` (`BINANCE_SPOT`, `BINANCE_FUTURES`, `BYBIT_SPOT`, etc.)
+* `label`
+* `is_simulation` (bool):
+
+  * `0` = conta real (usa API keys)
+  * `1` = conta de simulação (sem API key ou só para leitura de preço)
+* `api_key_enc` (NULL se simulação)
+* `api_secret_enc` (NULL se simulação)
+* `proxy_url` (opcional)
+* `testnet` (bool)
+* `is_active` (bool)
+* `initial_balances_json` (apenas para simulação; p.ex `{ "USDT": 1000 }`)
+* `created_at`, `updated_at`
+
+**Serviço: `ExchangeAccountService`**
+
+* CRUD de contas de exchange.
+* Teste de conexão para contas reais (`testConnection()` via CCXT).
+* Para simulação:
+
+  * inicializar saldos no cache interno (`account_balances_cache` em modo SIM).
+
+---
+
+## 4.3. Cofres (Vaults)
+
+**Tabelas:**
+
+* `vaults`
+
+  * `id`
+  * `user_id`
+  * `name`
+  * `description`
+  * `trade_mode` (`REAL` | `SIMULATION`)
+  * `is_active`
+  * `created_at`, `updated_at`
+
+* `vault_balances`
+
+  * `id`
+  * `vault_id`
+  * `asset` (ex: `USDT`)
+  * `balance`
+  * `reserved`
+  * `created_at`, `updated_at`
+
+* `vault_transactions`
+
+  * `id`
+  * `vault_id`
+  * `type` (`DEPOSIT`, `WITHDRAWAL`, `BUY_RESERVE`, `BUY_CONFIRM`, `BUY_CANCEL`, `SELL_RETURN`)
+  * `asset`
+  * `amount`
+  * `trade_job_id` (FK opcional)
+  * `meta_json`
+  * `created_at`
+
+**Serviço: `VaultService`**
+
+* Métodos principais:
+
+  * `deposit(vaultId, asset, amount)`
+  * `withdraw(vaultId, asset, amount)`
+  * `reserveForBuy(jobId, vaultId, asset, amount)`
+  * `confirmBuy(jobId, vaultId, asset, amount)`
+  * `cancelBuy(jobId, vaultId, asset, amount)`
+  * `creditOnSell(jobId, vaultId, asset, amount)`
+
+Sempre com transações MySQL e `SELECT ... FOR UPDATE` em `vault_balances`.
+
+---
+
+## 4.4. Parâmetros de Trading
+
+**Tabela: `trade_parameters`**
+
+* `id`
+* `exchange_account_id`
+* `symbol` (`"SOL/USDT"`, `"BTC/USDT"`)
+* `side` (`BUY`, `SELL`, `BOTH`)
+* **Tamanho da ordem:**
+
+  * `quote_amount_fixed` (decimal, ex: 10 USDT)
+  * `quote_amount_pct_balance` (decimal, ex: 1.5 = 1.5% do saldo)
+* **Limiter de frequência:**
+
+  * `max_orders_per_hour` (int, opcional)
+  * `min_interval_sec` (int, opcional)
+* **Execução:**
+
+  * `order_type_default` (`MARKET` | `LIMIT`)
+  * `slippage_bps` (int, base points)
+* **SL/TP padrão (por parâmetro):**
+
+  * `default_sl_enabled`, `default_sl_pct`
+  * `default_tp_enabled`, `default_tp_pct`
+  * `trailing_stop_enabled`, `trailing_distance_pct`
+* **Cofre:**
+
+  * `vault_id` (FK opcional)
+
+Serviço: `TradeParameterService`:
+
+* `computeQuoteAmount(accountId, symbol, side, trade_mode)`:
+
+  * Usa saldo (real ou simulação).
+* `canOpenNewOrder(accountId, symbol, side)`:
+
+  * Checa `max_orders_per_hour`, `min_interval_sec`.
+
+---
+
+## 4.5. Webhook Sources, Bindings e Events
+
+### 4.5.1. `webhook_sources`
+
+* `id`
+* `owner_user_id`
+* `label`
+* `webhook_code` (slug usado na URL: `/webhooks/:code`, único)
+* `trade_mode` (`REAL` | `SIMULATION`)
+* `allowed_ips_json` (lista de IPs ou CIDRs permitidos)
+* `require_signature` (bool)
+* `signing_secret_enc` (opcional, para HMAC)
+* `rate_limit_per_min` (int)
+* `is_active` (bool)
+* `admin_locked` (bool)
+* `created_at`, `updated_at`
+
+### 4.5.2. `account_webhook_bindings`
+
+* `id`
+* `webhook_source_id`
+* `exchange_account_id`
+* `is_active`
+* `weight` (opcional, ex: multiplicador de tamanho de ordem)
+* `created_at`, `updated_at`
+
+### 4.5.3. `webhook_events`
+
+* `id`
+* `webhook_source_id`
+* `target_account_id` (exchange_account_id)
+* `trade_mode` (`REAL` | `SIMULATION`)
+* `event_uid` (string: ID do sinal / hash do payload)
+* `symbol_raw` (ex: `SOLUSDT.P` vindo do webhook)
+* `symbol_normalized` (ex: `SOLUSDT` → usado nos parâmetros/APIs da exchange)
+* `action` (`BUY_SIGNAL`, `SELL_SIGNAL`, `UNKNOWN`)
+* `timeframe` (string, ex: `H1`)
+* `price_reference` (decimal – preço vindo do alerta)
+* `raw_text` (texto original do webhook)
+* `raw_payload_json` (payload inteiro recebido)
+* `status` (`RECEIVED`, `JOB_CREATED`, `SKIPPED`, `FAILED`)
+* `validation_error` (texto opcional)
+* `created_at`, `processed_at`
+
+**Idempotência:**
+
+* Índice único:
+
+  * `UNIQUE (webhook_source_id, event_uid, target_account_id)`
+
+Se o mesmo webhook/replay chegar, ele não cria novo evento para aquele alvo.
+
+---
+
+## 4.6. Trade Jobs, Execuções e Saldos
+
+### 4.6.1. `trade_jobs`
+
+* `id`
+* `webhook_event_id` (FK opcional, nulo em jobs de monitores)
+* `exchange_account_id`
+* `trade_mode` (`REAL` | `SIMULATION`)
+* `symbol` (normalizado, ex: `SOL/USDT`)
+* `side` (`BUY` | `SELL`)
+* `order_type` (`MARKET`, `LIMIT`, etc.)
+* `quote_amount` (USDT)
+* `base_quantity` (SOL, BTC, etc.)
+* `limit_price` (se order_type = LIMIT ou STOP)
+* `status`:
+
+  * `PENDING`
+  * `EXECUTING`
+  * `FILLED`
+  * `PARTIALLY_FILLED` (opcional)
+  * `FAILED`
+  * `SKIPPED`
+  * `CANCELED`
+  * `PENDING_LIMIT` (ordem LIMIT criada, aguardando execução na exchange)
+* `reason_code` (enum textual, ex: `NO_POSITION_AVAILABLE`, `RULE_BLOCKED`, `WEBHOOK_LOCK`, etc.)
+* `reason_message` (texto livre)
+* `vault_id` (FK opcional)
+* `limit_order_expires_at` (timestamp, opcional - para ordens LIMIT com expiração)
+* `created_at`, `updated_at`
+
+### 4.6.2. `trade_executions`
+
+* `id`
+* `trade_job_id`
+* `exchange_account_id`
+* `trade_mode` (`REAL` | `SIMULATION`)
+* `exchange` (enum)
+* `exchange_order_id` (null em simulação, ou `SIM-<uuid>`)
+* `client_order_id` (string)
+* `status_exchange` (`NEW`, `FILLED`, `PARTIALLY_FILLED`, `CANCELED`, `REJECTED`, etc.)
+* `executed_qty`
+* `cumm_quote_qty`
+* `avg_price`
+* `fills_json` (lista de fills raw, se quiser)
+* `raw_response_json` (Respostas da exchange ou objeto de simulação)
+* `created_at`
+
+### 4.6.3. `account_balances_cache`
+
+* `id`
+* `exchange_account_id`
+* `trade_mode`
+* `asset`
+* `free`
+* `locked`
+* `last_sync_at`
+
+---
+
+## 4.7. POSIÇÕES (core)
+
+### 4.7.1. `trade_positions`
+
+* `id`
+* `exchange_account_id`
+* `trade_mode` (`REAL` | `SIMULATION`)
+* `symbol` (ex: `SOL/USDT`)
+* `side` (`LONG`)  *(por ora só spot long; futuro pode ter `SHORT`)*
+* `trade_job_id_open` (FK para o job de compra que criou esta posição)
+
+**Quantidades:**
+
+* `qty_total` (quantidade total comprada na abertura)
+* `qty_remaining` (quantidade ainda aberta; se 0 → CLOSED)
+
+**Preço:**
+
+* `price_open` (preço de compra da posição)
+
+**Status:**
+
+* `status`:
+
+  * `OPEN` (posição aberta, qty_remaining > 0)
+  * `CLOSED` (posição totalmente fechada, qty_remaining = 0)
+
+**PnL:**
+
+* `realized_profit_usd` (soma de PnL realizados em vendas ligadas à posição)
+* (PnL não realizado será calculado ad-hoc via preço atual)
+
+**Configuração SL/TP por posição:**
+
+* `sl_enabled`, `sl_pct`
+* `tp_enabled`, `tp_pct`
+* `trailing_enabled`, `trailing_distance_pct`, `trailing_max_price`
+
+**Flags de disparo:**
+
+* `sl_triggered`
+* `tp_triggered`
+* `trailing_triggered`
+* `partial_tp_triggered`
+
+**Trava de venda por webhook:**
+
+* `lock_sell_by_webhook` (TINYINT(1) DEFAULT 0)
+
+  * `0` → posição pode ser usada em vendas disparadas por webhook.
+  * `1` → posição **não entra** na fila de posições escolhidas quando o sinal for via webhook de venda.
+
+**Fechamento:**
+
+* `close_reason` (`TARGET_HIT`, `STOP_LOSS`, `MANUAL`, `WEBHOOK_SELL`, `RECONCILIATION`, etc.)
+* `closed_at`
+* `created_at`, `updated_at`
+
+### 4.7.2. `position_fills`
+
+Para rastrear execuções associadas a posições (tanto compras quanto vendas parciais/totais):
+
+* `id`
+* `position_id` (FK para trade_positions)
+* `trade_execution_id` (FK para trade_executions)
+* `side` (`BUY` | `SELL`)
+* `qty` (quantidade da execução aplicada a esta posição)
+* `price` (preço da execução)
+* `created_at`
+
+**Observação**: Uma posição sempre terá exatamente 1 fill de BUY (abertura) e pode ter múltiplos fills de SELL (vendas parciais) até o fechamento total.
+
+---
+
+## 4.8. Lógica de POSIÇÃO (lifecycle)
+
+### 4.8.1. Abertura (BUY executado)
+
+1. Executor trata `trade_execution` de BUY (real ou simulado).
+
+2. `PositionService.onBuyExecuted(job, execution)`:
+
+   * **Sempre cria uma nova posição** para cada compra executada:
+     * Insere nova linha em `trade_positions` com:
+       * `trade_job_id_open` = job.id
+       * `qty_total` = executed_qty
+       * `qty_remaining` = executed_qty
+       * `price_open` = avg_price da execução
+       * `status` = 'OPEN'
+   * Registrar `position_fills` com `side=BUY` (opcional, para auditoria).
+
+3. Se job tiver `vault_id`:
+
+   * `VaultService.confirmBuy(...)`
+
+4. Notificação de posição aberta, se configurado.
+
+### 4.8.2. Venda (SELL executado)
+
+Ao executar venda de um `trade_job` SELL:
+
+1. Executor cria `trade_execution`.
+
+2. `PositionService.onSellExecuted(job, execution)`:
+
+   * Seleciona posições **elegíveis** (FIFO):
+
+     ```sql
+     SELECT *
+     FROM trade_positions
+     WHERE exchange_account_id = :accountId
+       AND trade_mode = :tradeMode
+       AND symbol = :symbol
+       AND side = 'LONG'
+       AND status = 'OPEN'
+       AND qty_remaining > 0
+       AND lock_sell_by_webhook = (
+         CASE 
+           WHEN :origin = 'WEBHOOK' THEN 0
+           ELSE lock_sell_by_webhook -- para SL/TP/manual, pode ignorar ou não
+         END
+       )
+     ORDER BY created_at ASC
+     FOR UPDATE;
+     ```
+
+     * `origin` é inferida do `trade_job` (ex: `WEBHOOK`, `STOP_LOSS`, `TAKE_PROFIT`, `MANUAL`).
+
+   * Percorre essas posições em FIFO, consumindo `qty_remaining` até bater `executed_qty`.
+
+   * Para cada posição:
+
+     * `qty_to_close` = min(`pos.qty_remaining`, `remaining_to_sell`).
+
+     * Calcula PnL:
+
+       * `profit_usd = (sell_price - price_open) * qty_to_close`.
+
+     * Atualiza:
+
+       * `qty_remaining -= qty_to_close`.
+       * `realized_profit_usd += profit_usd`.
+       * `status`:
+
+         * se `qty_remaining = 0` → `CLOSED`, `closed_at` e `close_reason` conforme origem.
+         * se > 0 → permanece `OPEN` (venda parcial).
+
+     * Insere em `position_fills` com `side=SELL` para rastreabilidade.
+
+3. Se nenhum posição elegível:
+
+   * `trade_job.status = SKIPPED`
+   * `reason_code = 'NO_ELIGIBLE_POSITIONS'` ou `WEBHOOK_LOCK` se trancadas.
+
+4. Cofre:
+
+   * Para vendas de compra originada por cofre:
+
+     * `VaultService.creditOnSell(...)`.
+
+5. Notificação de fechamento/parcial.
+
+---
+
+## 4.9. SL/TP / Trailing
+
+**Monitor SL/TP (REAL e SIM separados):**
+
+1. Seleciona posições `OPEN` com SL/TP habilitado (qty_remaining > 0).
+
+2. Pega preço atual via CCXT (read-only).
+
+3. Calcula:
+
+   ```text
+   pnl_pct = (current_price - price_open) / price_open * 100
+   ```
+
+4. Regras:
+
+   * Se `sl_enabled` e `pnl_pct <= -sl_pct`:
+
+     * cria `trade_job` SELL da `qty_remaining` (PENDING, origin `STOP_LOSS`).
+   * Se `tp_enabled` e `pnl_pct >= tp_pct`:
+
+     * se `partial_tp_enabled`:
+
+       * cria SELL de `qty_remaining * partial_tp_sell_pct`.
+     * senão:
+
+       * SELL de tudo.
+
+5. Trailing:
+
+   * Atualiza `trailing_max_price` quando preço sobe.
+   * Se `current_price <= trailing_max_price * (1 - trailing_distance_pct/100)`:
+
+     * cria SELL.
+
+---
+
+## 4.10. Modo de SIMULAÇÃO
+
+### 4.10.1. Campo `trade_mode`
+
+Presente em:
+
+* `webhook_sources.trade_mode`
+* `webhook_events.trade_mode`
+* `trade_jobs.trade_mode`
+* `trade_executions.trade_mode`
+* `trade_positions.trade_mode`
+* `vaults.trade_mode`, `vault_balances.trade_mode` (se houver cofres de simulação)
+
+Valores:
+
+* `'REAL'`
+* `'SIMULATION'`
+
+### 4.10.2. Webhook em modo SIM
+
+* `webhook_sources.trade_mode = 'SIMULATION'`
+* `account_webhook_bindings` apontam para `exchange_accounts.is_simulation = 1`.
+* `webhook_events.trade_mode = 'SIMULATION'`.
+
+Pipeline:
+
+1. `webhooks/:code` → evento em modo SIM.
+2. Worker `webhook-to-job-sim`:
+
+   * cria `trade_jobs` com `trade_mode = 'SIMULATION'`.
+3. Worker executor de simulação:
+
+   * NÃO chama `createOrder` na exchange.
+   * Determina preço de execução:
+
+     * Se payload tiver preço explícito, usa.
+     * Senão, lê `fetchTicker(symbol)` só para `last`.
+   * Calcula `executed_qty` e `avg_price`.
+   * Gera `trade_executions` com `exchange_order_id = 'SIM-...'`.
+   * Chama `PositionService.onBuyExecuted/onSellExecuted` igualmente.
+   * Atualiza cofres de simulação (se houver).
+
+### 4.10.3. Relatórios de simulação
+
+* Possibilidade de ver apenas `trade_mode = 'SIMULATION'` em:
+
+  * posições
+  * execuções
+  * PnL
+  * comparações com o modo REAL posteriormente.
+
+---
+
+## 4.11. Notificações (WhatsApp)
+
+Tabelas:
+
+* `whatsapp_global_config`
+* `whatsapp_notifications_config`
+* `position_alerts_sent`
+* `vault_alerts_sent`
+
+Serviço: `NotificationService` + `WhatsAppClient`.
+
+Eventos que podem disparar notificação:
+
+* `POSITION_OPENED`
+* `POSITION_CLOSED`
+* `STOP_LOSS_TRIGGERED`
+* `PARTIAL_TP_TRIGGERED`
+* (mais para frente: falhas de operação, etc.)
+
+---
+
+# 5. Protocolo do Webhook e Parsing de Texto
+
+## 5.1. Modelo de texto recebido
+
+Exemplos:
+
+```text
+SOLUSDT.P Caça Fundo 🟢 (H1) Preço (213.09)
+
+SOLUSDT.P Caça Topo 🔴 (H1) Preço (215.81)
+```
+
+Legenda:
+
+* `SOLUSDT.P`:
+
+  * `symbol_raw`: `SOLUSDT.P`
+  * parser deve identificar o “ativo base” e, se necessário, mapear:
+
+    * `symbol_normalized`: `SOLUSDT` ou `SOLUS/USDT` (conforme parâmetro de conta).
+    * O sufixo `.P` pode ser tratado como metadado (perpétuo, futuro, etc.).
+* `Caça Fundo` (🟢):
+
+  * sinal de **compra** → `action = BUY_SIGNAL`.
+* `Caça Topo` (🔴):
+
+  * sinal de **venda** → `action = SELL_SIGNAL`.
+* `(H1)`:
+
+  * timeframe → `timeframe = 'H1'`.
+* `Preço (213.09)`:
+
+  * `price_reference = 213.09`.
+
+## 5.2. Regras de parsing
+
+* Ao receber o webhook:
+
+  * Extrair:
+
+    * `symbol_raw` (primeira “palavra” até o primeiro espaço).
+    * `pattern_name` (`Caça Fundo`, `Caça Topo`, se possível).
+    * `emoji` (não é essencial, mas pode ser guardado).
+    * `timeframe` (conteúdo dentro de `(...)` perto do TF, ex: `H1`).
+    * `price_reference` (conteúdo numérico dentro de `Preço (...)`).
+  * Mapeamento de ação:
+
+    * Se contiver `Caça Fundo` **ou** emoji verde:
+
+      * `action = BUY_SIGNAL`.
+    * Se contiver `Caça Topo` **ou** emoji vermelho:
+
+      * `action = SELL_SIGNAL`.
+  * `symbol_normalized`:
+
+    * Regra inicial: remover sufixos `.P`, `.F`, etc. se necessário.
+    * Mapear para formato de símbolo CCXT da conta:
+
+      * Ex: `SOLUSDT` → `SOL/USDT` conforme adapter.
+  * `event_uid`:
+
+    * Pode ser:
+
+      * ID vindo do payload, ou
+      * hash do `symbol_raw + timeframe + price_reference + timestamp`, para evitar duplicados.
+
+Essas informações alimentam `webhook_events`.
+
+---
+
+## 5.3. Segurança do webhook (IP + assinatura)
+
+Na entrada `POST /webhooks/:code`:
+
+1. Resolver `webhook_source` por `webhook_code`.
+2. Validar se `is_active` e não `admin_locked`.
+3. **Validação de IP**:
+
+   * `allowed_ips_json`: lista de IPs e/ou CIDRs permitidos.
+   * Obter IP real do request (considerando proxy/reverse-proxy).
+   * Verificar se o IP está na lista/cidr; se **não estiver**:
+
+     * Registrar entrada em `webhook_blocked_attempts`.
+     * Responder com 403 e não processar.
+4. **Assinatura (opcional)**:
+
+   * Se `require_signature = true`:
+
+     * Ler header, por exemplo `X-Signature`.
+     * Calcular HMAC-SHA256 do body com `signing_secret` (decriptado).
+     * Comparar com header; se inválido:
+
+       * registrar blocked attempt.
+       * responder 403.
+5. Rate limiting:
+
+   * Checar `rate_limit_per_min`.
+   * Se excedido, retornar 429 ou aceitar mas marcar como bloqueado.
+
+Se tudo ok, segue pipeline: criar `webhook_events` e jobs.
+
+---
+
+# 6. Monitores e Workers
+
+## 6.1. Executor (`apps/executor`)
+
+* Workers:
+
+  * `trade-execution-real`:
+
+    * processa `trade_jobs.trade_mode = REAL`.
+    * chama CCXT para `createOrder()`.
+  * `trade-execution-sim`:
+
+    * processa `trade_jobs.trade_mode = SIMULATION`.
+    * simula ordens sem enviar para corretoras.
+
+Ambos chamam `PositionService` e `VaultService`.
+
+## 6.2. Monitors (`apps/monitors`)
+
+Jobs repetitivos (BullMQ repeatables):
+
+* `sl_tp_monitor_real`
+* `sl_tp_monitor_sim`
+* `limit_orders_monitor_real`
+* `limit_orders_monitor_sim`
+* `vault_balance_monitor`
+* `balances_sync_real`
+* `orders_sync_real`
+* (futuro) geração de snapshots para relatórios.
+
+**Monitor de Ordens LIMIT (`limit_orders_monitor_real` / `_sim`):**
+
+1. Seleciona `trade_jobs` com:
+   * `status = 'PENDING_LIMIT'`
+   * `order_type = 'LIMIT'`
+   * `trade_mode` correspondente (REAL ou SIMULATION)
+
+2. Para cada ordem:
+
+   * **Modo REAL**:
+     * Consulta status via `exchange.fetchOrder(exchange_order_id)`
+     * Se `status = 'FILLED'`:
+       * Atualiza `trade_job.status = FILLED`
+       * Cria `trade_execution` com dados reais
+       * Chama `PositionService.onSellExecuted` ou `onBuyExecuted`
+     * Se `status = 'CANCELED'` ou `'EXPIRED'`:
+       * Atualiza `trade_job.status = CANCELED`
+       * Libera recursos (cofre, se aplicável)
+
+   * **Modo SIMULATION**:
+     * Consulta preço atual via `fetchTicker`
+     * Se preço atingiu `limit_price` (considerando lado):
+       * Simula execução
+       * Atualiza status e cria execution
+
+3. Verifica expiração:
+   * Se `limit_order_expires_at` passou:
+     * Cancela ordem automaticamente
+     * Marca `trade_job.status = CANCELED`
+     * `reason_code = 'EXPIRED'`
+
+4. Frequência: a cada 30-60 segundos (configurável).
+
+---
+
+# 7. Endpoints da API (incluindo RELATÓRIOS)
+
+## 7.1. Auth & Usuário
+
+* `POST /auth/login`
+* `POST /auth/refresh`
+* `POST /auth/2fa/setup`
+* `POST /auth/2fa/verify`
+* `GET /me`
+* `PUT /me`
+* `GET /me/login-history`
+
+Admin:
+
+* `GET /admin/users`
+  * Listar todos os usuários com filtros (role, is_active, email, etc.)
+  * Paginação e ordenação
+  * Inclui estatísticas (último login, número de contas, posições abertas)
+
+* `GET /admin/users/:id`
+  * Detalhes completos do usuário
+  * Perfil, roles, histórico de login
+  * Contas de exchange vinculadas
+  * Resumo de atividade (trades, posições, webhooks)
+
+* `POST /admin/users`
+  * Criar novo usuário
+  * Gerar senha temporária
+  * Forçar troca de senha no primeiro login
+  * Enviar email/WhatsApp de boas-vindas
+
+* `PUT /admin/users/:id`
+  * Atualizar dados do usuário
+  * Alterar role (admin/user)
+  * Ativar/desativar conta
+  * Reset de senha forçado
+
+* `DELETE /admin/users/:id`
+  * Desativação lógica (soft delete)
+  * Opção de exclusão física (hard delete) - requer confirmação
+  * Validação: não permite deletar se houver posições abertas
+
+* `POST /admin/users/:id/activate`
+  * Reativar usuário desativado
+
+* `POST /admin/users/:id/reset-password`
+  * Gerar nova senha temporária
+  * Forçar troca no próximo login
+  * Enviar credenciais por email/WhatsApp
+
+* `POST /admin/users/:id/reset-2fa`
+  * Desabilitar 2FA do usuário (emergência)
+  * Notificar usuário da alteração
+
+* `GET /admin/users/:id/sessions`
+  * Listar sessões ativas do usuário
+  * Detalhes de IP, user agent, data de criação
+
+* `DELETE /admin/users/:id/sessions`
+  * Revogar todas as sessões do usuário (logout forçado)
+
+* `GET /admin/users/:id/audit-logs`
+  * Histórico de ações do usuário
+  * Filtros por entity_type, action, data
+
+---
+
+## 7.2. Contas de Exchange
+
+* `GET /exchange-accounts`
+* `POST /exchange-accounts`
+* `PUT /exchange-accounts/:id`
+* `DELETE /exchange-accounts/:id`
+* `POST /exchange-accounts/:id/test-connection`
+
+---
+
+## 7.3. Cofres
+
+* `GET /vaults`
+* `POST /vaults`
+* `PUT /vaults/:id`
+* `GET /vaults/:id/balances`
+* `GET /vaults/:id/transactions`
+* `POST /vaults/:id/deposit`
+* `POST /vaults/:id/withdraw`
+
+---
+
+## 7.4. Parâmetros de Trading
+
+* `GET /trade-parameters`
+* `POST /trade-parameters`
+* `PUT /trade-parameters/:id`
+* `DELETE /trade-parameters/:id`
+
+Templates:
+
+* `GET /parameter-templates`
+* `POST /parameter-templates`
+* `PUT /parameter-templates/:id`
+* `DELETE /parameter-templates/:id`
+
+---
+
+## 7.5. Webhooks
+
+* `GET /webhook-sources`
+* `POST /webhook-sources`
+* `PUT /webhook-sources/:id`
+* `DELETE /webhook-sources/:id`
+
+Bindings:
+
+* `GET /webhook-sources/:id/bindings`
+* `POST /webhook-sources/:id/bindings`
+* `DELETE /webhook-sources/:id/bindings/:bindingId`
+
+Logs:
+
+* `GET /webhook-events` (filtros por source, conta, trade_mode, status)
+* `GET /webhook-events/:id`
+* `GET /webhook-blocked-attempts` (admin)
+
+Entrada de sinal:
+
+* `POST /webhooks/:code` (público, com segurança de IP/assinatura)
+
+---
+
+## 7.6. Jobs, Execuções, Operações
+
+* `GET /trade-jobs`
+* `GET /trade-jobs/:id`
+* `GET /trade-executions`
+* `GET /trade-executions/:id`
+* `GET /operations`
+
+  * view combinada de jobs + execuções com filtros.
+
+---
+
+## 7.7. POSIÇÕES
+
+* `GET /positions`
+
+  * filtros:
+
+    * `status`
+    * `trade_mode` (`REAL` / `SIMULATION`)
+    * `exchange_account_id`
+    * `symbol`
+    * `from`, `to`
+* `GET /positions/:id`
+
+  * inclui fills (`position_fills`), histórico de SL/TP.
+* `PUT /positions/:id/sltp`
+
+  * atualizar SL/TP/trailing da posição (se configurável por posição).
+* `PUT /positions/:id/lock-sell-by-webhook`
+
+  * body:
+
+    ```json
+    { "lock_sell_by_webhook": true }
+    ```
+* `POST /positions/:id/close`
+
+  * fechamento manual total ou parcial:
+
+    ```json
+    { "quantity": 0.5 } // se omitido, fecha tudo
+    ```
+  * gera `trade_job` SELL (REAL ou SIMULAÇÃO).
+
+* `POST /positions/:id/sell-limit`
+
+  * venda com ordem LIMIT a preço específico:
+
+    ```json
+    {
+      "limit_price": 220.50,
+      "quantity": 2.5,  // opcional, se omitido vende tudo
+      "expires_in_hours": 24  // opcional, cancela automaticamente após X horas
+    }
+    ```
+  * cria `trade_job` SELL com `order_type=LIMIT` e `status=PENDING_LIMIT`.
+  * ordem fica monitorada até ser executada ou cancelada.
+
+---
+
+## 7.7.1. Monitoramento de Ordens LIMIT
+
+* `GET /limit-orders`
+
+  * lista todas as ordens LIMIT (compra e venda) do usuário:
+
+    * filtros:
+
+      * `status` (`PENDING_LIMIT`, `FILLED`, `CANCELED`, `EXPIRED`)
+      * `side` (`BUY`, `SELL`)
+      * `trade_mode` (`REAL`, `SIMULATION`)
+      * `exchange_account_id`
+      * `symbol`
+      * `from`, `to`
+
+  * retorna:
+
+    ```json
+    {
+      "data": [
+        {
+          "id": 8955,
+          "position_id": 1542,  // null se for compra
+          "symbol": "SOL/USDT",
+          "side": "SELL",
+          "order_type": "LIMIT",
+          "limit_price": 220.50,
+          "base_quantity": 5.0,
+          "status": "PENDING_LIMIT",
+          "exchange_order_id": "12345678",
+          "created_at": "2025-12-01T16:20:10Z",
+          "expires_at": "2025-12-02T16:20:10Z"
+        }
+      ],
+      "pagination": { ... }
+    }
+    ```
+
+* `GET /limit-orders/:id`
+
+  * detalhes de uma ordem LIMIT específica:
+
+    * status atual na exchange (via CCXT `fetchOrder`)
+    * histórico de atualizações
+    * fills parciais
+
+* `DELETE /limit-orders/:id`
+
+  * cancela ordem LIMIT pendente:
+
+    * para modo REAL: chama `cancelOrder` via CCXT
+    * para modo SIMULATION: marca como `CANCELED`
+    * atualiza `trade_job.status = CANCELED`
+
+* `GET /limit-orders/history`
+
+  * histórico completo de ordens LIMIT:
+
+    * inclui ordens executadas, canceladas e expiradas
+    * filtros por período, símbolo, resultado
+
+---
+
+## 7.8. Simulação
+
+Atalhos:
+
+* `GET /simulation/positions` → `/positions?trade_mode=SIMULATION`
+* `GET /simulation/operations` → `/operations?trade_mode=SIMULATION`
+* `GET /simulation/accounts` → contas com `is_simulation = 1`
+
+---
+
+## 7.9. Notificações
+
+* `GET /notifications/config`
+* `PUT /notifications/config`
+* `GET /notifications/logs` (admin)
+
+---
+
+## 7.10. Endpoints de RELATÓRIOS (otimizados)
+
+### 7.10.1. PnL e Performance
+
+* `GET /reports/pnl/summary`
+
+  * Filtros:
+
+    * `trade_mode`
+    * `from`, `to`
+    * `exchange_account_id` (opcional)
+  * Retorna:
+
+    * lucro total
+    * prejuízo total
+    * PnL líquido
+    * número de trades
+    * taxa de acerto
+
+* `GET /reports/pnl/by-symbol`
+
+  * Filtros:
+
+    * `trade_mode`
+    * `from`, `to`
+  * Retorna array:
+
+    ```json
+    [
+      { "symbol": "SOL/USDT", "pnl_usd": 123.45, "trades": 34 },
+      { "symbol": "BTC/USDT", "pnl_usd": -45.67, "trades": 12 }
+    ]
+    ```
+
+* `GET /reports/pnl/by-day`
+
+  * Filtros:
+
+    * `trade_mode`
+    * `from`, `to`
+  * Retorna:
+
+    ```json
+    [
+      { "date": "2025-11-01", "pnl_usd": 10.5 },
+      { "date": "2025-11-02", "pnl_usd": -3.2 }
+    ]
+    ```
+
+### 7.10.2. Exposição / Posições Abertas
+
+* `GET /reports/open-positions/summary`
+
+  * Agrupa por:
+
+    * `exchange_account_id`
+    * `symbol`
+  * Retorna:
+
+    * quantidade total aberta
+    * valor estimado em USDT (usando preço atual)
+    * PnL não realizado estimado.
+
+### 7.10.3. Cofres
+
+* `GET /reports/vaults/summary`
+
+  * Para cada cofre:
+
+    * saldo total por asset
+    * volume movimentado (somatório DEPOSIT/WITHDRAWAL/SELL_RETURN) no período.
+
+### 7.10.4. Webhooks
+
+* `GET /reports/webhooks/summary`
+
+  * Filtros:
+
+    * `webhook_source_id`
+    * `from`, `to`
+  * Retorna:
+
+    * total de eventos recebidos
+    * quantos viraram jobs
+    * quantos foram bloqueados (rate limit, IP, assinatura)
+    * PnL gerado por source (REAL e SIM separado).
+
+### 7.10.5. Performance por Estratégia
+
+* Se for usado `strategy_code`:
+
+  * `GET /reports/strategy-performance`
+
+    * PnL por `strategy_code`
+    * winrate, volume, número de trades, etc.
+
+**Implementação de performance**:
+
+* Preferir queries agregadas com índices específicos:
+
+  * `INDEX (trade_mode, created_at)` em `trade_positions` / `trade_executions`.
+  * Eventualmente, mais para frente, criar tabelas de **snapshot diário** para PnL.
+
+---
+
+## 7.11. Admin / Sistema
+
+### 7.11.1. Health e Métricas
+
+* `GET /admin/health`
+  * Status de todos os serviços (API, Executor, Monitors)
+  * Conectividade com MySQL, Redis, exchanges
+  * Versão da aplicação
+
+* `GET /admin/metrics`
+  * Métricas agregadas do sistema:
+    * Total de usuários ativos
+    * Total de posições abertas (REAL/SIMULATION)
+    * Volume de trades nas últimas 24h
+    * Taxa de sucesso de execuções
+    * Tempo médio de processamento de webhooks
+    * Uso de memória/CPU dos workers
+
+### 7.11.2. Gerenciamento de Crons
+
+* `GET /admin/cron/jobs`
+  * Lista todos os jobs agendados (BullMQ repeatables):
+    * `sl_tp_monitor_real`
+    * `sl_tp_monitor_sim`
+    * `limit_orders_monitor_real`
+    * `limit_orders_monitor_sim`
+    * `vault_balance_monitor`
+    * `balances_sync_real`
+    * `orders_sync_real`
+  * Para cada job:
+    * Nome, descrição
+    * Intervalo de execução
+    * Status (ACTIVE, PAUSED, DISABLED)
+    * Última execução (timestamp, duração, resultado)
+    * Próxima execução
+    * Total de execuções (sucesso/falha)
+
+* `GET /admin/cron/jobs/:name`
+  * Detalhes de um job específico
+  * Histórico das últimas 100 execuções
+  * Logs de erros
+  * Configuração de intervalo
+
+* `PUT /admin/cron/jobs/:name`
+  * Atualizar configuração do job:
+    * Alterar intervalo
+    * Ativar/desativar
+    * Ajustar timeout
+
+* `POST /admin/cron/jobs/:name/run`
+  * Executar job manualmente (fora do agendamento)
+  * Útil para testes ou correções emergenciais
+
+* `POST /admin/cron/jobs/:name/pause`
+  * Pausar job temporariamente
+
+* `POST /admin/cron/jobs/:name/resume`
+  * Retomar job pausado
+
+* `GET /admin/cron/history`
+  * Histórico completo de execuções de todos os jobs
+  * Filtros: job_name, status, data
+  * Estatísticas: média de duração, taxa de erro
+
+### 7.11.3. Auditoria e Logs
+
+* `GET /admin/audit-logs`
+  * Logs de auditoria de ações de usuários:
+    * Filtros:
+      * `user_id`
+      * `entity_type` (USER, POSITION, WEBHOOK_SOURCE, etc.)
+      * `action` (CREATE, UPDATE, DELETE, etc.)
+      * `from`, `to` (período)
+    * Paginação
+    * Export CSV/JSON
+
+* `GET /admin/audit-logs/:id`
+  * Detalhes de um log específico
+  * Diff completo das mudanças (changes_json)
+  * Contexto da requisição
+
+* `GET /admin/system-audit-logs`
+  * Logs de eventos do sistema:
+    * Filtros:
+      * `service` (API, EXECUTOR, MONITORS)
+      * `event_type`
+      * `severity` (INFO, WARNING, ERROR, CRITICAL)
+      * `from`, `to`
+    * Alertas críticos destacados
+
+* `GET /admin/logs/errors`
+  * Logs de erros consolidados
+  * Agrupados por tipo/mensagem
+  * Frequência de ocorrência
+  * Stack traces
+
+* `GET /admin/logs/webhooks`
+  * Logs específicos de webhooks recebidos:
+    * Eventos bem-sucedidos
+    * Tentativas bloqueadas (IP, assinatura)
+    * Rate limiting
+    * Parsing errors
+
+* `POST /admin/audit-logs/export`
+  * Exportar logs de auditoria para análise:
+    * Formatos: CSV, JSON, Excel
+    * Filtros aplicáveis
+    * Envio por email ou download direto
+
+### 7.11.4. Configurações do Sistema
+
+* `GET /admin/settings`
+  * Todas as configurações globais do sistema:
+    * Rate limits
+    * Timeouts de execução
+    * Configurações de exchanges
+    * Parâmetros de segurança
+
+* `PUT /admin/settings`
+  * Atualizar configurações (requer admin)
+  * Validação rigorosa
+  * Log de auditoria para toda alteração
+
+* `GET /admin/feature-flags`
+  * Feature flags do sistema:
+    * Habilitar/desabilitar funcionalidades
+    * Rollout gradual
+    * A/B testing
+
+* `PUT /admin/feature-flags/:key`
+  * Ativar/desativar feature flag específica
+
+---
+
+## 7.12. Documentação OpenAPI (Swagger)
+
+### 7.12.1. Endpoints de Documentação
+
+* **`GET /api-docs`**
+  
+  * Interface Swagger UI interativa
+  * Permite testar endpoints diretamente no navegador
+  * Suporta autenticação JWT via botão "Authorize"
+  * Agrupamento por domínios (Auth, Accounts, Vaults, Positions, etc.)
+
+* **`GET /api-docs/json`**
+  
+  * Retorna especificação OpenAPI 3.0 completa em JSON
+  * Permite download direto do schema
+  * Útil para geração de clients (TypeScript, Python, etc.)
+
+* **`GET /api-docs/yaml`**
+  
+  * Retorna especificação OpenAPI 3.0 em YAML
+  * Alternativa para ferramentas que preferem YAML
+
+### 7.12.2. Estrutura da Documentação OpenAPI
+
+**Metadados Globais:**
+
+```yaml
+openapi: 3.0.0
+info:
+  title: Trading Automation API
+  version: 1.0.0
+  description: |
+    API de automação de trading para exchanges com suporte a:
+    - Execução automática via webhooks
+    - Gerenciamento de posições independentes (FIFO)
+    - Cofres virtuais para controle de capital
+    - Modo real e simulação
+    - SL/TP/Trailing automático
+  contact:
+    name: API Support
+    email: support@tradingautomation.com
+  license:
+    name: Proprietary
+servers:
+  - url: https://api.tradingautomation.com/v1
+    description: Produção
+  - url: https://staging-api.tradingautomation.com/v1
+    description: Staging
+  - url: http://localhost:3000/v1
+    description: Desenvolvimento Local
+```
+
+**Esquemas de Segurança:**
+
+```yaml
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token obtido via POST /auth/login.
+        Incluir no header: Authorization: Bearer {token}
+    
+security:
+  - bearerAuth: []  # Aplicado globalmente (exceto endpoints públicos)
+```
+
+**Tags e Agrupamentos:**
+
+```yaml
+tags:
+  - name: Auth
+    description: Autenticação e gerenciamento de usuários
+  - name: Exchange Accounts
+    description: Contas de exchange (real e simulação)
+  - name: Vaults
+    description: Cofres virtuais para gestão de capital
+  - name: Trade Parameters
+    description: Configuração de parâmetros de trading
+  - name: Webhooks
+    description: Fontes de webhook e eventos
+  - name: Positions
+    description: Posições abertas e fechadas
+  - name: Jobs & Executions
+    description: Jobs de trading e execuções
+  - name: Reports
+    description: Relatórios de PnL, performance e exposição
+  - name: Notifications
+    description: Configuração de notificações WhatsApp
+  - name: Admin
+    description: Administração e monitoramento do sistema
+  - name: Audit
+    description: Logs de auditoria e rastreamento de ações
+  - name: Cron Management
+    description: Gerenciamento de jobs agendados
+```
+
+### 7.12.3. Exemplos de Documentação por Endpoint
+
+#### Auth - Login
+
+```yaml
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Autenticação de usuário
+      description: |
+        Realiza login com email e senha. Retorna access token JWT e refresh token.
+        Se 2FA estiver habilitado, retorna `requires_2fa: true` e requer chamada adicional.
+      operationId: login
+      security: []  # Endpoint público
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  example: "SecureP@ssw0rd"
+            examples:
+              loginSimples:
+                summary: Login sem 2FA
+                value:
+                  email: trader@example.com
+                  password: MySecurePassword123
+              loginCom2FA:
+                summary: Login com 2FA habilitado
+                value:
+                  email: admin@example.com
+                  password: AdminPass456
+      responses:
+        '200':
+          description: Login bem-sucedido
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LoginSuccessResponse'
+                  - $ref: '#/components/schemas/Login2FARequiredResponse'
+              examples:
+                successSem2FA:
+                  summary: Sucesso sem 2FA
+                  value:
+                    access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    expires_in: 3600
+                    user:
+                      id: 123
+                      email: trader@example.com
+                      full_name: João Trader
+                successCom2FA:
+                  summary: Requer verificação 2FA
+                  value:
+                    requires_2fa: true
+                    session_token: temp_session_abc123xyz
+                    message: "Por favor, forneça o código 2FA"
+        '401':
+          description: Credenciais inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Unauthorized
+                message: Email ou senha incorretos
+                statusCode: 401
+        '429':
+          description: Muitas tentativas de login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Too Many Requests
+                message: Muitas tentativas. Tente novamente em 15 minutos
+                statusCode: 429
+                retry_after: 900
+```
+
+#### Positions - Listar Posições
+
+```yaml
+  /positions:
+    get:
+      tags:
+        - Positions
+      summary: Listar posições
+      description: |
+        Lista todas as posições do usuário com filtros opcionais.
+        Posições são independentes (1 compra = 1 posição).
+        Suporta paginação e ordenação.
+      operationId: listPositions
+      parameters:
+        - name: status
+          in: query
+          description: Filtrar por status da posição
+          schema:
+            type: string
+            enum: [OPEN, CLOSED]
+          example: OPEN
+        - name: trade_mode
+          in: query
+          description: Modo de trading
+          schema:
+            type: string
+            enum: [REAL, SIMULATION]
+          example: REAL
+        - name: exchange_account_id
+          in: query
+          description: ID da conta de exchange
+          schema:
+            type: integer
+          example: 5
+        - name: symbol
+          in: query
+          description: Símbolo do ativo (formato CCXT)
+          schema:
+            type: string
+          example: SOL/USDT
+        - name: from
+          in: query
+          description: Data inicial (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+          example: "2025-11-01T00:00:00Z"
+        - name: to
+          in: query
+          description: Data final (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+          example: "2025-12-01T23:59:59Z"
+        - name: page
+          in: query
+          description: Número da página (começa em 1)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          example: 1
+        - name: limit
+          in: query
+          description: Itens por página
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          example: 20
+        - name: sort
+          in: query
+          description: Campo de ordenação
+          schema:
+            type: string
+            enum: [created_at, closed_at, realized_profit_usd]
+            default: created_at
+          example: created_at
+        - name: order
+          in: query
+          description: Direção da ordenação
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          example: desc
+      responses:
+        '200':
+          description: Lista de posições
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Position'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+              examples:
+                posicoesAbertas:
+                  summary: Posições abertas em modo real
+                  value:
+                    data:
+                      - id: 1542
+                        exchange_account_id: 5
+                        trade_mode: REAL
+                        symbol: SOL/USDT
+                        side: LONG
+                        trade_job_id_open: 8921
+                        qty_total: 5.0
+                        qty_remaining: 5.0
+                        price_open: 213.45
+                        status: OPEN
+                        realized_profit_usd: 0.0
+                        unrealized_pnl_usd: 12.75
+                        current_price: 215.00
+                        sl_enabled: true
+                        sl_pct: 2.0
+                        tp_enabled: true
+                        tp_pct: 5.0
+                        trailing_enabled: false
+                        lock_sell_by_webhook: false
+                        created_at: "2025-12-01T14:32:15Z"
+                        updated_at: "2025-12-01T14:32:15Z"
+                      - id: 1543
+                        exchange_account_id: 5
+                        trade_mode: REAL
+                        symbol: BTC/USDT
+                        side: LONG
+                        trade_job_id_open: 8923
+                        qty_total: 0.025
+                        qty_remaining: 0.025
+                        price_open: 98450.00
+                        status: OPEN
+                        realized_profit_usd: 0.0
+                        unrealized_pnl_usd: -25.50
+                        current_price: 98000.00
+                        sl_enabled: true
+                        sl_pct: 1.5
+                        tp_enabled: true
+                        tp_pct: 3.0
+                        trailing_enabled: true
+                        trailing_distance_pct: 1.0
+                        trailing_max_price: 98500.00
+                        lock_sell_by_webhook: true
+                        created_at: "2025-12-01T15:10:42Z"
+                        updated_at: "2025-12-01T15:45:30Z"
+                    pagination:
+                      current_page: 1
+                      per_page: 20
+                      total_items: 2
+                      total_pages: 1
+        '400':
+          description: Parâmetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Não autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+```
+
+#### Positions - Fechar Posição
+
+```yaml
+  /positions/{id}/close:
+    post:
+      tags:
+        - Positions
+      summary: Fechar posição (total ou parcial)
+      description: |
+        Cria um job de venda para fechar a posição.
+        Se `quantity` não for informado, fecha toda a posição (qty_remaining).
+        Para fechamento parcial, especifique a quantidade desejada.
+      operationId: closePosition
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID da posição
+          schema:
+            type: integer
+          example: 1542
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity:
+                  type: number
+                  format: double
+                  description: Quantidade a fechar (omitir para fechar tudo)
+                  example: 2.5
+                order_type:
+                  type: string
+                  enum: [MARKET, LIMIT]
+                  default: MARKET
+                  description: Tipo de ordem
+                limit_price:
+                  type: number
+                  format: double
+                  description: Preço limite (obrigatório se order_type=LIMIT)
+                  example: 216.00
+            examples:
+              fechamentoTotal:
+                summary: Fechar posição completa
+                value: {}
+              fechamentoParcial:
+                summary: Fechar 50% da posição
+                value:
+                  quantity: 2.5
+              fechamentoComLimit:
+                summary: Fechar com ordem LIMIT
+                value:
+                  quantity: 5.0
+                  order_type: LIMIT
+                  limit_price: 220.00
+      responses:
+        '201':
+          description: Job de fechamento criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  trade_job:
+                    $ref: '#/components/schemas/TradeJob'
+              example:
+                message: Job de venda criado com sucesso
+                trade_job:
+                  id: 8955
+                  exchange_account_id: 5
+                  trade_mode: REAL
+                  symbol: SOL/USDT
+                  side: SELL
+                  order_type: MARKET
+                  base_quantity: 5.0
+                  status: PENDING
+                  created_at: "2025-12-01T16:20:10Z"
+        '400':
+          description: Requisição inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                quantityInvalida:
+                  summary: Quantidade maior que disponível
+                  value:
+                    error: Bad Request
+                    message: Quantidade solicitada (10.0) maior que qty_remaining (5.0)
+                    statusCode: 400
+                limitPriceObrigatorio:
+                  summary: Preço limite não informado
+                  value:
+                    error: Bad Request
+                    message: limit_price é obrigatório quando order_type=LIMIT
+                    statusCode: 400
+        '404':
+          description: Posição não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+```
+
+#### Positions - Venda com Ordem LIMIT
+
+```yaml
+  /positions/{id}/sell-limit:
+    post:
+      tags:
+        - Positions
+      summary: Vender posição com ordem LIMIT
+      description: |
+        Cria uma ordem de venda LIMIT a preço específico para a posição.
+        A ordem fica pendente até:
+        - Ser executada quando o preço for atingido
+        - Ser cancelada manualmente
+        - Expirar (se expires_in_hours for definido)
+        
+        **Diferença do /close:**
+        - `/close`: cria ordem MARKET (execução imediata)
+        - `/sell-limit`: cria ordem LIMIT (executa quando preço atingir o valor)
+      operationId: sellPositionLimit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID da posição
+          schema:
+            type: integer
+          example: 1542
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - limit_price
+              properties:
+                limit_price:
+                  type: number
+                  format: double
+                  description: Preço de venda desejado
+                  example: 220.50
+                quantity:
+                  type: number
+                  format: double
+                  description: Quantidade a vender (omitir para vender tudo)
+                  example: 2.5
+                expires_in_hours:
+                  type: integer
+                  description: Cancelar automaticamente após X horas
+                  minimum: 1
+                  maximum: 720
+                  example: 24
+            examples:
+              vendaTotal:
+                summary: Vender posição completa a R$ 220.50
+                value:
+                  limit_price: 220.50
+              vendaParcialComExpiracao:
+                summary: Vender 50% com expiração em 48h
+                value:
+                  limit_price: 225.00
+                  quantity: 2.5
+                  expires_in_hours: 48
+      responses:
+        '201':
+          description: Ordem LIMIT criada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  trade_job:
+                    $ref: '#/components/schemas/TradeJob'
+                  limit_order:
+                    type: object
+                    properties:
+                      exchange_order_id:
+                        type: string
+                        description: ID da ordem na exchange
+                      status:
+                        type: string
+                        example: PENDING_LIMIT
+                      monitor_url:
+                        type: string
+                        description: URL para monitorar status da ordem
+              example:
+                message: Ordem LIMIT de venda criada com sucesso
+                trade_job:
+                  id: 8956
+                  exchange_account_id: 5
+                  trade_mode: REAL
+                  symbol: SOL/USDT
+                  side: SELL
+                  order_type: LIMIT
+                  limit_price: 220.50
+                  base_quantity: 5.0
+                  status: PENDING_LIMIT
+                  limit_order_expires_at: "2025-12-02T16:20:10Z"
+                  created_at: "2025-12-01T16:20:10Z"
+                limit_order:
+                  exchange_order_id: "987654321"
+                  status: PENDING_LIMIT
+                  monitor_url: "/limit-orders/8956"
+        '400':
+          description: Requisição inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                preco_invalido:
+                  summary: Preço abaixo do mínimo
+                  value:
+                    error: Bad Request
+                    message: "limit_price (150.00) está muito abaixo do preço atual (213.00). Diferença máxima: 5%"
+                    statusCode: 400
+                posicao_ja_tem_ordem:
+                  summary: Posição já tem ordem LIMIT pendente
+                  value:
+                    error: Bad Request
+                    message: "Posição já possui ordem LIMIT pendente (job_id: 8950). Cancele-a antes de criar nova."
+                    statusCode: 400
+        '404':
+          description: Posição não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+```
+
+#### Limit Orders - Listar Ordens Pendentes
+
+```yaml
+  /limit-orders:
+    get:
+      tags:
+        - Limit Orders
+      summary: Listar ordens LIMIT
+      description: |
+        Lista todas as ordens LIMIT (compra e venda) do usuário.
+        Útil para monitorar ordens pendentes e histórico.
+      operationId: listLimitOrders
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING_LIMIT, FILLED, CANCELED, EXPIRED]
+          example: PENDING_LIMIT
+        - name: side
+          in: query
+          schema:
+            type: string
+            enum: [BUY, SELL]
+          example: SELL
+        - name: trade_mode
+          in: query
+          schema:
+            type: string
+            enum: [REAL, SIMULATION]
+          example: REAL
+        - name: symbol
+          in: query
+          schema:
+            type: string
+          example: SOL/USDT
+      responses:
+        '200':
+          description: Lista de ordens LIMIT
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LimitOrder'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+              example:
+                data:
+                  - id: 8956
+                    position_id: 1542
+                    symbol: SOL/USDT
+                    side: SELL
+                    order_type: LIMIT
+                    limit_price: 220.50
+                    base_quantity: 5.0
+                    status: PENDING_LIMIT
+                    exchange_order_id: "987654321"
+                    current_price: 215.30
+                    distance_pct: 2.41
+                    created_at: "2025-12-01T16:20:10Z"
+                    expires_at: "2025-12-02T16:20:10Z"
+                  - id: 8952
+                    position_id: 1540
+                    symbol: BTC/USDT
+                    side: SELL
+                    order_type: LIMIT
+                    limit_price: 101000.00
+                    base_quantity: 0.05
+                    status: PENDING_LIMIT
+                    exchange_order_id: "987654320"
+                    current_price: 98500.00
+                    distance_pct: 2.54
+                    created_at: "2025-12-01T10:15:30Z"
+                    expires_at: null
+                pagination:
+                  current_page: 1
+                  per_page: 20
+                  total_items: 2
+                  total_pages: 1
+```
+
+```yaml
+  /limit-orders/{id}:
+    get:
+      tags:
+        - Limit Orders
+      summary: Detalhes de ordem LIMIT
+      description: Retorna status atualizado e histórico de uma ordem LIMIT
+      operationId: getLimitOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalhes da ordem
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LimitOrderDetail'
+    
+    delete:
+      tags:
+        - Limit Orders
+      summary: Cancelar ordem LIMIT
+      description: |
+        Cancela uma ordem LIMIT pendente.
+        - Modo REAL: cancela na exchange via CCXT
+        - Modo SIMULATION: apenas marca como cancelada
+      operationId: cancelLimitOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ordem cancelada
+          content:
+            application/json:
+              example:
+                message: Ordem LIMIT cancelada com sucesso
+                order_id: 8956
+                exchange_order_id: "987654321"
+        '400':
+          description: Ordem não pode ser cancelada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Bad Request
+                message: Ordem já foi executada e não pode ser cancelada
+                statusCode: 400
+```
+
+#### Webhooks - Receber Sinal
+
+```yaml
+  /webhooks/{code}:
+    post:
+      tags:
+        - Webhooks
+      summary: Receber sinal de trading
+      description: |
+        Endpoint público para recepção de sinais via webhook (TradingView, etc).
+        
+        **Segurança:**
+        - Validação de IP contra lista permitida (CIDR)
+        - Assinatura HMAC-SHA256 opcional via header X-Signature
+        - Rate limiting configurável por fonte
+        - Idempotência via event_uid
+        
+        **Processamento:**
+        1. Valida IP e assinatura
+        2. Parseia payload e extrai informações do sinal
+        3. Cria webhook_event com status RECEIVED
+        4. Enfileira jobs para contas vinculadas
+        5. Retorna 200 imediatamente (processamento assíncrono)
+      operationId: receiveWebhook
+      security: []  # Endpoint público (segurança via IP + assinatura)
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: Código único do webhook source
+          schema:
+            type: string
+          example: my-tradingview-alerts
+        - name: X-Signature
+          in: header
+          required: false
+          description: Assinatura HMAC-SHA256 do body (se require_signature=true)
+          schema:
+            type: string
+          example: sha256=a3f5b8c9d2e1f4a7b6c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Payload flexível - será parseado conforme regras configuradas
+              additionalProperties: true
+            examples:
+              sinalCompra:
+                summary: Sinal de compra (Caça Fundo)
+                value:
+                  text: "SOLUSDT.P Caça Fundo 🟢 (H1) Preço (213.09)"
+                  exchange: BINANCE
+                  ticker: SOLUSDT
+                  interval: 1h
+                  time: "2025-12-01T14:30:00Z"
+              sinalVenda:
+                summary: Sinal de venda (Caça Topo)
+                value:
+                  text: "BTCUSDT.P Caça Topo 🔴 (H4) Preço (98450.50)"
+                  exchange: BINANCE
+                  ticker: BTCUSDT
+                  interval: 4h
+                  time: "2025-12-01T15:00:00Z"
+              sinalCustomizado:
+                summary: Payload customizado
+                value:
+                  strategy: mean_reversion
+                  symbol: ETH/USDT
+                  action: BUY
+                  price: 3850.25
+                  timeframe: 15m
+                  confidence: 0.85
+          text/plain:
+            schema:
+              type: string
+            example: "SOLUSDT.P Caça Fundo 🟢 (H1) Preço (213.09)"
+      responses:
+        '200':
+          description: Webhook recebido e enfileirado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  event_id:
+                    type: integer
+                  event_uid:
+                    type: string
+                  accounts_triggered:
+                    type: integer
+                    description: Número de contas que receberão o sinal
+              example:
+                message: Webhook recebido com sucesso
+                event_id: 45231
+                event_uid: "evt_20251201_solusdt_h1_21309"
+                accounts_triggered: 3
+        '400':
+          description: Payload inválido ou parsing falhou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Bad Request
+                message: "Não foi possível extrair símbolo do payload"
+                statusCode: 400
+        '403':
+          description: Acesso negado (IP não autorizado ou assinatura inválida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                ipBloqueado:
+                  summary: IP não está na lista permitida
+                  value:
+                    error: Forbidden
+                    message: IP 203.0.113.45 não autorizado para este webhook
+                    statusCode: 403
+                assinaturaInvalida:
+                  summary: Assinatura HMAC incorreta
+                  value:
+                    error: Forbidden
+                    message: Assinatura inválida ou ausente
+                    statusCode: 403
+        '404':
+          description: Webhook code não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit excedido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Too Many Requests
+                message: Rate limit de 60 requisições/min excedido
+                statusCode: 429
+                retry_after: 45
+```
+
+### 7.12.4. Schemas Comuns
+
+```yaml
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - statusCode
+      properties:
+        error:
+          type: string
+          example: Bad Request
+        message:
+          type: string
+          example: Descrição detalhada do erro
+        statusCode:
+          type: integer
+          example: 400
+        details:
+          type: object
+          description: Detalhes adicionais (validação, campos, etc)
+          additionalProperties: true
+    
+    PaginationMeta:
+      type: object
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        total_items:
+          type: integer
+          example: 156
+        total_pages:
+          type: integer
+          example: 8
+    
+    Position:
+      type: object
+      required:
+        - id
+        - exchange_account_id
+        - trade_mode
+        - symbol
+        - side
+        - qty_total
+        - qty_remaining
+        - price_open
+        - status
+      properties:
+        id:
+          type: integer
+          description: ID único da posição
+        exchange_account_id:
+          type: integer
+          description: ID da conta de exchange
+        trade_mode:
+          type: string
+          enum: [REAL, SIMULATION]
+        symbol:
+          type: string
+          description: Símbolo no formato CCXT (ex SOL/USDT)
+        side:
+          type: string
+          enum: [LONG]
+          description: Lado da posição (futuro SHORT para futuros)
+        trade_job_id_open:
+          type: integer
+          description: ID do job que criou a posição
+        qty_total:
+          type: number
+          format: double
+          description: Quantidade total comprada
+        qty_remaining:
+          type: number
+          format: double
+          description: Quantidade ainda aberta
+        price_open:
+          type: number
+          format: double
+          description: Preço de compra
+        status:
+          type: string
+          enum: [OPEN, CLOSED]
+        realized_profit_usd:
+          type: number
+          format: double
+          description: Lucro realizado em vendas
+        unrealized_pnl_usd:
+          type: number
+          format: double
+          description: PnL não realizado (calculado em tempo real)
+          readOnly: true
+        current_price:
+          type: number
+          format: double
+          description: Preço atual do ativo
+          readOnly: true
+        sl_enabled:
+          type: boolean
+        sl_pct:
+          type: number
+          format: double
+        tp_enabled:
+          type: boolean
+        tp_pct:
+          type: number
+          format: double
+        trailing_enabled:
+          type: boolean
+        trailing_distance_pct:
+          type: number
+          format: double
+        trailing_max_price:
+          type: number
+          format: double
+        lock_sell_by_webhook:
+          type: boolean
+          description: Se true, não será vendida por sinais de webhook
+        close_reason:
+          type: string
+          enum: [TARGET_HIT, STOP_LOSS, MANUAL, WEBHOOK_SELL, RECONCILIATION]
+          nullable: true
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    
+    TradeJob:
+      type: object
+      properties:
+        id:
+          type: integer
+        webhook_event_id:
+          type: integer
+          nullable: true
+        exchange_account_id:
+          type: integer
+        trade_mode:
+          type: string
+          enum: [REAL, SIMULATION]
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [BUY, SELL]
+        order_type:
+          type: string
+          enum: [MARKET, LIMIT, STOP_LIMIT]
+        quote_amount:
+          type: number
+          format: double
+          description: Valor em USDT (para BUY)
+        base_quantity:
+          type: number
+          format: double
+          description: Quantidade base (SOL, BTC, etc)
+        limit_price:
+          type: number
+          format: double
+          nullable: true
+        status:
+          type: string
+          enum: [PENDING, EXECUTING, FILLED, PARTIALLY_FILLED, FAILED, SKIPPED, CANCELED, PENDING_LIMIT]
+        reason_code:
+          type: string
+          nullable: true
+        reason_message:
+          type: string
+          nullable: true
+        vault_id:
+          type: integer
+          nullable: true
+        limit_order_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data de expiração para ordens LIMIT
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    
+    LimitOrder:
+      type: object
+      description: Ordem LIMIT pendente ou histórica
+      properties:
+        id:
+          type: integer
+          description: ID do trade_job
+        position_id:
+          type: integer
+          nullable: true
+          description: ID da posição (null para compras)
+        symbol:
+          type: string
+          example: SOL/USDT
+        side:
+          type: string
+          enum: [BUY, SELL]
+        order_type:
+          type: string
+          enum: [LIMIT]
+        limit_price:
+          type: number
+          format: double
+          description: Preço limite da ordem
+        base_quantity:
+          type: number
+          format: double
+          description: Quantidade a ser negociada
+        status:
+          type: string
+          enum: [PENDING_LIMIT, FILLED, CANCELED, EXPIRED]
+        exchange_order_id:
+          type: string
+          description: ID da ordem na exchange
+        current_price:
+          type: number
+          format: double
+          description: Preço atual do ativo
+          readOnly: true
+        distance_pct:
+          type: number
+          format: double
+          description: Distância percentual do preço atual até limit_price
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data de expiração automática
+    
+    LimitOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/LimitOrder'
+        - type: object
+          properties:
+            position:
+              $ref: '#/components/schemas/Position'
+              nullable: true
+            executions:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  executed_qty:
+                    type: number
+                  avg_price:
+                    type: number
+                  created_at:
+                    type: string
+                    format: date-time
+            status_updates:
+              type: array
+              description: Histórico de mudanças de status
+              items:
+                type: object
+                properties:
+                  from_status:
+                    type: string
+                  to_status:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+                  reason:
+                    type: string
+```
+
+### 7.12.5. Implementação Técnica (NestJS)
+
+**Setup e Configuração:**
+
+1. Instalar dependências:
+   ```bash
+   pnpm add @nestjs/swagger swagger-ui-express
+   ```
+
+2. Configurar no `main.ts`:
+   ```typescript
+   import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+   
+   const config = new DocumentBuilder()
+     .setTitle('Trading Automation API')
+     .setDescription('API de automação de trading...')
+     .setVersion('1.0.0')
+     .addBearerAuth()
+     .addTag('Auth', 'Autenticação e gerenciamento de usuários')
+     .addTag('Positions', 'Posições abertas e fechadas')
+     // ... outras tags
+     .addServer('https://api.tradingautomation.com/v1', 'Produção')
+     .addServer('http://localhost:3000/v1', 'Desenvolvimento')
+     .build();
+   
+   const document = SwaggerModule.createDocument(app, config);
+   
+   // UI interativa
+   SwaggerModule.setup('api-docs', app, document, {
+     swaggerOptions: {
+       persistAuthorization: true,
+       docExpansion: 'none',
+       filter: true,
+       showRequestDuration: true,
+     },
+   });
+   
+   // Export JSON
+   app.use('/api-docs/json', (req, res) => {
+     res.setHeader('Content-Type', 'application/json');
+     res.setHeader('Content-Disposition', 'attachment; filename=openapi.json');
+     res.send(document);
+   });
+   ```
+
+3. Decorators nos Controllers:
+   ```typescript
+   @ApiTags('Positions')
+   @ApiBearerAuth()
+   @Controller('positions')
+   export class PositionsController {
+     
+     @Get()
+     @ApiOperation({ 
+       summary: 'Listar posições',
+       description: 'Lista todas as posições do usuário...'
+     })
+     @ApiQuery({ name: 'status', enum: ['OPEN', 'CLOSED'], required: false })
+     @ApiQuery({ name: 'trade_mode', enum: ['REAL', 'SIMULATION'], required: false })
+     @ApiResponse({
+       status: 200,
+       description: 'Lista de posições',
+       type: [PositionDto],
+     })
+     @ApiResponse({ status: 401, description: 'Não autenticado' })
+     async list(@Query() filters: ListPositionsDto) {
+       // ...
+     }
+     
+     @Post(':id/close')
+     @ApiOperation({ summary: 'Fechar posição' })
+     @ApiParam({ name: 'id', type: 'integer', example: 1542 })
+     @ApiBody({ type: ClosePositionDto, required: false })
+     @ApiResponse({ status: 201, description: 'Job criado' })
+     async close(@Param('id') id: number, @Body() dto?: ClosePositionDto) {
+       // ...
+     }
+   }
+   ```
+
+4. DTOs com decorators de validação e documentação:
+   ```typescript
+   import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+   
+   export class PositionDto {
+     @ApiProperty({ example: 1542 })
+     id: number;
+     
+     @ApiProperty({ enum: ['REAL', 'SIMULATION'] })
+     trade_mode: string;
+     
+     @ApiProperty({ example: 'SOL/USDT' })
+     symbol: string;
+     
+     @ApiPropertyOptional({ example: 213.45 })
+     price_open?: number;
+     
+     // ... outros campos
+   }
+   ```
+
+### 7.12.6. Recursos Adicionais
+
+**Exemplos de uso com cURL:**
+
+```bash
+# Login
+curl -X POST https://api.tradingautomation.com/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"senha123"}'
+
+# Listar posições abertas
+curl -X GET "https://api.tradingautomation.com/v1/positions?status=OPEN&trade_mode=REAL" \
+  -H "Authorization: Bearer eyJhbGc..."
+
+# Fechar posição
+curl -X POST https://api.tradingautomation.com/v1/positions/1542/close \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{"quantity":2.5}'
+
+# Receber webhook
+curl -X POST https://api.tradingautomation.com/v1/webhooks/my-alerts \
+  -H "Content-Type: application/json" \
+  -H "X-Signature: sha256=a3f5b..." \
+  -d '{"text":"SOLUSDT.P Caça Fundo 🟢 (H1) Preço (213.09)"}'
+```
+
+**Download do schema:**
+
+```bash
+# JSON
+curl https://api.tradingautomation.com/v1/api-docs/json -o openapi.json
+
+# Gerar client TypeScript
+npx openapi-typescript openapi.json --output src/api-types.ts
+```
+
+### 7.12.7. Exemplos Adicionais de Endpoints Admin
+
+#### Admin - Listar Usuários
+
+```yaml
+  /admin/users:
+    get:
+      tags:
+        - Admin
+      summary: Listar todos os usuários
+      description: |
+        Lista usuários do sistema com filtros e estatísticas.
+        Requer role ADMIN.
+      operationId: adminListUsers
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [admin, user]
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+        - name: email
+          in: query
+          description: Busca por email (parcial)
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Lista de usuários
+          content:
+            application/json:
+              example:
+                data:
+                  - id: 1
+                    email: admin@example.com
+                    full_name: Admin Master
+                    role: admin
+                    is_active: true
+                    last_login_at: "2025-12-01T10:30:00Z"
+                    stats:
+                      exchange_accounts: 3
+                      open_positions: 5
+                      total_trades: 142
+                    created_at: "2024-01-15T08:00:00Z"
+                  - id: 2
+                    email: trader@example.com
+                    full_name: João Trader
+                    role: user
+                    is_active: true
+                    last_login_at: "2025-12-02T09:15:00Z"
+                    stats:
+                      exchange_accounts: 1
+                      open_positions: 2
+                      total_trades: 45
+                    created_at: "2024-03-20T14:30:00Z"
+                pagination:
+                  current_page: 1
+                  per_page: 20
+                  total_items: 2
+                  total_pages: 1
+    
+    post:
+      tags:
+        - Admin
+      summary: Criar novo usuário
+      description: Cria usuário com senha temporária e força troca no primeiro login
+      operationId: adminCreateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - full_name
+              properties:
+                email:
+                  type: string
+                  format: email
+                full_name:
+                  type: string
+                role:
+                  type: string
+                  enum: [admin, user]
+                  default: user
+                phone:
+                  type: string
+                whatsapp_phone:
+                  type: string
+                send_welcome_notification:
+                  type: boolean
+                  default: true
+            example:
+              email: newtrader@example.com
+              full_name: Maria Trader
+              role: user
+              phone: "+5511999999999"
+              whatsapp_phone: "+5511999999999"
+      responses:
+        '201':
+          description: Usuário criado
+          content:
+            application/json:
+              example:
+                message: Usuário criado com sucesso
+                user:
+                  id: 3
+                  email: newtrader@example.com
+                  full_name: Maria Trader
+                  role: user
+                  is_active: true
+                  must_change_password: true
+                temporary_password: "TempP@ss2025"
+                notification_sent: true
+```
+
+#### Admin - Reset de Senha
+
+```yaml
+  /admin/users/{id}/reset-password:
+    post:
+      tags:
+        - Admin
+      summary: Resetar senha do usuário
+      description: |
+        Gera nova senha temporária e força troca no próximo login.
+        Notifica usuário via email/WhatsApp.
+      operationId: adminResetPassword
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                send_notification:
+                  type: boolean
+                  default: true
+                notification_method:
+                  type: string
+                  enum: [email, whatsapp, both]
+                  default: both
+      responses:
+        '200':
+          description: Senha resetada
+          content:
+            application/json:
+              example:
+                message: Senha resetada com sucesso
+                temporary_password: "NewTemp@2025"
+                notification_sent: true
+                must_change_password: true
+```
+
+#### Cron Management - Listar Jobs
+
+```yaml
+  /admin/cron/jobs:
+    get:
+      tags:
+        - Cron Management
+      summary: Listar jobs agendados
+      description: Retorna status e estatísticas de todos os crons
+      operationId: listCronJobs
+      responses:
+        '200':
+          description: Lista de jobs
+          content:
+            application/json:
+              example:
+                data:
+                  - name: sl_tp_monitor_real
+                    description: Monitor de SL/TP para modo REAL
+                    interval: "*/30 * * * * *"  # A cada 30 segundos
+                    status: ACTIVE
+                    last_execution:
+                      timestamp: "2025-12-02T10:45:30Z"
+                      duration_ms: 1250
+                      result: SUCCESS
+                      positions_checked: 45
+                    next_execution: "2025-12-02T10:46:00Z"
+                    statistics:
+                      total_runs: 2880
+                      success: 2875
+                      failures: 5
+                      avg_duration_ms: 1180
+                  - name: limit_orders_monitor_real
+                    description: Monitor de ordens LIMIT pendentes (REAL)
+                    interval: "0 * * * * *"  # A cada minuto
+                    status: ACTIVE
+                    last_execution:
+                      timestamp: "2025-12-02T10:45:00Z"
+                      duration_ms: 850
+                      result: SUCCESS
+                      orders_checked: 12
+                      orders_filled: 2
+                    next_execution: "2025-12-02T10:46:00Z"
+                    statistics:
+                      total_runs: 1440
+                      success: 1438
+                      failures: 2
+                      avg_duration_ms: 920
+                  - name: balances_sync_real
+                    description: Sincronização de saldos com exchanges
+                    interval: "0 */5 * * * *"  # A cada 5 minutos
+                    status: PAUSED
+                    last_execution:
+                      timestamp: "2025-12-02T10:40:00Z"
+                      duration_ms: 3200
+                      result: ERROR
+                      error: "Timeout na Binance API"
+                    next_execution: null
+                    statistics:
+                      total_runs: 288
+                      success: 285
+                      failures: 3
+                      avg_duration_ms: 2800
+```
+
+#### Audit - Logs de Auditoria
+
+```yaml
+  /admin/audit-logs:
+    get:
+      tags:
+        - Audit
+      summary: Logs de auditoria de usuários
+      description: |
+        Retorna histórico de ações executadas por usuários.
+        Inclui detalhes de mudanças (antes/depois).
+      operationId: getAuditLogs
+      parameters:
+        - name: user_id
+          in: query
+          schema:
+            type: integer
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+            enum: [USER, EXCHANGE_ACCOUNT, VAULT, POSITION, WEBHOOK_SOURCE, TRADE_JOB]
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [CREATE, UPDATE, DELETE, LOGIN, LOGOUT]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Logs de auditoria
+          content:
+            application/json:
+              example:
+                data:
+                  - id: 12345
+                    user_id: 2
+                    user_email: trader@example.com
+                    entity_type: POSITION
+                    entity_id: 1542
+                    action: UPDATE
+                    changes:
+                      before:
+                        lock_sell_by_webhook: false
+                        sl_enabled: true
+                        sl_pct: 2.0
+                      after:
+                        lock_sell_by_webhook: true
+                        sl_enabled: false
+                        sl_pct: null
+                    ip: "203.0.113.45"
+                    user_agent: "Mozilla/5.0..."
+                    request_id: "req_abc123xyz"
+                    created_at: "2025-12-02T10:30:15Z"
+                  - id: 12344
+                    user_id: 1
+                    user_email: admin@example.com
+                    entity_type: USER
+                    entity_id: 3
+                    action: CREATE
+                    changes:
+                      after:
+                        email: newtrader@example.com
+                        full_name: Maria Trader
+                        role: user
+                    ip: "198.51.100.10"
+                    user_agent: "PostmanRuntime/7.32.3"
+                    request_id: "req_def456uvw"
+                    created_at: "2025-12-02T09:15:20Z"
+                pagination:
+                  current_page: 1
+                  per_page: 20
+                  total_items: 2
+                  total_pages: 1
+```
+
+---
+
+# 8. Segurança e Requisitos Não Funcionais
+
+* JWT + 2FA para usuários.
+
+* Criptografia forte (AES-256-GCM) para:
+
+  * API keys de exchange
+  * secrets de webhook.
+
+* Validação de IP e assinatura HMAC nos webhooks (configurável por `webhook_source`).
+
+* Logs estruturados e auditoria:
+
+  * **Audit logs de usuários** (`audit_logs`):
+    * Toda ação de CREATE, UPDATE, DELETE é registrada
+    * Armazena estado antes/depois (changes_json)
+    * Rastreamento de IP, user agent, request_id
+    * Retenção: 12 meses (configurável)
+  
+  * **System audit logs** (`system_audit_logs`):
+    * Eventos do sistema (crons, webhooks, execuções)
+    * Severidade (INFO, WARNING, ERROR, CRITICAL)
+    * Alertas automáticos para eventos críticos
+    * Retenção: 6 meses para INFO, 24 meses para ERROR/CRITICAL
+  
+  * **Login history** (`login_history`):
+    * Todas as tentativas de login (sucesso e falha)
+    * Detecção de múltiplas tentativas falhadas
+    * Bloqueio temporário após 5 falhas consecutivas
+  
+  * **Webhook logs**:
+    * Todos os webhooks recebidos (sucesso e bloqueados)
+    * Tentativas com IP não autorizado
+    * Falhas de assinatura HMAC
+    * Rate limiting aplicado
+  
+  * **Compliance e LGPD**:
+    * Export de dados pessoais do usuário (JSON)
+    * Anonimização de dados em soft delete
+    * Consentimento para armazenamento de dados
+    * Direito ao esquecimento (hard delete com validação)
+
+* Escalabilidade:
+
+  * `apps/api` pode ser escalado horizontalmente.
+  * Workers se escalam pelo BullMQ.
+  * Banco MySQL dimensionado com índices apropriados.
+
+* Observabilidade:
+
+  * Healthcheck por serviço.
+  * Logs de nível `info`, `warn`, `error` com `requestId`/`traceId`.
+
+---

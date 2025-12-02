@@ -1,0 +1,35 @@
+{
+  "name": "mvcashnode",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trading Automation Backend - Monorepo",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "dev:api": "pnpm --filter @mvcashnode/api dev",
+    "dev:executor": "pnpm --filter @mvcashnode/executor dev",
+    "dev:monitors": "pnpm --filter @mvcashnode/monitors dev",
+    "test": "pnpm -r test",
+    "test:unit": "pnpm -r test:unit",
+    "test:e2e": "pnpm -r test:e2e",
+    "lint": "pnpm -r lint",
+    "lint:fix": "pnpm -r lint:fix",
+    "format": "prettier --write \"**/*.{ts,js,json,md}\"",
+    "type-check": "pnpm -r type-check",
+    "db:generate": "pnpm --filter @mvcashnode/db prisma generate",
+    "db:migrate": "pnpm --filter @mvcashnode/db prisma migrate dev",
+    "db:studio": "pnpm --filter @mvcashnode/db prisma studio",
+    "clean": "pnpm -r clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "prettier": "^3.2.4",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0"
+}
+
