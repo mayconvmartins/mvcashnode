@@ -35,8 +35,10 @@ Sistema de automação de trading para exchanges com suporte a webhooks, execuç
 
 - Node.js 22+
 - pnpm 8+
-- MySQL 8+
-- Redis
+- MySQL 8+ (instalação local ou serviço gerenciado)
+- Redis (instalação local ou serviço gerenciado)
+
+> **Nota**: Para instruções detalhadas de instalação e configuração, consulte [docs/SETUP.md](docs/SETUP.md)
 
 ### Instalação
 
@@ -85,13 +87,12 @@ pnpm dev:monitors
 - `pnpm db:generate` - Gerar Prisma Client
 - `pnpm db:migrate` - Executar migrations
 - `pnpm db:studio` - Abrir Prisma Studio
-- `pnpm docker:up` - Iniciar serviços Docker (MySQL, Redis)
-- `pnpm docker:down` - Parar serviços Docker
-- `pnpm docker:logs` - Ver logs dos serviços Docker
 
 ## Documentação
 
-A documentação completa da API está disponível em `/api-docs` quando a API estiver rodando.
+- **API**: A documentação completa da API está disponível em `/api-docs` quando a API estiver rodando
+- **Setup Local**: Veja [docs/SETUP.md](docs/SETUP.md) para instruções detalhadas de instalação e configuração
+- **Documentação Adicional**: Consulte o diretório [docs/](docs/) para mais documentação do projeto
 
 ## Licença
 

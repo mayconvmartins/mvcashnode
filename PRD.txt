@@ -28,9 +28,9 @@ Frontend será feito depois; este PRD cobre apenas o **backend/API + workers**.
 * **Runtime**: Node.js 22+
 * **Gerenciador**: `pnpm` (monorepo)
 * **Framework API**: NestJS (recomendado) ou Fastify com estrutura modular equivalente.
-* **Banco de Dados**: MySQL 8 (InnoDB, UTF8MB4)
+* **Banco de Dados**: MySQL 8 (InnoDB, UTF8MB4) - instalação local ou serviço gerenciado
 * **ORM**: Prisma
-* **Filas & Locks**: Redis + BullMQ
+* **Filas & Locks**: Redis + BullMQ - instalação local ou serviço gerenciado
 * **Exchange**: CCXT (`binance`, etc.) para modo REAL e leitura de preço; no modo SIMULAÇÃO, apenas leitura de preço.
 * **Notificações**: Evolution API (WhatsApp) via HTTP client.
 * **Auth**: JWT + 2FA (TOTP)
@@ -3039,5 +3039,14 @@ npx openapi-typescript openapi.json --output src/api-types.ts
 
   * Healthcheck por serviço.
   * Logs de nível `info`, `warn`, `error` com `requestId`/`traceId`.
+  * Logs centralizados no diretório `/logs` na raiz do projeto.
+
+* Deploy e Infraestrutura:
+
+  * **Execução Local**: O projeto roda diretamente com Node.js, sem Docker.
+  * **Requisitos**: MySQL 8 e Redis devem estar instalados localmente ou acessíveis via serviços gerenciados.
+  * **Variáveis de Ambiente**: Todas as configurações via `.env` (veja `.env.example`).
+  * **Documentação**: Instruções completas de setup em `docs/SETUP.md`.
+  * **Logs**: Diretório `/logs` na raiz do projeto para logs centralizados.
 
 ---

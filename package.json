@@ -20,16 +20,15 @@
     "lint:fix": "pnpm -r lint:fix",
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
     "type-check": "pnpm -r type-check",
-    "db:generate": "pnpm --filter @mvcashnode/db prisma generate",
-    "db:migrate": "pnpm --filter @mvcashnode/db prisma migrate dev",
-    "db:studio": "pnpm --filter @mvcashnode/db prisma studio",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f",
+    "db:generate": "node scripts/prisma-helper.js pnpm prisma generate",
+    "db:migrate": "node scripts/prisma-helper.js pnpm prisma migrate dev",
+    "db:migrate:deploy": "node scripts/prisma-helper.js pnpm prisma migrate deploy",
+    "db:studio": "node scripts/prisma-helper.js pnpm prisma studio",
     "clean": "pnpm -r clean && rm -rf node_modules"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "dotenv-cli": "^7.4.4",
     "prettier": "^3.2.4",
     "typescript": "^5.3.3"
   },
@@ -39,4 +38,3 @@
   },
   "packageManager": "pnpm@8.15.0"
 }
-

@@ -1,16 +1,74 @@
 import * as winston from 'winston';
+import * as path from 'path';
+import * as fs from 'fs';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const DailyRotateFile = require('winston-daily-rotate-file');
 
 export interface LoggerConfig {
   level?: string;
   format?: 'json' | 'simple';
   defaultMeta?: Record<string, unknown>;
+  logDir?: string;
 }
 
 export class Logger {
   private logger: winston.Logger;
 
   constructor(config: LoggerConfig = {}) {
-    const { level = 'info', format = 'json', defaultMeta = {} } = config;
+    const { level = 'info', format = 'json', defaultMeta = {}, logDir } = config;
+
+    // Determine log directory (default to /logs in project root)
+    const logsPath = logDir || path.resolve(process.cwd(), 'logs');
+    
+    // Ensure logs directory exists
+    if (!fs.existsSync(logsPath)) {
+      fs.mkdirSync(logsPath, { recursive: true });
+    }
+
+    const transports: winston.transport[] = [
+      new winston.transports.Console({
+        format:
+          format === 'json'
+            ? winston.format.json()
+            : winston.format.combine(
+                winston.format.colorize(),
+                winston.format.simple()
+              ),
+      }),
+    ];
+
+    // Add file transports
+    transports.push(
+      new DailyRotateFile({
+        filename: path.join(logsPath, 'application-%DATE%.log'),
+        datePattern: 'YYYY-MM-DD',
+        zippedArchive: true,
+        maxSize: '20m',
+        maxFiles: '14d',
+        format: winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.errors({ stack: true }),
+          winston.format.json()
+        ),
+      })
+    );
+
+    transports.push(
+      new DailyRotateFile({
+        filename: path.join(logsPath, 'error-%DATE%.log'),
+        datePattern: 'YYYY-MM-DD',
+        level: 'error',
+        zippedArchive: true,
+        maxSize: '20m',
+        maxFiles: '30d',
+        format: winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.errors({ stack: true }),
+          winston.format.json()
+        ),
+      })
+    );
 
     this.logger = winston.createLogger({
       level,
@@ -27,17 +85,7 @@ export class Logger {
               winston.format.simple()
             ),
       defaultMeta,
-      transports: [
-        new winston.transports.Console({
-          format:
-            format === 'json'
-              ? winston.format.json()
-              : winston.format.combine(
-                  winston.format.colorize(),
-                  winston.format.simple()
-                ),
-        }),
-      ],
+      transports,
     });
   }
 
