@@ -21,6 +21,12 @@ async function bootstrap() {
 
   console.log(`[Timezone] Configurado: ${timezone}`);
 
+  // Configurar adapters de exchange para usar NTP
+  const { BinanceSpotAdapter, BybitSpotAdapter } = await import('@mvcashnode/exchange');
+  BinanceSpotAdapter.setNtpService(ntpService);
+  BybitSpotAdapter.setNtpService(ntpService);
+  console.log('[Exchange] Adapters configurados para usar NTP Service');
+
   const app = await NestFactory.createApplicationContext(AppModule);
   console.log('Executor service started');
 

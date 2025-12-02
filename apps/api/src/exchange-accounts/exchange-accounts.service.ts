@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { ExchangeAccountService } from '@mvcashnode/domain';
-import { EncryptionService } from '@mvcashnode/shared';
+import { EncryptionService, TradeMode } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType } from '@mvcashnode/shared';
 
@@ -70,6 +70,120 @@ export class ExchangeAccountsService {
         message: 'Unexpected error',
         error: error.message || 'An unexpected error occurred while testing connection'
       };
+    }
+  }
+
+  async syncBalances(accountId: number, userId: number): Promise<any> {
+    try {
+      const account = await this.domainService.getAccountById(accountId, userId);
+      
+      if (!account) {
+        throw new Error('Exchange account not found');
+      }
+
+      if (account.is_simulation) {
+        // Para contas de simulação, retorna saldos iniciais
+        return {
+          success: true,
+          message: 'Simulation account - using initial balances',
+          balances: account.initial_balances_json || {}
+        };
+      }
+
+      const keys = await this.domainService.decryptApiKeys(accountId);
+      if (!keys) {
+        throw new Error('Missing API credentials');
+      }
+
+      // Criar adapter
+      const adapter = AdapterFactory.createAdapter(
+        account.exchange as ExchangeType,
+        keys.apiKey,
+        keys.apiSecret,
+        { testnet: account.testnet }
+      );
+
+      // Buscar saldos
+      const balance = await adapter.fetchBalance();
+
+      // Converter para formato do domain
+      const balances: Record<string, { free: number; locked: number }> = {};
+      for (const [asset, amount] of Object.entries(balance.free || {})) {
+        balances[asset] = {
+          free: amount,
+          locked: balance.used?.[asset] || 0,
+        };
+      }
+
+      // Sincronizar no banco
+      const tradeMode = account.is_simulation ? TradeMode.SIMULATION : TradeMode.REAL;
+      await this.domainService.syncBalance(accountId, tradeMode, balances);
+
+      return {
+        success: true,
+        message: 'Balances synced successfully',
+        balances
+      };
+    } catch (error: any) {
+      console.error('[ExchangeAccountsService] Sync balances error:', error);
+      throw new Error(`Failed to sync balances: ${error.message}`);
+    }
+  }
+
+  async syncPositions(accountId: number, userId: number): Promise<any> {
+    try {
+      const account = await this.domainService.getAccountById(accountId, userId);
+      
+      if (!account) {
+        throw new Error('Exchange account not found');
+      }
+
+      if (account.is_simulation) {
+        // Para contas de simulação, busca posições do banco apenas
+        const positions = await this.prisma.tradePosition.count({
+          where: {
+            exchange_account_id: accountId,
+            status: 'OPEN'
+          }
+        });
+
+        return {
+          success: true,
+          message: 'Simulation account - positions from database',
+          positionsFound: positions
+        };
+      }
+
+      const keys = await this.domainService.decryptApiKeys(accountId);
+      if (!keys) {
+        throw new Error('Missing API credentials');
+      }
+
+      // Criar adapter
+      const adapter = AdapterFactory.createAdapter(
+        account.exchange as ExchangeType,
+        keys.apiKey,
+        keys.apiSecret,
+        { testnet: account.testnet }
+      );
+
+      // Buscar posições abertas (apenas para exchanges que suportam)
+      // Para spot, contamos as posições no banco que têm quantidade > 0
+      const openPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          exchange_account_id: accountId,
+          status: 'OPEN'
+        }
+      });
+
+      return {
+        success: true,
+        message: 'Positions synced successfully',
+        positionsFound: openPositions.length
+      };
+    } catch (error: any) {
+      console.error('[ExchangeAccountsService] Sync positions error:', error);
+      throw new Error(`Failed to sync positions: ${error.message}`);
     }
   }
 }

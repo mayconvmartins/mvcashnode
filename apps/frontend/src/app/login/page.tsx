@@ -19,7 +19,6 @@ export default function LoginPage() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [twoFactorCode, setTwoFactorCode] = useState('')
-    const [requires2FA, setRequires2FA] = useState(false)
     const [error, setError] = useState('')
 
     const loginMutation = useMutation({
@@ -39,30 +38,19 @@ export default function LoginPage() {
         },
         onError: (error: any) => {
             const errorMessage = error.message || error.response?.data?.message || 'Falha no login'
-            
-            // Se o erro indicar que 2FA é necessário
-            if (errorMessage.includes('2FA') || errorMessage.includes('two factor') || error.response?.status === 401) {
-                setRequires2FA(true)
-                setError('')
-            } else {
-                setError(errorMessage)
-            }
+            setError(errorMessage)
+            toast.error(errorMessage)
         },
     })
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         setError('')
-        
-        if (requires2FA && !twoFactorCode) {
-            setError('Código 2FA é obrigatório')
-            return
-        }
 
         loginMutation.mutate({ 
             email, 
             password,
-            ...(requires2FA && twoFactorCode ? { twoFactorCode } : {})
+            ...(twoFactorCode ? { twoFactorCode } : {})
         })
     }
 
@@ -130,28 +118,25 @@ export default function LoginPage() {
                             />
                         </div>
 
-                        {requires2FA && (
-                            <div className="space-y-2">
-                                <Label htmlFor="twoFactorCode" className="flex items-center gap-2">
-                                    <Shield className="h-4 w-4" />
-                                    Código 2FA
-                                </Label>
-                                <Input
-                                    id="twoFactorCode"
-                                    type="text"
-                                    placeholder="000000"
-                                    value={twoFactorCode}
-                                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                    maxLength={6}
-                                    className="text-center text-lg font-mono tracking-widest"
-                                    disabled={loginMutation.isPending}
-                                    required
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    Digite o código de 6 dígitos do seu aplicativo autenticador
-                                </p>
-                            </div>
-                        )}
+                        <div className="space-y-2">
+                            <Label htmlFor="twoFactorCode" className="flex items-center gap-2">
+                                <Shield className="h-4 w-4" />
+                                Código 2FA (opcional)
+                            </Label>
+                            <Input
+                                id="twoFactorCode"
+                                type="text"
+                                placeholder="000000"
+                                value={twoFactorCode}
+                                onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                maxLength={6}
+                                className="text-center text-lg font-mono tracking-widest"
+                                disabled={loginMutation.isPending}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Digite o código de 6 dígitos se você habilitou 2FA
+                            </p>
+                        </div>
 
                         <Button
                             type="submit"

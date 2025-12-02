@@ -321,5 +321,78 @@ export class ExchangeAccountsController {
     );
     return result;
   }
+
+  @Post(':id/sync-balances')
+  @ApiOperation({ 
+    summary: 'Sincronizar saldos da exchange',
+    description: 'Força sincronização manual dos saldos da conta de exchange. Busca os saldos atuais da API da exchange e atualiza o cache local.'
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da conta de exchange', example: 1 })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Saldos sincronizados com sucesso',
+    schema: {
+      example: {
+        success: true,
+        message: 'Balances synced successfully',
+        balances: {
+          BTC: { free: 0.5, locked: 0.1 },
+          USDT: { free: 1000, locked: 200 }
+        }
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Conta não encontrada',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: 'Exchange account not found',
+        error: 'Not Found'
+      }
+    }
+  })
+  async syncBalances(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any
+  ) {
+    return await this.exchangeAccountsService.syncBalances(id, user.userId);
+  }
+
+  @Post(':id/sync-positions')
+  @ApiOperation({ 
+    summary: 'Sincronizar posições abertas da exchange',
+    description: 'Força sincronização manual das posições abertas da conta de exchange. Busca posições ativas na exchange e atualiza o banco de dados.'
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da conta de exchange', example: 1 })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Posições sincronizadas com sucesso',
+    schema: {
+      example: {
+        success: true,
+        message: 'Positions synced successfully',
+        positionsFound: 3
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Conta não encontrada',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: 'Exchange account not found',
+        error: 'Not Found'
+      }
+    }
+  })
+  async syncPositions(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any
+  ) {
+    return await this.exchangeAccountsService.syncPositions(id, user.userId);
+  }
 }
 

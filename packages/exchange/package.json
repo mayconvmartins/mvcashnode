@@ -12,7 +12,8 @@
     "test:unit": "jest"
   },
   "dependencies": {
-    "ccxt": "^4.2.25"
+    "ccxt": "^4.2.25",
+    "@mvcashnode/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^29.5.11",

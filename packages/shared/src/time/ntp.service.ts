@@ -128,6 +128,14 @@ export class NtpService {
   }
 
   /**
+   * Retorna timestamp Unix em milissegundos ajustado com offset NTP
+   * Formato usado pelas exchanges (Binance, Bybit, etc)
+   */
+  getTimestamp(): number {
+    return Date.now() + this.timeOffset;
+  }
+
+  /**
    * Valida se o relógio do sistema está sincronizado
    * Considera sincronizado se o offset for menor que 1 segundo
    */

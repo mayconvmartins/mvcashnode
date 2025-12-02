@@ -51,6 +51,12 @@ async function bootstrap() {
   console.log(`[Timezone] Configurado: ${timezone}`);
   console.log(`[Timezone] Info:`, timezoneService.getInfo());
 
+  // Configurar adapters de exchange para usar NTP
+  const { BinanceSpotAdapter, BybitSpotAdapter } = await import('@mvcashnode/exchange');
+  BinanceSpotAdapter.setNtpService(ntpService);
+  BybitSpotAdapter.setNtpService(ntpService);
+  console.log('[Exchange] Adapters configurados para usar NTP Service');
+
   const app = await NestFactory.create(AppModule);
 
   // Configuração de CORS

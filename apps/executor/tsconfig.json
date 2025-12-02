@@ -3,9 +3,36 @@
   "compilerOptions": {
     "outDir": "./dist",
     "skipLibCheck": true,
-    "composite": false
+    "composite": false,
+    "baseUrl": ".",
+    "paths": {
+      "@mvcashnode/shared": ["../../packages/shared/dist"],
+      "@mvcashnode/shared/*": ["../../packages/shared/dist/*"],
+      "@mvcashnode/db": ["../../packages/db/dist"],
+      "@mvcashnode/db/*": ["../../packages/db/dist/*"],
+      "@mvcashnode/domain": ["../../packages/domain/dist"],
+      "@mvcashnode/domain/*": ["../../packages/domain/dist/*"],
+      "@mvcashnode/exchange": ["../../packages/exchange/dist"],
+      "@mvcashnode/exchange/*": ["../../packages/exchange/dist/*"],
+      "@mvcashnode/notifications": ["../../packages/notifications/dist"],
+      "@mvcashnode/notifications/*": ["../../packages/notifications/dist/*"]
+    }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist"],
+  "ts-node": {
+    "require": ["tsconfig-paths/register"],
+    "transpileOnly": true,
+    "files": true,
+    "skipIgnore": false,
+    "compilerOptions": {
+      "module": "commonjs",
+      "esModuleInterop": true
+    },
+    "ignore": [
+      "(?<!apps/executor)/node_modules/.*",
+      "packages/.*/src/.*"
+    ]
+  }
 }
 
