@@ -1,9 +1,9 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, PositionStatus, CloseReason, TradeSide } from '@mvcashnode/shared';
+import { TradeMode, PositionStatus, CloseReason } from '@mvcashnode/shared';
 
 export interface PositionFill {
   executionId: number;
-  side: TradeSide;
+  side: 'BUY' | 'SELL';
   qty: number;
   price: number;
 }

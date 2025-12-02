@@ -1,13 +1,13 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, TradeJobStatus, TradeSide, OrderType } from '@mvcashnode/shared';
+import { TradeMode, TradeJobStatus } from '@mvcashnode/shared';
 
 export interface CreateTradeJobDto {
   webhookEventId?: number;
   exchangeAccountId: number;
   tradeMode: TradeMode;
   symbol: string;
-  side: TradeSide;
-  orderType: OrderType;
+  side: 'BUY' | 'SELL';
+  orderType: 'MARKET' | 'LIMIT' | 'STOP_LIMIT';
   quoteAmount?: number;
   baseQuantity?: number;
   limitPrice?: number;

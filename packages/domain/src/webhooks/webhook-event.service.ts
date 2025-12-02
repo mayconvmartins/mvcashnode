@@ -96,9 +96,10 @@ export class WebhookEventService {
     let jobsCreated = 0;
 
     for (const binding of event.webhook_source.bindings) {
-      // Note: trade_mode is stored in exchange_account, but we compare with event trade_mode
-      // This logic may need adjustment based on your schema
-      if (binding.exchange_account.is_simulation !== (event.trade_mode === 'SIMULATION')) {
+      // Match trade mode: is_simulation true = SIMULATION, false = REAL
+      const accountIsSim = binding.exchange_account.is_simulation;
+      const eventIsSim = event.trade_mode === 'SIMULATION';
+      if (accountIsSim !== eventIsSim) {
         continue;
       }
 
@@ -106,9 +107,9 @@ export class WebhookEventService {
         await this.tradeJobService.createJob({
           webhookEventId: event.id,
           exchangeAccountId: binding.exchange_account.id,
-          tradeMode: event.trade_mode as any,
+          tradeMode: event.trade_mode,
           symbol: event.symbol_normalized,
-          side: (event.action === WebhookAction.BUY_SIGNAL ? 'BUY' : 'SELL') as any,
+          side: event.action === WebhookAction.BUY_SIGNAL ? 'BUY' : 'SELL',
           orderType: 'MARKET',
         });
         jobsCreated++;

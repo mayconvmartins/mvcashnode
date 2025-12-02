@@ -1,0 +1,132 @@
+import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Job } from 'bullmq';
+import { PrismaService } from '@mvcashnode/db';
+import { PositionService, TradeJobService } from '@mvcashnode/domain';
+import { BinanceSpotAdapter } from '@mvcashnode/exchange';
+import { ExchangeType, PositionStatus } from '@mvcashnode/shared';
+
+@Processor('sl-tp-monitor-sim', {
+  repeat: {
+    pattern: '*/30 * * * * *', // Every 30 seconds
+  },
+})
+export class SLTPMonitorSimProcessor extends WorkerHost {
+  constructor(private prisma: PrismaService) {
+    super();
+  }
+
+  async process(job: Job<any>): Promise<any> {
+    // Get all open positions with SL/TP enabled (SIMULATION)
+    const positions = await this.prisma.tradePosition.findMany({
+      where: {
+        trade_mode: 'SIMULATION',
+        status: PositionStatus.OPEN,
+        qty_remaining: { gt: 0 },
+        OR: [
+          { sl_enabled: true },
+          { tp_enabled: true },
+          { trailing_enabled: true },
+        ],
+      },
+      include: {
+        exchange_account: true,
+      },
+    });
+
+    const tradeJobService = new TradeJobService(this.prisma);
+    let triggered = 0;
+
+    for (const position of positions) {
+      try {
+        // Create read-only adapter (no API keys needed for simulation)
+        const adapter = new BinanceSpotAdapter(
+          position.exchange_account.exchange as ExchangeType
+        );
+
+        // Get current price
+        const ticker = await adapter.fetchTicker(position.symbol);
+        const currentPrice = ticker.last;
+        const priceOpen = position.price_open.toNumber();
+        const pnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+
+        // Check Stop Loss
+        if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
+          if (!position.sl_triggered) {
+            await tradeJobService.createJob({
+              exchangeAccountId: position.exchange_account_id,
+              tradeMode: 'SIMULATION',
+              symbol: position.symbol,
+              side: 'SELL',
+              orderType: 'MARKET',
+              baseQuantity: position.qty_remaining.toNumber(),
+            });
+
+            await this.prisma.tradePosition.update({
+              where: { id: position.id },
+              data: { sl_triggered: true },
+            });
+            triggered++;
+          }
+        }
+
+        // Check Take Profit
+        if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
+          if (!position.tp_triggered) {
+            await tradeJobService.createJob({
+              exchangeAccountId: position.exchange_account_id,
+              tradeMode: 'SIMULATION',
+              symbol: position.symbol,
+              side: 'SELL',
+              orderType: 'MARKET',
+              baseQuantity: position.qty_remaining.toNumber(),
+            });
+
+            await this.prisma.tradePosition.update({
+              where: { id: position.id },
+              data: { tp_triggered: true },
+            });
+            triggered++;
+          }
+        }
+
+        // Check Trailing Stop (similar to real)
+        if (position.trailing_enabled && position.trailing_distance_pct) {
+          let trailingMaxPrice = position.trailing_max_price?.toNumber() || priceOpen;
+
+          if (currentPrice > trailingMaxPrice) {
+            trailingMaxPrice = currentPrice;
+            await this.prisma.tradePosition.update({
+              where: { id: position.id },
+              data: { trailing_max_price: trailingMaxPrice },
+            });
+          }
+
+          const trailingDistance = position.trailing_distance_pct.toNumber();
+          const trailingTriggerPrice = trailingMaxPrice * (1 - trailingDistance / 100);
+
+          if (currentPrice <= trailingTriggerPrice && !position.trailing_triggered) {
+            await tradeJobService.createJob({
+              exchangeAccountId: position.exchange_account_id,
+              tradeMode: 'SIMULATION',
+              symbol: position.symbol,
+              side: 'SELL',
+              orderType: 'MARKET',
+              baseQuantity: position.qty_remaining.toNumber(),
+            });
+
+            await this.prisma.tradePosition.update({
+              where: { id: position.id },
+              data: { trailing_triggered: true },
+            });
+            triggered++;
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing position ${position.id}:`, error);
+      }
+    }
+
+    return { positionsChecked: positions.length, triggered };
+  }
+}
+
