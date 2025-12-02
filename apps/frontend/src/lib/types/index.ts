@@ -178,6 +178,16 @@ export interface CreateVaultDto {
     tradeMode: TradeMode
 }
 
+export interface DepositDto {
+    asset: string
+    amount: number
+}
+
+export interface WithdrawDto {
+    asset: string
+    amount: number
+}
+
 // ============================================
 // TRADE PARAMETERS
 // ============================================

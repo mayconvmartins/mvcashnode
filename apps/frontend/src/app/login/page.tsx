@@ -1,19 +1,25 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import { authService } from '@/lib/api/auth.service'
 import { useAuthStore } from '@/lib/stores/authStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { Shield } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function LoginPage() {
     const router = useRouter()
+    const searchParams = useSearchParams()
     const { setTokens, setUser } = useAuthStore()
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [twoFactorCode, setTwoFactorCode] = useState('')
+    const [requires2FA, setRequires2FA] = useState(false)
     const [error, setError] = useState('')
 
     const loginMutation = useMutation({
@@ -21,17 +27,37 @@ export default function LoginPage() {
         onSuccess: (data) => {
             setTokens(data.accessToken, data.refreshToken)
             setUser(data.user)
-            router.push('/')
+            const redirect = searchParams.get('redirect')
+            router.push(redirect || '/')
+            toast.success('Login realizado com sucesso!')
         },
         onError: (error: any) => {
-            setError(error.response?.data?.message || 'Falha no login')
+            const errorMessage = error.message || error.response?.data?.message || 'Falha no login'
+            
+            // Se o erro indicar que 2FA é necessário
+            if (errorMessage.includes('2FA') || errorMessage.includes('two factor') || error.response?.status === 401) {
+                setRequires2FA(true)
+                setError('')
+            } else {
+                setError(errorMessage)
+            }
         },
     })
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         setError('')
-        loginMutation.mutate({ email, password })
+        
+        if (requires2FA && !twoFactorCode) {
+            setError('Código 2FA é obrigatório')
+            return
+        }
+
+        loginMutation.mutate({ 
+            email, 
+            password,
+            ...(requires2FA && twoFactorCode ? { twoFactorCode } : {})
+        })
     }
 
     return (
@@ -86,9 +112,7 @@ export default function LoginPage() {
                         </div>
 
                         <div className="space-y-2">
-                            <label htmlFor="password" className="text-sm font-medium">
-                                Senha
-                            </label>
+                            <Label htmlFor="password">Senha</Label>
                             <Input
                                 id="password"
                                 type="password"
@@ -99,6 +123,29 @@ export default function LoginPage() {
                                 required
                             />
                         </div>
+
+                        {requires2FA && (
+                            <div className="space-y-2">
+                                <Label htmlFor="twoFactorCode" className="flex items-center gap-2">
+                                    <Shield className="h-4 w-4" />
+                                    Código 2FA
+                                </Label>
+                                <Input
+                                    id="twoFactorCode"
+                                    type="text"
+                                    placeholder="000000"
+                                    value={twoFactorCode}
+                                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                    maxLength={6}
+                                    className="text-center text-lg font-mono tracking-widest"
+                                    disabled={loginMutation.isPending}
+                                    required
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Digite o código de 6 dígitos do seu aplicativo autenticador
+                                </p>
+                            </div>
+                        )}
 
                         <Button
                             type="submit"
