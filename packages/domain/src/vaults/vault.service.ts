@@ -34,7 +34,7 @@ export class VaultService {
     });
   }
 
-  async getVaultById(vaultId: number, userId?: number) {
+  async getVaultById(vaultId: number, userId?: number): Promise<any> {
     const where: any = { id: vaultId };
     if (userId) where.user_id = userId;
 

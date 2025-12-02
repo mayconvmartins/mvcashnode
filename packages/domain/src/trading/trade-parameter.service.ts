@@ -2,6 +2,7 @@ import { PrismaClient } from '@mvcashnode/db';
 import { TradeMode } from '@mvcashnode/shared';
 
 export interface CreateTradeParameterDto {
+  userId: number;
   exchangeAccountId: number;
   symbol: string;
   side: 'BUY' | 'SELL' | 'BOTH';
@@ -23,9 +24,10 @@ export interface CreateTradeParameterDto {
 export class TradeParameterService {
   constructor(private prisma: PrismaClient) {}
 
-  async createParameter(dto: CreateTradeParameterDto) {
+  async createParameter(dto: CreateTradeParameterDto): Promise<any> {
     return this.prisma.tradeParameter.create({
       data: {
+        user_id: dto.userId,
         exchange_account_id: dto.exchangeAccountId,
         symbol: dto.symbol,
         side: dto.side,

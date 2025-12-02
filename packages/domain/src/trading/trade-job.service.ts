@@ -37,7 +37,7 @@ export class TradeJobService {
     });
   }
 
-  async updateJobStatus(jobId: number, status: TradeJobStatus, reasonCode?: string, reasonMessage?: string) {
+  async updateJobStatus(jobId: number, status: TradeJobStatus, reasonCode?: string, reasonMessage?: string): Promise<any> {
     return this.prisma.tradeJob.update({
       where: { id: jobId },
       data: {
@@ -48,7 +48,7 @@ export class TradeJobService {
     });
   }
 
-  async getJobsByStatus(status: TradeJobStatus, tradeMode?: TradeMode) {
+  async getJobsByStatus(status: TradeJobStatus, tradeMode?: TradeMode): Promise<any[]> {
     const where: any = { status };
     if (tradeMode) where.trade_mode = tradeMode;
 

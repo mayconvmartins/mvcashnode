@@ -107,7 +107,7 @@ export class WebhookEventService {
         await this.tradeJobService.createJob({
           webhookEventId: event.id,
           exchangeAccountId: binding.exchange_account.id,
-          tradeMode: event.trade_mode,
+          tradeMode: event.trade_mode as TradeMode,
           symbol: event.symbol_normalized,
           side: event.action === WebhookAction.BUY_SIGNAL ? 'BUY' : 'SELL',
           orderType: 'MARKET',
