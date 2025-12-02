@@ -19,6 +19,8 @@
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
     "strictPropertyInitialization": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "paths": {
       "@mvcashnode/shared": ["../../packages/shared/src"],
       "@mvcashnode/shared/*": ["../../packages/shared/src/*"],
@@ -31,6 +33,8 @@
       "@mvcashnode/notifications": ["../../packages/notifications/src"],
       "@mvcashnode/notifications/*": ["../../packages/notifications/src/*"]
     }
-  }
+  },
+  "include": ["src/**/*", "../../packages/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
 }
 

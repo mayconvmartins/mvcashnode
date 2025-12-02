@@ -1,16 +1,12 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
-import { PositionService, TradeJobService } from '@mvcashnode/domain';
+import { PositionService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
 import { BinanceSpotAdapter } from '@mvcashnode/exchange';
-import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
+import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 
-@Processor('limit-orders-monitor-real', {
-  repeat: {
-    pattern: '0 * * * * *', // Every minute
-  },
-})
+@Processor('limit-orders-monitor-real')
 export class LimitOrdersMonitorRealProcessor extends WorkerHost {
   constructor(
     private prisma: PrismaService,
@@ -19,16 +15,20 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<any>): Promise<any> {
+  async process(_job: Job<any>): Promise<any> {
     // Get all pending limit orders
     const limitOrders = await this.prisma.tradeJob.findMany({
       where: {
-        trade_mode: 'REAL',
+        trade_mode: TradeMode.REAL,
         status: TradeJobStatus.PENDING_LIMIT,
         order_type: 'LIMIT',
       },
       include: {
         exchange_account: true,
+        executions: {
+          take: 1,
+          orderBy: { id: 'desc' },
+        },
       },
     });
 
@@ -57,7 +57,8 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
 
         // Get API keys
         const keys = await accountService.decryptApiKeys(order.exchange_account_id);
-        if (!keys || !order.exchange_order_id) continue;
+        const existingExecution = order.executions && order.executions.length > 0 ? order.executions[0] : null;
+        if (!keys || !existingExecution?.exchange_order_id) continue;
 
         // Create adapter
         const adapter = new BinanceSpotAdapter(
@@ -68,7 +69,7 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
         );
 
         // Check order status
-        const exchangeOrder = await adapter.fetchOrder(order.exchange_order_id, order.symbol);
+        const exchangeOrder = await adapter.fetchOrder(existingExecution.exchange_order_id, order.symbol);
 
         if (exchangeOrder.status === 'FILLED' || exchangeOrder.status === 'closed') {
           // Create execution

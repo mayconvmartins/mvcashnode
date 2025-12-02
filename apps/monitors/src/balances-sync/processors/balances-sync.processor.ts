@@ -6,11 +6,7 @@ import { EncryptionService } from '@mvcashnode/shared';
 import { BinanceSpotAdapter } from '@mvcashnode/exchange';
 import { ExchangeType, TradeMode } from '@mvcashnode/shared';
 
-@Processor('balances-sync-real', {
-  repeat: {
-    pattern: '0 */5 * * * *', // Every 5 minutes
-  },
-})
+@Processor('balances-sync-real')
 export class BalancesSyncProcessor extends WorkerHost {
   constructor(
     private prisma: PrismaService,
@@ -19,7 +15,7 @@ export class BalancesSyncProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<any>): Promise<any> {
+  async process(_job: Job<any>): Promise<any> {
     // Get all active real accounts
     const accounts = await this.prisma.exchangeAccount.findMany({
       where: {

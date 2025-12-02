@@ -1,16 +1,12 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
-import { PositionService, TradeJobService } from '@mvcashnode/domain';
+import { TradeJobService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
 import { BinanceSpotAdapter } from '@mvcashnode/exchange';
-import { ExchangeType, PositionStatus, TradeJobStatus } from '@mvcashnode/shared';
+import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 
-@Processor('sl-tp-monitor-real', {
-  repeat: {
-    pattern: '*/30 * * * * *', // Every 30 seconds
-  },
-})
+@Processor('sl-tp-monitor-real')
 export class SLTPMonitorRealProcessor extends WorkerHost {
   constructor(
     private prisma: PrismaService,
@@ -19,11 +15,11 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<any>): Promise<any> {
+  async process(_job: Job<any>): Promise<any> {
     // Get all open positions with SL/TP enabled
     const positions = await this.prisma.tradePosition.findMany({
       where: {
-        trade_mode: 'REAL',
+        trade_mode: TradeMode.REAL,
         status: PositionStatus.OPEN,
         qty_remaining: { gt: 0 },
         OR: [
@@ -37,7 +33,6 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
       },
     });
 
-    const positionService = new PositionService(this.prisma);
     const tradeJobService = new TradeJobService(this.prisma);
     let triggered = 0;
 
@@ -71,7 +66,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           if (!position.sl_triggered) {
             await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
-              tradeMode: 'REAL',
+              tradeMode: TradeMode.REAL,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',
@@ -91,7 +86,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           if (!position.tp_triggered) {
             await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
-              tradeMode: 'REAL',
+              tradeMode: TradeMode.REAL,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',
@@ -124,7 +119,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           if (currentPrice <= trailingTriggerPrice && !position.trailing_triggered) {
             await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
-              tradeMode: 'REAL',
+              tradeMode: TradeMode.REAL,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',

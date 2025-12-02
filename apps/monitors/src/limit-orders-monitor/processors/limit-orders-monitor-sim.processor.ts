@@ -3,24 +3,20 @@ import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { PositionService } from '@mvcashnode/domain';
 import { BinanceSpotAdapter } from '@mvcashnode/exchange';
-import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
+import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
 
-@Processor('limit-orders-monitor-sim', {
-  repeat: {
-    pattern: '0 * * * * *', // Every minute
-  },
-})
+@Processor('limit-orders-monitor-sim')
 export class LimitOrdersMonitorSimProcessor extends WorkerHost {
   constructor(private prisma: PrismaService) {
     super();
   }
 
-  async process(job: Job<any>): Promise<any> {
+  async process(_job: Job<any>): Promise<any> {
     // Get all pending limit orders (SIMULATION)
     const limitOrders = await this.prisma.tradeJob.findMany({
       where: {
-        trade_mode: 'SIMULATION',
+        trade_mode: TradeMode.SIMULATION,
         status: TradeJobStatus.PENDING_LIMIT,
         order_type: 'LIMIT',
       },
