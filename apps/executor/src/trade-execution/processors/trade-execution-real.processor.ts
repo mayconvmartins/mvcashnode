@@ -10,16 +10,19 @@ import {
 import { EncryptionService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
+import { NotificationHttpService } from '@mvcashnode/notifications';
 
 @Processor('trade-execution-real')
 export class TradeExecutionRealProcessor extends WorkerHost {
   private readonly logger = new Logger(TradeExecutionRealProcessor.name);
+  private notificationService: NotificationHttpService;
 
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService
   ) {
     super();
+    this.notificationService = new NotificationHttpService(process.env.API_URL || 'http://localhost:4010');
   }
 
   async process(job: Job<any>): Promise<any> {
@@ -228,14 +231,33 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         const positionService = new PositionService(this.prisma);
         try {
           if (tradeJob.side === 'BUY') {
-            await positionService.onBuyExecuted(
+            const positionId = await positionService.onBuyExecuted(
               tradeJobId,
               execution.id,
               executedQty,
               avgPrice
             );
-            this.logger.log(`[EXECUTOR] Posição de compra atualizada para job ${tradeJobId}`);
+            this.logger.log(`[EXECUTOR] Posição de compra atualizada para job ${tradeJobId}, positionId: ${positionId}`);
+            
+            // Enviar notificação de posição aberta
+            try {
+              await this.notificationService.sendPositionOpened(positionId);
+              this.logger.log(`[EXECUTOR] Notificação de posição aberta enviada para positionId: ${positionId}`);
+            } catch (notifError: any) {
+              this.logger.warn(`[EXECUTOR] Erro ao enviar notificação de posição aberta: ${notifError.message}`);
+            }
           } else {
+            // Buscar posições que serão fechadas antes de executar
+            const positionsBefore = await this.prisma.tradePosition.findMany({
+              where: {
+                exchange_account_id: tradeJob.exchange_account_id,
+                trade_mode: tradeJob.trade_mode,
+                symbol: tradeJob.symbol,
+                status: 'OPEN',
+                qty_remaining: { gt: 0 },
+              },
+            });
+
             await positionService.onSellExecuted(
               tradeJobId,
               execution.id,
@@ -244,6 +266,54 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               'WEBHOOK'
             );
             this.logger.log(`[EXECUTOR] Posição de venda atualizada para job ${tradeJobId}`);
+
+            // Verificar quais posições foram fechadas ou parcialmente fechadas
+            const positionsAfter = await this.prisma.tradePosition.findMany({
+              where: {
+                id: { in: positionsBefore.map(p => p.id) },
+              },
+            });
+
+            // Enviar notificação para posições que foram fechadas ou parcialmente fechadas
+            for (const posBefore of positionsBefore) {
+              const posAfter = positionsAfter.find(p => p.id === posBefore.id);
+              if (!posAfter) continue;
+
+              const wasClosed = posAfter.status === 'CLOSED' && posBefore.status === 'OPEN';
+              const wasPartiallyClosed = posAfter.qty_remaining.toNumber() < posBefore.qty_remaining.toNumber();
+
+              if (wasClosed) {
+                // Posição totalmente fechada - verificar motivo
+                try {
+                  // Verificar se foi SL (sl_triggered foi marcado antes ou close_reason indica SL)
+                  if (posBefore.sl_triggered || posAfter.close_reason === 'STOP_LOSS') {
+                    await this.notificationService.sendStopLoss(posAfter.id, execution.id);
+                    this.logger.log(`[EXECUTOR] Notificação de Stop Loss enviada para positionId: ${posAfter.id}`);
+                  } else {
+                    // Outros motivos (TP, webhook, manual)
+                    await this.notificationService.sendPositionClosed(posAfter.id);
+                    this.logger.log(`[EXECUTOR] Notificação de posição fechada enviada para positionId: ${posAfter.id}`);
+                  }
+                } catch (notifError: any) {
+                  this.logger.warn(`[EXECUTOR] Erro ao enviar notificação: ${notifError.message}`);
+                }
+              } else if (wasPartiallyClosed && posAfter.tp_enabled) {
+                // Venda parcial com TP configurado - pode ser TP parcial
+                // Marcar como partial_tp_triggered se ainda não estiver marcado
+                if (!posAfter.partial_tp_triggered) {
+                  await this.prisma.tradePosition.update({
+                    where: { id: posAfter.id },
+                    data: { partial_tp_triggered: true },
+                  });
+                }
+                try {
+                  await this.notificationService.sendPartialTP(posAfter.id, execution.id);
+                  this.logger.log(`[EXECUTOR] Notificação de TP parcial enviada para positionId: ${posAfter.id}`);
+                } catch (notifError: any) {
+                  this.logger.warn(`[EXECUTOR] Erro ao enviar notificação de TP parcial: ${notifError.message}`);
+                }
+              }
+            }
           }
         } catch (positionError: any) {
           this.logger.error(`[EXECUTOR] Erro ao atualizar posição: ${positionError.message}`, positionError.stack);

@@ -216,7 +216,7 @@ export class NotificationsService {
     const where: any = {};
     
     if (filters?.type) {
-      where.alert_type = filters.type;
+      where.template_type = filters.type;
     }
     
     if (filters?.from || filters?.to) {
@@ -229,33 +229,52 @@ export class NotificationsService {
     const limit = filters?.limit || 50;
     const skip = (page - 1) * limit;
 
+    // Buscar do log de notificações (inclui webhooks, posições, etc)
+    const notificationLogs = await this.prisma.whatsAppNotificationLog.findMany({
+      where,
+      orderBy: { sent_at: 'desc' },
+      skip,
+      take: limit,
+    });
+
+    // Buscar também dos logs antigos (PositionAlertSent e VaultAlertSent) para compatibilidade
     const [positionAlerts, vaultAlerts] = await Promise.all([
       this.prisma.positionAlertSent.findMany({
-        where,
+        where: filters?.type ? { alert_type: filters.type } : {},
         orderBy: { sent_at: 'desc' },
         skip,
         take: limit,
       }),
       this.prisma.vaultAlertSent.findMany({
-        where: {
-          ...where,
-          ...(filters?.type && { alert_type: filters.type }),
-        },
+        where: filters?.type ? { alert_type: filters.type } : {},
         orderBy: { sent_at: 'desc' },
         skip,
         take: limit,
       }),
     ]);
 
-    // Combinar e ordenar
+    // Combinar todos os alertas
     const allAlerts = [
-      ...positionAlerts.map(a => ({ ...a, source: 'position' })),
-      ...vaultAlerts.map(a => ({ ...a, source: 'vault' })),
+      ...notificationLogs.map(log => ({
+        id: log.id,
+        alert_type: log.template_type,
+        sent_at: log.sent_at,
+        source: log.position_id ? 'position' : log.vault_id ? 'vault' : log.webhook_event_id ? 'webhook' : 'other',
+        position_id: log.position_id || undefined,
+        vault_id: log.vault_id || undefined,
+        webhook_event_id: log.webhook_event_id || undefined,
+        recipient: log.recipient,
+        recipient_type: log.recipient_type,
+        status: log.status,
+        error_message: log.error_message,
+      })),
+      ...positionAlerts.map(a => ({ ...a, source: 'position' as const })),
+      ...vaultAlerts.map(a => ({ ...a, source: 'vault' as const })),
     ].sort((a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime());
 
     return {
       items: allAlerts.slice(0, limit),
-      total: positionAlerts.length + vaultAlerts.length,
+      total: notificationLogs.length + positionAlerts.length + vaultAlerts.length,
       page,
       limit,
     };

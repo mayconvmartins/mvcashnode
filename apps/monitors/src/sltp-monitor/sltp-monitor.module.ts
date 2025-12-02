@@ -5,6 +5,7 @@ import { SLTPMonitorSimProcessor } from './processors/sltp-monitor-sim.processor
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
+import { CronExecutionService } from '../shared/cron-execution.service';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ConfigService } from '@nestjs/config';
     SLTPMonitorRealProcessor,
     SLTPMonitorSimProcessor,
     PrismaService,
+    CronExecutionService,
     {
       provide: EncryptionService,
       useFactory: (configService: ConfigService) => {

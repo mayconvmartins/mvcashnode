@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { notificationsService } from '@/lib/api/notifications.service'
+import { notificationsService, type NotificationTemplateType, type WhatsAppNotificationTemplate, type CreateTemplateDto, type UpdateTemplateDto } from '@/lib/api/notifications.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,9 +25,16 @@ import {
     Eye,
     EyeOff,
     Wifi,
-    WifiOff
+    WifiOff,
+    FileText,
+    Edit,
+    Trash2,
+    Copy,
+    Play,
+    Eye as EyeIcon
 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils/format'
+import { TemplatesTab } from '@/components/admin/TemplatesTab'
 
 export default function NotificationsConfigPage() {
     const queryClient = useQueryClient()
@@ -215,6 +222,10 @@ export default function NotificationsConfigPage() {
                         <Settings className="h-4 w-4" />
                         Configuração Global
                     </TabsTrigger>
+                    <TabsTrigger value="templates" className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Templates
+                    </TabsTrigger>
                     <TabsTrigger value="test" className="flex items-center gap-2">
                         <Send className="h-4 w-4" />
                         Testar Envio
@@ -319,6 +330,11 @@ export default function NotificationsConfigPage() {
                     </Card>
                 </TabsContent>
 
+                {/* Templates Tab */}
+                <TabsContent value="templates">
+                    <TemplatesTab />
+                </TabsContent>
+
                 {/* Test Tab */}
                 <TabsContent value="test">
                     <Card className="glass">
@@ -404,7 +420,11 @@ export default function NotificationsConfigPage() {
                                                 <div className={`p-2 rounded-full ${
                                                     alert.source === 'position' 
                                                         ? 'bg-blue-500/10 text-blue-500' 
-                                                        : 'bg-purple-500/10 text-purple-500'
+                                                        : alert.source === 'vault'
+                                                        ? 'bg-purple-500/10 text-purple-500'
+                                                        : alert.source === 'webhook'
+                                                        ? 'bg-green-500/10 text-green-500'
+                                                        : 'bg-gray-500/10 text-gray-500'
                                                 }`}>
                                                     <MessageSquare className="h-4 w-4" />
                                                 </div>
@@ -413,14 +433,26 @@ export default function NotificationsConfigPage() {
                                                     <p className="text-xs text-muted-foreground">
                                                         {alert.source === 'position' 
                                                             ? `Posição #${alert.position_id}` 
-                                                            : `Cofre #${alert.vault_id}`
+                                                            : alert.source === 'vault'
+                                                            ? `Cofre #${alert.vault_id}`
+                                                            : alert.source === 'webhook'
+                                                            ? `Webhook Event #${alert.webhook_event_id}`
+                                                            : 'Outro'
                                                         }
+                                                        {alert.recipient && (
+                                                            <span className="ml-2">
+                                                                → {alert.recipient_type === 'group' ? 'Grupo' : alert.recipient}
+                                                            </span>
+                                                        )}
                                                     </p>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <Badge variant="outline" className="text-xs">
-                                                    {alert.source}
+                                                <Badge 
+                                                    variant={alert.status === 'failed' ? 'destructive' : 'outline'} 
+                                                    className="text-xs"
+                                                >
+                                                    {alert.status === 'failed' ? 'Falhou' : alert.source}
                                                 </Badge>
                                                 <span className="text-xs text-muted-foreground">
                                                     {formatDateTime(alert.sent_at)}

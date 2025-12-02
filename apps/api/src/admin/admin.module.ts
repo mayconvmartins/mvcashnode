@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminSystemController } from './admin-system.controller';
 import { AdminAuditController } from './admin-audit.controller';
+import { AdminNotificationsController } from './admin-notifications.controller';
 import { AdminService } from './admin.service';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
@@ -14,6 +15,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
     AdminUsersController,
     AdminSystemController,
     AdminAuditController,
+    AdminNotificationsController,
   ],
   providers: [
     AdminService,

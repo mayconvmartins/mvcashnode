@@ -255,12 +255,40 @@ export class TradeJobsController {
         throw new NotFoundException('Trade job não encontrado');
       }
 
+      // Buscar webhook event se existir
+      let webhookEvent = null;
+      if (job.webhook_event_id) {
+        webhookEvent = await this.prisma.webhookEvent.findFirst({
+          where: { id: job.webhook_event_id },
+          include: {
+            webhook_source: {
+              select: {
+                id: true,
+                label: true,
+                webhook_code: true,
+              },
+            },
+          },
+        });
+      }
+
       // Validar que a exchange account pertence ao usuário
       if (job.exchange_account.user_id !== user.userId) {
         throw new NotFoundException('Trade job não encontrado');
       }
 
-      return job;
+      return {
+        ...job,
+        webhook_event: webhookEvent ? {
+          id: webhookEvent.id,
+          event_uid: webhookEvent.event_uid,
+          symbol_raw: webhookEvent.symbol_raw,
+          symbol_normalized: webhookEvent.symbol_normalized,
+          action: webhookEvent.action,
+          raw_text: webhookEvent.raw_text,
+          webhook_source: webhookEvent.webhook_source,
+        } : null,
+      };
     } catch (error: any) {
       if (error instanceof NotFoundException) {
         throw error;

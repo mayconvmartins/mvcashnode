@@ -99,6 +99,8 @@ export class WebhookSourcesController {
         require_signature: source.require_signature,
         rate_limit_per_min: source.rate_limit_per_min,
         allowed_ips: source.allowed_ips_json as string[] | null,
+        alert_group_enabled: source.alert_group_enabled,
+        alert_group_id: source.alert_group_id,
         bindings: source.bindings.map(binding => ({
           id: binding.id,
           exchange_account: binding.exchange_account,
@@ -243,7 +245,7 @@ export class WebhookSourcesController {
       const apiUrl = this.configService.get<string>('API_URL') || 
                      `http://localhost:${this.configService.get<string>('API_PORT') || 4010}`;
 
-      return {
+      const response = {
         id: source.id,
         label: source.label,
         webhook_code: source.webhook_code,
@@ -254,6 +256,8 @@ export class WebhookSourcesController {
         require_signature: source.require_signature,
         rate_limit_per_min: source.rate_limit_per_min,
         allowed_ips: source.allowed_ips_json as string[] | null,
+        alert_group_enabled: Boolean(source.alert_group_enabled), // Garantir que é boolean
+        alert_group_id: source.alert_group_id || null, // Garantir que é null se vazio
         bindings: source.bindings.map(binding => ({
           id: binding.id,
           exchange_account: binding.exchange_account,
@@ -263,6 +267,14 @@ export class WebhookSourcesController {
         created_at: source.created_at,
         updated_at: source.updated_at,
       };
+      
+      console.log('[WEBHOOK-GETONE] Resposta sendo enviada:', {
+        alert_group_enabled: response.alert_group_enabled,
+        alert_group_id: response.alert_group_id,
+        tipo_alert_group_enabled: typeof response.alert_group_enabled,
+      });
+      
+      return response;
     } catch (error: any) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -337,20 +349,64 @@ export class WebhookSourcesController {
       }
       if (updateDto.requireSignature !== undefined) updateData.require_signature = updateDto.requireSignature;
       if (updateDto.rateLimitPerMin !== undefined) updateData.rate_limit_per_min = updateDto.rateLimitPerMin;
+      
+      // Sempre atualizar alert_group_enabled e alert_group_id juntos
+      if (updateDto.alertGroupEnabled !== undefined) {
+        updateData.alert_group_enabled = updateDto.alertGroupEnabled;
+        // Se está desativando, limpar o ID também
+        if (!updateDto.alertGroupEnabled) {
+          updateData.alert_group_id = null;
+        } else {
+          // Se está ativando, usar o ID fornecido ou null
+          updateData.alert_group_id = updateDto.alertGroupId !== undefined ? (updateDto.alertGroupId || null) : null;
+        }
+      } else if (updateDto.alertGroupId !== undefined) {
+        // Se apenas o ID foi alterado (sem mudar o enabled)
+        updateData.alert_group_id = updateDto.alertGroupId || null;
+      }
+      
+      console.log('[WEBHOOK-UPDATE] Dados recebidos:', updateDto);
+      console.log('[WEBHOOK-UPDATE] Dados para atualizar:', updateData);
       // Note: is_active e webhook_code não podem ser alterados via update
 
       const updated = await this.prisma.webhookSource.update({
         where: { id },
         data: updateData,
       });
+      
+      console.log('[WEBHOOK-UPDATE] Dados atualizados no banco:', {
+        alert_group_enabled: updated.alert_group_enabled,
+        alert_group_id: updated.alert_group_id,
+      });
 
       const apiUrl = this.configService.get<string>('API_URL') || 
                      `http://localhost:${this.configService.get<string>('API_PORT') || 4010}`;
 
-      return {
-        ...updated,
+      const response = {
+        id: updated.id,
+        owner_user_id: updated.owner_user_id,
+        label: updated.label,
+        webhook_code: updated.webhook_code,
         webhook_url: `${apiUrl}/webhooks/${updated.webhook_code}`,
+        trade_mode: updated.trade_mode,
+        is_active: updated.is_active,
+        admin_locked: updated.admin_locked,
+        require_signature: updated.require_signature,
+        rate_limit_per_min: updated.rate_limit_per_min,
+        allowed_ips: updated.allowed_ips_json as string[] | null,
+        alert_group_enabled: Boolean(updated.alert_group_enabled), // Garantir que é boolean
+        alert_group_id: updated.alert_group_id || null, // Garantir que é null se vazio
+        created_at: updated.created_at,
+        updated_at: updated.updated_at,
       };
+      
+      console.log('[WEBHOOK-UPDATE] Resposta sendo enviada:', {
+        alert_group_enabled: response.alert_group_enabled,
+        alert_group_id: response.alert_group_id,
+        tipo_alert_group_enabled: typeof response.alert_group_enabled,
+      });
+      
+      return response;
     } catch (error: any) {
       if (error instanceof NotFoundException) {
         throw error;

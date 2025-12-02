@@ -17,22 +17,22 @@ datasource db {
 // ============================================
 
 model User {
-  id                  Int       @id @default(autoincrement())
-  email               String    @unique @db.VarChar(255)
-  password_hash       String    @db.VarChar(255)
-  is_active           Boolean   @default(true)
+  id                   Int      @id @default(autoincrement())
+  email                String   @unique @db.VarChar(255)
+  password_hash        String   @db.VarChar(255)
+  is_active            Boolean  @default(true)
   must_change_password Boolean  @default(false)
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
 
-  profile             Profile?
-  roles               UserRole[]
-  login_history       LoginHistory[]
-  audit_logs          AuditLog[]
-  exchange_accounts   ExchangeAccount[]
-  vaults             Vault[]
-  webhook_sources     WebhookSource[]
-  trade_parameters    TradeParameter[]
+  profile           Profile?
+  roles             UserRole[]
+  login_history     LoginHistory[]
+  audit_logs        AuditLog[]
+  exchange_accounts ExchangeAccount[]
+  vaults            Vault[]
+  webhook_sources   WebhookSource[]
+  trade_parameters  TradeParameter[]
 
   @@index([email])
   @@index([is_active])
@@ -51,17 +51,17 @@ model Profile {
   created_at              DateTime @default(now())
   updated_at              DateTime @updatedAt
 
-  user                    User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("profiles")
 }
 
 model UserRole {
-  id      Int      @id @default(autoincrement())
+  id      Int    @id @default(autoincrement())
   user_id Int
-  role    String   @db.VarChar(50) // 'admin' | 'user'
+  role    String @db.VarChar(50) // 'admin' | 'user'
 
-  user    User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, role])
   @@index([user_id])
@@ -69,14 +69,14 @@ model UserRole {
 }
 
 model LoginHistory {
-  id        Int      @id @default(autoincrement())
-  user_id   Int
-  ip        String?  @db.VarChar(45)
-  user_agent String? @db.Text
-  success   Boolean
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  ip         String?  @db.VarChar(45)
+  user_agent String?  @db.Text
+  success    Boolean
   created_at DateTime @default(now())
 
-  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([created_at])
@@ -84,18 +84,18 @@ model LoginHistory {
 }
 
 model AuditLog {
-  id           Int       @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
   user_id      Int?
-  entity_type  String    @db.VarChar(50)
+  entity_type  String   @db.VarChar(50)
   entity_id    Int?
-  action       String    @db.VarChar(50)
-  changes_json Json?     @db.Json
-  ip           String?   @db.VarChar(45)
-  user_agent  String?   @db.Text
-  request_id   String?   @db.VarChar(255)
-  created_at   DateTime  @default(now())
+  action       String   @db.VarChar(50)
+  changes_json Json?    @db.Json
+  ip           String?  @db.VarChar(45)
+  user_agent   String?  @db.Text
+  request_id   String?  @db.VarChar(255)
+  created_at   DateTime @default(now())
 
-  user         User?     @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [user_id], references: [id], onDelete: SetNull)
 
   @@index([user_id])
   @@index([entity_type, entity_id])
@@ -104,15 +104,15 @@ model AuditLog {
 }
 
 model SystemAuditLog {
-  id           Int       @id @default(autoincrement())
-  service      String    @db.VarChar(50) // 'API' | 'EXECUTOR' | 'MONITORS'
-  event_type   String    @db.VarChar(100)
-  entity_type  String?   @db.VarChar(50)
-  entity_id    Int?
-  severity     String    @db.VarChar(20) // 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL'
-  message      String    @db.Text
+  id            Int      @id @default(autoincrement())
+  service       String   @db.VarChar(50) // 'API' | 'EXECUTOR' | 'MONITORS'
+  event_type    String   @db.VarChar(100)
+  entity_type   String?  @db.VarChar(50)
+  entity_id     Int?
+  severity      String   @db.VarChar(20) // 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL'
+  message       String   @db.Text
   metadata_json Json?    @db.Json
-  created_at   DateTime  @default(now())
+  created_at    DateTime @default(now())
 
   @@index([service, created_at])
   @@index([severity, created_at])
@@ -124,27 +124,27 @@ model SystemAuditLog {
 // ============================================
 
 model ExchangeAccount {
-  id                    Int       @id @default(autoincrement())
+  id                    Int      @id @default(autoincrement())
   user_id               Int
-  exchange              String    @db.VarChar(50) // 'BINANCE_SPOT', 'BINANCE_FUTURES', etc
-  label                 String    @db.VarChar(255)
-  is_simulation         Boolean   @default(false)
-  api_key_enc           String?   @db.Text
-  api_secret_enc        String?   @db.Text
-  proxy_url             String?   @db.VarChar(500)
-  testnet               Boolean   @default(false)
-  is_active             Boolean   @default(true)
-  initial_balances_json  Json?     @db.Json
-  created_at            DateTime  @default(now())
-  updated_at            DateTime  @updatedAt
+  exchange              String   @db.VarChar(50) // 'BINANCE_SPOT', 'BINANCE_FUTURES', etc
+  label                 String   @db.VarChar(255)
+  is_simulation         Boolean  @default(false)
+  api_key_enc           String?  @db.Text
+  api_secret_enc        String?  @db.Text
+  proxy_url             String?  @db.VarChar(500)
+  testnet               Boolean  @default(false)
+  is_active             Boolean  @default(true)
+  initial_balances_json Json?    @db.Json
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
 
-  user                  User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  balances_cache        AccountBalanceCache[]
-  webhook_bindings      AccountWebhookBinding[]
-  trade_parameters       TradeParameter[]
-  trade_jobs             TradeJob[]
-  trade_executions       TradeExecution[]
-  positions              TradePosition[]
+  user             User                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  balances_cache   AccountBalanceCache[]
+  webhook_bindings AccountWebhookBinding[]
+  trade_parameters TradeParameter[]
+  trade_jobs       TradeJob[]
+  trade_executions TradeExecution[]
+  positions        TradePosition[]
 
   @@index([user_id])
   @@index([is_simulation])
@@ -152,15 +152,15 @@ model ExchangeAccount {
 }
 
 model AccountBalanceCache {
-  id                Int       @id @default(autoincrement())
+  id                  Int       @id @default(autoincrement())
   exchange_account_id Int
-  trade_mode        String    @db.VarChar(20) // 'REAL' | 'SIMULATION'
-  asset             String    @db.VarChar(20)
-  free              Decimal   @db.Decimal(36, 18)
-  locked            Decimal   @db.Decimal(36, 18)
-  last_sync_at      DateTime? @default(now())
+  trade_mode          String    @db.VarChar(20) // 'REAL' | 'SIMULATION'
+  asset               String    @db.VarChar(20)
+  free                Decimal   @db.Decimal(36, 18)
+  locked              Decimal   @db.Decimal(36, 18)
+  last_sync_at        DateTime? @default(now())
 
-  exchange_account  ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+  exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
 
   @@unique([exchange_account_id, trade_mode, asset])
   @@index([exchange_account_id, trade_mode])
@@ -172,18 +172,18 @@ model AccountBalanceCache {
 // ============================================
 
 model Vault {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   user_id     Int
-  name        String    @db.VarChar(255)
-  description String?   @db.Text
-  trade_mode  String    @db.VarChar(20) // 'REAL' | 'SIMULATION'
-  is_active   Boolean   @default(true)
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  trade_mode  String   @db.VarChar(20) // 'REAL' | 'SIMULATION'
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
-  user        User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  balances    VaultBalance[]
-  transactions VaultTransaction[]
+  user             User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  balances         VaultBalance[]
+  transactions     VaultTransaction[]
   trade_parameters TradeParameter[]
 
   @@index([user_id])
@@ -192,15 +192,15 @@ model Vault {
 }
 
 model VaultBalance {
-  id        Int      @id @default(autoincrement())
-  vault_id  Int
-  asset     String   @db.VarChar(20)
-  balance   Decimal  @db.Decimal(36, 18) @default(0)
-  reserved  Decimal  @db.Decimal(36, 18) @default(0)
+  id         Int      @id @default(autoincrement())
+  vault_id   Int
+  asset      String   @db.VarChar(20)
+  balance    Decimal  @default(0) @db.Decimal(36, 18)
+  reserved   Decimal  @default(0) @db.Decimal(36, 18)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  vault     Vault    @relation(fields: [vault_id], references: [id], onDelete: Cascade)
+  vault Vault @relation(fields: [vault_id], references: [id], onDelete: Cascade)
 
   @@unique([vault_id, asset])
   @@index([vault_id])
@@ -208,16 +208,16 @@ model VaultBalance {
 }
 
 model VaultTransaction {
-  id           Int       @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
   vault_id     Int
-  type         String    @db.VarChar(50) // 'DEPOSIT', 'WITHDRAWAL', 'BUY_RESERVE', etc
-  asset        String    @db.VarChar(20)
-  amount       Decimal   @db.Decimal(36, 18)
+  type         String   @db.VarChar(50) // 'DEPOSIT', 'WITHDRAWAL', 'BUY_RESERVE', etc
+  asset        String   @db.VarChar(20)
+  amount       Decimal  @db.Decimal(36, 18)
   trade_job_id Int?
-  meta_json    Json?     @db.Json
-  created_at   DateTime  @default(now())
+  meta_json    Json?    @db.Json
+  created_at   DateTime @default(now())
 
-  vault        Vault     @relation(fields: [vault_id], references: [id], onDelete: Cascade)
+  vault Vault @relation(fields: [vault_id], references: [id], onDelete: Cascade)
 
   @@index([vault_id])
   @@index([created_at])
@@ -229,30 +229,30 @@ model VaultTransaction {
 // ============================================
 
 model TradeParameter {
-  id                        Int       @id @default(autoincrement())
-  user_id                   Int
-  exchange_account_id       Int
-  symbol                    String    @db.VarChar(50)
-  side                      String    @db.VarChar(10) // 'BUY' | 'SELL' | 'BOTH'
-  quote_amount_fixed       Decimal?  @db.Decimal(36, 18)
-  quote_amount_pct_balance  Decimal?  @db.Decimal(5, 2)
-  max_orders_per_hour       Int?
-  min_interval_sec          Int?
-  order_type_default        String    @db.VarChar(20) @default("MARKET")
-  slippage_bps              Int       @default(0)
-  default_sl_enabled         Boolean   @default(false)
-  default_sl_pct            Decimal?  @db.Decimal(5, 2)
-  default_tp_enabled        Boolean   @default(false)
-  default_tp_pct            Decimal?  @db.Decimal(5, 2)
-  trailing_stop_enabled     Boolean   @default(false)
-  trailing_distance_pct      Decimal?  @db.Decimal(5, 2)
-  vault_id                  Int?
-  created_at                 DateTime  @default(now())
-  updated_at                 DateTime  @updatedAt
+  id                       Int      @id @default(autoincrement())
+  user_id                  Int
+  exchange_account_id      Int
+  symbol                   String   @db.VarChar(50)
+  side                     String   @db.VarChar(10) // 'BUY' | 'SELL' | 'BOTH'
+  quote_amount_fixed       Decimal? @db.Decimal(36, 18)
+  quote_amount_pct_balance Decimal? @db.Decimal(5, 2)
+  max_orders_per_hour      Int?
+  min_interval_sec         Int?
+  order_type_default       String   @default("MARKET") @db.VarChar(20)
+  slippage_bps             Int      @default(0)
+  default_sl_enabled       Boolean  @default(false)
+  default_sl_pct           Decimal? @db.Decimal(5, 2)
+  default_tp_enabled       Boolean  @default(false)
+  default_tp_pct           Decimal? @db.Decimal(5, 2)
+  trailing_stop_enabled    Boolean  @default(false)
+  trailing_distance_pct    Decimal? @db.Decimal(5, 2)
+  vault_id                 Int?
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
 
-  user                     User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  exchange_account          ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
-  vault                     Vault?         @relation(fields: [vault_id], references: [id], onDelete: SetNull)
+  user             User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+  vault            Vault?          @relation(fields: [vault_id], references: [id], onDelete: SetNull)
 
   @@index([exchange_account_id, symbol])
   @@map("trade_parameters")
@@ -263,24 +263,26 @@ model TradeParameter {
 // ============================================
 
 model WebhookSource {
-  id                  Int       @id @default(autoincrement())
+  id                  Int      @id @default(autoincrement())
   owner_user_id       Int
-  label               String    @db.VarChar(255)
-  webhook_code        String    @unique @db.VarChar(100)
-  trade_mode          String    @db.VarChar(20) // 'REAL' | 'SIMULATION'
-  allowed_ips_json    Json?     @db.Json
-  require_signature   Boolean   @default(false)
-  signing_secret_enc  String?   @db.Text
-  rate_limit_per_min  Int       @default(60)
-  is_active           Boolean   @default(true)
-  admin_locked        Boolean   @default(false)
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
+  label               String   @db.VarChar(255)
+  webhook_code        String   @unique @db.VarChar(100)
+  trade_mode          String   @db.VarChar(20) // 'REAL' | 'SIMULATION'
+  allowed_ips_json    Json?    @db.Json
+  require_signature   Boolean  @default(false)
+  signing_secret_enc  String?  @db.Text
+  rate_limit_per_min  Int      @default(60)
+  is_active           Boolean  @default(true)
+  admin_locked        Boolean  @default(false)
+  alert_group_enabled Boolean  @default(false)
+  alert_group_id      String?  @db.VarChar(255)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
 
-  user                User      @relation(fields: [owner_user_id], references: [id], onDelete: Cascade)
-  bindings            AccountWebhookBinding[]
-  events              WebhookEvent[]
-  blocked_attempts    WebhookBlockedAttempt[]
+  user             User                    @relation(fields: [owner_user_id], references: [id], onDelete: Cascade)
+  bindings         AccountWebhookBinding[]
+  events           WebhookEvent[]
+  blocked_attempts WebhookBlockedAttempt[]
 
   @@index([webhook_code])
   @@index([owner_user_id])
@@ -288,16 +290,16 @@ model WebhookSource {
 }
 
 model AccountWebhookBinding {
-  id                Int       @id @default(autoincrement())
-  webhook_source_id Int
+  id                  Int      @id @default(autoincrement())
+  webhook_source_id   Int
   exchange_account_id Int
-  is_active         Boolean   @default(true)
-  weight            Decimal?  @db.Decimal(5, 2) @default(1)
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  is_active           Boolean  @default(true)
+  weight              Decimal? @default(1) @db.Decimal(5, 2)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
 
-  webhook_source    WebhookSource @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
-  exchange_account  ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+  webhook_source   WebhookSource   @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
+  exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
 
   @@unique([webhook_source_id, exchange_account_id])
   @@index([webhook_source_id])
@@ -317,12 +319,12 @@ model WebhookEvent {
   price_reference   Decimal?  @db.Decimal(36, 18)
   raw_text          String?   @db.Text
   raw_payload_json  Json?     @db.Json
-  status            String    @db.VarChar(50) @default("RECEIVED")
+  status            String    @default("RECEIVED") @db.VarChar(50)
   validation_error  String?   @db.Text
   created_at        DateTime  @default(now())
   processed_at      DateTime?
 
-  webhook_source    WebhookSource @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
+  webhook_source WebhookSource @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
 
   @@unique([webhook_source_id, event_uid, target_account_id])
   @@index([webhook_source_id])
@@ -333,13 +335,13 @@ model WebhookEvent {
 }
 
 model WebhookBlockedAttempt {
-  id                Int       @id @default(autoincrement())
+  id                Int      @id @default(autoincrement())
   webhook_source_id Int
-  ip                String    @db.VarChar(45)
-  reason            String    @db.VarChar(100)
-  created_at        DateTime  @default(now())
+  ip                String   @db.VarChar(45)
+  reason            String   @db.VarChar(100)
+  created_at        DateTime @default(now())
 
-  webhook_source    WebhookSource @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
+  webhook_source WebhookSource @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
 
   @@index([webhook_source_id])
   @@index([created_at])
@@ -351,27 +353,27 @@ model WebhookBlockedAttempt {
 // ============================================
 
 model TradeJob {
-  id                    Int       @id @default(autoincrement())
-  webhook_event_id      Int?
+  id                     Int       @id @default(autoincrement())
+  webhook_event_id       Int?
   exchange_account_id    Int
-  trade_mode            String    @db.VarChar(20)
-  symbol                String    @db.VarChar(50)
-  side                  String    @db.VarChar(10) // 'BUY' | 'SELL'
-  order_type            String    @db.VarChar(20) @default("MARKET")
-  quote_amount          Decimal?  @db.Decimal(36, 18)
-  base_quantity         Decimal?  @db.Decimal(36, 18)
-  limit_price           Decimal?  @db.Decimal(36, 18)
-  status                String    @db.VarChar(50) @default("PENDING")
-  reason_code           String?   @db.VarChar(100)
-  reason_message        String?   @db.Text
-  vault_id              Int?
+  trade_mode             String    @db.VarChar(20)
+  symbol                 String    @db.VarChar(50)
+  side                   String    @db.VarChar(10) // 'BUY' | 'SELL'
+  order_type             String    @default("MARKET") @db.VarChar(20)
+  quote_amount           Decimal?  @db.Decimal(36, 18)
+  base_quantity          Decimal?  @db.Decimal(36, 18)
+  limit_price            Decimal?  @db.Decimal(36, 18)
+  status                 String    @default("PENDING") @db.VarChar(50)
+  reason_code            String?   @db.VarChar(100)
+  reason_message         String?   @db.Text
+  vault_id               Int?
   limit_order_expires_at DateTime?
-  created_at            DateTime  @default(now())
-  updated_at            DateTime  @updatedAt
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
 
-  exchange_account      ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
-  executions            TradeExecution[]
-  position_open         TradePosition?  @relation("PositionOpenJob")
+  exchange_account ExchangeAccount  @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+  executions       TradeExecution[]
+  position_open    TradePosition?   @relation("PositionOpenJob")
 
   @@index([exchange_account_id, status])
   @@index([status])
@@ -381,24 +383,24 @@ model TradeJob {
 }
 
 model TradeExecution {
-  id                Int       @id @default(autoincrement())
-  trade_job_id      Int
+  id                  Int      @id @default(autoincrement())
+  trade_job_id        Int
   exchange_account_id Int
-  trade_mode        String    @db.VarChar(20)
-  exchange          String    @db.VarChar(50)
-  exchange_order_id String?   @db.VarChar(255)
-  client_order_id   String    @db.VarChar(255)
-  status_exchange   String    @db.VarChar(50)
-  executed_qty      Decimal   @db.Decimal(36, 18)
-  cumm_quote_qty    Decimal   @db.Decimal(36, 18)
-  avg_price         Decimal   @db.Decimal(36, 18)
-  fills_json        Json?     @db.Json
-  raw_response_json Json?     @db.Json
-  created_at        DateTime  @default(now())
+  trade_mode          String   @db.VarChar(20)
+  exchange            String   @db.VarChar(50)
+  exchange_order_id   String?  @db.VarChar(255)
+  client_order_id     String   @db.VarChar(255)
+  status_exchange     String   @db.VarChar(50)
+  executed_qty        Decimal  @db.Decimal(36, 18)
+  cumm_quote_qty      Decimal  @db.Decimal(36, 18)
+  avg_price           Decimal  @db.Decimal(36, 18)
+  fills_json          Json?    @db.Json
+  raw_response_json   Json?    @db.Json
+  created_at          DateTime @default(now())
 
-  trade_job         TradeJob  @relation(fields: [trade_job_id], references: [id], onDelete: Cascade)
-  exchange_account  ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
-  position_fills    PositionFill[]
+  trade_job        TradeJob        @relation(fields: [trade_job_id], references: [id], onDelete: Cascade)
+  exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+  position_fills   PositionFill[]
 
   @@index([trade_job_id])
   @@index([exchange_account_id])
@@ -416,36 +418,35 @@ model TradePosition {
   exchange_account_id   Int
   trade_mode            String    @db.VarChar(20)
   symbol                String    @db.VarChar(50)
-  side                  String    @db.VarChar(10) @default("LONG")
+  side                  String    @default("LONG") @db.VarChar(10)
   trade_job_id_open     Int
   qty_total             Decimal   @db.Decimal(36, 18)
   qty_remaining         Decimal   @db.Decimal(36, 18)
   price_open            Decimal   @db.Decimal(36, 18)
-  status                String    @db.VarChar(20) @default("OPEN")
-  realized_profit_usd   Decimal   @db.Decimal(36, 18) @default(0)
+  status                String    @default("OPEN") @db.VarChar(20)
+  realized_profit_usd   Decimal   @default(0) @db.Decimal(36, 18)
   sl_enabled            Boolean   @default(false)
-  sl_pct                Decimal?   @db.Decimal(5, 2)
+  sl_pct                Decimal?  @db.Decimal(5, 2)
   tp_enabled            Boolean   @default(false)
-  tp_pct                Decimal?   @db.Decimal(5, 2)
+  tp_pct                Decimal?  @db.Decimal(5, 2)
   trailing_enabled      Boolean   @default(false)
   trailing_distance_pct Decimal?  @db.Decimal(5, 2)
   trailing_max_price    Decimal?  @db.Decimal(36, 18)
   sl_triggered          Boolean   @default(false)
   tp_triggered          Boolean   @default(false)
   trailing_triggered    Boolean   @default(false)
-  partial_tp_triggered   Boolean   @default(false)
+  partial_tp_triggered  Boolean   @default(false)
   lock_sell_by_webhook  Boolean   @default(false)
   close_reason          String?   @db.VarChar(50)
   closed_at             DateTime?
   created_at            DateTime  @default(now())
   updated_at            DateTime  @updatedAt
 
-  exchange_account      ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
-  open_job              TradeJob        @relation("PositionOpenJob", fields: [trade_job_id_open], references: [id])
-  fills                 PositionFill[]
+  exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+  open_job         TradeJob        @relation("PositionOpenJob", fields: [trade_job_id_open], references: [id])
+  fills            PositionFill[]
 
   @@unique([trade_job_id_open])
-
   @@index([exchange_account_id, symbol, status])
   @@index([status])
   @@index([trade_mode])
@@ -454,16 +455,16 @@ model TradePosition {
 }
 
 model PositionFill {
-  id                Int       @id @default(autoincrement())
-  position_id       Int
+  id                 Int      @id @default(autoincrement())
+  position_id        Int
   trade_execution_id Int
-  side              String    @db.VarChar(10) // 'BUY' | 'SELL'
-  qty               Decimal   @db.Decimal(36, 18)
-  price             Decimal   @db.Decimal(36, 18)
-  created_at        DateTime  @default(now())
+  side               String   @db.VarChar(10) // 'BUY' | 'SELL'
+  qty                Decimal  @db.Decimal(36, 18)
+  price              Decimal  @db.Decimal(36, 18)
+  created_at         DateTime @default(now())
 
-  position          TradePosition @relation(fields: [position_id], references: [id], onDelete: Cascade)
-  execution         TradeExecution @relation(fields: [trade_execution_id], references: [id], onDelete: Cascade)
+  position  TradePosition  @relation(fields: [position_id], references: [id], onDelete: Cascade)
+  execution TradeExecution @relation(fields: [trade_execution_id], references: [id], onDelete: Cascade)
 
   @@index([position_id])
   @@index([trade_execution_id])
@@ -475,36 +476,36 @@ model PositionFill {
 // ============================================
 
 model WhatsAppGlobalConfig {
-  id          Int       @id @default(autoincrement())
-  api_url     String    @db.VarChar(500)
-  api_key     String?   @db.VarChar(255)
-  instance_name String  @db.VarChar(100)
-  is_active   Boolean   @default(false)
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
+  id            Int      @id @default(autoincrement())
+  api_url       String   @db.VarChar(500)
+  api_key       String?  @db.VarChar(255)
+  instance_name String   @db.VarChar(100)
+  is_active     Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
 
   @@map("whatsapp_global_config")
 }
 
 model WhatsAppNotificationsConfig {
-  id                      Int       @id @default(autoincrement())
-  user_id                 Int       @unique
-  position_opened_enabled Boolean   @default(true)
-  position_closed_enabled Boolean   @default(true)
-  stop_loss_enabled       Boolean   @default(true)
-  take_profit_enabled     Boolean   @default(true)
-  vault_alerts_enabled    Boolean   @default(false)
-  created_at              DateTime  @default(now())
-  updated_at              DateTime  @updatedAt
+  id                      Int      @id @default(autoincrement())
+  user_id                 Int      @unique
+  position_opened_enabled Boolean  @default(true)
+  position_closed_enabled Boolean  @default(true)
+  stop_loss_enabled       Boolean  @default(true)
+  take_profit_enabled     Boolean  @default(true)
+  vault_alerts_enabled    Boolean  @default(false)
+  created_at              DateTime @default(now())
+  updated_at              DateTime @updatedAt
 
   @@map("whatsapp_notifications_config")
 }
 
 model PositionAlertSent {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   position_id Int
-  alert_type  String    @db.VarChar(50)
-  sent_at     DateTime  @default(now())
+  alert_type  String   @db.VarChar(50)
+  sent_at     DateTime @default(now())
 
   @@unique([position_id, alert_type])
   @@index([position_id])
@@ -512,14 +513,52 @@ model PositionAlertSent {
 }
 
 model VaultAlertSent {
-  id          Int       @id @default(autoincrement())
-  vault_id    Int
-  alert_type  String    @db.VarChar(50)
-  sent_at     DateTime  @default(now())
+  id         Int      @id @default(autoincrement())
+  vault_id   Int
+  alert_type String   @db.VarChar(50)
+  sent_at    DateTime @default(now())
 
   @@unique([vault_id, alert_type, sent_at])
   @@index([vault_id])
   @@map("vault_alerts_sent")
+}
+
+model WhatsAppNotificationTemplate {
+  id             Int      @id @default(autoincrement())
+  template_type  String   @db.VarChar(50) // 'WEBHOOK_RECEIVED', 'TEST_MESSAGE', 'POSITION_OPENED', 'POSITION_CLOSED', 'STOP_LOSS_TRIGGERED', 'PARTIAL_TP_TRIGGERED'
+  name           String   @db.VarChar(255)
+  subject        String?  @db.VarChar(255)
+  body           String   @db.Text
+  variables_json Json?    @db.Json
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([template_type, is_active])
+  @@index([template_type])
+  @@map("whatsapp_notification_templates")
+}
+
+model WhatsAppNotificationLog {
+  id              Int      @id @default(autoincrement())
+  template_type   String   @db.VarChar(50) // Tipo de template usado
+  recipient       String   @db.VarChar(255) // Número de telefone ou grupo ID
+  recipient_type  String   @db.VarChar(20)  // 'phone' | 'group'
+  message         String?  @db.Text         // Mensagem enviada (opcional, pode ser null para economizar espaço)
+  status          String   @db.VarChar(20)  // 'sent' | 'failed'
+  error_message   String?  @db.Text         // Mensagem de erro se falhou
+  webhook_event_id Int?    // ID do evento de webhook se aplicável
+  position_id     Int?     // ID da posição se aplicável
+  vault_id        Int?     // ID do cofre se aplicável
+  sent_at         DateTime @default(now())
+
+  @@index([template_type])
+  @@index([recipient])
+  @@index([sent_at])
+  @@index([status])
+  @@index([webhook_event_id])
+  @@index([position_id])
+  @@map("whatsapp_notification_logs")
 }
 
 // ============================================
@@ -527,14 +566,14 @@ model VaultAlertSent {
 // ============================================
 
 model SystemMonitoringLog {
-  id             Int      @id @default(autoincrement())
-  timestamp      DateTime @default(now())
-  service_name   String   @db.VarChar(50) // 'API', 'EXECUTOR', 'MONITORS'
-  process_id     Int?
-  status         String   @db.VarChar(20) // 'running', 'stopped', 'error'
-  cpu_usage      Decimal? @db.Decimal(5, 2)
-  memory_usage   Decimal? @db.Decimal(10, 2)
-  metrics_json   Json?    @db.Json
+  id           Int      @id @default(autoincrement())
+  timestamp    DateTime @default(now())
+  service_name String   @db.VarChar(50) // 'API', 'EXECUTOR', 'MONITORS'
+  process_id   Int?
+  status       String   @db.VarChar(20) // 'running', 'stopped', 'error'
+  cpu_usage    Decimal? @db.Decimal(5, 2)
+  memory_usage Decimal? @db.Decimal(10, 2)
+  metrics_json Json?    @db.Json
 
   @@index([service_name, timestamp])
   @@index([timestamp])
@@ -542,15 +581,15 @@ model SystemMonitoringLog {
 }
 
 model SystemAlert {
-  id           Int       @id @default(autoincrement())
-  alert_type   String    @db.VarChar(50) // 'PROCESS_STUCK', 'HIGH_CPU', 'HIGH_MEMORY', 'SERVICE_DOWN'
-  severity     String    @db.VarChar(20) // 'low', 'medium', 'high', 'critical'
-  message      String    @db.Text
-  service_name String?   @db.VarChar(50)
-  metadata_json Json?    @db.Json
-  created_at   DateTime  @default(now())
-  resolved_at  DateTime?
-  resolved_by  Int?      // user_id que resolveu o alerta
+  id            Int       @id @default(autoincrement())
+  alert_type    String    @db.VarChar(50) // 'PROCESS_STUCK', 'HIGH_CPU', 'HIGH_MEMORY', 'SERVICE_DOWN'
+  severity      String    @db.VarChar(20) // 'low', 'medium', 'high', 'critical'
+  message       String    @db.Text
+  service_name  String?   @db.VarChar(50)
+  metadata_json Json?     @db.Json
+  created_at    DateTime  @default(now())
+  resolved_at   DateTime?
+  resolved_by   Int? // user_id que resolveu o alerta
 
   @@index([alert_type, severity])
   @@index([created_at])
@@ -563,22 +602,22 @@ model SystemAlert {
 // ============================================
 
 model CronJobConfig {
-  id                Int       @id @default(autoincrement())
-  name              String    @unique @db.VarChar(100) // Nome único do job (ex: 'sl-tp-monitor-real')
-  description       String    @db.VarChar(255)
-  queue_name        String    @db.VarChar(100) // Nome da fila BullMQ
-  job_id            String    @db.VarChar(100) // jobId do BullMQ
-  interval_ms       Int       // Intervalo em milissegundos
-  status            String    @default("ACTIVE") @db.VarChar(20) // 'ACTIVE', 'PAUSED', 'DISABLED'
-  enabled           Boolean   @default(true)
-  timeout_ms        Int?      // Timeout para execução
-  max_retries       Int       @default(3)
-  config_json       Json?     @db.Json // Configurações adicionais
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
-  updated_by        Int?      // user_id que atualizou
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(100) // Nome único do job (ex: 'sl-tp-monitor-real')
+  description String   @db.VarChar(255)
+  queue_name  String   @db.VarChar(100) // Nome da fila BullMQ
+  job_id      String   @db.VarChar(100) // jobId do BullMQ
+  interval_ms Int // Intervalo em milissegundos
+  status      String   @default("ACTIVE") @db.VarChar(20) // 'ACTIVE', 'PAUSED', 'DISABLED'
+  enabled     Boolean  @default(true)
+  timeout_ms  Int? // Timeout para execução
+  max_retries Int      @default(3)
+  config_json Json?    @db.Json // Configurações adicionais
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  updated_by  Int? // user_id que atualizou
 
-  executions        CronJobExecution[]
+  executions CronJobExecution[]
 
   @@index([name])
   @@index([status])
@@ -586,21 +625,20 @@ model CronJobConfig {
 }
 
 model CronJobExecution {
-  id              Int       @id @default(autoincrement())
-  job_config_id   Int
-  started_at      DateTime  @default(now())
-  finished_at     DateTime?
-  duration_ms     Int?
-  status          String    @db.VarChar(20) // 'SUCCESS', 'FAILED', 'TIMEOUT', 'RUNNING'
-  result_json     Json?     @db.Json
-  error_message   String?   @db.Text
-  triggered_by    String    @default("SCHEDULED") @db.VarChar(20) // 'SCHEDULED', 'MANUAL'
+  id            Int       @id @default(autoincrement())
+  job_config_id Int
+  started_at    DateTime  @default(now())
+  finished_at   DateTime?
+  duration_ms   Int?
+  status        String    @db.VarChar(20) // 'SUCCESS', 'FAILED', 'TIMEOUT', 'RUNNING'
+  result_json   Json?     @db.Json
+  error_message String?   @db.Text
+  triggered_by  String    @default("SCHEDULED") @db.VarChar(20) // 'SCHEDULED', 'MANUAL'
 
-  job_config      CronJobConfig @relation(fields: [job_config_id], references: [id], onDelete: Cascade)
+  job_config CronJobConfig @relation(fields: [job_config_id], references: [id], onDelete: Cascade)
 
   @@index([job_config_id, started_at])
   @@index([started_at])
   @@index([status])
   @@map("cron_job_executions")
 }
-

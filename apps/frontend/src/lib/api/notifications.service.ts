@@ -45,9 +45,14 @@ export interface AlertHistoryItem {
     id: number
     alert_type: string
     sent_at: string
-    source: 'position' | 'vault'
+    source: 'position' | 'vault' | 'webhook' | 'other'
     position_id?: number
     vault_id?: number
+    webhook_event_id?: number
+    recipient?: string
+    recipient_type?: 'phone' | 'group'
+    status?: 'sent' | 'failed'
+    error_message?: string
 }
 
 export const notificationsService = {
@@ -109,5 +114,86 @@ export const notificationsService = {
         const response = await apiClient.post('/notifications/send-test', { phone, message })
         return response.data
     },
+
+    // Templates
+    getTemplates: async (): Promise<WhatsAppNotificationTemplate[]> => {
+        const response = await apiClient.get('/admin/notifications/templates')
+        return response.data
+    },
+
+    getTemplate: async (id: number): Promise<WhatsAppNotificationTemplate> => {
+        const response = await apiClient.get(`/admin/notifications/templates/${id}`)
+        return response.data
+    },
+
+    getTemplateByType: async (type: NotificationTemplateType): Promise<WhatsAppNotificationTemplate> => {
+        const response = await apiClient.get(`/admin/notifications/templates/type/${type}`)
+        return response.data
+    },
+
+    createTemplate: async (data: CreateTemplateDto): Promise<WhatsAppNotificationTemplate> => {
+        const response = await apiClient.post('/admin/notifications/templates', data)
+        return response.data
+    },
+
+    updateTemplate: async (id: number, data: UpdateTemplateDto): Promise<WhatsAppNotificationTemplate> => {
+        const response = await apiClient.put(`/admin/notifications/templates/${id}`, data)
+        return response.data
+    },
+
+    deleteTemplate: async (id: number): Promise<void> => {
+        await apiClient.delete(`/admin/notifications/templates/${id}`)
+    },
+
+    previewTemplate: async (id: number, variables?: Record<string, any>): Promise<{
+        template: WhatsAppNotificationTemplate
+        variables: Record<string, any>
+        rendered: string
+    }> => {
+        const response = await apiClient.post(`/admin/notifications/templates/${id}/preview`, { variables })
+        return response.data
+    },
+
+    setTemplateActive: async (id: number): Promise<WhatsAppNotificationTemplate> => {
+        const response = await apiClient.post(`/admin/notifications/templates/${id}/set-active`)
+        return response.data
+    },
+}
+
+export type NotificationTemplateType = 
+    | 'WEBHOOK_RECEIVED'
+    | 'TEST_MESSAGE'
+    | 'POSITION_OPENED'
+    | 'POSITION_CLOSED'
+    | 'STOP_LOSS_TRIGGERED'
+    | 'PARTIAL_TP_TRIGGERED'
+
+export interface WhatsAppNotificationTemplate {
+    id: number
+    template_type: NotificationTemplateType
+    name: string
+    subject: string | null
+    body: string
+    variables_json: any
+    is_active: boolean
+    created_at: string
+    updated_at: string
+}
+
+export interface CreateTemplateDto {
+    template_type: NotificationTemplateType
+    name: string
+    subject?: string
+    body: string
+    variables_json?: any
+    is_active?: boolean
+}
+
+export interface UpdateTemplateDto {
+    name?: string
+    subject?: string
+    body?: string
+    variables_json?: any
+    is_active?: boolean
 }
 

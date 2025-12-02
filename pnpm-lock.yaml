@@ -17,8 +17,11 @@ importers:
       prettier:
         specifier: ^3.2.4
         version: 3.7.3
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@types/node@20.19.25)(typescript@5.9.3)
       typescript:
-        specifier: ^5.3.3
+        specifier: ^5.9.3
         version: 5.9.3
 
   apps/api:

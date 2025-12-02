@@ -671,7 +671,7 @@ Eventos que podem disparar notificação:
 Exemplos:
 
 ```text
-SOLUSDT.P Caça Fundo 🟢 (H1) Preço (213.09)
+SOLUSDT.P Caça Fundo 🟢 (H1) Preço (83.09)
 
 SOLUSDT.P Caça Topo 🔴 (H1) Preço (215.81)
 ```

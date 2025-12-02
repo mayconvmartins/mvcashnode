@@ -14,7 +14,7 @@ import type { ExchangeAccount } from '@/lib/types'
 import { Exchange, TradeMode } from '@/lib/types'
 import { toast } from 'sonner'
 
-const accountSchema = z.object({
+const createAccountSchema = z.object({
     label: z.string().min(1, 'Nome é obrigatório'),
     exchange: z.nativeEnum(Exchange),
     trade_mode: z.nativeEnum(TradeMode),
@@ -24,7 +24,17 @@ const accountSchema = z.object({
     is_active: z.boolean(),
 })
 
-type AccountFormData = z.infer<typeof accountSchema>
+const editAccountSchema = z.object({
+    label: z.string().min(1, 'Nome é obrigatório'),
+    exchange: z.nativeEnum(Exchange),
+    trade_mode: z.nativeEnum(TradeMode),
+    api_key: z.string().optional(),
+    api_secret: z.string().optional(),
+    is_testnet: z.boolean(),
+    is_active: z.boolean(),
+})
+
+type AccountFormData = z.infer<typeof createAccountSchema>
 
 interface AccountFormProps {
     account?: ExchangeAccount | null
@@ -34,6 +44,8 @@ interface AccountFormProps {
 export function AccountForm({ account, onSuccess }: AccountFormProps) {
     const queryClient = useQueryClient()
     const isEditing = !!account
+
+    const accountSchema = isEditing ? editAccountSchema : createAccountSchema
 
     const {
         register,

@@ -5,14 +5,24 @@ import { PositionService } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
+import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
 @Processor('limit-orders-monitor-sim')
 export class LimitOrdersMonitorSimProcessor extends WorkerHost {
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private cronExecutionService: CronExecutionService
+  ) {
     super();
   }
 
   async process(_job: Job<any>): Promise<any> {
+    const startTime = Date.now();
+    const jobName = 'limit-orders-monitor-sim';
+
+    try {
+      // Registrar início da execução
+      await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
     // Get all pending limit orders (SIMULATION)
     const limitOrders = await this.prisma.tradeJob.findMany({
       where: {
@@ -115,7 +125,33 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
       }
     }
 
-    return { ordersChecked: limitOrders.length, filled, canceled };
+    const result = { ordersChecked: limitOrders.length, filled, canceled };
+    const durationMs = Date.now() - startTime;
+
+    // Registrar sucesso
+    await this.cronExecutionService.recordExecution(
+      jobName,
+      CronExecutionStatus.SUCCESS,
+      durationMs,
+      result
+    );
+
+    return result;
+  } catch (error: any) {
+    const durationMs = Date.now() - startTime;
+    const errorMessage = error?.message || 'Erro desconhecido';
+
+    // Registrar falha
+    await this.cronExecutionService.recordExecution(
+      jobName,
+      CronExecutionStatus.FAILED,
+      durationMs,
+      null,
+      errorMessage
+    );
+
+    throw error;
+  }
   }
 }
 

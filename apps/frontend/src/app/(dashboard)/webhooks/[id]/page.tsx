@@ -42,10 +42,18 @@ export default function WebhookDetailsPage() {
     const queryClient = useQueryClient()
     const webhookId = parseInt(params.id as string)
 
-    const { data: webhook, isLoading } = useQuery({
+    const { data: webhook, isLoading, refetch } = useQuery({
         queryKey: ['webhook', webhookId],
-        queryFn: () => webhooksService.getSource(webhookId),
+        queryFn: async () => {
+            const result = await webhooksService.getSource(webhookId)
+            console.log('[WEBHOOK-DETAILS] Dados recebidos do serviço:', result)
+            console.log('[WEBHOOK-DETAILS] alert_group_enabled:', result?.alert_group_enabled)
+            console.log('[WEBHOOK-DETAILS] alert_group_id:', result?.alert_group_id)
+            return result
+        },
         enabled: !isNaN(webhookId),
+        refetchOnMount: true, // Sempre refetch quando a página é montada
+        refetchOnWindowFocus: false,
     })
 
     const { data: bindings } = useQuery({
@@ -307,7 +315,11 @@ export default function WebhookDetailsPage() {
                 <div className="flex gap-2">
                     <Button
                         variant="outline"
-                        onClick={() => router.push(`/webhooks/${webhookId}/edit`)}
+                        onClick={() => {
+                            // Invalidar cache antes de ir para edição
+                            queryClient.invalidateQueries({ queryKey: ['webhook', webhookId] })
+                            router.push(`/webhooks/${webhookId}/edit`)
+                        }}
                     >
                         <Edit className="h-4 w-4 mr-2" />
                         Editar
@@ -433,6 +445,40 @@ export default function WebhookDetailsPage() {
                                     </div>
                                 </>
                             )}
+
+                            {/* WhatsApp Group Alerts */}
+                            <Separator />
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <Label>Alertas para Grupo WhatsApp</Label>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                            Enviar notificações de webhook recebido para um grupo WhatsApp
+                                        </p>
+                                    </div>
+                                    <Badge variant={webhook.alert_group_enabled ? 'default' : 'secondary'}>
+                                        {webhook.alert_group_enabled ? 'Ativo' : 'Inativo'}
+                                    </Badge>
+                                </div>
+                                {webhook.alert_group_enabled && webhook.alert_group_id && (
+                                    <div>
+                                        <Label className="text-muted-foreground">ID do Grupo</Label>
+                                        <div className="mt-1 flex items-center gap-2">
+                                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
+                                                {webhook.alert_group_id}
+                                            </code>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8"
+                                                onClick={() => copyToClipboard(webhook.alert_group_id!)}
+                                            >
+                                                <Copy className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </CardContent>
                     </Card>
                 </TabsContent>

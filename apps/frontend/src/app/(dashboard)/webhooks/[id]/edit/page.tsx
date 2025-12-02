@@ -1,7 +1,7 @@
 'use client'
 
 import { useParams, useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,6 +12,7 @@ import { webhooksService } from '@/lib/api/webhooks.service'
 export default function EditWebhookPage() {
     const params = useParams()
     const router = useRouter()
+    const queryClient = useQueryClient()
     const webhookId = parseInt(params.id as string)
 
     const { data: webhook, isLoading } = useQuery({
@@ -67,6 +68,15 @@ export default function EditWebhookPage() {
                     <WebhookForm 
                         webhook={webhook}
                         onSuccess={(updatedWebhook) => {
+                            console.log('[EDIT-PAGE] Webhook atualizado:', updatedWebhook)
+                            console.log('[EDIT-PAGE] alert_group_enabled:', updatedWebhook?.alert_group_enabled)
+                            console.log('[EDIT-PAGE] alert_group_id:', updatedWebhook?.alert_group_id)
+                            // Atualizar cache diretamente com os dados retornados ANTES de invalidar
+                            queryClient.setQueryData(['webhook', webhookId], updatedWebhook)
+                            // Invalidar cache para forçar refetch na próxima vez
+                            queryClient.invalidateQueries({ queryKey: ['webhook', webhookId] })
+                            queryClient.invalidateQueries({ queryKey: ['webhooks'] })
+                            // Redirecionar imediatamente - o cache já foi atualizado
                             router.push(`/webhooks/${updatedWebhook.id}`)
                         }}
                         onCancel={() => router.push(`/webhooks/${webhookId}`)}

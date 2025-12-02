@@ -121,6 +121,90 @@ export class TradeParametersController {
     }
   }
 
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Obter parâmetro de trading por ID',
+    description: 'Retorna os detalhes completos de um parâmetro de trading específico.',
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID do parâmetro de trading', example: 1 })
+  @ApiResponse({
+    status: 200,
+    description: 'Parâmetro de trading encontrado',
+    schema: {
+      example: {
+        id: 1,
+        user_id: 1,
+        exchange_account_id: 1,
+        symbol: 'SOL/USDT',
+        side: 'BUY',
+        quote_amount_fixed: 100,
+        quote_amount_pct_balance: null,
+        max_orders_per_hour: 10,
+        min_interval_sec: 60,
+        order_type_default: 'MARKET',
+        slippage_bps: 0,
+        default_sl_enabled: true,
+        default_sl_pct: 2.0,
+        default_tp_enabled: true,
+        default_tp_pct: 5.0,
+        trailing_stop_enabled: false,
+        trailing_distance_pct: null,
+        vault_id: null,
+        exchange_account: {
+          id: 1,
+          label: 'Binance Spot Real',
+          exchange: 'BINANCE_SPOT',
+          is_simulation: false,
+        },
+        vault: null,
+        created_at: '2025-12-01T10:00:00.000Z',
+        updated_at: '2025-12-01T10:00:00.000Z',
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Parâmetro não encontrado' })
+  async getOne(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any
+  ): Promise<any> {
+    try {
+      const parameter = await this.prisma.tradeParameter.findFirst({
+        where: {
+          id,
+          user_id: user.userId,
+        },
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+              is_simulation: true,
+            },
+          },
+          vault: {
+            select: {
+              id: true,
+              name: true,
+              trade_mode: true,
+            },
+          },
+        },
+      });
+
+      if (!parameter) {
+        throw new NotFoundException('Parâmetro de trading não encontrado');
+      }
+
+      return parameter;
+    } catch (error: any) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException('Erro ao obter parâmetro de trading');
+    }
+  }
+
   @Post()
   @ApiOperation({
     summary: 'Criar parâmetro de trading',

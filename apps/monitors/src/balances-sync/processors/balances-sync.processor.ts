@@ -5,6 +5,7 @@ import { ExchangeAccountService } from '@mvcashnode/domain';
 import { EncryptionService, NtpService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeMode } from '@mvcashnode/shared';
+import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
 @Processor('balances-sync-real')
 export class BalancesSyncProcessor extends WorkerHost {
@@ -12,7 +13,8 @@ export class BalancesSyncProcessor extends WorkerHost {
 
   constructor(
     private prisma: PrismaService,
-    private encryptionService: EncryptionService
+    private encryptionService: EncryptionService,
+    private cronExecutionService: CronExecutionService
   ) {
     super();
     // Inicializar NTP service (mesmo método usado no main.ts)
@@ -35,16 +37,23 @@ export class BalancesSyncProcessor extends WorkerHost {
   }
 
   async process(_job: Job<any>): Promise<any> {
-    // Sincronizar NTP antes de processar (garantir offset atualizado)
-    // Isso garante que o timestamp usado nas requisições está correto
-    if (this.ntpService) {
-      await this.ntpService.sync();
-      const ntpInfo = this.ntpService.getInfo();
-      console.log(`[BalancesSync] NTP sincronizado - Offset: ${ntpInfo.offset}ms`);
-      
-      // Garantir que AdapterFactory está usando o NTP service atualizado
-      AdapterFactory.setNtpService(this.ntpService);
-    }
+    const startTime = Date.now();
+    const jobName = 'balances-sync-real';
+
+    try {
+      // Registrar início da execução
+      await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
+
+      // Sincronizar NTP antes de processar (garantir offset atualizado)
+      // Isso garante que o timestamp usado nas requisições está correto
+      if (this.ntpService) {
+        await this.ntpService.sync();
+        const ntpInfo = this.ntpService.getInfo();
+        console.log(`[BalancesSync] NTP sincronizado - Offset: ${ntpInfo.offset}ms`);
+        
+        // Garantir que AdapterFactory está usando o NTP service atualizado
+        AdapterFactory.setNtpService(this.ntpService);
+      }
 
     // Get all active real accounts
     const accounts = await this.prisma.exchangeAccount.findMany({
@@ -98,7 +107,33 @@ export class BalancesSyncProcessor extends WorkerHost {
       }
     }
 
-    return { accountsChecked: accounts.length, synced };
+    const result = { accountsChecked: accounts.length, synced };
+    const durationMs = Date.now() - startTime;
+
+    // Registrar sucesso
+    await this.cronExecutionService.recordExecution(
+      jobName,
+      CronExecutionStatus.SUCCESS,
+      durationMs,
+      result
+    );
+
+    return result;
+  } catch (error: any) {
+    const durationMs = Date.now() - startTime;
+    const errorMessage = error?.message || 'Erro desconhecido';
+
+    // Registrar falha
+    await this.cronExecutionService.recordExecution(
+      jobName,
+      CronExecutionStatus.FAILED,
+      durationMs,
+      null,
+      errorMessage
+    );
+
+    throw error;
+  }
   }
 }
 

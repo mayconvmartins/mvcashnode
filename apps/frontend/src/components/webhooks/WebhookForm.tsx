@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { webhooksService } from '@/lib/api/webhooks.service'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,7 @@ interface WebhookFormProps {
 }
 
 export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) {
+    const queryClient = useQueryClient()
     const [formData, setFormData] = useState({
         label: webhook?.label || '',
         webhookCode: webhook?.webhook_code || '',
@@ -26,6 +27,8 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
         allowedIPs: webhook?.allowed_ips_json?.join('\n') || '',
         requireSignature: webhook?.require_signature || false,
         rateLimitPerMin: webhook?.rate_limit_per_min || 60,
+        alertGroupEnabled: webhook?.alert_group_enabled || false,
+        alertGroupId: webhook?.alert_group_id || '',
     })
 
     // Atualizar formData quando webhook mudar
@@ -38,6 +41,8 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                 allowedIPs: webhook.allowed_ips_json?.join('\n') || '',
                 requireSignature: webhook.require_signature || false,
                 rateLimitPerMin: webhook.rate_limit_per_min || 60,
+                alertGroupEnabled: webhook.alert_group_enabled || false,
+                alertGroupId: webhook.alert_group_id || '',
             })
         }
     }, [webhook])
@@ -50,7 +55,13 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                 tradeMode: formData.tradeMode,
                 requireSignature: formData.requireSignature,
                 rateLimitPerMin: formData.rateLimitPerMin,
+                alertGroupEnabled: formData.alertGroupEnabled,
             }
+            
+            // Sempre enviar alertGroupId: se enabled é true, enviar o ID; se false, enviar null para limpar
+            payload.alertGroupId = formData.alertGroupEnabled ? (formData.alertGroupId || null) : null
+            
+            console.log('[WEBHOOK-FORM] Payload sendo enviado:', payload)
 
             // Apenas incluir webhookCode na criação
             if (!webhook && formData.webhookCode) {
@@ -73,8 +84,24 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
             return webhooksService.createSource(payload)
         },
         onSuccess: (data) => {
+            console.log('[WEBHOOK-FORM] Resposta recebida:', data)
+            console.log('[WEBHOOK-FORM] alert_group_enabled:', data?.alert_group_enabled)
+            console.log('[WEBHOOK-FORM] alert_group_id:', data?.alert_group_id)
             toast.success(webhook ? 'Webhook atualizado!' : 'Webhook criado!')
-            onSuccess(data)
+            // Invalidar cache para forçar atualização
+            if (webhook) {
+                queryClient.invalidateQueries({ queryKey: ['webhook', webhook.id] })
+                queryClient.invalidateQueries({ queryKey: ['webhooks'] })
+                // Atualizar cache diretamente com os dados retornados
+                queryClient.setQueryData(['webhook', webhook.id], data)
+                console.log('[WEBHOOK-FORM] Cache atualizado com:', data)
+            } else {
+                queryClient.invalidateQueries({ queryKey: ['webhooks'] })
+            }
+            // Aguardar um pouco para garantir que o cache foi atualizado
+            setTimeout(() => {
+                onSuccess(data)
+            }, 200)
         },
         onError: (error: any) => {
             const errorMessage = error?.response?.data?.message || error?.message || 'Falha ao salvar webhook'
@@ -205,6 +232,38 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                     <p className="text-xs text-muted-foreground mt-1">
                         Número máximo de requisições permitidas por minuto
                     </p>
+                </div>
+
+                <div className="border-t pt-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                            <Label htmlFor="alertGroupEnabled">Alertas para Grupo WhatsApp</Label>
+                            <p className="text-sm text-muted-foreground">
+                                Enviar notificações de webhook recebido para um grupo WhatsApp
+                            </p>
+                        </div>
+                        <Switch
+                            id="alertGroupEnabled"
+                            checked={formData.alertGroupEnabled}
+                            onCheckedChange={(checked) => handleChange('alertGroupEnabled', checked)}
+                        />
+                    </div>
+
+                    {formData.alertGroupEnabled && (
+                        <div>
+                            <Label htmlFor="alertGroupId">ID do Grupo WhatsApp *</Label>
+                            <Input
+                                id="alertGroupId"
+                                value={formData.alertGroupId}
+                                onChange={(e) => handleChange('alertGroupId', e.target.value)}
+                                placeholder="120363123456789012@g.us"
+                                required={formData.alertGroupEnabled}
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                                ID do grupo no formato: 120363123456789012@g.us
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
 

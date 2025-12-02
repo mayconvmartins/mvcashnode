@@ -36,5 +36,15 @@ export class CreateWebhookSourceDto {
   @IsInt()
   @Min(1)
   rateLimitPerMin?: number;
+
+  @ApiProperty({ required: false, example: false })
+  @IsOptional()
+  @IsBoolean()
+  alertGroupEnabled?: boolean;
+
+  @ApiProperty({ required: false, example: '120363123456789012@g.us' })
+  @IsOptional()
+  @IsString()
+  alertGroupId?: string;
 }
 

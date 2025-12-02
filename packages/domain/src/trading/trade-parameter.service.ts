@@ -54,17 +54,93 @@ export class TradeParameterService {
     side: 'BUY' | 'SELL',
     tradeMode: TradeMode
   ): Promise<number> {
-    const parameter = await this.prisma.tradeParameter.findFirst({
+    console.log(`[TRADE-PARAMETER] Buscando parâmetro para:`, {
+      accountId,
+      symbol,
+      side,
+      tradeMode,
+    });
+
+    // Normalizar símbolo (remover sufixos como .P, .F, etc.)
+    const normalizedSymbol = symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '');
+    // Tentar formatos comuns: SOLUSDT -> SOL/USDT, SOL/USDT -> SOLUSDT
+    const symbolVariations = [
+      symbol, // Original
+      normalizedSymbol,
+      normalizedSymbol.replace('/', ''),
+      normalizedSymbol.replace(/([A-Z]+)(USDT|BTC|ETH|BNB)/, '$1/$2'),
+    ];
+
+    // Buscar todos os parâmetros da conta para verificar se algum contém o símbolo
+    const allParameters = await this.prisma.tradeParameter.findMany({
       where: {
         exchange_account_id: accountId,
-        symbol,
         side: { in: [side, 'BOTH'] },
       },
     });
 
-    if (!parameter) {
-      throw new Error('Trade parameter not found');
+    console.log(`[TRADE-PARAMETER] Parâmetros encontrados para conta ${accountId}:`, 
+      allParameters.map(p => ({ id: p.id, symbol: p.symbol, side: p.side }))
+    );
+
+    // Procurar parâmetro que corresponda ao símbolo
+    let parameter = null;
+    
+    for (const param of allParameters) {
+      // Se o símbolo do parâmetro contém vírgulas, verificar se nosso símbolo está na lista
+      if (param.symbol.includes(',')) {
+        const symbolList = param.symbol.split(',').map(s => s.trim());
+        for (const symbolVar of symbolVariations) {
+          const normalizedVar = symbolVar.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '');
+          if (symbolList.some(s => {
+            const normalizedParam = s.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '');
+            return normalizedParam === normalizedVar || normalizedParam === symbolVar || s === symbolVar;
+          })) {
+            parameter = param;
+            console.log(`[TRADE-PARAMETER] ✅ Parâmetro encontrado com múltiplos símbolos: ${param.symbol}`);
+            break;
+          }
+        }
+      } else {
+        // Comparação direta ou com variações
+        for (const symbolVar of symbolVariations) {
+          const normalizedVar = symbolVar.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '');
+          const normalizedParam = param.symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '');
+          
+          if (param.symbol === symbolVar || normalizedParam === normalizedVar || param.symbol === symbol) {
+            parameter = param;
+            console.log(`[TRADE-PARAMETER] ✅ Parâmetro encontrado: ${param.symbol}`);
+            break;
+          }
+        }
+      }
+      
+      if (parameter) break;
     }
+
+    if (!parameter) {
+      // Log todos os parâmetros disponíveis para debug
+      const allParams = await this.prisma.tradeParameter.findMany({
+        where: {
+          exchange_account_id: accountId,
+        },
+        select: {
+          id: true,
+          symbol: true,
+          side: true,
+        },
+      });
+      console.error(`[TRADE-PARAMETER] ❌ Parâmetro não encontrado. Parâmetros disponíveis para conta ${accountId}:`, allParams);
+      throw new Error(`Trade parameter not found for account ${accountId}, symbol ${symbol}, side ${side}`);
+    }
+
+    console.log(`[TRADE-PARAMETER] ✅ Parâmetro encontrado:`, {
+      id: parameter.id,
+      symbol: parameter.symbol,
+      side: parameter.side,
+      quote_amount_fixed: parameter.quote_amount_fixed?.toNumber(),
+      quote_amount_pct_balance: parameter.quote_amount_pct_balance?.toNumber(),
+    });
 
     if (parameter.quote_amount_fixed) {
       return parameter.quote_amount_fixed.toNumber();

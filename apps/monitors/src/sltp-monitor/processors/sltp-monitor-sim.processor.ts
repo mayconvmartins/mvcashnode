@@ -5,17 +5,25 @@ import { PrismaService } from '@mvcashnode/db';
 import { TradeJobService } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
+import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
 @Processor('sl-tp-monitor-sim')
 export class SLTPMonitorSimProcessor extends WorkerHost {
   constructor(
     private prisma: PrismaService,
-    @InjectQueue('trade-execution-sim') private tradeExecutionQueue: Queue
+    @InjectQueue('trade-execution-sim') private tradeExecutionQueue: Queue,
+    private cronExecutionService: CronExecutionService
   ) {
     super();
   }
 
   async process(_job: Job<any>): Promise<any> {
+    const startTime = Date.now();
+    const jobName = 'sl-tp-monitor-sim';
+
+    try {
+      // Registrar início da execução
+      await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
     // Get all open positions with SL/TP enabled (SIMULATION)
     const positions = await this.prisma.tradePosition.findMany({
       where: {
@@ -147,7 +155,33 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
       }
     }
 
-    return { positionsChecked: positions.length, triggered };
+    const result = { positionsChecked: positions.length, triggered };
+    const durationMs = Date.now() - startTime;
+
+    // Registrar sucesso
+    await this.cronExecutionService.recordExecution(
+      jobName,
+      CronExecutionStatus.SUCCESS,
+      durationMs,
+      result
+    );
+
+    return result;
+  } catch (error: any) {
+    const durationMs = Date.now() - startTime;
+    const errorMessage = error?.message || 'Erro desconhecido';
+
+    // Registrar falha
+    await this.cronExecutionService.recordExecution(
+      jobName,
+      CronExecutionStatus.FAILED,
+      durationMs,
+      null,
+      errorMessage
+    );
+
+    throw error;
+  }
   }
 }
 

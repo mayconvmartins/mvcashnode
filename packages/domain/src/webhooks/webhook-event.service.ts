@@ -137,7 +137,48 @@ export class WebhookEventService {
           symbol: event.symbol_normalized,
           side,
           tradeMode: event.trade_mode,
+          accountId: binding.exchange_account.id,
         });
+
+        // Para BUY, verificar se existe parâmetro de trading
+        if (side === 'BUY') {
+          const parameter = await this.prisma.tradeParameter.findFirst({
+            where: {
+              exchange_account_id: binding.exchange_account.id,
+              symbol: event.symbol_normalized,
+              side: { in: [side, 'BOTH'] },
+            },
+          });
+
+          if (!parameter) {
+            console.warn(`[WEBHOOK-EVENT] ⚠️ Parâmetro de trading NÃO encontrado para:`, {
+              accountId: binding.exchange_account.id,
+              symbol: event.symbol_normalized,
+              side,
+              symbolRaw: event.symbol_raw,
+            });
+            console.warn(`[WEBHOOK-EVENT] Tentando buscar parâmetros existentes para esta conta...`);
+            const allParams = await this.prisma.tradeParameter.findMany({
+              where: {
+                exchange_account_id: binding.exchange_account.id,
+              },
+              select: {
+                id: true,
+                symbol: true,
+                side: true,
+              },
+            });
+            console.warn(`[WEBHOOK-EVENT] Parâmetros existentes para conta ${binding.exchange_account.id}:`, allParams);
+          } else {
+            console.log(`[WEBHOOK-EVENT] ✅ Parâmetro encontrado:`, {
+              id: parameter.id,
+              symbol: parameter.symbol,
+              side: parameter.side,
+              quote_amount_fixed: parameter.quote_amount_fixed?.toNumber(),
+              quote_amount_pct_balance: parameter.quote_amount_pct_balance?.toNumber(),
+            });
+          }
+        }
 
         // Para SELL, buscar posição aberta e usar quantidade restante
         let baseQuantity: number | undefined = undefined;
@@ -175,7 +216,7 @@ export class WebhookEventService {
           skipParameterValidation: side === 'SELL' && baseQuantity !== undefined, // Pular validação se já temos quantidade
         });
         
-        console.log(`[WEBHOOK-EVENT] Job criado com sucesso: ${tradeJob.id}, quantidade: ${baseQuantity || 'calculada automaticamente'}`);
+        console.log(`[WEBHOOK-EVENT] Job criado com sucesso: ${tradeJob.id}, quantidade: ${baseQuantity || tradeJob.quote_amount || 'calculada automaticamente'}`);
         jobsCreated++;
         jobIds.push(tradeJob.id);
       } catch (error: any) {

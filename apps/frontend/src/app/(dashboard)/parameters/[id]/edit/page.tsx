@@ -40,6 +40,24 @@ export default function EditParameterPage() {
         )
     }
 
+    // Mapear dados do backend para o formato esperado pelo wizard
+    const mappedParameter = {
+        ...parameter,
+        id: parameter.id,
+        account: parameter.exchange_account || parameter.account,
+        accountId: parameter.exchange_account_id?.toString() || parameter.exchange_account?.id?.toString(),
+        symbol: parameter.symbol,
+        side: parameter.side,
+        orderSizeType: parameter.quote_amount_fixed ? 'FIXED' : 'PERCENT',
+        orderSizeValue: parameter.quote_amount_fixed || parameter.quote_amount_pct_balance || 0,
+        stopLossPercent: parameter.default_sl_pct,
+        takeProfitPercent: parameter.default_tp_pct,
+        trailingStop: parameter.trailing_stop_enabled || false,
+        maxDailyTrades: parameter.max_orders_per_hour, // Ajustar se necessário
+        maxWeeklyTrades: undefined, // Não existe no schema
+        vaultId: parameter.vault_id?.toString() || parameter.vault?.id?.toString(),
+    }
+
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -50,7 +68,7 @@ export default function EditParameterPage() {
                 <div>
                     <h1 className="text-3xl font-bold">Editar Parâmetro</h1>
                     <p className="text-muted-foreground">
-                        {parameter.account?.name} • {parameter.symbol} • {parameter.side}
+                        {parameter.exchange_account?.label || 'Conta'} • {parameter.symbol} • {parameter.side}
                     </p>
                 </div>
             </div>
@@ -65,7 +83,7 @@ export default function EditParameterPage() {
                 </CardHeader>
                 <CardContent>
                     <ParameterWizard 
-                        parameter={parameter}
+                        parameter={mappedParameter}
                         onSuccess={() => {
                             router.push('/parameters')
                         }}

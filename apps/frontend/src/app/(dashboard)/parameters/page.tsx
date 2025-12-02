@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit, Copy } from 'lucide-react'
+import { Plus, Trash2, Edit, Copy, Eye } from 'lucide-react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -53,14 +53,22 @@ export default function ParametersPage() {
 
     const columns: Column<TradeParameter>[] = [
         {
-            key: 'label',
+            key: 'name',
             label: 'Nome',
-            render: (param) => <span className="font-medium">{param.label}</span>,
+            render: (param: any) => (
+                <Link href={`/parameters/${param.id}`} className="font-medium hover:underline">
+                    {param.symbol} - {param.side}
+                </Link>
+            ),
         },
         {
             key: 'exchange_account_id',
             label: 'Conta',
-            render: (param) => <span className="text-sm">Conta ID: {param.exchange_account_id}</span>,
+            render: (param: any) => (
+                <span className="text-sm">
+                    {param.exchange_account?.label || `Conta ID: ${param.exchange_account_id}`}
+                </span>
+            ),
         },
         {
             key: 'symbol',
@@ -99,8 +107,13 @@ export default function ParametersPage() {
             label: 'Ações',
             render: (param) => (
                 <div className="flex items-center gap-2">
+                    <Link href={`/parameters/${param.id}`}>
+                        <Button variant="ghost" size="sm" title="Ver detalhes">
+                            <Eye className="h-4 w-4" />
+                        </Button>
+                    </Link>
                     <Link href={`/parameters/${param.id}/edit`}>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" title="Editar">
                             <Edit className="h-4 w-4" />
                         </Button>
                     </Link>
@@ -109,6 +122,7 @@ export default function ParametersPage() {
                         size="sm"
                         onClick={() => duplicateMutation.mutate(param.id)}
                         disabled={duplicateMutation.isPending}
+                        title="Duplicar"
                     >
                         <Copy className="h-4 w-4" />
                     </Button>
@@ -117,6 +131,7 @@ export default function ParametersPage() {
                         size="sm"
                         onClick={() => setDeleteConfirmId(param.id)}
                         disabled={deleteMutation.isPending}
+                        title="Excluir"
                     >
                         <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>

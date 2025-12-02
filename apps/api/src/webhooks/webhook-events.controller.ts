@@ -223,15 +223,42 @@ export class WebhookEventsController {
         throw new NotFoundException('Webhook event não encontrado');
       }
 
-      // Buscar jobs criados a partir deste evento
+      // Buscar jobs criados a partir deste evento com todas as relações
       const jobs = await this.prisma.tradeJob.findMany({
         where: {
           webhook_event_id: id,
         },
         include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+            },
+          },
           executions: {
-            take: 5,
             orderBy: { id: 'desc' },
+            include: {
+              position_fills: {
+                include: {
+                  position: {
+                    select: {
+                      id: true,
+                      status: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          position_open: {
+            select: {
+              id: true,
+              status: true,
+              qty_total: true,
+              qty_remaining: true,
+              price_open: true,
+            },
           },
         },
         orderBy: {
@@ -253,6 +280,7 @@ export class WebhookEventsController {
           status: job.status,
           executions_count: job.executions.length,
         })),
+        jobs: jobs, // Incluir jobs completos para o fluxo
       };
     } catch (error: any) {
       if (error instanceof NotFoundException) {

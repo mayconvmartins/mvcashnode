@@ -14,6 +14,7 @@ import { TradeParametersModule } from './trade-parameters/trade-parameters.modul
 import { TradeJobsModule } from './trade-jobs/trade-jobs.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { InternalModule } from './internal/internal.module';
 import * as path from 'path';
 
 @Module({
@@ -52,6 +53,7 @@ import * as path from 'path';
     TradeJobsModule,
     MonitoringModule,
     NotificationsModule,
+    InternalModule,
   ],
   controllers: [AppController],
   providers: [AppService],

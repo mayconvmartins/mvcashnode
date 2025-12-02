@@ -17,13 +17,17 @@ import {
 } from '@nestjs/swagger';
 import { WebhooksService } from './webhooks.service';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
+import { NotificationWrapperService } from '../notifications/notification-wrapper.service';
+import { PrismaService } from '@mvcashnode/db';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
 export class WebhooksController {
   constructor(
     private webhooksService: WebhooksService,
-    private tradeJobQueueService: TradeJobQueueService
+    private tradeJobQueueService: TradeJobQueueService,
+    private notificationWrapper: NotificationWrapperService,
+    private prisma: PrismaService
   ) {}
 
   @Post(':code')
@@ -118,6 +122,8 @@ export class WebhooksController {
       admin_locked: source.admin_locked,
       allowed_ips: source.allowed_ips_json,
       require_signature: source.require_signature,
+      alert_group_enabled: source.alert_group_enabled,
+      alert_group_id: source.alert_group_id,
     } : 'null');
 
     if (!source) {
@@ -173,8 +179,14 @@ export class WebhooksController {
     // Process webhook for each bound account
     const eventUid = this.generateEventUid(payload);
     let accountsTriggered = 0;
+    let notificationSent = false; // Flag para garantir que enviamos apenas uma notificação por webhook
 
     console.log(`[WEBHOOK] Processando webhook. Bindings encontrados: ${source.bindings?.length || 0}`);
+    console.log(`[WEBHOOK] Configuração de notificação:`, {
+      alert_group_enabled: source.alert_group_enabled,
+      alert_group_id: source.alert_group_id,
+      tipo_alert_group_enabled: typeof source.alert_group_enabled,
+    });
 
     for (const binding of source.bindings || []) {
       if (!binding.is_active) {
@@ -194,7 +206,44 @@ export class WebhooksController {
 
         console.log(`[WEBHOOK] Evento criado. Jobs criados: ${result.jobsCreated}`);
 
-        // Enfileirar jobs criados para execução
+        // Enviar notificação de webhook recebido IMEDIATAMENTE após criar o evento
+        // (apenas uma vez por webhook, ANTES de processar jobs, mesmo se jobs falharem)
+        console.log(`[WEBHOOK] Verificando condições para notificação:`, {
+          notificationSent,
+          hasEvent: !!result.event,
+          alert_group_enabled: source.alert_group_enabled,
+          alert_group_id: source.alert_group_id,
+        });
+        
+        if (!notificationSent && result.event && source.alert_group_enabled && source.alert_group_id) {
+          try {
+            console.log(`[WEBHOOK] 📤 Enviando notificação de webhook recebido para grupo ${source.alert_group_id}...`);
+            console.log(`[WEBHOOK] Dados do evento:`, {
+              id: result.event.id,
+              symbol: result.event.symbol_normalized,
+              action: result.event.action,
+              jobsCreated: result.jobsCreated,
+            });
+            
+            // Enviar notificação de forma síncrona para garantir que seja enviada
+            // mas não bloquear se houver erro
+            await this.notificationWrapper.sendWebhookAlert(
+              result.event,
+              source,
+              result.jobsCreated || 0,
+              result.jobIds || []
+            );
+            console.log(`[WEBHOOK] ✅ Notificação enviada para grupo ${source.alert_group_id}`);
+            notificationSent = true;
+          } catch (error: any) {
+            console.error(`[WEBHOOK] ❌ Erro ao enviar notificação: ${error.message}`);
+            console.error(`[WEBHOOK] Stack:`, error.stack);
+            // Não falhar o webhook se apenas a notificação falhar
+            notificationSent = true; // Marcar como enviada para não tentar novamente
+          }
+        }
+
+        // Enfileirar jobs criados para execução (após enviar notificação)
         if (result.jobIds && result.jobIds.length > 0) {
           try {
             await this.tradeJobQueueService.enqueueTradeJobs(result.jobIds);
@@ -212,10 +261,73 @@ export class WebhooksController {
         // Log error but continue
         console.error(`[WEBHOOK] Erro ao processar binding ${binding.id}:`, error?.message || error);
         console.error(`[WEBHOOK] Stack:`, error?.stack);
+        
+        // Mesmo se houver erro ao criar o evento, tentar enviar notificação se ainda não foi enviada
+        // (usando dados básicos do webhook)
+        if (!notificationSent && source.alert_group_enabled && source.alert_group_id) {
+          try {
+            // Criar um evento básico para notificação mesmo em caso de erro
+            const basicEvent = {
+              id: 0,
+              webhook_source_id: source.id,
+              symbol_normalized: 'UNKNOWN',
+              action: 'UNKNOWN',
+              price_reference: null,
+              timeframe: null,
+              status: 'ERROR',
+              raw_text: typeof payload === 'string' ? payload : JSON.stringify(payload),
+            };
+            
+            this.notificationWrapper.sendWebhookAlert(
+              basicEvent,
+              source,
+              0,
+              []
+            ).then(() => {
+              console.log(`[WEBHOOK] ✅ Notificação de erro enviada para grupo ${source.alert_group_id}`);
+            }).catch((notifError: any) => {
+              console.error(`[WEBHOOK] ❌ Erro ao enviar notificação de erro: ${notifError.message}`);
+            });
+            notificationSent = true;
+          } catch (notifError: any) {
+            console.error(`[WEBHOOK] ❌ Erro ao iniciar envio de notificação de erro: ${notifError.message}`);
+          }
+        }
       }
     }
 
     console.log(`[WEBHOOK] Processamento concluído. Contas acionadas: ${accountsTriggered}`);
+    
+    // Se não há bindings ativos, ainda assim enviar notificação se configurado
+    if (!notificationSent && source.alert_group_enabled && source.alert_group_id && (!source.bindings || source.bindings.length === 0)) {
+      try {
+        console.log(`[WEBHOOK] 📤 Nenhum binding ativo, mas enviando notificação de webhook recebido...`);
+        const basicEvent = {
+          id: 0,
+          webhook_source_id: source.id,
+          symbol_normalized: 'N/A',
+          symbol_raw: typeof payload === 'string' ? payload.substring(0, 50) : 'N/A',
+          action: 'UNKNOWN',
+          price_reference: null,
+          timeframe: null,
+          status: 'NO_BINDINGS',
+          raw_text: typeof payload === 'string' ? payload : JSON.stringify(payload),
+          raw_payload_json: typeof payload === 'object' ? payload : null,
+        };
+        
+        await this.notificationWrapper.sendWebhookAlert(
+          basicEvent,
+          source,
+          0,
+          []
+        );
+        console.log(`[WEBHOOK] ✅ Notificação enviada (sem bindings) para grupo ${source.alert_group_id}`);
+      } catch (error: any) {
+        console.error(`[WEBHOOK] ❌ Erro ao enviar notificação (sem bindings): ${error.message}`);
+      }
+    } else if (!notificationSent && source.alert_group_enabled && source.alert_group_id) {
+      console.warn(`[WEBHOOK] ⚠️ Notificação não foi enviada. Verifique os logs acima.`);
+    }
 
     return {
       message: 'Webhook recebido com sucesso',

@@ -10,6 +10,7 @@ import { EncryptionService } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
     BullModule.registerQueue({
       name: 'trade-execution-sim',
     }),
+    NotificationsModule,
   ],
   controllers: [
     WebhookSourcesController,

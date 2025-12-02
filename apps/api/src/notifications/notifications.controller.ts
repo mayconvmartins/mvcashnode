@@ -16,6 +16,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { NotificationsService, WhatsAppGlobalConfigDto, WhatsAppNotificationsConfigDto } from './notifications.service';
+import { NotificationWrapperService } from './notification-wrapper.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -26,7 +27,10 @@ import { UserRole } from '@mvcashnode/shared';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class NotificationsController {
-  constructor(private notificationsService: NotificationsService) {}
+  constructor(
+    private notificationsService: NotificationsService,
+    private notificationWrapper: NotificationWrapperService
+  ) {}
 
   // ==================== User Config (qualquer usuário autenticado) ====================
 
@@ -181,7 +185,22 @@ export class NotificationsController {
       phone = '55' + phone;
     }
 
-    const messageText = data.message || '🔔 Teste de notificação do Trading Automation System';
+    // Se mensagem não fornecida, usar template
+    let messageText = data.message;
+    if (!messageText) {
+      try {
+        // Usar NotificationWrapperService para enviar com template
+        await this.notificationWrapper.sendTestMessage(phone, config);
+        return {
+          success: true,
+          message: 'Mensagem de teste enviada com sucesso usando template!',
+        };
+      } catch (templateError: any) {
+        // Se template falhar, usar mensagem padrão
+        console.warn(`[WHATSAPP] Erro ao usar template, usando mensagem padrão: ${templateError.message}`);
+        messageText = '🔔 Teste de notificação do Trading Automation System';
+      }
+    }
     
     console.log(`[WHATSAPP] Enviando mensagem de teste para: ${phone}`);
     console.log(`[WHATSAPP] API URL: ${apiUrl}`);

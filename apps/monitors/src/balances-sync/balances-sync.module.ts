@@ -4,6 +4,7 @@ import { BalancesSyncProcessor } from './processors/balances-sync.processor';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
+import { CronExecutionService } from '../shared/cron-execution.service';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { ConfigService } from '@nestjs/config';
   providers: [
     BalancesSyncProcessor,
     PrismaService,
+    CronExecutionService,
     {
       provide: EncryptionService,
       useFactory: (configService: ConfigService) => {

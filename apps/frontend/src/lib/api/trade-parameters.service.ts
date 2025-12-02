@@ -28,6 +28,11 @@ export const tradeParametersService = {
         return response.data
     },
 
+    getById: async (id: string | number): Promise<TradeParameter> => {
+        const response = await apiClient.get<TradeParameter>(`/trade-parameters/${id}`)
+        return response.data
+    },
+
     create: async (data: CreateTradeParameterDto): Promise<TradeParameter> => {
         const response = await apiClient.post<TradeParameter>('/trade-parameters', data)
         return response.data

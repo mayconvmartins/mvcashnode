@@ -77,5 +77,10 @@ export const webhooksService = {
         const response = await apiClient.get<WebhookEvent>(`/webhook-events/${id}`)
         return response.data
     },
+
+    getEventById: async (id: number): Promise<WebhookEvent> => {
+        const response = await apiClient.get<WebhookEvent>(`/webhook-events/${id}`)
+        return response.data
+    },
 }
 

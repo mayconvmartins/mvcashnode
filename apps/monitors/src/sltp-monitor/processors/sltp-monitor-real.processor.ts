@@ -6,18 +6,30 @@ import { TradeJobService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
+import { NotificationHttpService } from '@mvcashnode/notifications';
+import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
 @Processor('sl-tp-monitor-real')
 export class SLTPMonitorRealProcessor extends WorkerHost {
+  private notificationService: NotificationHttpService;
+
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService,
-    @InjectQueue('trade-execution-real') private readonly tradeExecutionQueue: Queue
+    @InjectQueue('trade-execution-real') private readonly tradeExecutionQueue: Queue,
+    private cronExecutionService: CronExecutionService
   ) {
     super();
+    this.notificationService = new NotificationHttpService(process.env.API_URL || 'http://localhost:4010');
   }
 
   async process(_job: Job<any>): Promise<any> {
+    const startTime = Date.now();
+    const jobName = 'sl-tp-monitor-real';
+
+    try {
+      // Registrar início da execução
+      await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
     // Get all open positions with SL/TP enabled
     const positions = await this.prisma.tradePosition.findMany({
       where: {
@@ -161,7 +173,33 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
       }
     }
 
-    return { positionsChecked: positions.length, triggered };
+    const result = { positionsChecked: positions.length, triggered };
+    const durationMs = Date.now() - startTime;
+
+    // Registrar sucesso
+    await this.cronExecutionService.recordExecution(
+      jobName,
+      CronExecutionStatus.SUCCESS,
+      durationMs,
+      result
+    );
+
+    return result;
+  } catch (error: any) {
+    const durationMs = Date.now() - startTime;
+    const errorMessage = error?.message || 'Erro desconhecido';
+
+    // Registrar falha
+    await this.cronExecutionService.recordExecution(
+      jobName,
+      CronExecutionStatus.FAILED,
+      durationMs,
+      null,
+      errorMessage
+    );
+
+    throw error;
+  }
   }
 }
 

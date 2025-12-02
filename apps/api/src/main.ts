@@ -119,11 +119,17 @@ async function bootstrap() {
   console.log('[WEBHOOK-MIDDLEWARE] ✅ Middleware de raw body configurado para /webhooks/*');
 
   // Configuração de CORS
-  const corsDisabled = process.env.CORS_DISABLED === 'true';
+  const corsDisabled = process.env.CORS_DISABLED === 'true' || process.env.CORS_DISABLED === '1';
+  console.log(`[CORS] CORS_DISABLED=${process.env.CORS_DISABLED}, corsDisabled=${corsDisabled}`);
+  
   if (corsDisabled) {
+    // Quando CORS_DISABLED=true, permitir todas as origens (CORS "desabilitado" = sem restrições)
     app.enableCors({
-      origin: true, // Permite todas as origens
-      credentials: true,
+      origin: (origin, callback) => {
+        // Permitir todas as origens quando CORS_DISABLED=true
+        callback(null, true);
+      },
+      credentials: true, // Permitir credentials
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
       allowedHeaders: [
         'Content-Type',
@@ -133,22 +139,31 @@ async function bootstrap() {
         'Origin',
         'Access-Control-Request-Method',
         'Access-Control-Request-Headers',
+        'X-Signature',
       ],
       exposedHeaders: ['Content-Length', 'Content-Type'],
       preflightContinue: false,
       optionsSuccessStatus: 204,
     });
-    console.log('[CORS] ✅ CORS desabilitado - permitindo todas as origens');
+    console.log('[CORS] ✅ CORS_DISABLED=true - permitindo todas as origens (sem restrições)');
   } else {
+    // Quando CORS_DISABLED=false ou não definido, usar lista de origens permitidas
     const allowedOrigins = process.env.CORS_ORIGIN 
       ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
       : ['http://localhost:3000', 'http://localhost:5010'];
     
     app.enableCors({
       origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
+        // Permitir requisições sem origin (ex: Postman, curl)
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        
+        if (allowedOrigins.includes(origin)) {
           callback(null, true);
         } else {
+          console.warn(`[CORS] ⚠️ Origem bloqueada: ${origin}`);
           callback(new Error('Not allowed by CORS'));
         }
       },
@@ -162,6 +177,7 @@ async function bootstrap() {
         'Origin',
         'Access-Control-Request-Method',
         'Access-Control-Request-Headers',
+        'X-Signature',
       ],
       exposedHeaders: ['Content-Length', 'Content-Type'],
       preflightContinue: false,

@@ -212,6 +212,17 @@ export interface TradeParameter {
     vault_id?: number
     created_at: string
     updated_at: string
+    exchange_account?: {
+        id: number
+        label: string
+        exchange: string
+        is_simulation: boolean
+    }
+    vault?: {
+        id: number
+        name: string
+        trade_mode: string
+    }
 }
 
 // ============================================
@@ -230,6 +241,8 @@ export interface WebhookSource {
     rate_limit_per_min: number
     is_active: boolean
     admin_locked: boolean
+    alert_group_enabled?: boolean
+    alert_group_id?: string
     created_at: string
     updated_at: string
 }
@@ -254,7 +267,7 @@ export interface WebhookEvent {
     symbol_normalized: string
     action: WebhookAction
     timeframe?: string
-    price_reference?: number
+    price_reference?: number | string
     raw_text: string | null
     raw_payload_json: any | null
     status: WebhookEventStatus
@@ -273,6 +286,32 @@ export interface WebhookEvent {
         status: string
         executions_count?: number
     }>
+    jobs?: Array<{
+        id: number
+        symbol: string
+        side: string
+        status: string
+        exchange_account?: {
+            id: number
+            label: string
+            exchange: string
+        }
+        executions?: Array<{
+            id: number
+            executed_qty: number
+            cumm_quote_qty: number
+            avg_price: number
+            status_exchange: string
+            created_at: string
+        }>
+        position_open?: {
+            id: number
+            status: string
+            qty_total: number
+            qty_remaining: number
+            price_open: number
+        }
+    }>
 }
 
 export interface CreateWebhookSourceDto {
@@ -283,6 +322,8 @@ export interface CreateWebhookSourceDto {
     requireSignature?: boolean
     signingSecret?: string
     rateLimitPerMin?: number
+    alertGroupEnabled?: boolean
+    alertGroupId?: string
 }
 
 // ============================================

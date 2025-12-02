@@ -9,15 +9,19 @@ import {
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
+import { NotificationHttpService } from '@mvcashnode/notifications';
 
 @Processor('trade-execution-sim')
 export class TradeExecutionSimProcessor extends WorkerHost {
   private readonly logger = new Logger(TradeExecutionSimProcessor.name);
+  private notificationService: NotificationHttpService;
 
   constructor(
     private prisma: PrismaService
   ) {
     super();
+    // Para simulação, não enviar notificações por padrão (pode ser configurável depois)
+    // this.notificationService = new NotificationHttpService(process.env.API_URL || 'http://localhost:4010');
   }
 
   async process(job: Job<any>): Promise<any> {

@@ -3,21 +3,29 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { MonitorService } from '@mvcashnode/shared';
+import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
 @Processor('system-monitor')
 export class SystemMonitorProcessor extends WorkerHost {
   private readonly logger = new Logger(SystemMonitorProcessor.name);
   private monitorService: MonitorService;
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private cronExecutionService: CronExecutionService
+  ) {
     super();
     this.monitorService = new MonitorService();
   }
 
   async process(_job: Job<any>): Promise<any> {
+    const startTime = Date.now();
+    const jobName = 'system-monitor';
     this.logger.log('[SYSTEM-MONITOR] Iniciando coleta de métricas...');
 
     try {
+      // Registrar início da execução
+      await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
       // Coletar métricas do processo atual (monitors)
       const processMetrics = await this.monitorService.getCurrentProcessMetrics('MONITORS');
 
@@ -44,7 +52,7 @@ export class SystemMonitorProcessor extends WorkerHost {
 
       this.logger.log('[SYSTEM-MONITOR] Métricas coletadas com sucesso');
 
-      return {
+      const result = {
         success: true,
         timestamp: new Date(),
         metrics: {
@@ -52,8 +60,33 @@ export class SystemMonitorProcessor extends WorkerHost {
           system: systemMetrics,
         },
       };
+
+      const durationMs = Date.now() - startTime;
+
+      // Registrar sucesso
+      await this.cronExecutionService.recordExecution(
+        jobName,
+        CronExecutionStatus.SUCCESS,
+        durationMs,
+        result
+      );
+
+      return result;
     } catch (error: any) {
+      const durationMs = Date.now() - startTime;
+      const errorMessage = error?.message || 'Erro desconhecido';
+
       this.logger.error(`[SYSTEM-MONITOR] Erro ao coletar métricas: ${error.message}`, error.stack);
+
+      // Registrar falha
+      await this.cronExecutionService.recordExecution(
+        jobName,
+        CronExecutionStatus.FAILED,
+        durationMs,
+        null,
+        errorMessage
+      );
+
       throw error;
     }
   }
