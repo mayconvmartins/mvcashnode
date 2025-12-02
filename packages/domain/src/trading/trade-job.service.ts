@@ -18,7 +18,7 @@ export interface CreateTradeJobDto {
 export class TradeJobService {
   constructor(private prisma: PrismaClient) {}
 
-  async createJob(dto: CreateTradeJobDto) {
+  async createJob(dto: CreateTradeJobDto): Promise<any> {
     return this.prisma.tradeJob.create({
       data: {
         webhook_event_id: dto.webhookEventId || null,

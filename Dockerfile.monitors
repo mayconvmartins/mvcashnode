@@ -20,7 +20,7 @@ RUN pnpm --filter @mvcashnode/shared build && \
     pnpm --filter @mvcashnode/notifications build && \
     pnpm --filter @mvcashnode/domain build
 
-# Generate Prisma Client
+# Generate Prisma Client (needed for runtime)
 RUN cd packages/db && pnpm prisma generate
 
 # Build monitors
@@ -51,6 +51,10 @@ COPY --from=base /app/packages/shared/dist ./packages/shared/dist
 COPY --from=base /app/packages/notifications/dist ./packages/notifications/dist
 COPY --from=base /app/packages/db/prisma ./packages/db/prisma
 COPY --from=base /app/node_modules/.pnpm ./node_modules/.pnpm
-COPY --from=base /app/node_modules/@prisma ./node_modules/@prisma
+
+# Copy Prisma Client generated in base stage
+RUN mkdir -p /app/node_modules/@prisma && \
+    find /app/node_modules/.pnpm -name "@prisma" -type d -exec cp -r {} /app/node_modules/@prisma/ \; 2>/dev/null || \
+    (cd packages/db && pnpm add -D prisma && pnpm prisma generate)
 
 CMD ["node", "apps/monitors/dist/main.js"]

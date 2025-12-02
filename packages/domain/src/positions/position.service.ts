@@ -145,7 +145,7 @@ export class PositionService {
     tradeMode: TradeMode,
     symbol: string,
     origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL'
-  ) {
+  ): Promise<any[]> {
     return this.prisma.tradePosition.findMany({
       where: {
         exchange_account_id: accountId,
@@ -160,7 +160,7 @@ export class PositionService {
     });
   }
 
-  async updateSLTP(positionId: number, slEnabled?: boolean, slPct?: number, tpEnabled?: boolean, tpPct?: number) {
+  async updateSLTP(positionId: number, slEnabled?: boolean, slPct?: number, tpEnabled?: boolean, tpPct?: number): Promise<any> {
     const updateData: any = {};
     if (slEnabled !== undefined) updateData.sl_enabled = slEnabled;
     if (slPct !== undefined) updateData.sl_pct = slPct;
@@ -173,7 +173,7 @@ export class PositionService {
     });
   }
 
-  async lockSellByWebhook(positionId: number, lock: boolean) {
+  async lockSellByWebhook(positionId: number, lock: boolean): Promise<any> {
     return this.prisma.tradePosition.update({
       where: { id: positionId },
       data: { lock_sell_by_webhook: lock },

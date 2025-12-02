@@ -66,7 +66,7 @@ export class AuditService {
       to?: Date;
     },
     pagination?: { page: number; limit: number }
-  ) {
+  ): Promise<any> {
     const where: any = { user_id: userId };
 
     if (filters?.entityType) where.entity_type = filters.entityType;
@@ -107,7 +107,7 @@ export class AuditService {
       to?: Date;
     },
     pagination?: { page: number; limit: number }
-  ) {
+  ): Promise<any> {
     const where: any = {};
 
     if (filters?.service) where.service = filters.service;

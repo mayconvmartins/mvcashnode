@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
-import { PositionService, TradeJobService } from '@mvcashnode/domain';
+import { TradeJobService } from '@mvcashnode/domain';
 import { BinanceSpotAdapter } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 

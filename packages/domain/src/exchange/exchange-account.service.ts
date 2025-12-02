@@ -20,7 +20,7 @@ export class ExchangeAccountService {
     private encryptionService: EncryptionService
   ) {}
 
-  async createAccount(dto: CreateExchangeAccountDto) {
+  async createAccount(dto: CreateExchangeAccountDto): Promise<any> {
     let apiKeyEnc: string | null = null;
     let apiSecretEnc: string | null = null;
 
@@ -44,7 +44,7 @@ export class ExchangeAccountService {
     });
   }
 
-  async getAccountById(accountId: number, userId?: number) {
+  async getAccountById(accountId: number, userId?: number): Promise<any> {
     const where: any = { id: accountId };
     if (userId) where.user_id = userId;
 
@@ -56,7 +56,7 @@ export class ExchangeAccountService {
     });
   }
 
-  async getAccountsByUser(userId: number) {
+  async getAccountsByUser(userId: number): Promise<any[]> {
     return this.prisma.exchangeAccount.findMany({
       where: { user_id: userId },
       include: {
@@ -65,7 +65,7 @@ export class ExchangeAccountService {
     });
   }
 
-  async updateAccount(accountId: number, userId: number, updates: Partial<CreateExchangeAccountDto>) {
+  async updateAccount(accountId: number, userId: number, updates: Partial<CreateExchangeAccountDto>): Promise<any> {
     const updateData: any = {};
 
     if (updates.label !== undefined) updateData.label = updates.label;
@@ -87,7 +87,7 @@ export class ExchangeAccountService {
     });
   }
 
-  async deleteAccount(accountId: number, userId: number) {
+  async deleteAccount(accountId: number, userId: number): Promise<any> {
     return this.prisma.exchangeAccount.delete({
       where: { id: accountId, user_id: userId },
     });

@@ -19,7 +19,7 @@ export interface CreateTradeExecutionDto {
 export class TradeExecutionService {
   constructor(private prisma: PrismaClient) {}
 
-  async createExecution(dto: CreateTradeExecutionDto) {
+  async createExecution(dto: CreateTradeExecutionDto): Promise<any> {
     return this.prisma.tradeExecution.create({
       data: {
         trade_job_id: dto.tradeJobId,
@@ -38,7 +38,7 @@ export class TradeExecutionService {
     });
   }
 
-  async updateExecution(executionId: number, updates: Partial<CreateTradeExecutionDto>) {
+  async updateExecution(executionId: number, updates: Partial<CreateTradeExecutionDto>): Promise<any> {
     const updateData: any = {};
     if (updates.statusExchange) updateData.status_exchange = updates.statusExchange;
     if (updates.executedQty !== undefined) updateData.executed_qty = updates.executedQty;
