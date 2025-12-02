@@ -1,7 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, scrypt } from 'crypto';
-import { promisify } from 'util';
-
-const scryptAsync = promisify(scrypt);
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
 export interface EncryptionConfig {
   algorithm?: string;

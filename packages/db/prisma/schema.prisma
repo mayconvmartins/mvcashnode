@@ -228,6 +228,7 @@ model VaultTransaction {
 
 model TradeParameter {
   id                        Int       @id @default(autoincrement())
+  user_id                   Int
   exchange_account_id       Int
   symbol                    String    @db.VarChar(50)
   side                      String    @db.VarChar(10) // 'BUY' | 'SELL' | 'BOTH'
@@ -247,6 +248,7 @@ model TradeParameter {
   created_at                 DateTime  @default(now())
   updated_at                 DateTime  @updatedAt
 
+  user                     User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
   exchange_account          ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
   vault                     Vault?         @relation(fields: [vault_id], references: [id], onDelete: SetNull)
 
@@ -439,6 +441,8 @@ model TradePosition {
   exchange_account      ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
   open_job              TradeJob        @relation("PositionOpenJob", fields: [trade_job_id_open], references: [id])
   fills                 PositionFill[]
+
+  @@unique([trade_job_id_open])
 
   @@index([exchange_account_id, symbol, status])
   @@index([status])

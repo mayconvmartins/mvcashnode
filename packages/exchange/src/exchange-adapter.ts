@@ -59,9 +59,9 @@ export abstract class ExchangeAdapter {
   async fetchBalance(): Promise<Balance> {
     const balance = await this.exchange.fetchBalance();
     return {
-      free: balance.free || {},
-      used: balance.used || {},
-      total: balance.total || {},
+      free: (balance.free || {}) as unknown as Record<string, number>,
+      used: (balance.used || {}) as unknown as Record<string, number>,
+      total: (balance.total || {}) as unknown as Record<string, number>,
     };
   }
 
@@ -74,34 +74,34 @@ export abstract class ExchangeAdapter {
   ): Promise<OrderResult> {
     const order = await this.exchange.createOrder(symbol, type, side, amount, price);
     return {
-      id: order.id,
-      symbol: order.symbol,
-      type: order.type,
-      side: order.side,
-      amount: order.amount,
-      price: order.price,
-      status: order.status,
-      filled: order.filled,
-      remaining: order.remaining,
-      cost: order.cost,
-      average: order.average,
+      id: String(order.id || ''),
+      symbol: String(order.symbol || ''),
+      type: String(order.type || ''),
+      side: String(order.side || ''),
+      amount: Number(order.amount || 0),
+      price: order.price ? Number(order.price) : undefined,
+      status: String(order.status || ''),
+      filled: order.filled ? Number(order.filled) : undefined,
+      remaining: order.remaining ? Number(order.remaining) : undefined,
+      cost: order.cost ? Number(order.cost) : undefined,
+      average: order.average ? Number(order.average) : undefined,
     };
   }
 
   async fetchOrder(orderId: string, symbol: string): Promise<OrderResult> {
     const order = await this.exchange.fetchOrder(orderId, symbol);
     return {
-      id: order.id,
-      symbol: order.symbol,
-      type: order.type,
-      side: order.side,
-      amount: order.amount,
-      price: order.price,
-      status: order.status,
-      filled: order.filled,
-      remaining: order.remaining,
-      cost: order.cost,
-      average: order.average,
+      id: String(order.id || ''),
+      symbol: String(order.symbol || ''),
+      type: String(order.type || ''),
+      side: String(order.side || ''),
+      amount: Number(order.amount || 0),
+      price: order.price ? Number(order.price) : undefined,
+      status: String(order.status || ''),
+      filled: order.filled ? Number(order.filled) : undefined,
+      remaining: order.remaining ? Number(order.remaining) : undefined,
+      cost: order.cost ? Number(order.cost) : undefined,
+      average: order.average ? Number(order.average) : undefined,
     };
   }
 
@@ -112,13 +112,13 @@ export abstract class ExchangeAdapter {
   async fetchTicker(symbol: string): Promise<Ticker> {
     const ticker = await this.exchange.fetchTicker(symbol);
     return {
-      symbol: ticker.symbol,
-      last: ticker.last,
-      bid: ticker.bid,
-      ask: ticker.ask,
-      high: ticker.high,
-      low: ticker.low,
-      volume: ticker.volume,
+      symbol: String(ticker.symbol || ''),
+      last: Number(ticker.last || 0),
+      bid: ticker.bid ? Number(ticker.bid) : undefined,
+      ask: ticker.ask ? Number(ticker.ask) : undefined,
+      high: ticker.high ? Number(ticker.high) : undefined,
+      low: ticker.low ? Number(ticker.low) : undefined,
+      volume: ticker.baseVolume ? Number(ticker.baseVolume) : undefined,
     };
   }
 }

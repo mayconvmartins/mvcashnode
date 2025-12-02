@@ -1,6 +1,6 @@
 import { PrismaClient } from '@mvcashnode/db';
 import { TradeMode, WebhookEventStatus, WebhookAction } from '@mvcashnode/shared';
-import { WebhookParserService, ParsedSignal } from './webhook-parser.service';
+import { WebhookParserService } from './webhook-parser.service';
 import { TradeJobService } from '../trading/trade-job.service';
 
 export interface CreateWebhookEventDto {

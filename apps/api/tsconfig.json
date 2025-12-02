@@ -17,7 +17,20 @@
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "strictPropertyInitialization": false,
+    "paths": {
+      "@mvcashnode/shared": ["../../packages/shared/src"],
+      "@mvcashnode/shared/*": ["../../packages/shared/src/*"],
+      "@mvcashnode/db": ["../../packages/db/src"],
+      "@mvcashnode/db/*": ["../../packages/db/src/*"],
+      "@mvcashnode/domain": ["../../packages/domain/src"],
+      "@mvcashnode/domain/*": ["../../packages/domain/src/*"],
+      "@mvcashnode/exchange": ["../../packages/exchange/src"],
+      "@mvcashnode/exchange/*": ["../../packages/exchange/src/*"],
+      "@mvcashnode/notifications": ["../../packages/notifications/src"],
+      "@mvcashnode/notifications/*": ["../../packages/notifications/src/*"]
+    }
   }
 }
 

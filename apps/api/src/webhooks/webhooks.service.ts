@@ -15,8 +15,8 @@ export class WebhooksService {
   private eventService: WebhookEventService;
 
   constructor(
-    private prisma: PrismaService,
-    private encryptionService: EncryptionService
+    prisma: PrismaService,
+    encryptionService: EncryptionService
   ) {
     this.parserService = new WebhookParserService();
     this.sourceService = new WebhookSourceService(prisma, encryptionService);

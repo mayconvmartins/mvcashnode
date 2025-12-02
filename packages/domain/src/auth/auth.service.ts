@@ -164,7 +164,7 @@ export class AuthService {
         const sessionToken = this.generateJWT({
           userId: user.id,
           email: user.email,
-          roles: user.roles.map((r) => r.role),
+          roles: user.roles.map((r: { role: string }) => r.role),
         });
 
         return {
@@ -190,7 +190,7 @@ export class AuthService {
     // Successful login
     await this.logLoginAttempt(user.id, true, ip, userAgent);
 
-    const roles = user.roles.map((r) => r.role);
+    const roles = user.roles.map((r: { role: string }) => r.role);
     const payload: JwtPayload = {
       userId: user.id,
       email: user.email,
@@ -230,7 +230,7 @@ export class AuthService {
     const newPayload: JwtPayload = {
       userId: user.id,
       email: user.email,
-      roles: user.roles.map((r) => r.role),
+      roles: user.roles.map((r: { role: string }) => r.role),
     };
 
     return {

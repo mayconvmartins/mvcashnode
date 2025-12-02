@@ -22,7 +22,8 @@ export class WebhookParserService {
     if (typeof payload === 'string') {
       text = payload;
     } else {
-      text = payload.text || payload.message || JSON.stringify(payload);
+      const textValue = payload.text || payload.message;
+      text = typeof textValue === 'string' ? textValue : JSON.stringify(payload);
       symbolRaw = (payload.symbol || payload.ticker || '') as string;
       const payloadAction = (payload.action || '') as string;
       if (payloadAction === 'BUY' || payloadAction === 'SELL') {

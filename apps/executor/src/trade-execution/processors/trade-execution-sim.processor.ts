@@ -5,7 +5,6 @@ import {
   PositionService,
   VaultService,
 } from '@mvcashnode/domain';
-import { EncryptionService } from '@mvcashnode/shared';
 import { BinanceSpotAdapter } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
@@ -13,8 +12,7 @@ import { randomUUID } from 'crypto';
 @Processor('trade-execution-sim')
 export class TradeExecutionSimProcessor extends WorkerHost {
   constructor(
-    private prisma: PrismaService,
-    private encryptionService: EncryptionService
+    private prisma: PrismaService
   ) {
     super();
   }

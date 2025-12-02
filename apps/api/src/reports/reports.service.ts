@@ -127,7 +127,7 @@ export class ReportsService {
       return acc;
     }, {} as Record<string, { date: string; pnl_usd: number }>);
 
-    return Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+    return Object.values(byDay).sort((a: any, b: any) => a.date.localeCompare(b.date));
   }
 
   async getOpenPositionsSummary(userId: number, tradeMode?: TradeMode) {

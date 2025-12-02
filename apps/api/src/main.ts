@@ -32,7 +32,7 @@ async function bootstrap() {
     .addTag('Webhooks', 'Fontes de webhook e eventos')
     .addTag('Reports', 'Relatórios de PnL e performance')
     .addTag('Admin', 'Administração do sistema')
-    .addServer('http://localhost:3000', 'Desenvolvimento Local')
+    .addServer('http://localhost:4010', 'Desenvolvimento Local')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
@@ -44,7 +44,7 @@ async function bootstrap() {
     res.send(document);
   });
 
-  const port = process.env.API_PORT || 3000;
+  const port = process.env.API_PORT || 4010;
   await app.listen(port);
   console.log(`API running on http://localhost:${port}`);
   console.log(`Swagger UI: http://localhost:${port}/api-docs`);

@@ -3,23 +3,19 @@ import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import { PositionService, TradeJobService } from '@mvcashnode/domain';
 import { BinanceSpotAdapter } from '@mvcashnode/exchange';
-import { ExchangeType, PositionStatus } from '@mvcashnode/shared';
+import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 
-@Processor('sl-tp-monitor-sim', {
-  repeat: {
-    pattern: '*/30 * * * * *', // Every 30 seconds
-  },
-})
+@Processor('sl-tp-monitor-sim')
 export class SLTPMonitorSimProcessor extends WorkerHost {
   constructor(private prisma: PrismaService) {
     super();
   }
 
-  async process(job: Job<any>): Promise<any> {
+  async process(_job: Job<any>): Promise<any> {
     // Get all open positions with SL/TP enabled (SIMULATION)
     const positions = await this.prisma.tradePosition.findMany({
       where: {
-        trade_mode: 'SIMULATION',
+        trade_mode: TradeMode.SIMULATION,
         status: PositionStatus.OPEN,
         qty_remaining: { gt: 0 },
         OR: [
@@ -54,7 +50,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           if (!position.sl_triggered) {
             await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
-              tradeMode: 'SIMULATION',
+              tradeMode: TradeMode.SIMULATION,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',
@@ -74,7 +70,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           if (!position.tp_triggered) {
             await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
-              tradeMode: 'SIMULATION',
+              tradeMode: TradeMode.SIMULATION,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',
@@ -107,7 +103,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           if (currentPrice <= trailingTriggerPrice && !position.trailing_triggered) {
             await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
-              tradeMode: 'SIMULATION',
+              tradeMode: TradeMode.SIMULATION,
               symbol: position.symbol,
               side: 'SELL',
               orderType: 'MARKET',

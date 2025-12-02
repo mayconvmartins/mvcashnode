@@ -11,8 +11,8 @@ import { TradeExecutionModule } from './trade-execution/trade-execution.module';
     BullModule.forRoot({
       connection: {
         host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD || undefined,
+        port: parseInt(process.env.REDIS_PORT || '16379'),
+        password: process.env.REDIS_PASSWORD || 'redispassword',
       },
     }),
     TradeExecutionModule,

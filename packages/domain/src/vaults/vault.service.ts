@@ -46,7 +46,7 @@ export class VaultService {
     });
   }
 
-  async getVaultsByUser(userId: number) {
+  async getVaultsByUser(userId: number): Promise<any[]> {
     return this.prisma.vault.findMany({
       where: { user_id: userId },
       include: {
@@ -56,7 +56,7 @@ export class VaultService {
   }
 
   async deposit(dto: DepositDto): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       // Lock the balance row
       const balance = await tx.vaultBalance.findUnique({
         where: {
@@ -103,7 +103,7 @@ export class VaultService {
   }
 
   async withdraw(dto: WithdrawDto): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       const balance = await tx.vaultBalance.findUnique({
         where: {
           vault_id_asset: {
@@ -143,7 +143,7 @@ export class VaultService {
   }
 
   async reserveForBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       // SELECT FOR UPDATE to lock the row
       const balance = await tx.vaultBalance.findUnique({
         where: {
@@ -188,7 +188,7 @@ export class VaultService {
   }
 
   async confirmBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       await tx.vaultBalance.update({
         where: {
           vault_id_asset: {
@@ -216,7 +216,7 @@ export class VaultService {
   }
 
   async cancelBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       await tx.vaultBalance.update({
         where: {
           vault_id_asset: {
@@ -247,7 +247,7 @@ export class VaultService {
   }
 
   async creditOnSell(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       const balance = await tx.vaultBalance.findUnique({
         where: {
           vault_id_asset: {

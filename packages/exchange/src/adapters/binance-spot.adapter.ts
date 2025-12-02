@@ -1,14 +1,14 @@
-import ccxt, { binance } from 'ccxt';
+import { binance, Exchange } from 'ccxt';
 import { ExchangeAdapter } from '../exchange-adapter';
 import { ExchangeType } from '@mvcashnode/shared';
 
 export class BinanceSpotAdapter extends ExchangeAdapter {
   createExchange(
-    exchangeType: ExchangeType,
+    _exchangeType: ExchangeType,
     apiKey?: string,
     apiSecret?: string,
     options?: any
-  ): ccxt.Exchange {
+  ): Exchange {
     return new binance({
       apiKey,
       secret: apiSecret,

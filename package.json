@@ -9,6 +9,10 @@
     "dev:api": "pnpm --filter @mvcashnode/api dev",
     "dev:executor": "pnpm --filter @mvcashnode/executor dev",
     "dev:monitors": "pnpm --filter @mvcashnode/monitors dev",
+    "start": "pnpm -r start",
+    "start:api": "pnpm --filter @mvcashnode/api start",
+    "start:executor": "pnpm --filter @mvcashnode/executor start",
+    "start:monitors": "pnpm --filter @mvcashnode/monitors start",
     "test": "pnpm -r test",
     "test:unit": "pnpm -r test:unit",
     "test:e2e": "pnpm -r test:e2e",
@@ -19,6 +23,9 @@
     "db:generate": "pnpm --filter @mvcashnode/db prisma generate",
     "db:migrate": "pnpm --filter @mvcashnode/db prisma migrate dev",
     "db:studio": "pnpm --filter @mvcashnode/db prisma studio",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
     "clean": "pnpm -r clean && rm -rf node_modules"
   },
   "devDependencies": {

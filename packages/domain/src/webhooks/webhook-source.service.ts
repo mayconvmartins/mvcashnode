@@ -21,7 +21,7 @@ export class WebhookSourceService {
     private encryptionService: EncryptionService
   ) {}
 
-  async createSource(dto: CreateWebhookSourceDto) {
+  async createSource(dto: CreateWebhookSourceDto): Promise<any> {
     let signingSecretEnc: string | null = null;
     if (dto.requireSignature && dto.signingSecret) {
       signingSecretEnc = await this.encryptionService.encrypt(dto.signingSecret);
@@ -41,7 +41,7 @@ export class WebhookSourceService {
     });
   }
 
-  async getSourceByCode(webhookCode: string) {
+  async getSourceByCode(webhookCode: string): Promise<any> {
     return this.prisma.webhookSource.findUnique({
       where: { webhook_code: webhookCode },
       include: {

@@ -3,7 +3,6 @@ import { Job } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
 import {
   PositionService,
-  TradeJobService,
   ExchangeAccountService,
   VaultService,
 } from '@mvcashnode/domain';

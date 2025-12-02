@@ -1,4 +1,4 @@
-import winston from 'winston';
+import * as winston from 'winston';
 
 export interface LoggerConfig {
   level?: string;
@@ -62,9 +62,11 @@ export class Logger {
   }
 
   child(defaultMeta: Record<string, unknown>): Logger {
+    // Determine format from logger configuration
+    const format = this.logger.format ? 'json' : 'simple';
     const childLogger = new Logger({
       level: this.logger.level,
-      format: this.logger.format as 'json' | 'simple',
+      format,
       defaultMeta: { ...this.logger.defaultMeta, ...defaultMeta },
     });
     return childLogger;

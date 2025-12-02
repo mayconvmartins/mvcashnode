@@ -74,10 +74,20 @@ pnpm dev:monitors
 ### Scripts Disponíveis
 
 - `pnpm build` - Build de todos os packages
+- `pnpm dev` - Executar todos os serviços em modo desenvolvimento
+- `pnpm dev:api` - Executar apenas API
+- `pnpm dev:executor` - Executar apenas Executor
+- `pnpm dev:monitors` - Executar apenas Monitors
+- `pnpm start` - Executar todos os serviços em modo produção
 - `pnpm test` - Executar todos os testes
 - `pnpm lint` - Verificar código
 - `pnpm format` - Formatar código
+- `pnpm db:generate` - Gerar Prisma Client
+- `pnpm db:migrate` - Executar migrations
 - `pnpm db:studio` - Abrir Prisma Studio
+- `pnpm docker:up` - Iniciar serviços Docker (MySQL, Redis)
+- `pnpm docker:down` - Parar serviços Docker
+- `pnpm docker:logs` - Ver logs dos serviços Docker
 
 ## Documentação
 
