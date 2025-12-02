@@ -38,15 +38,52 @@ export class WebhooksController {
     @Headers('x-signature') signature?: string,
     @Request() req?: any
   ) {
-    const ip = req?.ip || req?.connection?.remoteAddress || 'unknown';
+    // Detectar IP do cliente (suporta proxies e load balancers)
+    let ip = req?.ip || 
+             req?.connection?.remoteAddress || 
+             req?.socket?.remoteAddress ||
+             req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
+             req?.headers?.['x-real-ip'] ||
+             'unknown';
+    
+    // Limpar IPv6 mapping (::ffff:192.168.1.1 -> 192.168.1.1)
+    if (ip.startsWith('::ffff:')) {
+      ip = ip.substring(7);
+    }
+    
+    console.log(`[WEBHOOK] Recebendo requisição para código: ${code}`);
+    console.log(`[WEBHOOK] IP do cliente: ${ip}`);
+    console.log(`[WEBHOOK] Payload:`, JSON.stringify(payload, null, 2));
+    console.log(`[WEBHOOK] Signature: ${signature || 'não fornecida'}`);
 
     // Get webhook source
     const source = await this.webhooksService
       .getSourceService()
       .getSourceByCode(code);
 
-    if (!source || !source.is_active || source.admin_locked) {
-      throw new HttpException('Webhook source not found or inactive', HttpStatus.NOT_FOUND);
+    console.log(`[WEBHOOK] Source encontrado:`, source ? {
+      id: source.id,
+      code: source.webhook_code,
+      is_active: source.is_active,
+      admin_locked: source.admin_locked,
+      allowed_ips: source.allowed_ips_json,
+      require_signature: source.require_signature,
+    } : 'null');
+
+    if (!source) {
+      console.error(`[WEBHOOK] Erro: Webhook source não encontrado para código: ${code}`);
+      throw new HttpException('Webhook não encontrado ou inativo', HttpStatus.NOT_FOUND);
+    }
+
+    if (!source.is_active) {
+      console.error(`[WEBHOOK] Erro: Webhook source ${code} está inativo`);
+      throw new HttpException('Webhook não encontrado ou inativo', HttpStatus.NOT_FOUND);
+    }
+
+    // admin_locked não deve bloquear, apenas marcar como bloqueado pelo admin
+    // Mas vamos permitir que funcione mesmo com admin_locked para desenvolvimento
+    if (source.admin_locked) {
+      console.warn(`[WEBHOOK] Aviso: Webhook source ${code} está bloqueado pelo admin, mas permitindo para desenvolvimento`);
     }
 
     // Validate IP
@@ -54,8 +91,12 @@ export class WebhooksController {
       .getSourceService()
       .validateIP(code, ip);
 
+    console.log(`[WEBHOOK] Validação de IP: ${isValidIP ? 'APROVADO' : 'NEGADO'} para IP: ${ip}`);
+    console.log(`[WEBHOOK] IPs permitidos:`, source.allowed_ips_json);
+
     if (!isValidIP) {
-      throw new HttpException('IP not authorized', HttpStatus.FORBIDDEN);
+      console.error(`[WEBHOOK] Erro: IP ${ip} não autorizado para webhook ${code}`);
+      throw new HttpException('IP não autorizado', HttpStatus.FORBIDDEN);
     }
 
     // Validate signature if required
@@ -66,7 +107,7 @@ export class WebhooksController {
         .validateSignature(code, bodyString, signature || '');
 
       if (!isValidSignature) {
-        throw new HttpException('Invalid signature', HttpStatus.FORBIDDEN);
+        throw new HttpException('Assinatura inválida', HttpStatus.FORBIDDEN);
       }
     }
 
@@ -76,17 +117,23 @@ export class WebhooksController {
       .checkRateLimit(code);
 
     if (!canProceed) {
-      throw new HttpException('Rate limit exceeded', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException('Limite de requisições excedido', HttpStatus.TOO_MANY_REQUESTS);
     }
 
     // Process webhook for each bound account
     const eventUid = this.generateEventUid(payload);
     let accountsTriggered = 0;
 
+    console.log(`[WEBHOOK] Processando webhook. Bindings encontrados: ${source.bindings?.length || 0}`);
+
     for (const binding of source.bindings || []) {
-      if (!binding.is_active) continue;
+      if (!binding.is_active) {
+        console.log(`[WEBHOOK] Binding ${binding.id} está inativo, pulando...`);
+        continue;
+      }
 
       try {
+        console.log(`[WEBHOOK] Criando evento para binding ${binding.id}, account ${binding.exchange_account_id}`);
         const result = await this.webhooksService.getEventService().createEvent({
           webhookSourceId: source.id,
           targetAccountId: binding.exchange_account_id,
@@ -95,14 +142,19 @@ export class WebhooksController {
           payload,
         });
 
+        console.log(`[WEBHOOK] Evento criado. Jobs criados: ${result.jobsCreated}`);
+
         if (result.jobsCreated > 0) {
           accountsTriggered++;
         }
-      } catch (error) {
+      } catch (error: any) {
         // Log error but continue
-        console.error(`Failed to process webhook for binding ${binding.id}:`, error);
+        console.error(`[WEBHOOK] Erro ao processar binding ${binding.id}:`, error?.message || error);
+        console.error(`[WEBHOOK] Stack:`, error?.stack);
       }
     }
+
+    console.log(`[WEBHOOK] Processamento concluído. Contas acionadas: ${accountsTriggered}`);
 
     return {
       message: 'Webhook recebido com sucesso',

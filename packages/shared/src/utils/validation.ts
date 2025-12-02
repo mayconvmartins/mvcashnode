@@ -39,6 +39,11 @@ export function isIPInCIDR(ip: string, cidr: string): boolean {
 }
 
 export function isIPInList(ip: string, allowedIPs: string[]): boolean {
+  // Se a lista contém "0.0.0.0/0", permite todos os IPs (útil para desenvolvimento)
+  if (allowedIPs.includes('0.0.0.0/0')) {
+    return true;
+  }
+
   for (const allowed of allowedIPs) {
     if (allowed === ip) return true;
     if (isValidCIDR(allowed) && isIPInCIDR(ip, allowed)) return true;

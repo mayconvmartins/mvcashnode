@@ -6,9 +6,31 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import * as path from 'path';
 import { config } from 'dotenv';
+import * as fs from 'fs';
 
 // Carregar .env da raiz do projeto antes de inicializar o NestJS
-config({ path: path.resolve(process.cwd(), '.env') });
+// Tentar múltiplos caminhos possíveis
+const possiblePaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(__dirname, '../../../.env'),
+  path.resolve(__dirname, '../../../../.env'),
+];
+
+let envLoaded = false;
+for (const envPath of possiblePaths) {
+  if (fs.existsSync(envPath)) {
+    const result = config({ path: envPath });
+    if (result.parsed && Object.keys(result.parsed).length > 0) {
+      envLoaded = true;
+      console.log(`[dotenv] Loaded .env from: ${envPath}`);
+      break;
+    }
+  }
+}
+
+if (!envLoaded) {
+  console.warn('[dotenv] Warning: .env file not found or empty. Tried paths:', possiblePaths);
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

@@ -8,6 +8,9 @@ import {
   UseGuards,
   ParseIntPipe,
   Query,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -61,9 +64,23 @@ export class VaultsController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any
   ) {
-    return this.vaultsService
-      .getDomainService()
-      .getVaultById(id, user.userId);
+    try {
+      return await this.vaultsService
+        .getDomainService()
+        .getVaultById(id, user.userId);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao buscar cofre';
+      
+      if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
+        throw new NotFoundException('Cofre não encontrado');
+      }
+      
+      if (errorMessage.includes('permission') || errorMessage.includes('permissão')) {
+        throw new ForbiddenException('Você não tem permissão para acessar este cofre');
+      }
+      
+      throw new BadRequestException('Erro ao buscar cofre');
+    }
   }
 
   @Get(':id/balances')
@@ -106,11 +123,29 @@ export class VaultsController {
     @CurrentUser() user: any,
     @Body() depositDto: DepositDto
   ) {
-    await this.vaultsService.getDomainService().deposit({
-      vaultId: id,
-      ...depositDto,
-    });
-    return { message: 'Deposit successful' };
+    try {
+      await this.vaultsService.getDomainService().deposit({
+        vaultId: id,
+        ...depositDto,
+      });
+      return { message: 'Depósito realizado com sucesso' };
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao depositar';
+      
+      if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
+        throw new NotFoundException('Cofre não encontrado');
+      }
+      
+      if (errorMessage.includes('insufficient') || errorMessage.includes('insuficiente')) {
+        throw new BadRequestException('Saldo insuficiente');
+      }
+      
+      if (errorMessage.includes('invalid') || errorMessage.includes('inválido')) {
+        throw new BadRequestException('Valor de depósito inválido');
+      }
+      
+      throw new BadRequestException('Erro ao realizar depósito');
+    }
   }
 
   @Post(':id/withdraw')
@@ -122,11 +157,33 @@ export class VaultsController {
     @CurrentUser() user: any,
     @Body() withdrawDto: WithdrawDto
   ) {
-    await this.vaultsService.getDomainService().withdraw({
-      vaultId: id,
-      ...withdrawDto,
-    });
-    return { message: 'Withdrawal successful' };
+    try {
+      await this.vaultsService.getDomainService().withdraw({
+        vaultId: id,
+        ...withdrawDto,
+      });
+      return { message: 'Saque realizado com sucesso' };
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao sacar';
+      
+      if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
+        throw new NotFoundException('Cofre não encontrado');
+      }
+      
+      if (errorMessage.includes('insufficient') || errorMessage.includes('insuficiente')) {
+        throw new BadRequestException('Saldo insuficiente para realizar o saque');
+      }
+      
+      if (errorMessage.includes('reserved') || errorMessage.includes('reservado')) {
+        throw new BadRequestException('Valor está reservado e não pode ser sacado');
+      }
+      
+      if (errorMessage.includes('invalid') || errorMessage.includes('inválido')) {
+        throw new BadRequestException('Valor de saque inválido');
+      }
+      
+      throw new BadRequestException('Erro ao realizar saque');
+    }
   }
 }
 

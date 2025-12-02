@@ -56,11 +56,22 @@ export class WebhookSourceService {
 
   async validateIP(webhookCode: string, ip: string): Promise<boolean> {
     const source = await this.getSourceByCode(webhookCode);
-    if (!source || !source.allowed_ips_json) {
+    if (!source) {
+      return false;
+    }
+
+    // Se não há restrições de IP, permite todos
+    if (!source.allowed_ips_json || (source.allowed_ips_json as string[]).length === 0) {
       return true; // No restrictions
     }
 
     const allowedIPs = source.allowed_ips_json as string[];
+    
+    // Se contém "0.0.0.0/0", permite todos os IPs
+    if (allowedIPs.includes('0.0.0.0/0')) {
+      return true;
+    }
+
     return isIPInList(ip, allowedIPs);
   }
 

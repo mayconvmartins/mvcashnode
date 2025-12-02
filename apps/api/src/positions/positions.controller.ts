@@ -8,6 +8,9 @@ import {
   Query,
   UseGuards,
   ParseIntPipe,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -74,13 +77,27 @@ export class PositionsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDto: UpdateSLTPDto
   ) {
-    return this.positionsService.getDomainService().updateSLTP(
-      id,
-      updateDto.slEnabled,
-      updateDto.slPct,
-      updateDto.tpEnabled,
-      updateDto.tpPct
-    );
+    try {
+      return await this.positionsService.getDomainService().updateSLTP(
+        id,
+        updateDto.slEnabled,
+        updateDto.slPct,
+        updateDto.tpEnabled,
+        updateDto.tpPct
+      );
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao atualizar SL/TP';
+      
+      if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
+        throw new NotFoundException('Posição não encontrada');
+      }
+      
+      if (errorMessage.includes('invalid') || errorMessage.includes('inválido')) {
+        throw new BadRequestException('Valores de SL/TP inválidos');
+      }
+      
+      throw new BadRequestException('Erro ao atualizar stop loss/take profit');
+    }
   }
 
   @Put(':id/lock-sell-by-webhook')
@@ -91,9 +108,19 @@ export class PositionsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { lock_sell_by_webhook: boolean }
   ) {
-    return this.positionsService
-      .getDomainService()
-      .lockSellByWebhook(id, body.lock_sell_by_webhook);
+    try {
+      return await this.positionsService
+        .getDomainService()
+        .lockSellByWebhook(id, body.lock_sell_by_webhook);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao atualizar lock';
+      
+      if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
+        throw new NotFoundException('Posição não encontrada');
+      }
+      
+      throw new BadRequestException('Erro ao atualizar bloqueio de venda por webhook');
+    }
   }
 
   @Post(':id/close')
@@ -104,17 +131,35 @@ export class PositionsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() closeDto?: ClosePositionDto
   ) {
-    const result = await this.positionsService
-      .getDomainService()
-      .closePosition(id, closeDto?.quantity);
+    try {
+      const result = await this.positionsService
+        .getDomainService()
+        .closePosition(id, closeDto?.quantity);
 
-    // Create trade job for selling
-    // Implementation would create trade job
-    return {
-      message: 'Job de venda criado com sucesso',
-      positionId: result.positionId,
-      qtyToClose: result.qtyToClose,
-    };
+      // Create trade job for selling
+      // Implementation would create trade job
+      return {
+        message: 'Job de venda criado com sucesso',
+        positionId: result.positionId,
+        qtyToClose: result.qtyToClose,
+      };
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao fechar posição';
+      
+      if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
+        throw new NotFoundException('Posição não encontrada');
+      }
+      
+      if (errorMessage.includes('already closed') || errorMessage.includes('já fechada')) {
+        throw new BadRequestException('Posição já está fechada');
+      }
+      
+      if (errorMessage.includes('insufficient') || errorMessage.includes('insuficiente')) {
+        throw new BadRequestException('Quantidade insuficiente para fechar');
+      }
+      
+      throw new BadRequestException('Erro ao fechar posição');
+    }
   }
 
   @Post(':id/sell-limit')
@@ -125,12 +170,34 @@ export class PositionsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() sellLimitDto: SellLimitDto
   ) {
-    // Implementation would create limit order trade job
-    return {
-      message: 'Ordem LIMIT de venda criada com sucesso',
-      limitPrice: sellLimitDto.limitPrice,
-      quantity: sellLimitDto.quantity,
-    };
+    try {
+      // Implementation would create limit order trade job
+      if (!sellLimitDto.limitPrice || sellLimitDto.limitPrice <= 0) {
+        throw new BadRequestException('Preço limite inválido');
+      }
+      
+      if (!sellLimitDto.quantity || sellLimitDto.quantity <= 0) {
+        throw new BadRequestException('Quantidade inválida');
+      }
+      
+      return {
+        message: 'Ordem LIMIT de venda criada com sucesso',
+        limitPrice: sellLimitDto.limitPrice,
+        quantity: sellLimitDto.quantity,
+      };
+    } catch (error: any) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      const errorMessage = error?.message || 'Erro ao criar ordem LIMIT';
+      
+      if (errorMessage.includes('not found') || errorMessage.includes('não encontrado')) {
+        throw new NotFoundException('Posição não encontrada');
+      }
+      
+      throw new BadRequestException('Erro ao criar ordem LIMIT de venda');
+    }
   }
 }
 

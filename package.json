@@ -24,6 +24,7 @@
     "db:migrate": "node scripts/prisma-helper.js pnpm prisma migrate dev",
     "db:migrate:deploy": "node scripts/prisma-helper.js pnpm prisma migrate deploy",
     "db:studio": "node scripts/prisma-helper.js pnpm prisma studio",
+    "db:seed": "node scripts/seed-helper.js",
     "clean": "pnpm -r clean && rm -rf node_modules"
   },
   "devDependencies": {
