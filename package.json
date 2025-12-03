@@ -20,6 +20,8 @@
     "lint:fix": "pnpm -r lint:fix",
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
     "type-check": "pnpm -r type-check",
+    "type-check-all": "pnpm -r exec tsc --noEmit",
+    "build:errors": "node scripts/check-all-errors.js",
     "db:generate": "node scripts/prisma-helper.js pnpm prisma generate",
     "db:migrate": "node scripts/prisma-helper.js pnpm prisma migrate dev",
     "db:migrate:deploy": "node scripts/prisma-helper.js pnpm prisma migrate deploy",

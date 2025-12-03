@@ -53,5 +53,9 @@ export const vaultsService = {
         const response = await apiClient.post<VaultBalance>(`/vaults/${id}/withdraw`, data)
         return response.data
     },
+
+    delete: async (id: number): Promise<void> => {
+        await apiClient.delete(`/vaults/${id}`)
+    },
 }
 

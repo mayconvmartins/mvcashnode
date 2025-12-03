@@ -53,7 +53,7 @@ export default function VaultDetailsPage({ params }: { params: Promise<{ id: str
                 <CardHeader>
                     <div className="flex items-start justify-between">
                         <div>
-                            <CardTitle className="text-2xl">{vault.label}</CardTitle>
+                            <CardTitle className="text-2xl">{vault.name}</CardTitle>
                             {vault.description && (
                                 <p className="text-muted-foreground mt-1">{vault.description}</p>
                             )}
@@ -66,7 +66,7 @@ export default function VaultDetailsPage({ params }: { params: Promise<{ id: str
                         <div>
                             <p className="text-sm text-muted-foreground">Saldo Total</p>
                             <p className="text-2xl font-bold font-mono">
-                                {formatCurrency(vault.total_balance_usd || 0)}
+                                N/A
                             </p>
                         </div>
                         <div>

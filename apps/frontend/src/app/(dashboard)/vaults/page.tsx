@@ -26,7 +26,7 @@ export default function VaultsPage() {
 
     const { data: vaults, isLoading } = useQuery({
         queryKey: ['vaults', tradeMode],
-        queryFn: () => vaultsService.list({ trade_mode: tradeMode }),
+        queryFn: () => vaultsService.list(),
     })
 
     const deleteMutation = useMutation({
@@ -81,7 +81,7 @@ export default function VaultsPage() {
             key: 'balance',
             label: 'Saldo Total',
             render: (vault) => (
-                <span className="font-mono font-medium">{formatCurrency(vault.total_balance_usd || 0)}</span>
+                <span className="font-mono font-medium">N/A</span>
             ),
         },
         {

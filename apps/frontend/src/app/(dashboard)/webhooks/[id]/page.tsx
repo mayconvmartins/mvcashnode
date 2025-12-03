@@ -93,18 +93,19 @@ export default function WebhookDetailsPage() {
         },
     })
 
-    const toggleActiveMutation = useMutation({
-        mutationFn: (isActive: boolean) =>
-            webhooksService.updateSource(webhookId, { isActive }),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['webhook', webhookId] })
-            queryClient.invalidateQueries({ queryKey: ['webhooks'] })
-            toast.success('Status atualizado com sucesso!')
-        },
-        onError: (error: any) => {
-            toast.error(error.message || 'Erro ao atualizar status')
-        },
-    })
+    // Note: is_active não pode ser atualizado via API (apenas admin pode alterar)
+    // const toggleActiveMutation = useMutation({
+    //     mutationFn: (isActive: boolean) =>
+    //         webhooksService.updateSource(webhookId, { isActive }),
+    //     onSuccess: () => {
+    //         queryClient.invalidateQueries({ queryKey: ['webhook', webhookId] })
+    //         queryClient.invalidateQueries({ queryKey: ['webhooks'] })
+    //         toast.success('Status atualizado com sucesso!')
+    //     },
+    //     onError: (error: any) => {
+    //         toast.error(error.message || 'Erro ao atualizar status')
+    //     },
+    // })
 
     const deleteBindingMutation = useMutation({
         mutationFn: (bindingId: number) =>
@@ -370,10 +371,7 @@ export default function WebhookDetailsPage() {
                                         <Switch
                                             id="active"
                                             checked={webhook.is_active}
-                                            onCheckedChange={(checked) =>
-                                                toggleActiveMutation.mutate(checked)
-                                            }
-                                            disabled={toggleActiveMutation.isPending}
+                                            disabled={true}
                                         />
                                         <Label htmlFor="active">
                                             {webhook.is_active ? 'Ativo' : 'Inativo'}
@@ -393,12 +391,15 @@ export default function WebhookDetailsPage() {
                                 <Label>URL do Webhook</Label>
                                 <div className="flex gap-2">
                                     <div className="flex-1 p-3 rounded-md bg-muted font-mono text-sm overflow-x-auto">
-                                        {webhook.webhook_url}
+                                        {typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/${webhook.webhook_code}` : ''}
                                     </div>
                                     <Button
                                         variant="outline"
                                         size="icon"
-                                        onClick={() => copyToClipboard(webhook.webhook_url)}
+                                        onClick={() => {
+                                            const url = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/${webhook.webhook_code}` : ''
+                                            copyToClipboard(url)
+                                        }}
                                     >
                                         <Copy className="h-4 w-4" />
                                     </Button>
@@ -430,13 +431,13 @@ export default function WebhookDetailsPage() {
                             </div>
 
                             {/* Allowed IPs */}
-                            {webhook.allowed_ips && webhook.allowed_ips.length > 0 && (
+                            {webhook.allowed_ips_json && webhook.allowed_ips_json.length > 0 && (
                                 <>
                                     <Separator />
                                     <div>
                                         <Label>IPs Permitidos</Label>
                                         <div className="mt-2 flex flex-wrap gap-2">
-                                            {webhook.allowed_ips.map((ip: string, index: number) => (
+                                            {webhook.allowed_ips_json.map((ip: string, index: number) => (
                                                 <Badge key={index} variant="outline">
                                                     {ip}
                                                 </Badge>
