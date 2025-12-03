@@ -36,6 +36,22 @@ export class CronManagementService implements OnModuleInit {
   }
 
   /**
+   * Mapeia o nome do job no banco para o nome usado no BullMQ
+   * O BullMQ usa o primeiro parâmetro do queue.add() como name do job repetitivo
+   */
+  private getBullMQJobName(jobName: string): string | null {
+    const nameMap: Record<string, string> = {
+      'sl-tp-monitor-real': 'monitor-sl-tp',
+      'sl-tp-monitor-sim': 'monitor-sl-tp',
+      'limit-orders-monitor-real': 'monitor-limit-orders',
+      'limit-orders-monitor-sim': 'monitor-limit-orders',
+      'balances-sync-real': 'sync-balances',
+      'system-monitor': 'monitor-system',
+    };
+    return nameMap[jobName] || null;
+  }
+
+  /**
    * Inicializa as configurações padrão dos jobs no banco
    */
   async initializeDefaultJobs(): Promise<void> {
@@ -148,12 +164,23 @@ export class CronManagementService implements OnModuleInit {
               try {
                 const repeatableJobs = await queue.getRepeatableJobs();
                 
+                // Obter o nome do job no BullMQ baseado no mapeamento
+                const bullMQJobName = this.getBullMQJobName(job.name);
+                
                 // O BullMQ retorna jobs repetitivos com:
-                // - key: formato "{queueName}::{jobId}::{pattern}" (com dois dois-pontos) ou "{jobId}::{pattern}"
+                // - key: formato hash ou "{queueName}::{jobId}::{pattern}" (com dois dois-pontos)
                 // - id: identificador único do job repetitivo (pode ser igual ao jobId ou diferente)
-                // - name: nome do job (pode ser o nome do processor ou o job name usado no add)
+                // - name: nome do job (primeiro parâmetro do queue.add(), ex: "monitor-sl-tp")
                 const repeatJob = repeatableJobs.find((rj) => {
-                  // 1. Comparar pelo job_id no key (formato mais comum: "queueName::jobId::pattern")
+                  // 1. Comparar pelo name do job (mais confiável)
+                  // O name no BullMQ é o primeiro parâmetro do queue.add()
+                  if (rj.name && bullMQJobName) {
+                    if (rj.name === bullMQJobName) {
+                      return true;
+                    }
+                  }
+                  
+                  // 2. Comparar pelo job_id no key (formato pode ser hash ou "queueName::jobId::pattern")
                   if (rj.key) {
                     // O key pode ter dois dois-pontos (::) como separador
                     // Exemplo: "sl-tp-monitor-real::sl-tp-monitor-real-repeat::30000"
@@ -175,23 +202,14 @@ export class CronManagementService implements OnModuleInit {
                     }
                   }
                   
-                  // 2. Comparar pelo id se for igual ao job_id
+                  // 3. Comparar pelo id se for igual ao job_id
                   if (rj.id === job.job_id) {
                     return true;
                   }
                   
-                  // 3. Verificar se o id contém o job_id
+                  // 4. Verificar se o id contém o job_id
                   if (rj.id && rj.id.includes(job.job_id)) {
                     return true;
-                  }
-                  
-                  // 4. Comparar pelo name se disponível (o name pode ser o nome do processor)
-                  // Exemplo: name pode ser "monitor-sl-tp" mas job.name é "sl-tp-monitor-real"
-                  if (rj.name) {
-                    // Verificar se o name corresponde ao job.name ou se contém parte dele
-                    if (rj.name === job.name || job.name.includes(rj.name) || rj.name.includes(job.name)) {
-                      return true;
-                    }
                   }
                   
                   return false;

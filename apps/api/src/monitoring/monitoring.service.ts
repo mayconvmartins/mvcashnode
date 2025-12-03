@@ -518,20 +518,43 @@ export class MonitoringService {
     try {
       const files = await readdir(logsPath);
       console.log(`[Monitoring] Arquivos encontrados no diretório: ${files.length}`);
+      if (files.length > 0) {
+        console.log(`[Monitoring] Primeiros arquivos: ${files.slice(0, 10).join(', ')}`);
+      }
       
       // Buscar arquivos application-*.log e error-*.log
-      const pattern = /^(application|error)-\d{4}-\d{2}-\d{2}\.log$/;
+      // Padrões possíveis:
+      // - application-YYYY-MM-DD.log
+      // - error-YYYY-MM-DD.log
+      // - application.log (sem data)
+      // - error.log (sem data)
+      const patterns = [
+        /^(application|error)-\d{4}-\d{2}-\d{2}\.log$/, // Com data
+        /^(application|error)\.log$/, // Sem data
+      ];
       
       for (const file of files) {
-        if (pattern.test(file)) {
-          logFiles.push(path.join(logsPath, file));
+        // Verificar se é um arquivo de log
+        if (file.endsWith('.log')) {
+          // Verificar se corresponde a algum padrão
+          const matches = patterns.some(pattern => pattern.test(file));
+          if (matches || file.includes('application') || file.includes('error')) {
+            logFiles.push(path.join(logsPath, file));
+          }
         }
       }
       
       console.log(`[Monitoring] Arquivos de log encontrados: ${logFiles.length}`);
+      if (logFiles.length > 0) {
+        console.log(`[Monitoring] Arquivos de log: ${logFiles.map(f => path.basename(f)).join(', ')}`);
+      }
       
-      // Ordenar por data (mais recente primeiro)
-      logFiles.sort().reverse();
+      // Ordenar por data (mais recente primeiro) - ordenar pelo nome do arquivo
+      logFiles.sort((a, b) => {
+        const nameA = path.basename(a);
+        const nameB = path.basename(b);
+        return nameB.localeCompare(nameA);
+      });
     } catch (error) {
       console.error('[Monitoring] Erro ao ler diretório de logs:', error);
       return [];
@@ -539,6 +562,7 @@ export class MonitoringService {
     
     if (logFiles.length === 0) {
       console.warn(`[Monitoring] Nenhum arquivo de log encontrado no diretório: ${logsPath}`);
+      console.warn(`[Monitoring] Verifique se os logs estão sendo gerados corretamente`);
       return [];
     }
 
@@ -547,15 +571,39 @@ export class MonitoringService {
     const toDate = to ? new Date(to) : null;
 
     // Ler os arquivos mais recentes primeiro
-    for (const filePath of logFiles.slice(0, 5)) { // Limitar a 5 arquivos mais recentes
+    const maxFiles = 5; // Limitar a 5 arquivos mais recentes
+    let totalLinesRead = 0;
+    let totalLinesParsed = 0;
+    
+    for (const filePath of logFiles.slice(0, maxFiles)) {
       try {
         const content = await readFile(filePath, 'utf-8');
         const lines = content.split('\n').filter(line => line.trim());
+        totalLinesRead += lines.length;
         console.log(`[Monitoring] Lendo arquivo ${path.basename(filePath)}: ${lines.length} linhas`);
         
         for (const line of lines) {
           try {
-            const logEntry = JSON.parse(line);
+            // Tentar parsear como JSON
+            let logEntry: any;
+            try {
+              logEntry = JSON.parse(line);
+            } catch (parseError) {
+              // Se não for JSON, tentar criar um log básico da linha
+              if (line.trim().length > 0) {
+                // Tentar extrair informações básicas de logs não-JSON
+                const timestampMatch = line.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+                const levelMatch = line.match(/(error|warn|info|debug)/i);
+                logEntry = {
+                  timestamp: timestampMatch ? timestampMatch[0] : new Date().toISOString(),
+                  level: levelMatch ? levelMatch[0].toLowerCase() : 'info',
+                  message: line.substring(0, 200), // Limitar tamanho
+                  raw: line,
+                };
+              } else {
+                continue;
+              }
+            }
             
             // Filtrar por nível
             if (level && logEntry.level?.toLowerCase() !== level.toLowerCase()) {
@@ -565,6 +613,10 @@ export class MonitoringService {
             // Filtrar por data
             if (logEntry.timestamp) {
               const logDate = new Date(logEntry.timestamp);
+              if (isNaN(logDate.getTime())) {
+                // Timestamp inválido, pular
+                continue;
+              }
               if (fromDate && logDate < fromDate) continue;
               if (toDate && logDate > toDate) continue;
             }
@@ -581,14 +633,15 @@ export class MonitoringService {
             
             allLogs.push({
               timestamp: logEntry.timestamp || new Date().toISOString(),
-              level: logEntry.level || 'info',
-              message: logEntry.message || '',
-              metadata: logEntry.meta || logEntry.context || {},
-              service: logEntry.service || 'API',
+              level: (logEntry.level || 'info').toLowerCase(),
+              message: logEntry.message || logEntry.msg || '',
+              metadata: logEntry.meta || logEntry.context || logEntry.data || {},
+              service: logEntry.service || logEntry.context?.service || 'API',
               ...(logEntry.stack && { stack: logEntry.stack }),
             });
-          } catch (parseError) {
-            // Ignorar linhas que não são JSON válido
+            totalLinesParsed++;
+          } catch (lineError) {
+            // Ignorar linhas que causam erro
             continue;
           }
         }
@@ -597,6 +650,8 @@ export class MonitoringService {
         continue;
       }
     }
+    
+    console.log(`[Monitoring] Processadas ${totalLinesParsed} linhas de log de ${totalLinesRead} linhas lidas`);
 
     // Ordenar por timestamp (mais recente primeiro) e limitar
     allLogs.sort((a, b) => {

@@ -175,7 +175,7 @@ export default function MonitoringPage() {
 
                 {/* Logs */}
                 <TabsContent value="logs">
-                    {logs && logs.length > 0 && <ExecutionLogs logs={logs} />}
+                    <ExecutionLogs logs={logs || []} autoRefresh={autoRefresh} />
                 </TabsContent>
 
                 {/* Backend Logs */}
