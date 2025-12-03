@@ -365,6 +365,7 @@ export interface Position {
     trailing_enabled: boolean
     trailing_distance_pct?: number
     trailing_max_price?: number
+    min_profit_pct?: number
     sl_triggered: boolean
     tp_triggered: boolean
     trailing_triggered: boolean
@@ -400,6 +401,30 @@ export interface UpdateSLTPDto {
     tpPct?: number
     trailingEnabled?: boolean
     trailingDistancePct?: number
+}
+
+export interface PositionTPSLMonitoring {
+    id: number
+    symbol: string
+    trade_mode: TradeMode
+    exchange_account_id: number
+    exchange_account_label: string
+    price_open: number
+    current_price: number | null
+    pnl_pct: number | null
+    tp_enabled: boolean
+    tp_pct: number | null
+    sl_enabled: boolean
+    sl_pct: number | null
+    tp_proximity_pct: number | null
+    sl_proximity_pct: number | null
+    distance_to_tp_pct: number | null
+    distance_to_sl_pct: number | null
+    status: 'PROFIT' | 'LOSS' | 'AT_TP' | 'AT_SL' | 'UNKNOWN'
+    qty_remaining: number
+    qty_total: number
+    sl_triggered: boolean
+    tp_triggered: boolean
 }
 
 export interface ClosePositionDto {
@@ -460,13 +485,18 @@ export interface TradeExecution {
 // ============================================
 
 export interface PnLSummary {
-    total_profit: number
-    total_loss: number
-    net_pnl: number
-    total_trades: number
-    win_rate: number
-    avg_win: number
-    avg_loss: number
+    totalProfit: number
+    totalLoss: number
+    netPnL: number
+    realizedPnL: number
+    unrealizedPnL: number
+    dailyPnL: number
+    totalTrades: number
+    winningTrades: number
+    losingTrades: number
+    winRate: number
+    openPositionsCount: number
+    hasData: boolean
 }
 
 export interface PnLBySymbol {
@@ -482,30 +512,33 @@ export interface PnLByDay {
     trades: number
 }
 
-export interface OpenPositionsSummary {
-    exchange_account_id: number
-    symbol: string
-    total_qty: number
-    avg_entry_price: number
-    current_value_usdt: number
-    unrealized_pnl_usdt: number
+// Resposta do backend para open-positions/summary
+export interface OpenPositionsSummaryResponse {
+    totalPositions: number
+    totalUnrealizedPnL: number
+    totalInvested: number
+    bySymbol: Array<{
+        symbol: string
+        count: number
+        unrealizedPnL: number
+        invested: number
+    }>
 }
 
+// Resposta do backend para vaults/summary
 export interface VaultSummary {
     vault_id: number
     vault_name: string
-    balances: Record<string, number>
-    volume_moved: number
+    assets: Record<string, { asset: string; volume: number }>
 }
 
+// Resposta do backend para webhooks/summary
 export interface WebhookSummary {
-    webhook_source_id: number
-    source_label: string
-    total_events: number
-    jobs_created: number
-    blocked_count: number
-    pnl_real?: number
-    pnl_simulation?: number
+    totalEvents: number
+    jobsCreated: number
+    skipped: number
+    failed: number
+    successRate: number
 }
 
 // ============================================

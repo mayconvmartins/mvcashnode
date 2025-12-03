@@ -183,80 +183,137 @@ export class TradeExecutionSimProcessor extends WorkerHost {
 
       this.logger.debug(`[EXECUTOR-SIM] Trade job ${tradeJobId} marcado como EXECUTING`);
 
-      // For simulation, we need to get current price
-      // Create read-only adapter (no API keys needed for simulation)
-      const adapter = AdapterFactory.createAdapter(
-        tradeJob.exchange_account.exchange as ExchangeType
-      );
+      // Para ordens LIMIT com limitPrice, não precisamos buscar preço atual
+      // Podemos usar o limitPrice diretamente
+      let currentPrice: number | null = null;
+      
+      if (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price) {
+        // Para ordens LIMIT, usar limitPrice como preço atual (não precisa buscar)
+        currentPrice = tradeJob.limit_price.toNumber();
+        this.logger.log(`[EXECUTOR-SIM] Ordem LIMIT detectada - usando limitPrice ${currentPrice} como preço atual (não buscando da exchange)`);
+      } else {
+        // Para ordens MARKET ou LIMIT sem limitPrice, buscar preço atual
+        // Create read-only adapter (no API keys needed for simulation)
+        const adapter = AdapterFactory.createAdapter(
+          tradeJob.exchange_account.exchange as ExchangeType
+        );
 
-      // Get current price
-      let currentPrice: number;
-      try {
-        const ticker = await adapter.fetchTicker(tradeJob.symbol);
-        currentPrice = ticker.last;
+        try {
+          const ticker = await adapter.fetchTicker(tradeJob.symbol);
+          currentPrice = ticker.last;
 
-        if (!currentPrice || currentPrice <= 0) {
-          throw new Error(`Preço inválido obtido da exchange: ${currentPrice}`);
+          if (!currentPrice || currentPrice <= 0) {
+            throw new Error(`Preço inválido obtido da exchange: ${currentPrice}`);
+          }
+
+          this.logger.debug(`[EXECUTOR-SIM] Preço atual de ${tradeJob.symbol}: ${currentPrice}`);
+        } catch (error: any) {
+          const errorMessage = error?.message || 'Erro ao buscar preço';
+          throw new Error(`Erro ao buscar preço de ${tradeJob.symbol}: ${errorMessage}`);
         }
-
-        this.logger.debug(`[EXECUTOR-SIM] Preço atual de ${tradeJob.symbol}: ${currentPrice}`);
-      } catch (error: any) {
-        const errorMessage = error?.message || 'Erro ao buscar preço';
-        throw new Error(`Erro ao buscar preço de ${tradeJob.symbol}: ${errorMessage}`);
       }
 
       // Calculate executed quantity and average price
       let executedQty = baseQty;
-      let avgPrice = currentPrice;
+      let avgPrice: number;
 
       // Se for ordem com quote_amount, calcular base_quantity
       if (quoteAmount > 0 && baseQty === 0) {
         // Para ordens LIMIT, usar limitPrice para calcular quantidade se disponível
         if (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price) {
-          executedQty = quoteAmount / tradeJob.limit_price.toNumber();
+          const limitPrice = tradeJob.limit_price.toNumber();
+          executedQty = quoteAmount / limitPrice;
+          this.logger.log(`[EXECUTOR-SIM] Calculando quantidade para ordem LIMIT: ${quoteAmount} / ${limitPrice} = ${executedQty}`);
         } else {
-        executedQty = quoteAmount / currentPrice;
+          if (!currentPrice) {
+            throw new Error(`Preço atual não disponível para calcular quantidade`);
+          }
+          executedQty = quoteAmount / currentPrice;
+          this.logger.log(`[EXECUTOR-SIM] Calculando quantidade para ordem MARKET: ${quoteAmount} / ${currentPrice} = ${executedQty}`);
         }
       }
 
       // If it's a LIMIT order, ALWAYS use limitPrice (não usar preço atual)
       if (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price) {
         const limitPrice = tradeJob.limit_price.toNumber();
-        this.logger.log(`[EXECUTOR-SIM] ⚠️ Ordem LIMIT detectada: preço atual ${currentPrice}, limite ${limitPrice}, lado ${tradeJob.side}`);
-        this.logger.log(`[EXECUTOR-SIM] ⚠️ Para ordens LIMIT, sempre usar limitPrice ao invés de preço atual`);
-
-        // Verificar se a ordem pode ser executada (preço atingiu o limite)
-        if (tradeJob.side === 'BUY' && currentPrice > limitPrice) {
-          // Limit not reached for buy (preço atual maior que limite)
-          executedQty = 0;
-          this.logger.log(`[EXECUTOR-SIM] ⚠️ Ordem LIMIT BUY não executada: preço atual (${currentPrice}) > limite (${limitPrice})`);
-        } else if (tradeJob.side === 'SELL' && currentPrice < limitPrice) {
-          // Limit not reached for sell (preço atual menor que limite)
-          executedQty = 0;
-          this.logger.log(`[EXECUTOR-SIM] ⚠️ Ordem LIMIT SELL não executada: preço atual (${currentPrice}) < limite (${limitPrice})`);
-        } else {
-          // Ordem pode ser executada - SEMPRE usar limitPrice
-          avgPrice = limitPrice;
-          this.logger.log(`[EXECUTOR-SIM] ✅ Ordem LIMIT executada a preço ${limitPrice} (não ${currentPrice})`);
-        }
+        
+        // Para ordens LIMIT, sempre usar limitPrice como preço de execução
+        // Em simulação, assumimos que a ordem pode ser executada se foi criada
+        avgPrice = limitPrice;
+        this.logger.log(`[EXECUTOR-SIM] ✅ Ordem LIMIT executada a preço ${limitPrice} (lado: ${tradeJob.side})`);
       } else if (tradeJob.order_type === 'MARKET') {
         // Para ordens MARKET, usar preço atual
+        if (!currentPrice) {
+          throw new Error(`Preço atual não disponível para ordem MARKET`);
+        }
         avgPrice = currentPrice;
         this.logger.debug(`[EXECUTOR-SIM] Ordem MARKET executada a preço atual ${currentPrice}`);
+      } else {
+        // Fallback: usar currentPrice se disponível
+        if (currentPrice) {
+          avgPrice = currentPrice;
+          this.logger.debug(`[EXECUTOR-SIM] Usando preço atual ${currentPrice} como fallback`);
+        } else {
+          throw new Error(`Preço não disponível para executar ordem`);
+        }
       }
 
       if (executedQty === 0) {
-        // Order not executed (LIMIT order not reached)
+        // Order not executed (sem quantidade)
         await this.prisma.tradeJob.update({
           where: { id: tradeJobId },
           data: {
-            status: TradeJobStatus.PENDING_LIMIT,
-            reason_code: 'LIMIT_NOT_REACHED',
-            reason_message: `Preço atual (${currentPrice}) não atingiu o limite (${tradeJob.limit_price?.toNumber()})`,
+            status: TradeJobStatus.FAILED,
+            reason_code: 'ZERO_QUANTITY',
+            reason_message: `Quantidade executada é zero`,
           },
         });
-        this.logger.log(`[EXECUTOR-SIM] Trade job ${tradeJobId} marcado como PENDING_LIMIT`);
-        return { success: false, message: 'Limit order not reached', currentPrice, limitPrice: tradeJob.limit_price?.toNumber() };
+        this.logger.log(`[EXECUTOR-SIM] Trade job ${tradeJobId} marcado como FAILED (quantidade zero)`);
+        return { success: false, message: 'Executed quantity is zero' };
+      }
+
+      // VALIDAÇÃO DE SEGURANÇA: Verificar lucro mínimo antes de executar venda
+      if (tradeJob.side === 'SELL') {
+        try {
+          const openPosition = await this.prisma.tradePosition.findFirst({
+            where: {
+              exchange_account_id: tradeJob.exchange_account_id,
+              symbol: tradeJob.symbol,
+              trade_mode: tradeJob.trade_mode,
+              status: 'OPEN',
+              qty_remaining: { gt: 0 },
+            },
+            orderBy: {
+              created_at: 'asc',
+            },
+          });
+
+          if (openPosition) {
+            const positionService = new PositionService(this.prisma);
+            const validationResult = await positionService.validateMinProfit(openPosition.id, avgPrice);
+
+            if (!validationResult.valid) {
+              this.logger.warn(`[EXECUTOR-SIM] ⚠️ Validação de lucro mínimo FALHOU: ${validationResult.reason}`);
+              await this.prisma.tradeJob.update({
+                where: { id: tradeJobId },
+                data: {
+                  status: TradeJobStatus.FAILED,
+                  reason_code: 'MIN_PROFIT_NOT_MET',
+                  reason_message: validationResult.reason,
+                },
+              });
+              throw new Error(`Venda não permitida: ${validationResult.reason}`);
+            } else {
+              this.logger.log(`[EXECUTOR-SIM] ✅ Validação de lucro mínimo PASSOU: ${validationResult.reason}`);
+            }
+          }
+        } catch (validationError: any) {
+          if (validationError.message.includes('MIN_PROFIT_NOT_MET') || validationError.message.includes('Venda não permitida')) {
+            throw validationError;
+          }
+          // Se for outro erro, apenas logar e continuar (não bloquear execução)
+          this.logger.warn(`[EXECUTOR-SIM] Erro ao validar lucro mínimo (continuando): ${validationError.message}`);
+        }
       }
 
       // Create simulated execution

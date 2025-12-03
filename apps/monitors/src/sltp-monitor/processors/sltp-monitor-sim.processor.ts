@@ -1,14 +1,17 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
-import { TradeJobService, MinProfitValidationService } from '@mvcashnode/domain';
+import { TradeJobService, PositionService } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
 @Processor('sl-tp-monitor-sim')
 export class SLTPMonitorSimProcessor extends WorkerHost {
+  private readonly logger = new Logger(SLTPMonitorSimProcessor.name);
+
   constructor(
     private prisma: PrismaService,
     @InjectQueue('trade-execution-sim') private tradeExecutionQueue: Queue,
@@ -20,6 +23,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
   async process(_job: Job<any>): Promise<any> {
     const startTime = Date.now();
     const jobName = 'sl-tp-monitor-sim';
+    this.logger.log('[SL-TP-MONITOR-SIM] Iniciando monitoramento de SL/TP...');
 
     try {
       // Registrar início da execução
@@ -42,7 +46,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
     });
 
     const tradeJobService = new TradeJobService(this.prisma);
-    const minProfitValidationService = new MinProfitValidationService(this.prisma);
+    const positionService = new PositionService(this.prisma);
     let triggered = 0;
 
     for (const position of positions) {
@@ -97,15 +101,10 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             const tpPct = position.tp_pct.toNumber();
             const limitPrice = priceOpen * (1 + tpPct / 100);
             
-            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado na posição
             // Usa o limitPrice calculado para validar
-            const validationResult = await minProfitValidationService.validateMinProfit(
-              position.exchange_account_id,
-              position.symbol,
-              priceOpen,
-              'TAKE_PROFIT',
-              position.exchange_account.exchange as ExchangeType,
-              TradeMode.SIMULATION,
+            const validationResult = await positionService.validateMinProfit(
+              position.id,
               limitPrice // Passar o preço calculado para validação
             );
 
@@ -159,15 +158,10 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             // Calcular preço LIMIT para Trailing Stop: usar trailingTriggerPrice
             const limitPrice = trailingTriggerPrice;
             
-            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado na posição
             // Usa o limitPrice calculado para validar
-            const validationResult = await minProfitValidationService.validateMinProfit(
-              position.exchange_account_id,
-              position.symbol,
-              priceOpen,
-              'TRAILING',
-              position.exchange_account.exchange as ExchangeType,
-              TradeMode.SIMULATION,
+            const validationResult = await positionService.validateMinProfit(
+              position.id,
               limitPrice // Passar o preço calculado para validação
             );
 
@@ -209,6 +203,11 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
     const result = { positionsChecked: positions.length, triggered };
     const durationMs = Date.now() - startTime;
 
+    this.logger.log(
+      `[SL-TP-MONITOR-SIM] Monitoramento concluído com sucesso. ` +
+      `Posições verificadas: ${positions.length}, Triggers acionados: ${triggered}, Duração: ${durationMs}ms`
+    );
+
     // Registrar sucesso
     await this.cronExecutionService.recordExecution(
       jobName,
@@ -221,6 +220,11 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
   } catch (error: any) {
     const durationMs = Date.now() - startTime;
     const errorMessage = error?.message || 'Erro desconhecido';
+
+    this.logger.error(
+      `[SL-TP-MONITOR-SIM] Erro ao monitorar SL/TP: ${errorMessage}`,
+      error.stack
+    );
 
     // Registrar falha
     await this.cronExecutionService.recordExecution(

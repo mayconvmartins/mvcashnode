@@ -446,5 +446,354 @@ export class ReportsService {
       successRate: totalEvents > 0 ? (jobsCreated / totalEvents) * 100 : 0,
     };
   }
+
+  async getStrategyPerformance(
+    userId: number,
+    tradeMode?: TradeMode,
+    from?: Date,
+    to?: Date,
+    webhookSourceId?: number
+  ) {
+    // Buscar IDs das exchange accounts do usuário
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: userId },
+      select: { id: true },
+    });
+
+    const accountIds = userAccounts.map((acc) => acc.id);
+
+    if (accountIds.length === 0) {
+      return [];
+    }
+
+    const where: any = {
+      exchange_account_id: { in: accountIds },
+      ...(tradeMode && { trade_mode: tradeMode }),
+      status: 'CLOSED',
+      closed_at: { not: null },
+    };
+
+    if (from || to) {
+      where.closed_at = {};
+      if (from) where.closed_at.gte = from;
+      if (to) where.closed_at.lte = to;
+    }
+
+    // Se webhookSourceId for fornecido, buscar os webhook_event_ids primeiro
+    let webhookEventIds: number[] | undefined = undefined;
+    if (webhookSourceId) {
+      const webhookEvents = await this.prisma.webhookEvent.findMany({
+        where: {
+          webhook_source_id: webhookSourceId,
+        },
+        select: {
+          id: true,
+        },
+      });
+      webhookEventIds = webhookEvents.map(e => e.id);
+      if (webhookEventIds.length === 0) {
+        return []; // Se não há eventos, não há posições
+      }
+    }
+
+    const positions = await this.prisma.tradePosition.findMany({
+      where: {
+        ...where,
+        ...(webhookEventIds && {
+          open_job: {
+            webhook_event_id: {
+              in: webhookEventIds,
+            },
+          },
+        }),
+      },
+      include: {
+        open_job: {
+          select: {
+            reason_code: true,
+            order_type: true,
+            side: true,
+            webhook_event_id: true,
+          },
+        },
+      },
+    });
+
+    // Agrupar por estratégia (webhook source ou reason_code ou combinação de order_type + side)
+    const byStrategy: Record<string, {
+      strategy: string;
+      pnl: number;
+      trades: number;
+      wins: number;
+      avgPnL: number;
+      totalVolume: number;
+    }> = {};
+
+    // Buscar webhook sources para mapear
+    const webhookSourceMap: Record<number, string> = {};
+    if (webhookSourceId) {
+      const webhookSource = await this.prisma.webhookSource.findUnique({
+        where: { id: webhookSourceId },
+        select: { id: true, label: true },
+      });
+      if (webhookSource) {
+        // Buscar todos os eventos deste source
+        const events = await this.prisma.webhookEvent.findMany({
+          where: { webhook_source_id: webhookSourceId },
+          select: { id: true },
+        });
+        events.forEach(e => {
+          webhookSourceMap[e.id] = webhookSource.label;
+        });
+      }
+    } else {
+      // Buscar todos os webhook events das posições e mapear
+      const eventIds = positions
+        .map(p => p.open_job?.webhook_event_id)
+        .filter((id): id is number => id !== null && id !== undefined);
+      
+      if (eventIds.length > 0) {
+        const uniqueEventIds = [...new Set(eventIds)];
+        const events = await this.prisma.webhookEvent.findMany({
+          where: { id: { in: uniqueEventIds } },
+          include: {
+            webhook_source: {
+              select: {
+                id: true,
+                label: true,
+              },
+            },
+          },
+        });
+        events.forEach(e => {
+          if (e.webhook_source) {
+            webhookSourceMap[e.id] = e.webhook_source.label;
+          }
+        });
+      }
+    }
+
+    for (const pos of positions) {
+      // Priorizar webhook source como estratégia
+      let strategy = 'UNKNOWN';
+      if (pos.open_job?.webhook_event_id && webhookSourceMap[pos.open_job.webhook_event_id]) {
+        strategy = webhookSourceMap[pos.open_job.webhook_event_id];
+      } else if (pos.open_job?.reason_code) {
+        strategy = pos.open_job.reason_code;
+      } else if (pos.open_job?.order_type && pos.open_job?.side) {
+        strategy = `${pos.open_job.order_type}_${pos.open_job.side}`;
+      }
+      
+      if (!byStrategy[strategy]) {
+        byStrategy[strategy] = {
+          strategy,
+          pnl: 0,
+          trades: 0,
+          wins: 0,
+          avgPnL: 0,
+          totalVolume: 0,
+        };
+      }
+
+      const pnl = pos.realized_profit_usd.toNumber();
+      byStrategy[strategy].pnl += pnl;
+      byStrategy[strategy].trades += 1;
+      byStrategy[strategy].totalVolume += pos.qty_total.toNumber() * pos.price_open.toNumber();
+      if (pnl > 0) {
+        byStrategy[strategy].wins += 1;
+      }
+    }
+
+    // Calcular média e win rate
+    const result = Object.values(byStrategy).map(strat => ({
+      ...strat,
+      avgPnL: strat.trades > 0 ? strat.pnl / strat.trades : 0,
+      winRate: strat.trades > 0 ? (strat.wins / strat.trades) * 100 : 0,
+    }));
+
+    return result.sort((a, b) => b.pnl - a.pnl);
+  }
+
+  async getSharpeRatio(
+    userId: number,
+    tradeMode?: TradeMode,
+    from?: Date,
+    to?: Date
+  ) {
+    // Buscar dados diários de PnL
+    const byDay = await this.getPnLByDay(userId, tradeMode, from, to);
+
+    if (byDay.length === 0) {
+      return {
+        sharpeRatio: 0,
+        returns: [],
+        avgReturn: 0,
+        stdDev: 0,
+        riskFreeRate: 0,
+      };
+    }
+
+    // Calcular retornos diários
+    const returns = byDay.map(day => day.pnl_usd || 0);
+    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+
+    // Calcular desvio padrão
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
+    const stdDev = Math.sqrt(variance);
+
+    // Taxa livre de risco (assumindo 0% para simplificar, pode ser configurável)
+    const riskFreeRate = 0;
+    const excessReturn = avgReturn - riskFreeRate;
+
+    // Sharpe Ratio = (Retorno médio - Taxa livre de risco) / Desvio padrão
+    const sharpeRatio = stdDev > 0 ? excessReturn / stdDev : 0;
+
+    return {
+      sharpeRatio: parseFloat(sharpeRatio.toFixed(4)),
+      avgReturn: parseFloat(avgReturn.toFixed(2)),
+      stdDev: parseFloat(stdDev.toFixed(2)),
+      riskFreeRate,
+      returns: returns.map((r, idx) => ({
+        date: byDay[idx].date,
+        return: r,
+      })),
+    };
+  }
+
+  async getSymbolCorrelation(
+    userId: number,
+    tradeMode?: TradeMode,
+    from?: Date,
+    to?: Date
+  ) {
+    // Buscar IDs das exchange accounts do usuário
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: userId },
+      select: { id: true },
+    });
+
+    const accountIds = userAccounts.map((acc) => acc.id);
+
+    if (accountIds.length === 0) {
+      return [];
+    }
+
+    const where: any = {
+      exchange_account_id: { in: accountIds },
+      ...(tradeMode && { trade_mode: tradeMode }),
+      status: 'CLOSED',
+      closed_at: { not: null },
+    };
+
+    if (from || to) {
+      where.closed_at = {};
+      if (from) where.closed_at.gte = from;
+      if (to) where.closed_at.lte = to;
+    }
+
+    const positions = await this.prisma.tradePosition.findMany({
+      where,
+    });
+
+    console.log(`[ReportsService] getSymbolCorrelation: ${positions.length} posições encontradas`);
+
+    // Agrupar por símbolo e data
+    const bySymbolDate: Record<string, Record<string, number>> = {};
+
+    for (const pos of positions) {
+      if (!pos.closed_at) continue;
+      const date = pos.closed_at.toISOString().split('T')[0];
+      const symbol = pos.symbol;
+
+      if (!bySymbolDate[symbol]) {
+        bySymbolDate[symbol] = {};
+      }
+      if (!bySymbolDate[symbol][date]) {
+        bySymbolDate[symbol][date] = 0;
+      }
+      bySymbolDate[symbol][date] += pos.realized_profit_usd.toNumber();
+    }
+
+    console.log(`[ReportsService] Símbolos encontrados: ${Object.keys(bySymbolDate).length}`);
+
+    // Calcular correlação entre pares de símbolos
+    const symbols = Object.keys(bySymbolDate);
+    const correlations: Array<{
+      symbol1: string;
+      symbol2: string;
+      correlation: number;
+    }> = [];
+
+    // Precisa de pelo menos 2 símbolos para calcular correlação
+    if (symbols.length < 2) {
+      console.log(`[ReportsService] Menos de 2 símbolos encontrados, retornando array vazio`);
+      return [];
+    }
+
+    for (let i = 0; i < symbols.length; i++) {
+      for (let j = i + 1; j < symbols.length; j++) {
+        const sym1 = symbols[i];
+        const sym2 = symbols[j];
+        
+        // Coletar todas as datas únicas de ambos os símbolos
+        const dates1 = Object.keys(bySymbolDate[sym1]);
+        const dates2 = Object.keys(bySymbolDate[sym2]);
+        const allDates = new Set([...dates1, ...dates2]);
+        const allDatesArray = Array.from(allDates).sort();
+
+        if (allDatesArray.length < 2) {
+          continue; // Precisa de pelo menos 2 datas
+        }
+
+        // Criar arrays de retornos para todas as datas
+        const returns1 = allDatesArray.map(d => bySymbolDate[sym1][d] || 0);
+        const returns2 = allDatesArray.map(d => bySymbolDate[sym2][d] || 0);
+
+        // Filtrar apenas datas onde pelo menos um símbolo teve atividade
+        const activeDates: number[] = [];
+        for (let k = 0; k < allDatesArray.length; k++) {
+          if (returns1[k] !== 0 || returns2[k] !== 0) {
+            activeDates.push(k);
+          }
+        }
+
+        if (activeDates.length < 2) {
+          continue; // Precisa de pelo menos 2 pontos com atividade
+        }
+
+        const activeReturns1 = activeDates.map(idx => returns1[idx]);
+        const activeReturns2 = activeDates.map(idx => returns2[idx]);
+
+        const avg1 = activeReturns1.reduce((sum, r) => sum + r, 0) / activeReturns1.length;
+        const avg2 = activeReturns2.reduce((sum, r) => sum + r, 0) / activeReturns2.length;
+
+        const covariance = activeReturns1.reduce((sum, r1, idx) => {
+          return sum + (r1 - avg1) * (activeReturns2[idx] - avg2);
+        }, 0) / activeReturns1.length;
+
+        const stdDev1 = Math.sqrt(
+          activeReturns1.reduce((sum, r) => sum + Math.pow(r - avg1, 2), 0) / activeReturns1.length
+        );
+        const stdDev2 = Math.sqrt(
+          activeReturns2.reduce((sum, r) => sum + Math.pow(r - avg2, 2), 0) / activeReturns2.length
+        );
+
+        const correlation = (stdDev1 > 0 && stdDev2 > 0) 
+          ? covariance / (stdDev1 * stdDev2)
+          : 0;
+
+        // Só adicionar se a correlação for válida (não NaN)
+        if (!isNaN(correlation) && isFinite(correlation)) {
+          correlations.push({
+            symbol1: sym1,
+            symbol2: sym2,
+            correlation: parseFloat(correlation.toFixed(4)),
+          });
+        }
+      }
+    }
+
+    return correlations.sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+  }
 }
 

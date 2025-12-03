@@ -3,7 +3,7 @@ import type {
     PnLSummary,
     PnLBySymbol,
     PnLByDay,
-    OpenPositionsSummary,
+    OpenPositionsSummaryResponse,
     VaultSummary,
     WebhookSummary,
     ReportFilters,
@@ -31,8 +31,8 @@ export const reportsService = {
         return response.data
     },
 
-    getOpenPositionsSummary: async (filters?: ReportFilters): Promise<OpenPositionsSummary[]> => {
-        const response = await apiClient.get<OpenPositionsSummary[]>(
+    getOpenPositionsSummary: async (filters?: ReportFilters): Promise<OpenPositionsSummaryResponse> => {
+        const response = await apiClient.get<OpenPositionsSummaryResponse>(
             '/reports/open-positions/summary',
             {
                 params: filters,
@@ -54,6 +54,45 @@ export const reportsService = {
         to?: string
     }): Promise<WebhookSummary> => {
         const response = await apiClient.get<WebhookSummary>('/reports/webhooks/summary', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getStrategyPerformance: async (filters?: ReportFilters & { webhook_source_id?: number }): Promise<Array<{
+        strategy: string
+        pnl: number
+        trades: number
+        wins: number
+        avgPnL: number
+        totalVolume: number
+        winRate: number
+    }>> => {
+        const response = await apiClient.get('/reports/strategy-performance', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getSharpeRatio: async (filters?: ReportFilters): Promise<{
+        sharpeRatio: number
+        avgReturn: number
+        stdDev: number
+        riskFreeRate: number
+        returns: Array<{ date: string; return: number }>
+    }> => {
+        const response = await apiClient.get('/reports/sharpe-ratio', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getSymbolCorrelation: async (filters?: ReportFilters): Promise<Array<{
+        symbol1: string
+        symbol2: string
+        correlation: number
+    }>> => {
+        const response = await apiClient.get('/reports/symbol-correlation', {
             params: filters,
         })
         return response.data
@@ -89,18 +128,19 @@ export const reportsService = {
                 apiClient.get('/reports/open-positions/summary', { params }).catch(() => ({ data: null })),
             ])
 
-            // open-positions/summary retorna um objeto, não um array
+            // O interceptor já extraiu o data, então acessamos diretamente
             const openPositionsData = openPositions.data || {}
+            const pnlData = pnlSummary.data || {}
             const openCount = openPositionsData.totalPositions || 0
             const activeAccounts = openPositionsData.bySymbol?.length || 0
 
             return {
                 openPositions: openCount,
-                dailyPnL: pnlSummary.data?.dailyPnL || pnlSummary.data?.netPnL || 0,
-                totalBalance: (pnlSummary.data?.realizedPnL || 0) + (pnlSummary.data?.unrealizedPnL || 0),
+                dailyPnL: pnlData.dailyPnL || pnlData.netPnL || 0,
+                totalBalance: (pnlData.realizedPnL || 0) + (pnlData.unrealizedPnL || 0),
                 activeAccounts: activeAccounts,
                 positionsTrend: undefined,
-                pnlTrend: pnlSummary.data?.winRate ? (pnlSummary.data.winRate > 50 ? 1 : -1) : undefined,
+                pnlTrend: pnlData.winRate ? (pnlData.winRate > 50 ? 1 : -1) : undefined,
                 recentTrades: [],
                 topSymbols: [],
             }

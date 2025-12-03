@@ -289,6 +289,19 @@ export default function PositionsPage() {
             ),
         },
         {
+            key: 'min_profit_pct',
+            label: 'Lucro Mínimo',
+            render: (position) => (
+                position.min_profit_pct !== null && position.min_profit_pct !== undefined ? (
+                    <Badge variant="outline" className="font-mono">
+                        {Number(position.min_profit_pct).toFixed(2)}%
+                    </Badge>
+                ) : (
+                    <span className="text-muted-foreground text-sm">-</span>
+                )
+            ),
+        },
+        {
             key: 'created_at',
             label: 'Abertura',
             render: (position) => (

@@ -41,7 +41,7 @@ export class CronExecutionService {
             finished_at: null,
             duration_ms: null,
             status,
-            result_json: null,
+            result_json: undefined,
             error_message: null,
             triggered_by: 'SCHEDULED',
           },

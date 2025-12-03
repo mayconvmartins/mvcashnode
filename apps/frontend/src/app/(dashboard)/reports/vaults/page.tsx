@@ -7,11 +7,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDate } from '@/lib/utils/format'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { useTradeMode } from '@/lib/hooks/useTradeMode'
 
 export default function VaultsReportPage() {
-    const { data: report, isLoading } = useQuery({
-        queryKey: ['reports', 'vaults'],
-        queryFn: () => reportsService.getVaults(),
+    const { tradeMode } = useTradeMode()
+    
+    const { data: vaults, isLoading } = useQuery({
+        queryKey: ['reports', 'vaults', tradeMode],
+        queryFn: () => reportsService.getVaultsSummary({ trade_mode: tradeMode }),
     })
 
     if (isLoading) {
@@ -39,112 +42,82 @@ export default function VaultsReportPage() {
                         <CardDescription>Total de Vaults</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{report?.totalVaults || 0}</div>
+                        <div className="text-2xl font-bold">{vaults?.length || 0}</div>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="pb-3">
-                        <CardDescription>Saldo Total (REAL)</CardDescription>
+                        <CardDescription>Total de Assets</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
-                            {formatCurrency(report?.totalBalanceReal || 0)}
+                            {vaults?.reduce((acc, vault) => acc + Object.keys(vault.assets || {}).length, 0) || 0}
                         </div>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="pb-3">
-                        <CardDescription>Saldo Total (SIMULATION)</CardDescription>
+                        <CardDescription>Volume Total</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
-                            {formatCurrency(report?.totalBalanceSimulation || 0)}
+                            {formatCurrency(
+                                vaults?.reduce((acc, vault) => {
+                                    const vaultTotal = Object.values(vault.assets || {}).reduce(
+                                        (sum: number, asset: any) => sum + (asset.volume || 0),
+                                        0
+                                    )
+                                    return acc + vaultTotal
+                                }, 0) || 0
+                            )}
                         </div>
                     </CardContent>
                 </Card>
             </div>
 
-            {/* Evolution Chart */}
-            {report?.evolution && report.evolution.length > 0 && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Evolução do Saldo</CardTitle>
-                        <CardDescription>Histórico dos últimos 30 dias</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <LineChart data={report.evolution}>
-                                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                                <XAxis
-                                    dataKey="date"
-                                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                                />
-                                <YAxis tick={{ fill: 'hsl(var(--muted-foreground))' }} />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: 'hsl(var(--popover))',
-                                        border: '1px solid hsl(var(--border))',
-                                        borderRadius: '6px',
-                                    }}
-                                    formatter={(value: any) => formatCurrency(value)}
-                                />
-                                <Legend />
-                                <Line
-                                    type="monotone"
-                                    dataKey="real"
-                                    stroke="#3b82f6"
-                                    strokeWidth={2}
-                                    name="REAL"
-                                    dot={false}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="simulation"
-                                    stroke="#10b981"
-                                    strokeWidth={2}
-                                    name="SIMULATION"
-                                    dot={false}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-            )}
 
             {/* Vaults List */}
-            {report?.vaults && report.vaults.length > 0 && (
+            {vaults && vaults.length > 0 && (
                 <Card>
                     <CardHeader>
                         <CardTitle>Detalhamento por Vault</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-4">
-                            {report.vaults.map((vault: any) => (
-                                <div
-                                    key={vault.id}
-                                    className="flex items-center justify-between p-4 border rounded-lg"
-                                >
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <h4 className="font-medium">{vault.name}</h4>
-                                            <Badge variant={vault.mode === 'REAL' ? 'default' : 'secondary'}>
-                                                {vault.mode}
-                                            </Badge>
+                            {vaults.map((vault) => {
+                                const totalVolume = Object.values(vault.assets || {}).reduce(
+                                    (sum: number, asset: any) => sum + (asset.volume || 0),
+                                    0
+                                )
+                                return (
+                                    <div
+                                        key={vault.vault_id}
+                                        className="p-4 border rounded-lg space-y-3"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="font-medium text-lg">{vault.vault_name}</h4>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xl font-bold">{formatCurrency(totalVolume)}</div>
+                                            </div>
                                         </div>
-                                        {vault.description && (
-                                            <p className="text-sm text-muted-foreground">{vault.description}</p>
+                                        {vault.assets && Object.keys(vault.assets).length > 0 && (
+                                            <div className="space-y-2">
+                                                <p className="text-sm font-medium text-muted-foreground">Assets:</p>
+                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                                    {Object.values(vault.assets).map((asset: any, idx: number) => (
+                                                        <div key={idx} className="flex items-center justify-between p-2 bg-muted rounded">
+                                                            <span className="text-sm font-mono">{asset.asset}</span>
+                                                            <span className="text-sm font-medium">{formatCurrency(asset.volume)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
-                                    <div className="text-right">
-                                        <div className="text-xl font-bold">{formatCurrency(vault.balance)}</div>
-                                        {vault.lastUpdate && (
-                                            <p className="text-xs text-muted-foreground">
-                                                Atualizado: {formatDate(vault.lastUpdate)}
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     </CardContent>
                 </Card>

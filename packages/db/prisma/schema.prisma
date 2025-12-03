@@ -433,6 +433,7 @@ model TradePosition {
   trailing_enabled      Boolean   @default(false)
   trailing_distance_pct Decimal?  @db.Decimal(5, 2)
   trailing_max_price    Decimal?  @db.Decimal(36, 18)
+  min_profit_pct        Decimal?  @db.Decimal(5, 2)
   sl_triggered          Boolean   @default(false)
   tp_triggered          Boolean   @default(false)
   trailing_triggered    Boolean   @default(false)

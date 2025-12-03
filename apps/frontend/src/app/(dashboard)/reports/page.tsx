@@ -37,6 +37,41 @@ export default function ReportsIndexPage() {
             path: '/reports/webhooks',
             color: 'text-orange-500',
         },
+        {
+            title: 'Drawdown',
+            description: 'Análise de drawdown e recuperação',
+            icon: TrendingUp,
+            path: '/reports/drawdown',
+            color: 'text-red-500',
+        },
+        {
+            title: 'Performance por Horário',
+            description: 'Horários mais lucrativos do dia',
+            icon: Webhook,
+            path: '/reports/hourly-performance',
+            color: 'text-indigo-500',
+        },
+        {
+            title: 'Performance por Estratégia',
+            description: 'Análise de desempenho por estratégia',
+            icon: BarChart3,
+            path: '/reports/strategy-performance',
+            color: 'text-cyan-500',
+        },
+        {
+            title: 'Sharpe Ratio',
+            description: 'Medida de retorno ajustado ao risco',
+            icon: TrendingUp,
+            path: '/reports/sharpe-ratio',
+            color: 'text-emerald-500',
+        },
+        {
+            title: 'Correlação entre Símbolos',
+            description: 'Análise de correlação de retornos',
+            icon: PieChart,
+            path: '/reports/symbol-correlation',
+            color: 'text-pink-500',
+        },
     ]
 
     return (

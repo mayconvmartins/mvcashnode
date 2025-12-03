@@ -1,5 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { PositionService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
@@ -9,6 +10,8 @@ import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-exe
 
 @Processor('limit-orders-monitor-real')
 export class LimitOrdersMonitorRealProcessor extends WorkerHost {
+  private readonly logger = new Logger(LimitOrdersMonitorRealProcessor.name);
+
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService,
@@ -20,6 +23,7 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
   async process(_job: Job<any>): Promise<any> {
     const startTime = Date.now();
     const jobName = 'limit-orders-monitor-real';
+    this.logger.log('[LIMIT-ORDERS-MONITOR-REAL] Iniciando monitoramento de ordens LIMIT...');
 
     try {
       // Registrar início da execução
@@ -150,6 +154,11 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
     const result = { ordersChecked: limitOrders.length, filled, canceled };
     const durationMs = Date.now() - startTime;
 
+    this.logger.log(
+      `[LIMIT-ORDERS-MONITOR-REAL] Monitoramento concluído com sucesso. ` +
+      `Ordens verificadas: ${limitOrders.length}, Preenchidas: ${filled}, Canceladas: ${canceled}, Duração: ${durationMs}ms`
+    );
+
     // Registrar sucesso
     await this.cronExecutionService.recordExecution(
       jobName,
@@ -162,6 +171,11 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
   } catch (error: any) {
     const durationMs = Date.now() - startTime;
     const errorMessage = error?.message || 'Erro desconhecido';
+
+    this.logger.error(
+      `[LIMIT-ORDERS-MONITOR-REAL] Erro ao monitorar ordens LIMIT: ${errorMessage}`,
+      error.stack
+    );
 
     // Registrar falha
     await this.cronExecutionService.recordExecution(

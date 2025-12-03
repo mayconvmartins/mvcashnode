@@ -1,8 +1,8 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, WebhookEventStatus, WebhookAction, ExchangeType } from '@mvcashnode/shared';
+import { TradeMode, WebhookEventStatus, WebhookAction } from '@mvcashnode/shared';
 import { WebhookParserService } from './webhook-parser.service';
 import { TradeJobService } from '../trading/trade-job.service';
-import { MinProfitValidationService } from '../trading/min-profit-validation.service';
+import { PositionService } from '../positions/position.service';
 
 export interface CreateWebhookEventDto {
   webhookSourceId: number;
@@ -13,14 +13,14 @@ export interface CreateWebhookEventDto {
 }
 
 export class WebhookEventService {
-  private minProfitValidationService: MinProfitValidationService;
+  private positionService: PositionService;
 
   constructor(
     private prisma: PrismaClient,
     private parser: WebhookParserService,
     private tradeJobService: TradeJobService
   ) {
-    this.minProfitValidationService = new MinProfitValidationService(prisma);
+    this.positionService = new PositionService(prisma);
   }
 
   async createEvent(dto: CreateWebhookEventDto): Promise<{ event: any; jobsCreated: number; jobIds: number[] }> {
@@ -194,12 +194,14 @@ export class WebhookEventService {
         let limitPrice: number | undefined = undefined;
         let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
         
+        console.log(`[WEBHOOK-EVENT] ========================================`);
         console.log(`[WEBHOOK-EVENT] Processando ${side} para evento ${event.id}, price_reference: ${event.price_reference ? event.price_reference.toNumber() : 'NULL'}`);
+        console.log(`[WEBHOOK-EVENT] ========================================`);
         
         if (side === 'SELL') {
           // Todas ordens de venda devem ser LIMIT
           orderType = 'LIMIT';
-          console.log(`[WEBHOOK-EVENT] 🔴 VENDA DETECTADA - Definindo orderType como LIMIT`);
+          console.log(`[WEBHOOK-EVENT] 🔴🔴🔴 VENDA DETECTADA - Definindo orderType como LIMIT 🔴🔴🔴`);
           
           // VALIDAÇÃO OBRIGATÓRIA: price_reference deve existir para vendas via webhook
           console.log(`[WEBHOOK-EVENT] Verificando price_reference: ${event.price_reference ? `EXISTE (${event.price_reference.toNumber()})` : 'NULL'}`);
@@ -220,6 +222,15 @@ export class WebhookEventService {
           limitPrice = priceRefValue;
           console.log(`[WEBHOOK-EVENT] ✅ Usando price_reference do evento: ${limitPrice} para criar ordem LIMIT`);
           
+          console.log(`[WEBHOOK-EVENT] ========== BUSCANDO POSIÇÃO ABERTA ==========`);
+          console.log(`[WEBHOOK-EVENT] Critérios de busca:`, {
+            exchange_account_id: binding.exchange_account.id,
+            symbol: event.symbol_normalized,
+            trade_mode: event.trade_mode,
+            status: 'OPEN',
+            lock_sell_by_webhook: false,
+          });
+          
           const openPosition = await this.prisma.tradePosition.findFirst({
             where: {
               exchange_account_id: binding.exchange_account.id,
@@ -233,28 +244,25 @@ export class WebhookEventService {
             },
           });
 
+          console.log(`[WEBHOOK-EVENT] Resultado da busca: ${openPosition ? `POSIÇÃO ENCONTRADA (ID: ${openPosition.id})` : 'NENHUMA POSIÇÃO ENCONTRADA'}`);
+
           if (openPosition) {
             baseQuantity = openPosition.qty_remaining.toNumber();
             const priceOpen = openPosition.price_open.toNumber();
             console.log(`[WEBHOOK-EVENT] Posição aberta encontrada: ID ${openPosition.id}, quantidade restante: ${baseQuantity}, preço abertura: ${priceOpen}`);
 
-            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado na posição
             // Usa o price_reference do webhook para validar
             // Stop Loss ignora esta validação (mas vendas via webhook não são stop loss)
             console.log(`[WEBHOOK-EVENT] ========== INICIANDO VALIDAÇÃO DE LUCRO MÍNIMO ==========`);
+            console.log(`[WEBHOOK-EVENT] Posição ID: ${openPosition.id}`);
             console.log(`[WEBHOOK-EVENT] Preço de abertura: ${priceOpen}`);
             console.log(`[WEBHOOK-EVENT] Preço de venda (limitPrice): ${limitPrice}`);
-            console.log(`[WEBHOOK-EVENT] Conta: ${binding.exchange_account.id}, Símbolo: ${event.symbol_normalized}`);
             
             try {
-              const validationResult = await this.minProfitValidationService.validateMinProfit(
-                binding.exchange_account.id,
-                event.symbol_normalized,
-                priceOpen,
-                'WEBHOOK',
-                binding.exchange_account.exchange as ExchangeType,
-                event.trade_mode as 'REAL' | 'SIMULATION',
-                limitPrice // Passar price_reference para validação
+              const validationResult = await this.positionService.validateMinProfit(
+                openPosition.id,
+                limitPrice // Passar price_reference do webhook para validação
               );
 
               console.log(`[WEBHOOK-EVENT] ========== RESULTADO DA VALIDAÇÃO ==========`);

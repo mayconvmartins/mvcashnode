@@ -527,6 +527,278 @@ export class PositionsController {
     }
   }
 
+  @Get('monitoring-tp-sl')
+  @ApiOperation({ 
+    summary: 'Monitorar posições com TP/SL ativado',
+    description: 'Retorna posições abertas com Take Profit ou Stop Loss habilitado, incluindo cálculo de proximidade de execução e status de lucro/perda.',
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'],
+    description: 'Filtrar por modo de trading (REAL ou SIMULATION)',
+    example: 'REAL'
+  })
+  @ApiQuery({ 
+    name: 'exchange_account_id', 
+    required: false, 
+    type: Number,
+    description: 'Filtrar por ID da conta de exchange',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Lista de posições com monitoramento TP/SL',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', example: 1 },
+              symbol: { type: 'string', example: 'BTCUSDT' },
+              trade_mode: { type: 'string', example: 'REAL' },
+              price_open: { type: 'number', example: 50000 },
+              current_price: { type: 'number', example: 51000 },
+              pnl_pct: { type: 'number', example: 2.0 },
+              tp_enabled: { type: 'boolean', example: true },
+              tp_pct: { type: 'number', example: 5.0 },
+              sl_enabled: { type: 'boolean', example: true },
+              sl_pct: { type: 'number', example: 2.0 },
+              tp_proximity_pct: { type: 'number', example: 40.0 },
+              sl_proximity_pct: { type: 'number', example: 0.0 },
+              distance_to_tp_pct: { type: 'number', example: 3.0 },
+              distance_to_sl_pct: { type: 'number', example: 4.0 },
+              status: { type: 'string', enum: ['PROFIT', 'LOSS', 'AT_TP', 'AT_SL'], example: 'PROFIT' },
+            },
+          },
+        },
+      },
+    },
+  })
+  async getMonitoringTPSL(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('exchange_account_id') exchangeAccountId?: number
+  ): Promise<any> {
+    try {
+      // Buscar IDs das exchange accounts do usuário
+      const userAccounts = await this.prisma.exchangeAccount.findMany({
+        where: { user_id: user.userId },
+        select: { id: true },
+      });
+
+      const accountIds = userAccounts.map((acc) => acc.id);
+
+      if (accountIds.length === 0) {
+        return { data: [] };
+      }
+
+      // Construir filtros
+      const where: any = {
+        exchange_account_id: { in: accountIds },
+        status: 'OPEN',
+        qty_remaining: { gt: 0 },
+        OR: [
+          { sl_enabled: true },
+          { tp_enabled: true },
+        ],
+      };
+
+      if (tradeMode) {
+        where.trade_mode = tradeMode.toUpperCase();
+      }
+
+      if (exchangeAccountId) {
+        // Validar que a conta pertence ao usuário
+        if (!accountIds.includes(exchangeAccountId)) {
+          throw new BadRequestException('Conta de exchange não encontrada ou não pertence ao usuário');
+        }
+        where.exchange_account_id = exchangeAccountId;
+      }
+
+      // Buscar posições
+      const positions = await this.prisma.tradePosition.findMany({
+        where,
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+              is_simulation: true,
+            },
+          },
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+      });
+
+      if (positions.length === 0) {
+        return { data: [] };
+      }
+
+      // Agrupar símbolos por exchange para buscar preços em batch
+      const symbolExchangeMap = new Map<string, { symbols: Set<string>; exchange: string }>();
+      
+      positions.forEach((position) => {
+        const exchange = position.exchange_account.exchange;
+        const key = exchange;
+        if (!symbolExchangeMap.has(key)) {
+          symbolExchangeMap.set(key, { symbols: new Set(), exchange });
+        }
+        symbolExchangeMap.get(key)!.symbols.add(position.symbol);
+      });
+
+      // Buscar preços em batch (agrupados por exchange)
+      const priceMap = new Map<string, number>();
+      
+      for (const [exchangeKey, { symbols, exchange }] of symbolExchangeMap.entries()) {
+        try {
+          const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
+          
+          // Buscar preços para todos os símbolos desta exchange
+          const pricePromises = Array.from(symbols).map(async (symbol) => {
+            const cacheKey = `${exchange}:${symbol}`;
+            const cachedPrice = this.getCachedPrice(symbol, exchange);
+            
+            if (cachedPrice !== null) {
+              return { symbol, price: cachedPrice };
+            }
+            
+            try {
+              const ticker = await adapter.fetchTicker(symbol);
+              const price = ticker.last;
+              if (price && price > 0) {
+                this.setCachedPrice(symbol, exchange, price);
+                return { symbol, price };
+              }
+            } catch (error: any) {
+              console.warn(`[PositionsController] Erro ao buscar preço para ${symbol} na ${exchange}: ${error.message}`);
+            }
+            return { symbol, price: null };
+          });
+          
+          const prices = await Promise.all(pricePromises);
+          prices.forEach(({ symbol, price }) => {
+            if (price !== null) {
+              priceMap.set(`${exchange}:${symbol}`, price);
+            }
+          });
+        } catch (error: any) {
+          console.warn(`[PositionsController] Erro ao criar adapter para ${exchange}: ${error.message}`);
+        }
+      }
+
+      // Calcular métricas de monitoramento para cada posição
+      const monitoringData = positions.map((position) => {
+        const priceOpen = position.price_open.toNumber();
+        const priceKey = `${position.exchange_account.exchange}:${position.symbol}`;
+        const currentPrice = priceMap.get(priceKey) || null;
+
+        if (!currentPrice || currentPrice <= 0) {
+          // Se não conseguir preço, retornar dados básicos sem cálculos
+          return {
+            id: position.id,
+            symbol: position.symbol,
+            trade_mode: position.trade_mode,
+            exchange_account_id: position.exchange_account_id,
+            exchange_account_label: position.exchange_account.label,
+            price_open: priceOpen,
+            current_price: null,
+            pnl_pct: null,
+            tp_enabled: position.tp_enabled,
+            tp_pct: position.tp_pct?.toNumber() || null,
+            sl_enabled: position.sl_enabled,
+            sl_pct: position.sl_pct?.toNumber() || null,
+            tp_proximity_pct: null,
+            sl_proximity_pct: null,
+            distance_to_tp_pct: null,
+            distance_to_sl_pct: null,
+            status: 'UNKNOWN' as const,
+            qty_remaining: position.qty_remaining.toNumber(),
+            qty_total: position.qty_total.toNumber(),
+            sl_triggered: position.sl_triggered,
+            tp_triggered: position.tp_triggered,
+          };
+        }
+
+        // Calcular PnL percentual
+        const pnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+
+        // Calcular proximidade e distância para TP
+        let tpProximityPct: number | null = null;
+        let distanceToTpPct: number | null = null;
+        if (position.tp_enabled && position.tp_pct) {
+          const tpPct = position.tp_pct.toNumber();
+          if (pnlPct >= tpPct) {
+            tpProximityPct = 100;
+            distanceToTpPct = 0;
+          } else {
+            tpProximityPct = (pnlPct / tpPct) * 100;
+            distanceToTpPct = tpPct - pnlPct;
+          }
+        }
+
+        // Calcular proximidade e distância para SL
+        let slProximityPct: number | null = null;
+        let distanceToSlPct: number | null = null;
+        if (position.sl_enabled && position.sl_pct) {
+          const slPct = position.sl_pct.toNumber();
+          if (pnlPct <= -slPct) {
+            slProximityPct = 100;
+            distanceToSlPct = 0;
+          } else {
+            slProximityPct = (Math.abs(pnlPct) / slPct) * 100;
+            distanceToSlPct = slPct - Math.abs(pnlPct);
+          }
+        }
+
+        // Determinar status
+        let status: 'PROFIT' | 'LOSS' | 'AT_TP' | 'AT_SL' = pnlPct >= 0 ? 'PROFIT' : 'LOSS';
+        if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
+          status = 'AT_TP';
+        } else if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
+          status = 'AT_SL';
+        }
+
+        return {
+          id: position.id,
+          symbol: position.symbol,
+          trade_mode: position.trade_mode,
+          exchange_account_id: position.exchange_account_id,
+          exchange_account_label: position.exchange_account.label,
+          price_open: priceOpen,
+          current_price: currentPrice,
+          pnl_pct: pnlPct,
+          tp_enabled: position.tp_enabled,
+          tp_pct: position.tp_pct?.toNumber() || null,
+          sl_enabled: position.sl_enabled,
+          sl_pct: position.sl_pct?.toNumber() || null,
+          tp_proximity_pct: tpProximityPct,
+          sl_proximity_pct: slProximityPct,
+          distance_to_tp_pct: distanceToTpPct,
+          distance_to_sl_pct: distanceToSlPct,
+          status,
+          qty_remaining: position.qty_remaining.toNumber(),
+          qty_total: position.qty_total.toNumber(),
+          sl_triggered: position.sl_triggered,
+          tp_triggered: position.tp_triggered,
+        };
+      });
+
+      return { data: monitoringData };
+    } catch (error: any) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Erro ao buscar monitoramento TP/SL: ${error.message}`);
+    }
+  }
+
   @Get(':id')
   @ApiOperation({ 
     summary: 'Obter posição por ID',

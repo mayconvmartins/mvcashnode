@@ -370,5 +370,136 @@ export class ReportsController {
       to ? new Date(to) : undefined
     );
   }
+
+  @Get('strategy-performance')
+  @ApiOperation({ 
+    summary: 'Performance por estratégia',
+    description: 'Retorna o desempenho agrupado por estratégia (webhook source, reason_code ou order_type + side)',
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'],
+    description: 'Filtrar por modo de trading',
+  })
+  @ApiQuery({ 
+    name: 'from', 
+    required: false, 
+    type: String,
+    description: 'Data inicial (ISO 8601)',
+  })
+  @ApiQuery({ 
+    name: 'to', 
+    required: false, 
+    type: String,
+    description: 'Data final (ISO 8601)',
+  })
+  @ApiQuery({ 
+    name: 'webhook_source_id', 
+    required: false, 
+    type: Number,
+    description: 'Filtrar por webhook source específico',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Performance por estratégia retornado com sucesso',
+  })
+  async getStrategyPerformance(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('webhook_source_id') webhookSourceId?: number
+  ) {
+    return this.reportsService.getStrategyPerformance(
+      user.userId,
+      tradeMode as any,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+      webhookSourceId
+    );
+  }
+
+  @Get('sharpe-ratio')
+  @ApiOperation({ 
+    summary: 'Sharpe Ratio',
+    description: 'Calcula o Sharpe Ratio baseado nos retornos diários',
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'],
+    description: 'Filtrar por modo de trading',
+  })
+  @ApiQuery({ 
+    name: 'from', 
+    required: false, 
+    type: String,
+    description: 'Data inicial (ISO 8601)',
+  })
+  @ApiQuery({ 
+    name: 'to', 
+    required: false, 
+    type: String,
+    description: 'Data final (ISO 8601)',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Sharpe Ratio calculado com sucesso',
+  })
+  async getSharpeRatio(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string
+  ) {
+    return this.reportsService.getSharpeRatio(
+      user.userId,
+      tradeMode as any,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined
+    );
+  }
+
+  @Get('symbol-correlation')
+  @ApiOperation({ 
+    summary: 'Correlação entre símbolos',
+    description: 'Calcula a correlação de retornos entre diferentes símbolos',
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'],
+    description: 'Filtrar por modo de trading',
+  })
+  @ApiQuery({ 
+    name: 'from', 
+    required: false, 
+    type: String,
+    description: 'Data inicial (ISO 8601)',
+  })
+  @ApiQuery({ 
+    name: 'to', 
+    required: false, 
+    type: String,
+    description: 'Data final (ISO 8601)',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Correlação entre símbolos calculada com sucesso',
+  })
+  async getSymbolCorrelation(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string
+  ) {
+    return this.reportsService.getSymbolCorrelation(
+      user.userId,
+      tradeMode as any,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined
+    );
+  }
 }
 

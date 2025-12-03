@@ -1,5 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { PositionService } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
@@ -9,6 +10,8 @@ import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-exe
 
 @Processor('limit-orders-monitor-sim')
 export class LimitOrdersMonitorSimProcessor extends WorkerHost {
+  private readonly logger = new Logger(LimitOrdersMonitorSimProcessor.name);
+
   constructor(
     private prisma: PrismaService,
     private cronExecutionService: CronExecutionService
@@ -19,6 +22,7 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
   async process(_job: Job<any>): Promise<any> {
     const startTime = Date.now();
     const jobName = 'limit-orders-monitor-sim';
+    this.logger.log('[LIMIT-ORDERS-MONITOR-SIM] Iniciando monitoramento de ordens LIMIT...');
 
     try {
       // Registrar início da execução
@@ -128,6 +132,11 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
     const result = { ordersChecked: limitOrders.length, filled, canceled };
     const durationMs = Date.now() - startTime;
 
+    this.logger.log(
+      `[LIMIT-ORDERS-MONITOR-SIM] Monitoramento concluído com sucesso. ` +
+      `Ordens verificadas: ${limitOrders.length}, Preenchidas: ${filled}, Canceladas: ${canceled}, Duração: ${durationMs}ms`
+    );
+
     // Registrar sucesso
     await this.cronExecutionService.recordExecution(
       jobName,
@@ -140,6 +149,11 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
   } catch (error: any) {
     const durationMs = Date.now() - startTime;
     const errorMessage = error?.message || 'Erro desconhecido';
+
+    this.logger.error(
+      `[LIMIT-ORDERS-MONITOR-SIM] Erro ao monitorar ordens LIMIT: ${errorMessage}`,
+      error.stack
+    );
 
     // Registrar falha
     await this.cronExecutionService.recordExecution(

@@ -533,6 +533,52 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const avgPrice = order.average || order.price || tradeJob.limit_price?.toNumber() || 0;
       const cummQuoteQty = order.cost || (executedQty * avgPrice);
 
+      // VALIDAÇÃO DE SEGURANÇA: Verificar lucro mínimo antes de executar venda (apenas se ordem foi preenchida)
+      if (tradeJob.side === 'SELL' && executedQty > 0) {
+        try {
+          const { PositionService } = await import('@mvcashnode/domain');
+          const positionService = new PositionService(this.prisma);
+          
+          const openPosition = await this.prisma.tradePosition.findFirst({
+            where: {
+              exchange_account_id: tradeJob.exchange_account_id,
+              symbol: tradeJob.symbol,
+              trade_mode: tradeJob.trade_mode,
+              status: 'OPEN',
+              qty_remaining: { gt: 0 },
+            },
+            orderBy: {
+              created_at: 'asc',
+            },
+          });
+
+          if (openPosition) {
+            const validationResult = await positionService.validateMinProfit(openPosition.id, avgPrice);
+
+            if (!validationResult.valid) {
+              this.logger.warn(`[EXECUTOR] ⚠️ Validação de lucro mínimo FALHOU: ${validationResult.reason}`);
+              await this.prisma.tradeJob.update({
+                where: { id: tradeJobId },
+                data: {
+                  status: TradeJobStatus.FAILED,
+                  reason_code: 'MIN_PROFIT_NOT_MET',
+                  reason_message: validationResult.reason,
+                },
+              });
+              throw new Error(`Venda não permitida: ${validationResult.reason}`);
+            } else {
+              this.logger.log(`[EXECUTOR] ✅ Validação de lucro mínimo PASSOU: ${validationResult.reason}`);
+            }
+          }
+        } catch (validationError: any) {
+          if (validationError.message.includes('MIN_PROFIT_NOT_MET') || validationError.message.includes('Venda não permitida')) {
+            throw validationError;
+          }
+          // Se for outro erro, apenas logar e continuar (não bloquear execução)
+          this.logger.warn(`[EXECUTOR] Erro ao validar lucro mínimo (continuando): ${validationError.message}`);
+        }
+      }
+
       // Se é ordem LIMIT e não foi preenchida, manter como PENDING_LIMIT
       if (isLimitOrder && isOrderNew && executedQty === 0) {
         // Criar execution apenas para registrar o exchange_order_id

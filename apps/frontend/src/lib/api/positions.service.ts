@@ -47,4 +47,9 @@ export const positionsService = {
         const response = await apiClient.post(`/positions/${id}/sell-limit`, data)
         return response.data
     },
+
+    getMonitoringTPSL: async (filters?: { trade_mode?: string; exchange_account_id?: number }): Promise<any> => {
+        const response = await apiClient.get('/positions/monitoring-tp-sl', { params: filters })
+        return response.data
+    },
 }

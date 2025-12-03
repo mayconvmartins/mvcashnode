@@ -101,70 +101,174 @@ export class CronManagementService implements OnModuleInit {
    * Lista todos os jobs configurados
    */
   async getAllJobs(): Promise<any[]> {
-    const jobs = await this.prisma.cronJobConfig.findMany({
-      orderBy: { name: 'asc' },
-    });
+    try {
+      const jobs = await this.prisma.cronJobConfig.findMany({
+        orderBy: { name: 'asc' },
+      });
 
-    const queueMap = this.getQueueMap();
+      const queueMap = this.getQueueMap();
 
-    return Promise.all(
-      jobs.map(async (job) => {
-        // Buscar estatísticas
-        const stats = await this.getJobStatistics(job.id);
-
-        // Buscar última execução
-        const lastExecution = await this.prisma.cronJobExecution.findFirst({
-          where: { job_config_id: job.id },
-          orderBy: { started_at: 'desc' },
-        });
-
-        // Calcular próxima execução
-        let next_execution = null;
-        if (job.enabled && job.status === CronJobStatus.ACTIVE && lastExecution?.finished_at) {
-          next_execution = new Date(lastExecution.finished_at.getTime() + job.interval_ms);
-        }
-
-        // Verificar status na fila BullMQ
-        const queue = queueMap[job.queue_name];
-        let bullmqStatus = null;
-        if (queue) {
+      // Usar Promise.allSettled para garantir que erros em um job não quebrem a listagem completa
+      const results = await Promise.allSettled(
+        jobs.map(async (job) => {
           try {
-            const repeatableJobs = await queue.getRepeatableJobs();
-            // O BullMQ retorna jobs repetitivos com id no formato "repeat:{jobId}:{pattern}"
-            // ou pode usar a propriedade "key" que contém o jobId
-            const repeatJob = repeatableJobs.find((rj) => {
-              // Tentar comparar pelo id completo
-              if (rj.id === job.job_id) return true;
-              // Tentar comparar pelo key se disponível
-              if (rj.key && rj.key.includes(job.job_id)) return true;
-              // Tentar extrair o jobId do id (formato: repeat:{jobId}:{pattern})
-              const idParts = rj.id?.split(':');
-              if (idParts && idParts.length >= 2 && idParts[1] === job.job_id) return true;
-              return false;
+            // Buscar estatísticas
+            const stats = await this.getJobStatistics(job.id).catch((error) => {
+              console.error(`[Cron] Erro ao buscar estatísticas do job ${job.name}:`, error);
+              return {
+                total_runs: 0,
+                success_count: 0,
+                failure_count: 0,
+                avg_duration_ms: 0,
+                success_rate: 0,
+              };
             });
-            bullmqStatus = repeatJob ? 'active' : 'not_found';
-          } catch (error) {
-            console.error(`Erro ao verificar job ${job.name} no BullMQ:`, error);
-            bullmqStatus = 'error';
-          }
-        }
 
-        return {
-          ...job,
-          statistics: stats,
-          last_execution: lastExecution
-            ? {
-                started_at: lastExecution.started_at,
-                duration_ms: lastExecution.duration_ms,
-                status: lastExecution.status,
-                result_json: lastExecution.result_json,
+            // Buscar última execução
+            const lastExecution = await this.prisma.cronJobExecution
+              .findFirst({
+                where: { job_config_id: job.id },
+                orderBy: { started_at: 'desc' },
+              })
+              .catch((error) => {
+                console.error(`[Cron] Erro ao buscar última execução do job ${job.name}:`, error);
+                return null;
+              });
+
+            // Calcular próxima execução
+            let next_execution = null;
+            if (job.enabled && job.status === CronJobStatus.ACTIVE && lastExecution?.finished_at) {
+              next_execution = new Date(lastExecution.finished_at.getTime() + job.interval_ms);
+            }
+
+            // Verificar status na fila BullMQ
+            const queue = queueMap[job.queue_name];
+            let bullmqStatus = null;
+            if (queue) {
+              try {
+                const repeatableJobs = await queue.getRepeatableJobs();
+                
+                // O BullMQ retorna jobs repetitivos com:
+                // - key: formato "{queueName}::{jobId}::{pattern}" (com dois dois-pontos) ou "{jobId}::{pattern}"
+                // - id: identificador único do job repetitivo (pode ser igual ao jobId ou diferente)
+                // - name: nome do job (pode ser o nome do processor ou o job name usado no add)
+                const repeatJob = repeatableJobs.find((rj) => {
+                  // 1. Comparar pelo job_id no key (formato mais comum: "queueName::jobId::pattern")
+                  if (rj.key) {
+                    // O key pode ter dois dois-pontos (::) como separador
+                    // Exemplo: "sl-tp-monitor-real::sl-tp-monitor-real-repeat::30000"
+                    const keyParts = rj.key.split('::');
+                    // Verificar se algum dos segmentos corresponde ao job_id
+                    if (keyParts.some(part => part === job.job_id)) {
+                      return true;
+                    }
+                    
+                    // Também tentar split por um dois-pontos (:) para compatibilidade
+                    const keyPartsSingle = rj.key.split(':');
+                    if (keyPartsSingle.some(part => part === job.job_id)) {
+                      return true;
+                    }
+                    
+                    // Verificar se o key contém o job_id como substring (fallback)
+                    if (rj.key.includes(job.job_id)) {
+                      return true;
+                    }
+                  }
+                  
+                  // 2. Comparar pelo id se for igual ao job_id
+                  if (rj.id === job.job_id) {
+                    return true;
+                  }
+                  
+                  // 3. Verificar se o id contém o job_id
+                  if (rj.id && rj.id.includes(job.job_id)) {
+                    return true;
+                  }
+                  
+                  // 4. Comparar pelo name se disponível (o name pode ser o nome do processor)
+                  // Exemplo: name pode ser "monitor-sl-tp" mas job.name é "sl-tp-monitor-real"
+                  if (rj.name) {
+                    // Verificar se o name corresponde ao job.name ou se contém parte dele
+                    if (rj.name === job.name || job.name.includes(rj.name) || rj.name.includes(job.name)) {
+                      return true;
+                    }
+                  }
+                  
+                  return false;
+                });
+                
+                bullmqStatus = repeatJob ? 'active' : 'not_found';
+                
+                // Log para debug quando não encontrado (apenas se o job está ativo)
+                if (!repeatJob && job.enabled && job.status === CronJobStatus.ACTIVE) {
+                  // Log detalhado para debug
+                  const availableJobsInfo = repeatableJobs.length > 0 
+                    ? repeatableJobs.map(rj => `key="${rj.key || 'N/A'}", id="${rj.id || 'N/A'}", name="${rj.name || 'N/A'}"`).join('; ')
+                    : 'nenhum';
+                  console.warn(
+                    `[Cron] Job ${job.name} (job_id: ${job.job_id}) não encontrado no BullMQ. ` +
+                    `Total de jobs repetitivos na fila: ${repeatableJobs.length}. ` +
+                    `Jobs disponíveis: ${availableJobsInfo}`
+                  );
+                }
+              } catch (error) {
+                console.error(`[Cron] Erro ao verificar job ${job.name} no BullMQ:`, error);
+                bullmqStatus = 'error';
               }
-            : null,
-          next_execution,
-          bullmq_status: bullmqStatus,
-        };
-      }),
-    );
+            } else {
+              console.warn(`[Cron] Fila ${job.queue_name} não encontrada no mapa de filas para job ${job.name}`);
+              bullmqStatus = 'queue_not_found';
+            }
+
+            return {
+              ...job,
+              statistics: stats,
+              last_execution: lastExecution
+                ? {
+                    started_at: lastExecution.started_at,
+                    duration_ms: lastExecution.duration_ms,
+                    status: lastExecution.status,
+                    result_json: lastExecution.result_json,
+                  }
+                : null,
+              next_execution,
+              bullmq_status: bullmqStatus,
+            };
+          } catch (error) {
+            console.error(`[Cron] Erro ao processar job ${job.name}:`, error);
+            // Retornar job com informações básicas mesmo em caso de erro
+            return {
+              ...job,
+              statistics: {
+                total_runs: 0,
+                success_count: 0,
+                failure_count: 0,
+                avg_duration_ms: 0,
+                success_rate: 0,
+              },
+              last_execution: null,
+              next_execution: null,
+              bullmq_status: 'error',
+            };
+          }
+        }),
+      );
+
+      // Processar resultados e filtrar rejeitados
+      return results
+        .map((result) => {
+          if (result.status === 'fulfilled') {
+            return result.value;
+          } else {
+            console.error('[Cron] Erro ao processar job:', result.reason);
+            return null;
+          }
+        })
+        .filter((job) => job !== null);
+    } catch (error) {
+      console.error('[Cron] Erro crítico ao buscar jobs:', error);
+      return [];
+    }
   }
 
   /**
@@ -389,6 +493,34 @@ export class CronManagementService implements OnModuleInit {
   }
 
   /**
+   * Helper: Encontra o key do job repetitivo no BullMQ
+   */
+  private async findRepeatableJobKey(queue: Queue, jobId: string): Promise<string | null> {
+    try {
+      const repeatableJobs = await queue.getRepeatableJobs();
+      const repeatJob = repeatableJobs.find((rj) => {
+        if (rj.key) {
+          const keyParts = rj.key.split(':');
+          if (keyParts.some(part => part === jobId)) {
+            return true;
+          }
+          if (rj.key.includes(jobId)) {
+            return true;
+          }
+        }
+        if (rj.id === jobId || (rj.id && rj.id.includes(jobId))) {
+          return true;
+        }
+        return false;
+      });
+      return repeatJob?.key || null;
+    } catch (error) {
+      console.error(`[Cron] Erro ao buscar key do job ${jobId}:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Helper: Pausa job no BullMQ
    */
   private async pauseJobInBullMQ(job: any): Promise<void> {
@@ -396,8 +528,20 @@ export class CronManagementService implements OnModuleInit {
     if (!queue) return;
 
     try {
-      await queue.removeRepeatableByKey(job.job_id);
-      console.log(`[Cron] Job ${job.name} pausado no BullMQ`);
+      // Buscar o key correto do job repetitivo
+      const key = await this.findRepeatableJobKey(queue, job.job_id);
+      if (key) {
+        await queue.removeRepeatableByKey(key);
+        console.log(`[Cron] Job ${job.name} pausado no BullMQ (key: ${key})`);
+      } else {
+        // Tentar remover usando o jobId diretamente (pode funcionar em algumas versões)
+        try {
+          await queue.removeRepeatableByKey(job.job_id);
+          console.log(`[Cron] Job ${job.name} pausado no BullMQ usando jobId diretamente`);
+        } catch (error2) {
+          console.warn(`[Cron] Não foi possível pausar job ${job.name} no BullMQ: job não encontrado`);
+        }
+      }
     } catch (error) {
       console.error(`[Cron] Erro ao pausar job ${job.name}:`, error);
     }
@@ -435,8 +579,20 @@ export class CronManagementService implements OnModuleInit {
     if (!queue) return;
 
     try {
+      // Buscar o key correto do job repetitivo
+      const key = await this.findRepeatableJobKey(queue, job.job_id);
+      
       // Remove job antigo
-      await queue.removeRepeatableByKey(job.job_id);
+      if (key) {
+        await queue.removeRepeatableByKey(key);
+      } else {
+        // Tentar remover usando o jobId diretamente
+        try {
+          await queue.removeRepeatableByKey(job.job_id);
+        } catch (error2) {
+          console.warn(`[Cron] Job ${job.name} não encontrado para remover antes de reagendar`);
+        }
+      }
 
       // Adiciona com novo intervalo
       await queue.add(

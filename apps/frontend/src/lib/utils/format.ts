@@ -14,8 +14,12 @@ export function formatNumber(value: number, decimals = 2): string {
     }).format(value)
 }
 
-export function formatPercentage(value: number, decimals = 2): string {
-    return `${value >= 0 ? '+' : ''}${value.toFixed(decimals)}%`
+export function formatPercentage(value: number | string | null | undefined, decimals = 2): string {
+    const numValue = typeof value === 'string' ? parseFloat(value) : (value ?? 0)
+    if (isNaN(numValue)) {
+        return '0.00%'
+    }
+    return `${numValue >= 0 ? '+' : ''}${numValue.toFixed(decimals)}%`
 }
 
 export function formatDate(date: string | Date, format: 'short' | 'long' | 'time' = 'short'): string {

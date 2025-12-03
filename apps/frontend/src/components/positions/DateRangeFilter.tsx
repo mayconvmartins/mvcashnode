@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { Calendar, X } from 'lucide-react'
 
-export type DatePreset = 'all' | 'today' | 'yesterday' | 'last7days' | 'thisMonth' | 'lastMonth' | 'custom'
+export type DatePreset = 'all' | 'today' | 'yesterday' | 'last7days' | 'last30days' | 'last90days' | 'thisMonth' | 'lastMonth' | 'custom'
 
 interface DateRangeFilterProps {
     from?: string
@@ -57,6 +57,26 @@ export function DateRangeFilter({ from, to, preset: initialPreset, onDateChange 
                 return {
                     from: last7Days.toISOString(),
                     to: todayEnd7.toISOString(),
+                }
+            
+            case 'last30days':
+                const last30Days = new Date(today)
+                last30Days.setDate(last30Days.getDate() - 30)
+                const todayEnd30 = new Date(today)
+                todayEnd30.setHours(23, 59, 59, 999)
+                return {
+                    from: last30Days.toISOString(),
+                    to: todayEnd30.toISOString(),
+                }
+            
+            case 'last90days':
+                const last90Days = new Date(today)
+                last90Days.setDate(last90Days.getDate() - 90)
+                const todayEnd90 = new Date(today)
+                todayEnd90.setHours(23, 59, 59, 999)
+                return {
+                    from: last90Days.toISOString(),
+                    to: todayEnd90.toISOString(),
                 }
             
             case 'thisMonth':
@@ -139,6 +159,8 @@ export function DateRangeFilter({ from, to, preset: initialPreset, onDateChange 
                             <SelectItem value="today">Hoje</SelectItem>
                             <SelectItem value="yesterday">Ontem</SelectItem>
                             <SelectItem value="last7days">Últimos 7 dias</SelectItem>
+                            <SelectItem value="last30days">Últimos 30 dias</SelectItem>
+                            <SelectItem value="last90days">Últimos 90 dias</SelectItem>
                             <SelectItem value="thisMonth">Mês atual</SelectItem>
                             <SelectItem value="lastMonth">Mês anterior</SelectItem>
                             <SelectItem value="custom">Personalizado</SelectItem>

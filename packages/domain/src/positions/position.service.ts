@@ -1,6 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
 import { TradeMode, PositionStatus, CloseReason, ExchangeType } from '@mvcashnode/shared';
-import { MinProfitValidationService } from '../trading/min-profit-validation.service';
 
 export interface PositionFill {
   executionId: number;
@@ -22,6 +21,28 @@ export class PositionService {
       throw new Error('Invalid buy job');
     }
 
+    // Buscar parâmetro de trading para copiar min_profit_pct
+    let minProfitPct: number | null = null;
+    try {
+      const parameter = await this.prisma.tradeParameter.findFirst({
+        where: {
+          exchange_account_id: job.exchange_account_id,
+          symbol: job.symbol,
+          side: { in: ['SELL', 'BOTH'] },
+        },
+      });
+
+      if (parameter && parameter.min_profit_pct) {
+        minProfitPct = parameter.min_profit_pct.toNumber();
+        console.log(`[POSITION-SERVICE] Copiando min_profit_pct=${minProfitPct}% dos parâmetros para posição`);
+      } else {
+        console.log(`[POSITION-SERVICE] Parâmetro não encontrado ou sem min_profit_pct, deixando como null`);
+      }
+    } catch (error: any) {
+      console.warn(`[POSITION-SERVICE] Erro ao buscar parâmetro para copiar min_profit_pct: ${error.message}`);
+      // Continuar sem min_profit_pct se houver erro
+    }
+
     // Create new position
     const position = await this.prisma.tradePosition.create({
       data: {
@@ -34,6 +55,7 @@ export class PositionService {
         qty_remaining: executedQty,
         price_open: avgPrice,
         status: PositionStatus.OPEN,
+        min_profit_pct: minProfitPct,
       },
     });
 
@@ -49,6 +71,70 @@ export class PositionService {
     });
 
     return position.id;
+  }
+
+  /**
+   * Valida se a venda atende ao lucro mínimo configurado na posição
+   * @param positionId ID da posição
+   * @param sellPrice Preço de venda
+   * @returns Resultado da validação
+   */
+  async validateMinProfit(
+    positionId: number,
+    sellPrice: number
+  ): Promise<{ valid: boolean; reason: string; profitPct?: number; minProfitPct?: number }> {
+    try {
+      const position = await this.prisma.tradePosition.findUnique({
+        where: { id: positionId },
+      });
+
+      if (!position) {
+        return {
+          valid: true,
+          reason: 'Posição não encontrada - permitindo venda',
+        };
+      }
+
+      // Se min_profit_pct não estiver configurado, permitir venda
+      if (!position.min_profit_pct) {
+        return {
+          valid: true,
+          reason: 'min_profit_pct não configurado na posição - permitindo venda',
+        };
+      }
+
+      const minProfitPct = position.min_profit_pct.toNumber();
+      const priceOpen = position.price_open.toNumber();
+
+      // Calcular lucro percentual
+      const profitPct = ((sellPrice - priceOpen) / priceOpen) * 100;
+
+      console.log(`[POSITION-SERVICE] Validação de lucro mínimo: posição ${positionId}, preço abertura=${priceOpen}, preço venda=${sellPrice}, lucro=${profitPct.toFixed(2)}%, mínimo=${minProfitPct.toFixed(2)}%`);
+
+      // Validar se atende ao lucro mínimo
+      if (profitPct < minProfitPct) {
+        return {
+          valid: false,
+          reason: `Lucro atual (${profitPct.toFixed(2)}%) abaixo do mínimo configurado na posição (${minProfitPct.toFixed(2)}%)`,
+          profitPct,
+          minProfitPct,
+        };
+      }
+
+      return {
+        valid: true,
+        reason: `Lucro mínimo atendido: ${profitPct.toFixed(2)}% >= ${minProfitPct.toFixed(2)}%`,
+        profitPct,
+        minProfitPct,
+      };
+    } catch (error: any) {
+      console.error(`[POSITION-SERVICE] Erro ao validar lucro mínimo: ${error.message}`);
+      // Em caso de erro, permitir venda mas registrar aviso
+      return {
+        valid: true,
+        reason: `Erro ao validar: ${error.message}`,
+      };
+    }
   }
 
   async onSellExecuted(
@@ -205,20 +291,21 @@ export class PositionService {
       throw new Error('Quantity must be greater than zero');
     }
 
-    // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+    // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado na posição
     // Se for LIMIT, usar limitPrice para validação; se for MARKET, buscar preço atual
-    const minProfitValidationService = new MinProfitValidationService(this.prisma);
-    const priceOpen = position.price_open.toNumber();
-    const sellPrice = orderType === 'LIMIT' && limitPrice ? limitPrice : undefined;
-    const validationResult = await minProfitValidationService.validateMinProfit(
-      position.exchange_account_id,
-      position.symbol,
-      priceOpen,
-      'MANUAL',
-      position.exchange_account.exchange as ExchangeType,
-      position.trade_mode as 'REAL' | 'SIMULATION',
-      sellPrice
-    );
+    let sellPrice: number;
+    
+    if (orderType === 'LIMIT' && limitPrice) {
+      sellPrice = limitPrice;
+    } else {
+      // Para MARKET, buscar preço atual
+      const { AdapterFactory } = await import('@mvcashnode/exchange');
+      const adapter = AdapterFactory.createAdapter(position.exchange_account.exchange as ExchangeType);
+      const ticker = await adapter.fetchTicker(position.symbol);
+      sellPrice = ticker.last;
+    }
+    
+    const validationResult = await this.validateMinProfit(positionId, sellPrice);
 
     if (!validationResult.valid) {
       throw new Error(`Venda não permitida: ${validationResult.reason}`);
@@ -270,19 +357,9 @@ export class PositionService {
       throw new Error('Quantity must be greater than zero');
     }
 
-    // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
-    // Usa o limitPrice fornecido para validar
-    const minProfitValidationService = new MinProfitValidationService(this.prisma);
-    const priceOpen = position.price_open.toNumber();
-    const validationResult = await minProfitValidationService.validateMinProfit(
-      position.exchange_account_id,
-      position.symbol,
-      priceOpen,
-      'MANUAL',
-      position.exchange_account.exchange as ExchangeType,
-      position.trade_mode as 'REAL' | 'SIMULATION',
-      limitPrice // Passar o limitPrice para validação
-    );
+    // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado na posição
+    // Usa o limitPrice fornecido para validação
+    const validationResult = await this.validateMinProfit(positionId, limitPrice);
 
     if (!validationResult.valid) {
       throw new Error(`Venda não permitida: ${validationResult.reason}`);

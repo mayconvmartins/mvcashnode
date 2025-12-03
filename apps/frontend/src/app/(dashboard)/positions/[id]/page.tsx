@@ -365,6 +365,49 @@ export default function PositionDetailPage() {
                         )}
                     </CardContent>
                 </Card>
+
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardDescription className="flex items-center gap-2">
+                            <DollarSign className="h-4 w-4" />
+                            Lucro Mínimo
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {position.min_profit_pct !== null && position.min_profit_pct !== undefined ? (
+                            <>
+                                <div className="text-2xl font-bold text-blue-500">
+                                    {formatPercentage(Number(position.min_profit_pct))}
+                                </div>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Preço mínimo de venda: {formatCurrency(
+                                        Number(position.price_open || 0) * (1 + Number(position.min_profit_pct) / 100)
+                                    )}
+                                </p>
+                                {position.current_price && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Preço atual: {formatCurrency(position.current_price)}
+                                        {(() => {
+                                            const minProfitPctNum = Number(position.min_profit_pct);
+                                            const priceOpenNum = Number(position.price_open || 0);
+                                            const currentPriceNum = Number(position.current_price);
+                                            const minSellPrice = priceOpenNum * (1 + minProfitPctNum / 100);
+                                            const profitPct = ((currentPriceNum - priceOpenNum) / priceOpenNum) * 100;
+                                            const meetsMinProfit = profitPct >= minProfitPctNum;
+                                            return (
+                                                <span className={`ml-2 ${meetsMinProfit ? 'text-green-500' : 'text-orange-500'}`}>
+                                                    ({meetsMinProfit ? '✓' : '✗'} {profitPct >= 0 ? '+' : ''}{profitPct.toFixed(2)}%)
+                                                </span>
+                                            );
+                                        })()}
+                                    </p>
+                                )}
+                            </>
+                        ) : (
+                            <span className="text-muted-foreground">Não configurado</span>
+                        )}
+                    </CardContent>
+                </Card>
             </div>
 
             {/* Tabs */}

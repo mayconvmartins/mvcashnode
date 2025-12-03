@@ -1,16 +1,42 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { reportsService } from '@/lib/api/reports.service'
+import { accountsService } from '@/lib/api/accounts.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
 import { formatCurrency } from '@/lib/utils/format'
+import { useTradeMode } from '@/lib/hooks/useTradeMode'
+import { Filter } from 'lucide-react'
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 
 export default function OpenPositionsReportPage() {
+    const { tradeMode } = useTradeMode()
+    const [selectedAccount, setSelectedAccount] = useState<string>('all')
+    const [filtersOpen, setFiltersOpen] = useState(false)
+
+    // Buscar contas
+    const { data: accounts } = useQuery({
+        queryKey: ['accounts'],
+        queryFn: accountsService.list,
+    })
+
+    const filters: any = {
+        trade_mode: tradeMode,
+        ...(selectedAccount !== 'all' && { exchange_account_id: parseInt(selectedAccount) }),
+    }
+    
     const { data: report, isLoading } = useQuery({
-        queryKey: ['reports', 'open-positions'],
-        queryFn: () => reportsService.getOpenPositions(),
+        queryKey: ['reports', 'open-positions', filters],
+        queryFn: () => reportsService.getOpenPositionsSummary(filters),
     })
 
     if (isLoading) {
@@ -26,12 +52,55 @@ export default function OpenPositionsReportPage() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold">Posições Abertas</h1>
-                <p className="text-muted-foreground">
-                    Exposição atual por símbolo
-                </p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold">Posições Abertas</h1>
+                    <p className="text-muted-foreground">
+                        Exposição atual por símbolo
+                    </p>
+                </div>
             </div>
+
+            {/* Filtros */}
+            <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+                <Card>
+                    <CollapsibleTrigger asChild>
+                        <CardHeader className="cursor-pointer hover:bg-accent/50 transition-colors">
+                            <div className="flex items-center justify-between">
+                                <CardTitle className="flex items-center gap-2">
+                                    <Filter className="h-5 w-5" />
+                                    Filtros
+                                </CardTitle>
+                            </div>
+                        </CardHeader>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                        <CardContent className="space-y-4">
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label htmlFor="account-filter">Conta de Exchange</Label>
+                                    <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                                        <SelectTrigger id="account-filter">
+                                            <SelectValue placeholder="Todas as contas" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">Todas as contas</SelectItem>
+                                            {accounts?.filter(acc => {
+                                                const accTradeMode = acc.is_simulation ? 'SIMULATION' : 'REAL'
+                                                return accTradeMode === tradeMode
+                                            }).map(account => (
+                                                <SelectItem key={account.id} value={account.id.toString()}>
+                                                    {account.label} ({account.exchange})
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </CollapsibleContent>
+                </Card>
+            </Collapsible>
 
             {/* Summary Cards */}
             <div className="grid gap-4 md:grid-cols-4">
@@ -45,11 +114,11 @@ export default function OpenPositionsReportPage() {
                 </Card>
                 <Card>
                     <CardHeader className="pb-3">
-                        <CardDescription>Exposição Total</CardDescription>
+                        <CardDescription>Investimento Total</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
-                            {formatCurrency(report?.totalExposure || 0)}
+                            {formatCurrency(report?.totalInvested || 0)}
                         </div>
                     </CardContent>
                 </Card>
@@ -58,8 +127,8 @@ export default function OpenPositionsReportPage() {
                         <CardDescription>PnL Não Realizado</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className={`text-2xl font-bold ${(report?.unrealizedPnL || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                            {formatCurrency(report?.unrealizedPnL || 0)}
+                        <div className={`text-2xl font-bold ${(report?.totalUnrealizedPnL || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            {formatCurrency(report?.totalUnrealizedPnL || 0)}
                         </div>
                     </CardContent>
                 </Card>
@@ -68,7 +137,7 @@ export default function OpenPositionsReportPage() {
                         <CardDescription>Símbolos Únicos</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{report?.uniqueSymbols || 0}</div>
+                        <div className="text-2xl font-bold">{report?.bySymbol?.length || 0}</div>
                     </CardContent>
                 </Card>
             </div>
@@ -76,7 +145,7 @@ export default function OpenPositionsReportPage() {
             {/* Pie Chart */}
             <Card>
                 <CardHeader>
-                    <CardTitle>Exposição por Símbolo</CardTitle>
+                    <CardTitle>Investimento por Símbolo</CardTitle>
                     <CardDescription>Distribuição de capital por ativo</CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -88,10 +157,10 @@ export default function OpenPositionsReportPage() {
                                     cx="50%"
                                     cy="50%"
                                     labelLine={false}
-                                    label={(entry) => `${entry.symbol}: ${((entry.value / report.totalExposure) * 100).toFixed(1)}%`}
+                                    label={(entry: any) => `${entry.symbol}: ${((entry.invested / (report.totalInvested || 1)) * 100).toFixed(1)}%`}
                                     outerRadius={120}
                                     fill="#8884d8"
-                                    dataKey="value"
+                                    dataKey="invested"
                                 >
                                     {report.bySymbol.map((entry: any, index: number) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -132,12 +201,12 @@ export default function OpenPositionsReportPage() {
                                         <tr key={index} className="border-b">
                                             <td className="p-2 font-medium">{item.symbol}</td>
                                             <td className="text-right p-2">{item.count}</td>
-                                            <td className="text-right p-2">{formatCurrency(item.value)}</td>
-                                            <td className={`text-right p-2 ${item.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                                {formatCurrency(item.pnl)}
+                                            <td className="text-right p-2">{formatCurrency(item.invested)}</td>
+                                            <td className={`text-right p-2 ${item.unrealizedPnL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                {formatCurrency(item.unrealizedPnL)}
                                             </td>
                                             <td className="text-right p-2">
-                                                {((item.value / report.totalExposure) * 100).toFixed(1)}%
+                                                {((item.invested / (report.totalInvested || 1)) * 100).toFixed(1)}%
                                             </td>
                                         </tr>
                                     ))}

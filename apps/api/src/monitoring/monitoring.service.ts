@@ -188,33 +188,142 @@ export class MonitoringService {
           });
         } catch (error) {
           console.error(`[Monitoring] Erro ao coletar métricas do job ${jobDef.name}:`, error);
+          // Adicionar job com estatísticas zeradas em caso de erro para não quebrar a listagem
+          jobs.push({
+            name: jobDef.name,
+            description: jobDef.description,
+            status: 'active',
+            statistics: {
+              totalRuns: 0,
+              successCount: 0,
+              failureCount: 0,
+              avgDuration: 0,
+            },
+          });
         }
       }
 
-      // Adicionar informações de jobs agendados (monitors)
-      const monitorJobs = [
-        { name: 'sl-tp-monitor-real', description: 'Monitor SL/TP modo REAL - a cada 30s' },
-        { name: 'sl-tp-monitor-sim', description: 'Monitor SL/TP modo SIMULAÇÃO - a cada 30s' },
-        { name: 'limit-orders-monitor-real', description: 'Monitor ordens LIMIT modo REAL - a cada 60s' },
-        { name: 'limit-orders-monitor-sim', description: 'Monitor ordens LIMIT modo SIMULAÇÃO - a cada 60s' },
-        { name: 'balances-sync-real', description: 'Sincronização de saldos - a cada 5min' },
-        { name: 'system-monitor', description: 'Monitor de sistema e alertas - a cada 30s' },
-      ];
-
-      // Buscar estatísticas dos últimos logs para monitor jobs
-      for (const monitorJob of monitorJobs) {
-        jobs.push({
-          name: monitorJob.name,
-          description: monitorJob.description,
-          status: 'active',
-          statistics: {
-            totalRuns: 0,
-            successCount: 0,
-            failureCount: 0,
-            avgDuration: 0,
+      // Buscar informações de jobs agendados (monitors) do banco de dados
+      try {
+        const cronJobConfigs = await this.prisma.cronJobConfig.findMany({
+          where: {
+            name: {
+              in: [
+                'sl-tp-monitor-real',
+                'sl-tp-monitor-sim',
+                'limit-orders-monitor-real',
+                'limit-orders-monitor-sim',
+                'balances-sync-real',
+                'system-monitor',
+              ],
+            },
           },
         });
+
+        for (const jobConfig of cronJobConfigs) {
+          try {
+            // Buscar todas as execuções deste job
+            const executions = await this.prisma.cronJobExecution.findMany({
+              where: { job_config_id: jobConfig.id },
+            });
+
+            // Calcular estatísticas
+            const totalRuns = executions.length;
+            const successCount = executions.filter(
+              (e) => e.status === 'SUCCESS',
+            ).length;
+            const failureCount = executions.filter(
+              (e) => e.status === 'FAILED',
+            ).length;
+
+            // Calcular duração média
+            const completedExecutions = executions.filter(
+              (e) => e.duration_ms !== null,
+            );
+            const avgDuration =
+              completedExecutions.length > 0
+                ? completedExecutions.reduce(
+                    (sum, e) => sum + (e.duration_ms || 0),
+                    0,
+                  ) / completedExecutions.length
+                : 0;
+
+            // Buscar última execução
+            const lastExecutionRecord = await this.prisma.cronJobExecution.findFirst({
+              where: { job_config_id: jobConfig.id },
+              orderBy: { started_at: 'desc' },
+            });
+
+            let lastExecution;
+            if (lastExecutionRecord) {
+              lastExecution = {
+                timestamp: lastExecutionRecord.started_at,
+                duration: lastExecutionRecord.duration_ms || 0,
+                result:
+                  lastExecutionRecord.status === 'SUCCESS'
+                    ? 'success'
+                    : ('failed' as 'success' | 'failed'),
+                data: lastExecutionRecord.result_json,
+              };
+            }
+
+            // Determinar status
+            let status: 'active' | 'paused' | 'disabled' = 'active';
+            if (jobConfig.status === 'PAUSED') {
+              status = 'paused';
+            } else if (jobConfig.status === 'DISABLED' || !jobConfig.enabled) {
+              status = 'disabled';
+            }
+
+            jobs.push({
+              name: jobConfig.name,
+              description: jobConfig.description,
+              status,
+              lastExecution,
+              statistics: {
+                totalRuns,
+                successCount,
+                failureCount,
+                avgDuration: Math.round(avgDuration),
+              },
+            });
+        } catch (error) {
+          console.error(
+            `[Monitoring] Erro ao coletar métricas do job ${jobConfig.name}:`,
+            error,
+          );
+          // Adicionar job com estatísticas zeradas em caso de erro para não quebrar a listagem
+          jobs.push({
+            name: jobConfig.name,
+            description: jobConfig.description,
+            status: 'active',
+            statistics: {
+              totalRuns: 0,
+              successCount: 0,
+              failureCount: 0,
+              avgDuration: 0,
+            },
+          });
+        }
       }
+
+      // Log informativo sobre quantos jobs foram encontrados
+      if (cronJobConfigs.length > 0) {
+        console.log(
+          `[Monitoring] ${cronJobConfigs.length} jobs de monitor encontrados no banco de dados`,
+        );
+      } else {
+        console.warn(
+          '[Monitoring] Nenhum job de monitor encontrado no banco de dados. Verifique se os jobs foram inicializados.',
+        );
+      }
+    } catch (error) {
+      console.error(
+        '[Monitoring] Erro ao buscar jobs de monitor do banco de dados:',
+        error,
+      );
+      // Continuar mesmo com erro para não quebrar a listagem completa
+    }
     } catch (error) {
       console.error('[Monitoring] Erro ao coletar métricas de jobs:', error);
     }

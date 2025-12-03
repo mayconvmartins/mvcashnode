@@ -1,5 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { ExchangeAccountService } from '@mvcashnode/domain';
 import { EncryptionService, NtpService } from '@mvcashnode/shared';
@@ -9,6 +10,7 @@ import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-exe
 
 @Processor('balances-sync-real')
 export class BalancesSyncProcessor extends WorkerHost {
+  private readonly logger = new Logger(BalancesSyncProcessor.name);
   private ntpService: NtpService | null = null;
 
   constructor(
@@ -39,6 +41,7 @@ export class BalancesSyncProcessor extends WorkerHost {
   async process(_job: Job<any>): Promise<any> {
     const startTime = Date.now();
     const jobName = 'balances-sync-real';
+    this.logger.log('[BALANCES-SYNC-REAL] Iniciando sincronização de saldos...');
 
     try {
       // Registrar início da execução
@@ -49,7 +52,7 @@ export class BalancesSyncProcessor extends WorkerHost {
       if (this.ntpService) {
         await this.ntpService.sync();
         const ntpInfo = this.ntpService.getInfo();
-        console.log(`[BalancesSync] NTP sincronizado - Offset: ${ntpInfo.offset}ms`);
+        this.logger.log(`[BALANCES-SYNC-REAL] NTP sincronizado - Offset: ${ntpInfo.offset}ms`);
         
         // Garantir que AdapterFactory está usando o NTP service atualizado
         AdapterFactory.setNtpService(this.ntpService);
@@ -110,6 +113,11 @@ export class BalancesSyncProcessor extends WorkerHost {
     const result = { accountsChecked: accounts.length, synced };
     const durationMs = Date.now() - startTime;
 
+    this.logger.log(
+      `[BALANCES-SYNC-REAL] Sincronização concluída com sucesso. ` +
+      `Contas verificadas: ${accounts.length}, Sincronizadas: ${synced}, Duração: ${durationMs}ms`
+    );
+
     // Registrar sucesso
     await this.cronExecutionService.recordExecution(
       jobName,
@@ -122,6 +130,11 @@ export class BalancesSyncProcessor extends WorkerHost {
   } catch (error: any) {
     const durationMs = Date.now() - startTime;
     const errorMessage = error?.message || 'Erro desconhecido';
+
+    this.logger.error(
+      `[BALANCES-SYNC-REAL] Erro ao sincronizar saldos: ${errorMessage}`,
+      error.stack
+    );
 
     // Registrar falha
     await this.cronExecutionService.recordExecution(

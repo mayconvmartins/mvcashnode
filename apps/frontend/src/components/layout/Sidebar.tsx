@@ -23,7 +23,8 @@ import {
     MessageSquare,
     ChevronDown,
     ChevronRight,
-    BookOpen
+    BookOpen,
+    Target
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -44,6 +45,7 @@ const menuItems = [
     { icon: ArrowLeftRight, label: 'Ordens Limit', href: '/limit-orders' },
     { icon: History, label: 'Operações', href: '/operations' },
     { icon: FileBarChart, label: 'Relatórios', href: '/reports' },
+    { icon: Target, label: 'Monitor TP/SL', href: '/monitoring-positionstp-sl' },
     { icon: Activity, label: 'Monitoramento', href: '/monitoring', adminOnly: true },
 ]
 
@@ -160,7 +162,7 @@ export function Sidebar() {
                     <div className="flex h-16 items-center justify-center border-b border-border px-6">
                         <div className="flex items-center gap-2 font-bold text-xl gradient-text">
                             <LayoutDashboard className="h-6 w-6 text-primary" />
-                            <span>TradingBot</span>
+                            <span>MvCash</span>
                         </div>
                     </div>
 
