@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/lib/stores/authStore'
 import { authService } from '@/lib/api/auth.service'
@@ -14,7 +14,7 @@ interface RouteGuardProps {
     requireAdmin?: boolean
 }
 
-export function RouteGuard({ children, requireAuth = true, requireAdmin = false }: RouteGuardProps) {
+function RouteGuardContent({ children, requireAuth = true, requireAdmin = false }: RouteGuardProps) {
     const router = useRouter()
     const pathname = usePathname()
     const searchParams = useSearchParams()
@@ -214,5 +214,19 @@ export function RouteGuard({ children, requireAuth = true, requireAdmin = false 
     }
 
     return <>{children}</>
+}
+
+export function RouteGuard({ children, requireAuth = true, requireAdmin = false }: RouteGuardProps) {
+    return (
+        <Suspense fallback={
+            <div className="flex min-h-screen items-center justify-center">
+                <Spinner size="lg" />
+            </div>
+        }>
+            <RouteGuardContent requireAuth={requireAuth} requireAdmin={requireAdmin}>
+                {children}
+            </RouteGuardContent>
+        </Suspense>
+    )
 }
 
