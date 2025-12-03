@@ -70,8 +70,9 @@ async function bootstrap() {
     bodyParser: false, // Desabilitar body parser padrão globalmente
   });
   
-  // Configurar WebSocket adapter (ws nativo)
-  app.useWebSocketAdapter(new WsAdapter(app));
+  // Configurar WebSocket adapter (ws nativo) - DEVE ser configurado ANTES de qualquer outra coisa
+  const wsAdapter = new WsAdapter(app);
+  app.useWebSocketAdapter(wsAdapter);
   console.log('[WebSocket] ✅ WebSocket adapter configurado (ws nativo)');
   
   // Compressão HTTP (gzip/brotli)
