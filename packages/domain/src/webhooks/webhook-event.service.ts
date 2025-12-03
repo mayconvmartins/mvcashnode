@@ -1,7 +1,8 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, WebhookEventStatus, WebhookAction } from '@mvcashnode/shared';
+import { TradeMode, WebhookEventStatus, WebhookAction, ExchangeType } from '@mvcashnode/shared';
 import { WebhookParserService } from './webhook-parser.service';
 import { TradeJobService } from '../trading/trade-job.service';
+import { MinProfitValidationService } from '../trading/min-profit-validation.service';
 
 export interface CreateWebhookEventDto {
   webhookSourceId: number;
@@ -12,11 +13,15 @@ export interface CreateWebhookEventDto {
 }
 
 export class WebhookEventService {
+  private minProfitValidationService: MinProfitValidationService;
+
   constructor(
     private prisma: PrismaClient,
     private parser: WebhookParserService,
     private tradeJobService: TradeJobService
-  ) {}
+  ) {
+    this.minProfitValidationService = new MinProfitValidationService(prisma);
+  }
 
   async createEvent(dto: CreateWebhookEventDto): Promise<{ event: any; jobsCreated: number; jobIds: number[] }> {
     // Parse signal
@@ -182,7 +187,13 @@ export class WebhookEventService {
 
         // Para SELL, buscar posição aberta e usar quantidade restante
         let baseQuantity: number | undefined = undefined;
+        let limitPrice: number | undefined = undefined;
+        let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
+        
         if (side === 'SELL') {
+          // Todas ordens de venda devem ser LIMIT
+          orderType = 'LIMIT';
+          
           const openPosition = await this.prisma.tradePosition.findFirst({
             where: {
               exchange_account_id: binding.exchange_account.id,
@@ -203,6 +214,60 @@ export class WebhookEventService {
             console.warn(`[WEBHOOK-EVENT] Nenhuma posição aberta encontrada para vender ${event.symbol_normalized} na conta ${binding.exchange_account.id}`);
             // Continuar mesmo sem posição - o executor vai falhar mas pelo menos o evento será registrado
           }
+
+          // Usar price_reference do evento se disponível, senão buscar preço atual
+          if (event.price_reference) {
+            limitPrice = event.price_reference.toNumber();
+            console.log(`[WEBHOOK-EVENT] Usando price_reference do evento: ${limitPrice}`);
+          } else {
+            // Buscar preço atual via ticker como fallback
+            try {
+              const { AdapterFactory } = await import('@mvcashnode/exchange');
+              const { ExchangeType } = await import('@mvcashnode/shared');
+              const adapter = AdapterFactory.createAdapter(
+                binding.exchange_account.exchange as ExchangeType
+              );
+              const ticker = await adapter.fetchTicker(event.symbol_normalized);
+              limitPrice = ticker.last;
+              console.log(`[WEBHOOK-EVENT] Preço atual obtido via ticker: ${limitPrice}`);
+            } catch (tickerError: any) {
+              console.warn(`[WEBHOOK-EVENT] Erro ao buscar preço via ticker: ${tickerError.message}`);
+              // Continuar sem limitPrice - o executor pode falhar ou usar preço de mercado
+            }
+          }
+
+          // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+          // Esta validação usa o preço ATUAL do mercado, não o preço do webhook
+          // Stop Loss ignora esta validação (mas vendas via webhook não são stop loss)
+          if (openPosition) {
+            try {
+              const priceOpen = openPosition.price_open.toNumber();
+              const validationResult = await this.minProfitValidationService.validateMinProfit(
+                binding.exchange_account.id,
+                event.symbol_normalized,
+                priceOpen,
+                'WEBHOOK',
+                binding.exchange_account.exchange as ExchangeType,
+                event.trade_mode as 'REAL' | 'SIMULATION'
+              );
+
+              if (!validationResult.valid) {
+                console.warn(`[WEBHOOK-EVENT] ⚠️ Venda via webhook SKIPADA: ${validationResult.reason}`);
+                // Não criar o job de venda
+                continue;
+              } else {
+                console.log(`[WEBHOOK-EVENT] ✅ Validação de lucro mínimo: ${validationResult.reason}`);
+                // Atualizar limitPrice com o preço atual se não foi definido
+                if (!limitPrice && validationResult.currentPrice) {
+                  limitPrice = validationResult.currentPrice;
+                  console.log(`[WEBHOOK-EVENT] Usando preço atual do mercado: ${limitPrice}`);
+                }
+              }
+            } catch (profitCheckError: any) {
+              console.error(`[WEBHOOK-EVENT] Erro ao verificar lucro mínimo: ${profitCheckError.message}`);
+              // Em caso de erro, continuar com a venda (não bloquear por erro de validação)
+            }
+          }
         }
 
         const tradeJob = await this.tradeJobService.createJob({
@@ -211,8 +276,9 @@ export class WebhookEventService {
           tradeMode: event.trade_mode as TradeMode,
           symbol: event.symbol_normalized,
           side,
-          orderType: 'MARKET',
+          orderType,
           baseQuantity, // Passar quantidade para SELL
+          limitPrice, // Passar preço limite para SELL
           skipParameterValidation: side === 'SELL' && baseQuantity !== undefined, // Pular validação se já temos quantidade
         });
         

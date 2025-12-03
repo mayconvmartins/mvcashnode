@@ -17,6 +17,7 @@ export interface CreateTradeParameterDto {
     default_tp_pct?: number
     trailing_stop_enabled: boolean
     trailing_distance_pct?: number
+    min_profit_pct?: number
     vault_id?: number
 }
 

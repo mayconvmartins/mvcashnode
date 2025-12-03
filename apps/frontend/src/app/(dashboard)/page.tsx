@@ -22,18 +22,21 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import Link from 'next/link'
 import { formatDateTime } from '@/lib/utils/format'
+import { useTradeMode } from '@/lib/hooks/useTradeMode'
 
 export default function DashboardPage() {
+    const { tradeMode } = useTradeMode()
+    
     const { data: summary, isLoading, refetch } = useQuery({
-        queryKey: ['dashboard', 'summary'],
-        queryFn: () => reportsService.getDashboardSummary(),
+        queryKey: ['dashboard', 'summary', tradeMode],
+        queryFn: () => reportsService.getDashboardSummary(tradeMode),
         refetchInterval: 30000, // Atualizar a cada 30 segundos
     })
 
     // Buscar posições abertas recentes
     const { data: recentPositions } = useQuery({
-        queryKey: ['positions', 'recent'],
-        queryFn: () => positionsService.getPositions({ status: 'OPEN', limit: 5 }),
+        queryKey: ['positions', 'recent', tradeMode],
+        queryFn: () => positionsService.list({ status: 'OPEN', trade_mode: tradeMode, limit: 5 }),
     })
 
     if (isLoading) {

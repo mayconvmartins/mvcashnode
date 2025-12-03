@@ -65,7 +65,10 @@ export function DataTable<T extends { id?: number | string }>({
         }
     }
 
-    const sortedData = [...data].sort((a, b) => {
+    // Garantir que data seja sempre um array
+    const safeData = Array.isArray(data) ? data : []
+
+    const sortedData = [...safeData].sort((a, b) => {
         if (!sortColumn) return 0
 
         const aValue = (a as any)[sortColumn]
@@ -112,7 +115,7 @@ export function DataTable<T extends { id?: number | string }>({
         )
     }
 
-    if (data.length === 0 && !loading) {
+    if (safeData.length === 0 && !loading) {
         return (
             <div className={cn('space-y-4', className)}>
                 {filters && <div className="mb-4">{filters}</div>}

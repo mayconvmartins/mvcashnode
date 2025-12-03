@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
-import { TradeMode } from '@mvcashnode/shared';
+import { TradeMode, ExchangeType } from '@mvcashnode/shared';
+import { AdapterFactory } from '@mvcashnode/exchange';
 
 @Injectable()
 export class ReportsService {
@@ -13,7 +14,8 @@ export class ReportsService {
     to?: Date,
     exchangeAccountId?: number
   ) {
-    const where: any = {
+    // Buscar posições fechadas
+    const whereClosed: any = {
       exchange_account: {
         user_id: userId,
         ...(exchangeAccountId && { id: exchangeAccountId }),
@@ -23,39 +25,112 @@ export class ReportsService {
     };
 
     if (from || to) {
-      where.closed_at = {};
-      if (from) where.closed_at.gte = from;
-      if (to) where.closed_at.lte = to;
+      whereClosed.closed_at = {};
+      if (from) whereClosed.closed_at.gte = from;
+      if (to) whereClosed.closed_at.lte = to;
     }
 
-    const positions = await this.prisma.tradePosition.findMany({
-      where,
+    const closedPositions = await this.prisma.tradePosition.findMany({
+      where: whereClosed,
       include: {
         exchange_account: true,
       },
     });
 
-    const totalProfit = positions
+    // Buscar posições abertas
+    const whereOpen: any = {
+      exchange_account: {
+        user_id: userId,
+        ...(exchangeAccountId && { id: exchangeAccountId }),
+      },
+      ...(tradeMode && { trade_mode: tradeMode }),
+      status: 'OPEN',
+    };
+
+    const openPositions = await this.prisma.tradePosition.findMany({
+      where: whereOpen,
+      include: {
+        exchange_account: true,
+      },
+    });
+
+    // Calcular PnL realizado (posições fechadas)
+    const totalProfit = closedPositions
       .filter((p) => p.realized_profit_usd.toNumber() > 0)
       .reduce((sum, p) => sum + p.realized_profit_usd.toNumber(), 0);
 
-    const totalLoss = positions
+    const totalLoss = closedPositions
       .filter((p) => p.realized_profit_usd.toNumber() < 0)
       .reduce((sum, p) => sum + Math.abs(p.realized_profit_usd.toNumber()), 0);
 
-    const netPnL = totalProfit - totalLoss;
-    const totalTrades = positions.length;
-    const winningTrades = positions.filter((p) => p.realized_profit_usd.toNumber() > 0).length;
+    const realizedPnL = totalProfit - totalLoss;
+    const totalTrades = closedPositions.length;
+    const winningTrades = closedPositions.filter((p) => p.realized_profit_usd.toNumber() > 0).length;
     const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+
+    // Calcular PnL não realizado (posições abertas)
+    let unrealizedPnL = 0;
+    let totalUnrealizedPnL = 0;
+
+    for (const position of openPositions) {
+      try {
+        // Criar adapter read-only (sem API keys necessárias para buscar preço)
+        const adapter = AdapterFactory.createAdapter(
+          position.exchange_account.exchange as ExchangeType
+        );
+        
+        const ticker = await adapter.fetchTicker(position.symbol);
+        const currentPrice = ticker.last;
+
+        if (currentPrice && currentPrice > 0) {
+          const priceOpen = position.price_open.toNumber();
+          const qtyRemaining = position.qty_remaining.toNumber();
+          
+          // PnL não realizado para esta posição
+          const positionUnrealizedPnL = (currentPrice - priceOpen) * qtyRemaining;
+          totalUnrealizedPnL += positionUnrealizedPnL;
+        }
+      } catch (error: any) {
+        // Se falhar ao buscar preço, continuar sem essa posição
+        console.warn(`[ReportsService] Erro ao buscar preço atual para posição ${position.id}: ${error.message}`);
+      }
+    }
+
+    unrealizedPnL = totalUnrealizedPnL;
+
+    // Calcular PnL do dia (posições fechadas hoje)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayClosedPositions = closedPositions.filter((p) => {
+      if (!p.closed_at) return false;
+      const closedDate = new Date(p.closed_at);
+      return closedDate >= today && closedDate < tomorrow;
+    });
+
+    const dailyPnL = todayClosedPositions.reduce(
+      (sum, p) => sum + p.realized_profit_usd.toNumber(),
+      0
+    );
+
+    // PnL total (realizado + não realizado)
+    const netPnL = realizedPnL + unrealizedPnL;
 
     return {
       totalProfit,
       totalLoss,
       netPnL,
+      realizedPnL,
+      unrealizedPnL,
+      dailyPnL,
       totalTrades,
       winningTrades,
       losingTrades: totalTrades - winningTrades,
       winRate: parseFloat(winRate.toFixed(2)),
+      openPositionsCount: openPositions.length,
+      hasData: closedPositions.length > 0 || openPositions.length > 0,
     };
   }
 
@@ -144,24 +219,61 @@ export class ReportsService {
       },
     });
 
-    // Group by exchange_account_id and symbol
-    const summary = positions.reduce((acc, pos) => {
-      const key = `${pos.exchange_account_id}-${pos.symbol}`;
-      if (!acc[key]) {
-        acc[key] = {
-          exchange_account_id: pos.exchange_account_id,
-          symbol: pos.symbol,
-          qty_total: 0,
-          estimated_value_usd: 0,
-          unrealized_pnl_usd: 0,
+    let totalUnrealizedPnL = 0;
+    let totalInvested = 0;
+    const bySymbol: Record<string, { symbol: string; count: number; unrealizedPnL: number; invested: number }> = {};
+
+    // Calcular métricas para cada posição
+    for (const position of positions) {
+      const symbol = position.symbol;
+      
+      // Inicializar contador por símbolo
+      if (!bySymbol[symbol]) {
+        bySymbol[symbol] = {
+          symbol,
+          count: 0,
+          unrealizedPnL: 0,
+          invested: 0,
         };
       }
-      acc[key].qty_total += pos.qty_remaining.toNumber();
-      // Note: estimated_value_usd and unrealized_pnl_usd would require current price
-      return acc;
-    }, {} as Record<string, any>);
+      bySymbol[symbol].count += 1;
 
-    return Object.values(summary);
+      // Calcular valor investido
+      const qtyTotal = position.qty_total.toNumber();
+      const priceOpen = position.price_open.toNumber();
+      const invested = qtyTotal * priceOpen;
+      totalInvested += invested;
+      bySymbol[symbol].invested += invested;
+
+      // Buscar preço atual e calcular PnL não realizado
+      try {
+        const adapter = AdapterFactory.createAdapter(
+          position.exchange_account.exchange as ExchangeType
+        );
+        
+        const ticker = await adapter.fetchTicker(position.symbol);
+        const currentPrice = ticker.last;
+
+        if (currentPrice && currentPrice > 0) {
+          const qtyRemaining = position.qty_remaining.toNumber();
+          
+          // PnL não realizado para esta posição
+          const positionUnrealizedPnL = (currentPrice - priceOpen) * qtyRemaining;
+          totalUnrealizedPnL += positionUnrealizedPnL;
+          bySymbol[symbol].unrealizedPnL += positionUnrealizedPnL;
+        }
+      } catch (error: any) {
+        // Se falhar ao buscar preço, continuar sem essa posição
+        console.warn(`[ReportsService] Erro ao buscar preço atual para posição ${position.id}: ${error.message}`);
+      }
+    }
+
+    return {
+      totalPositions: positions.length,
+      totalUnrealizedPnL,
+      totalInvested,
+      bySymbol: Object.values(bySymbol),
+    };
   }
 
   async getVaultsSummary(userId: number, tradeMode?: TradeMode, from?: Date, to?: Date) {

@@ -18,6 +18,7 @@ export interface CreateTradeParameterDto {
   defaultTpPct?: number;
   trailingStopEnabled?: boolean;
   trailingDistancePct?: number;
+  minProfitPct?: number;
   vaultId?: number;
 }
 
@@ -25,6 +26,11 @@ export class TradeParameterService {
   constructor(private prisma: PrismaClient) {}
 
   async createParameter(dto: CreateTradeParameterDto): Promise<any> {
+    // Validação: não permitir criar parâmetro sem lucro mínimo definido
+    if (!dto.minProfitPct || dto.minProfitPct <= 0) {
+      throw new Error('Lucro mínimo (min_profit_pct) é obrigatório e deve ser maior que zero');
+    }
+
     return this.prisma.tradeParameter.create({
       data: {
         user_id: dto.userId,
@@ -43,7 +49,51 @@ export class TradeParameterService {
         default_tp_pct: dto.defaultTpPct || null,
         trailing_stop_enabled: dto.trailingStopEnabled || false,
         trailing_distance_pct: dto.trailingDistancePct || null,
+        min_profit_pct: dto.minProfitPct || null,
         vault_id: dto.vaultId || null,
+      },
+    });
+  }
+
+  async updateParameter(id: number, dto: Partial<CreateTradeParameterDto>): Promise<any> {
+    // Se estiver atualizando min_profit_pct, validar
+    // Não permitir remover ou definir como null/zero
+    if (dto.minProfitPct !== undefined) {
+      if (dto.minProfitPct === null || dto.minProfitPct === undefined || dto.minProfitPct <= 0) {
+        throw new Error('Lucro mínimo (min_profit_pct) é obrigatório e deve ser maior que zero. Não é permitido remover ou definir como zero.');
+      }
+    }
+
+    // Verificar se o parâmetro atual tem min_profit_pct
+    // Se não tiver e não estiver sendo atualizado, não permitir atualização de outros campos
+    const currentParameter = await this.prisma.tradeParameter.findUnique({
+      where: { id },
+      select: { min_profit_pct: true },
+    });
+
+    if (currentParameter && !currentParameter.min_profit_pct && dto.minProfitPct === undefined) {
+      throw new Error('Parâmetro não possui lucro mínimo configurado. É obrigatório definir min_profit_pct antes de atualizar outros campos.');
+    }
+
+    return this.prisma.tradeParameter.update({
+      where: { id },
+      data: {
+        ...(dto.symbol !== undefined && { symbol: dto.symbol }),
+        ...(dto.side !== undefined && { side: dto.side }),
+        ...(dto.quoteAmountFixed !== undefined && { quote_amount_fixed: dto.quoteAmountFixed || null }),
+        ...(dto.quoteAmountPctBalance !== undefined && { quote_amount_pct_balance: dto.quoteAmountPctBalance || null }),
+        ...(dto.maxOrdersPerHour !== undefined && { max_orders_per_hour: dto.maxOrdersPerHour || null }),
+        ...(dto.minIntervalSec !== undefined && { min_interval_sec: dto.minIntervalSec || null }),
+        ...(dto.orderTypeDefault !== undefined && { order_type_default: dto.orderTypeDefault }),
+        ...(dto.slippageBps !== undefined && { slippage_bps: dto.slippageBps }),
+        ...(dto.defaultSlEnabled !== undefined && { default_sl_enabled: dto.defaultSlEnabled }),
+        ...(dto.defaultSlPct !== undefined && { default_sl_pct: dto.defaultSlPct || null }),
+        ...(dto.defaultTpEnabled !== undefined && { default_tp_enabled: dto.defaultTpEnabled }),
+        ...(dto.defaultTpPct !== undefined && { default_tp_pct: dto.defaultTpPct || null }),
+        ...(dto.trailingStopEnabled !== undefined && { trailing_stop_enabled: dto.trailingStopEnabled }),
+        ...(dto.trailingDistancePct !== undefined && { trailing_distance_pct: dto.trailingDistancePct || null }),
+        ...(dto.minProfitPct !== undefined && { min_profit_pct: dto.minProfitPct }),
+        ...(dto.vaultId !== undefined && { vault_id: dto.vaultId || null }),
       },
     });
   }

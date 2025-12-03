@@ -274,6 +274,7 @@ export class TradeParametersController {
         defaultTpPct: createDto.takeProfitPercent || createDto.takeProfit,
         trailingStopEnabled: createDto.trailingStop || false,
         trailingDistancePct: createDto.trailingDistancePct,
+        minProfitPct: createDto.minProfitPct,
         vaultId: createDto.vaultId ? Number(createDto.vaultId) : undefined,
       };
 
@@ -352,6 +353,14 @@ export class TradeParametersController {
       if (updateDto.default_tp_pct !== undefined) updateData.default_tp_pct = updateDto.default_tp_pct;
       if (updateDto.trailing_stop_enabled !== undefined) updateData.trailing_stop_enabled = updateDto.trailing_stop_enabled;
       if (updateDto.trailing_distance_pct !== undefined) updateData.trailing_distance_pct = updateDto.trailing_distance_pct;
+      if (updateDto.min_profit_pct !== undefined || updateDto.minProfitPct !== undefined) {
+        const minProfitPct = updateDto.min_profit_pct !== undefined ? updateDto.min_profit_pct : updateDto.minProfitPct;
+        // Não permitir remover ou definir como null/zero
+        if (minProfitPct === null || minProfitPct === undefined || minProfitPct <= 0) {
+          throw new BadRequestException('Lucro mínimo (min_profit_pct) é obrigatório e deve ser maior que zero. Não é permitido remover ou definir como zero.');
+        }
+        updateData.min_profit_pct = minProfitPct;
+      }
       if (updateDto.vaultId !== undefined || updateDto.vault_id !== undefined) {
         const vaultId = Number(updateDto.vaultId || updateDto.vault_id);
         updateData.vault_id = isNaN(vaultId) ? null : vaultId;

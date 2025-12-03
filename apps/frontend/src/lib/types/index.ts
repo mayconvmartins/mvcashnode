@@ -209,6 +209,7 @@ export interface TradeParameter {
     default_tp_pct?: number
     trailing_stop_enabled: boolean
     trailing_distance_pct?: number
+    min_profit_pct?: number
     vault_id?: number
     created_at: string
     updated_at: string
@@ -370,6 +371,12 @@ export interface Position {
     closed_at?: string
     created_at: string
     updated_at: string
+    // Campos calculados
+    current_price?: number | null
+    invested_value_usd?: number | null
+    current_value_usd?: number | null
+    unrealized_pnl?: number | null
+    unrealized_pnl_pct?: number | null
 }
 
 export interface PositionFill {
@@ -552,9 +559,18 @@ export interface PaginationMeta {
     totalPages?: number
 }
 
+export interface PositionSummary {
+    total_invested: number
+    total_current_value: number
+    total_unrealized_pnl: number
+    total_unrealized_pnl_pct: number
+    total_realized_pnl: number
+}
+
 export interface PaginatedResponse<T> {
     data: T[]
     pagination: PaginationMeta
+    summary?: PositionSummary
 }
 
 // ============================================

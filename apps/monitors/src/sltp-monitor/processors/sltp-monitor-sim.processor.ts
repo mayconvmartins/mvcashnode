@@ -2,7 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { PrismaService } from '@mvcashnode/db';
-import { TradeJobService } from '@mvcashnode/domain';
+import { TradeJobService, MinProfitValidationService } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
@@ -42,6 +42,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
     });
 
     const tradeJobService = new TradeJobService(this.prisma);
+    const minProfitValidationService = new MinProfitValidationService(this.prisma);
     let triggered = 0;
 
     for (const position of positions) {
@@ -60,13 +61,18 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         // Check Stop Loss
         if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
           if (!position.sl_triggered) {
+            // Calcular preço LIMIT para Stop Loss: price_open * (1 - sl_pct / 100)
+            const slPct = position.sl_pct.toNumber();
+            const limitPrice = priceOpen * (1 - slPct / 100);
+            
             const tradeJob = await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
               tradeMode: TradeMode.SIMULATION,
               symbol: position.symbol,
               side: 'SELL',
-              orderType: 'MARKET',
+              orderType: 'LIMIT',
               baseQuantity: position.qty_remaining.toNumber(),
+              limitPrice,
               skipParameterValidation: true,
             });
 
@@ -87,13 +93,34 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         // Check Take Profit
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
           if (!position.tp_triggered) {
+            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+            const validationResult = await minProfitValidationService.validateMinProfit(
+              position.exchange_account_id,
+              position.symbol,
+              priceOpen,
+              'TAKE_PROFIT',
+              position.exchange_account.exchange as ExchangeType,
+              TradeMode.SIMULATION
+            );
+
+            if (!validationResult.valid) {
+              console.warn(`[SL-TP-MONITOR-SIM] ⚠️ Take Profit SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+              // Não criar o job de venda
+              continue;
+            }
+
+            // Calcular preço LIMIT para Take Profit: price_open * (1 + tp_pct / 100)
+            const tpPct = position.tp_pct.toNumber();
+            const limitPrice = priceOpen * (1 + tpPct / 100);
+            
             const tradeJob = await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
               tradeMode: TradeMode.SIMULATION,
               symbol: position.symbol,
               side: 'SELL',
-              orderType: 'MARKET',
+              orderType: 'LIMIT',
               baseQuantity: position.qty_remaining.toNumber(),
+              limitPrice,
               skipParameterValidation: true,
             });
 
@@ -127,13 +154,33 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           const trailingTriggerPrice = trailingMaxPrice * (1 - trailingDistance / 100);
 
           if (currentPrice <= trailingTriggerPrice && !position.trailing_triggered) {
+            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+            const validationResult = await minProfitValidationService.validateMinProfit(
+              position.exchange_account_id,
+              position.symbol,
+              priceOpen,
+              'TRAILING',
+              position.exchange_account.exchange as ExchangeType,
+              TradeMode.SIMULATION
+            );
+
+            if (!validationResult.valid) {
+              console.warn(`[SL-TP-MONITOR-SIM] ⚠️ Trailing Stop SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+              // Não criar o job de venda
+              continue;
+            }
+
+            // Calcular preço LIMIT para Trailing Stop: usar trailingTriggerPrice
+            const limitPrice = trailingTriggerPrice;
+            
             const tradeJob = await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
               tradeMode: TradeMode.SIMULATION,
               symbol: position.symbol,
               side: 'SELL',
-              orderType: 'MARKET',
+              orderType: 'LIMIT',
               baseQuantity: position.qty_remaining.toNumber(),
+              limitPrice,
               skipParameterValidation: true,
             });
 

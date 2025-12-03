@@ -6,15 +6,16 @@ import type {
     ClosePositionDto,
     SellLimitDto,
     PaginatedResponse,
+    PositionSummary,
 } from '@/lib/types'
 
 export const positionsService = {
-    list: async (filters?: PositionFilters): Promise<Position[]> => {
+    list: async (filters?: PositionFilters): Promise<Position[] | PaginatedResponse<Position>> => {
         const response = await apiClient.get<PaginatedResponse<Position>>('/positions', { params: filters })
-        // O interceptor já mantém o formato { data: [...], pagination: {...} } quando detecta pagination
-        // Então response.data já é o PaginatedResponse, precisamos extrair o array do campo data
+        // O interceptor já mantém o formato { data: [...], pagination: {...}, summary: {...} } quando detecta pagination
+        // Retornar o objeto completo para ter acesso ao summary
         if (response.data && 'data' in response.data && Array.isArray(response.data.data)) {
-            return response.data.data
+            return response.data
         }
         // Fallback: se não tiver o formato esperado, retornar array vazio ou o próprio response.data se for array
         return Array.isArray(response.data) ? response.data : []

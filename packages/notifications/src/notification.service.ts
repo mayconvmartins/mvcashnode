@@ -61,7 +61,21 @@ export class NotificationService {
     
     if (!template) {
       console.warn(`[NOTIFICATIONS] Template ${type} não encontrado ou inativo`);
-      return;
+      console.warn(`[NOTIFICATIONS] Verificando templates no banco...`);
+      // Verificar se existe algum template do tipo
+      try {
+        const allTemplates = await this.prisma.whatsAppNotificationTemplate.findMany({
+          where: { template_type: type },
+        });
+        console.warn(`[NOTIFICATIONS] Templates encontrados:`, allTemplates.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          is_active: t.is_active,
+        })));
+      } catch (err) {
+        console.error(`[NOTIFICATIONS] Erro ao verificar templates:`, err);
+      }
+      throw new Error(`Template ${type} não encontrado ou inativo. Verifique se o template existe e está ativo no banco de dados.`);
     }
 
     const message = this.templateService.renderTemplate(template, variables);
@@ -218,8 +232,21 @@ export class NotificationService {
     jobsCreated: number = 0,
     jobIds: number[] = []
   ): Promise<void> {
+    console.log(`[NOTIFICATIONS] sendWebhookAlert chamado com:`, {
+      alert_group_enabled: source.alert_group_enabled,
+      alert_group_id: source.alert_group_id,
+      eventId: webhookEvent?.id,
+      trade_mode: source?.trade_mode,
+    });
+
     if (!source.alert_group_enabled || !source.alert_group_id) {
       console.log('[NOTIFICATIONS] sendWebhookAlert: alert_group_enabled ou alert_group_id não configurado');
+      console.log('[NOTIFICATIONS] Valores:', {
+        alert_group_enabled: source.alert_group_enabled,
+        alert_group_id: source.alert_group_id,
+        tipo_alert_group_enabled: typeof source.alert_group_enabled,
+        tipo_alert_group_id: typeof source.alert_group_id,
+      });
       return;
     }
 
@@ -229,6 +256,7 @@ export class NotificationService {
       symbol: webhookEvent.symbol_normalized,
       action: webhookEvent.action,
       jobsCreated,
+      trade_mode: source.trade_mode,
     });
 
     const variables: TemplateVariables = {

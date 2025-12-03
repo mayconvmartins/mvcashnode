@@ -1,5 +1,6 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, PositionStatus, CloseReason } from '@mvcashnode/shared';
+import { TradeMode, PositionStatus, CloseReason, ExchangeType } from '@mvcashnode/shared';
+import { MinProfitValidationService } from '../trading/min-profit-validation.service';
 
 export interface PositionFill {
   executionId: number;
@@ -204,6 +205,22 @@ export class PositionService {
       throw new Error('Quantity must be greater than zero');
     }
 
+    // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+    const minProfitValidationService = new MinProfitValidationService(this.prisma);
+    const priceOpen = position.price_open.toNumber();
+    const validationResult = await minProfitValidationService.validateMinProfit(
+      position.exchange_account_id,
+      position.symbol,
+      priceOpen,
+      'MANUAL',
+      position.exchange_account.exchange as ExchangeType,
+      position.trade_mode as 'REAL' | 'SIMULATION'
+    );
+
+    if (!validationResult.valid) {
+      throw new Error(`Venda não permitida: ${validationResult.reason}`);
+    }
+
     // Create trade job for selling
     const { TradeJobService } = await import('../trading/trade-job.service');
     const tradeJobService = new TradeJobService(this.prisma);
@@ -248,6 +265,22 @@ export class PositionService {
 
     if (qtyToSell <= 0) {
       throw new Error('Quantity must be greater than zero');
+    }
+
+    // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+    const minProfitValidationService = new MinProfitValidationService(this.prisma);
+    const priceOpen = position.price_open.toNumber();
+    const validationResult = await minProfitValidationService.validateMinProfit(
+      position.exchange_account_id,
+      position.symbol,
+      priceOpen,
+      'MANUAL',
+      position.exchange_account.exchange as ExchangeType,
+      position.trade_mode as 'REAL' | 'SIMULATION'
+    );
+
+    if (!validationResult.valid) {
+      throw new Error(`Venda não permitida: ${validationResult.reason}`);
     }
 
     // Verificar se já existe ordem LIMIT pendente para esta posição

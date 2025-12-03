@@ -62,14 +62,14 @@ export function ClosePositionModal({ position, open, onClose }: ClosePositionMod
                 <DialogHeader>
                     <DialogTitle>Fechar Posição</DialogTitle>
                     <DialogDescription>
-                        {position.symbol} • {position.side} • Quantidade Restante: {position.qty_remaining.toFixed(8)}
+                        {position.symbol} • {position.side} • Quantidade Restante: {Number(position.qty_remaining || 0).toFixed(8)}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <RadioGroup value={closeType} onValueChange={(value: any) => setCloseType(value)}>
                         <div className="flex items-center space-x-2">
                             <RadioGroupItem value="full" id="full" />
-                            <Label htmlFor="full">Fechar Totalmente ({position.qty_remaining.toFixed(8)})</Label>
+                            <Label htmlFor="full">Fechar Totalmente ({Number(position.qty_remaining || 0).toFixed(8)})</Label>
                         </div>
                         <div className="flex items-center space-x-2">
                             <RadioGroupItem value="partial" id="partial" />
@@ -86,11 +86,11 @@ export function ClosePositionModal({ position, open, onClose }: ClosePositionMod
                                 step="0.00000001"
                                 value={quantity}
                                 onChange={(e) => setQuantity(e.target.value)}
-                                placeholder={`Máx: ${position.qty_remaining.toFixed(8)}`}
-                                max={position.qty_remaining}
+                                placeholder={`Máx: ${Number(position.qty_remaining || 0).toFixed(8)}`}
+                                max={Number(position.qty_remaining || 0)}
                             />
                             <p className="text-sm text-muted-foreground mt-1">
-                                Restante: {quantity ? (position.qty_remaining - parseFloat(quantity)).toFixed(8) : position.qty_remaining.toFixed(8)}
+                                Restante: {quantity ? (Number(position.qty_remaining || 0) - parseFloat(quantity)).toFixed(8) : Number(position.qty_remaining || 0).toFixed(8)}
                             </p>
                         </div>
                     )}
@@ -99,8 +99,8 @@ export function ClosePositionModal({ position, open, onClose }: ClosePositionMod
                         <h4 className="font-medium mb-2">Confirmação</h4>
                         <p className="text-sm text-muted-foreground">
                             {closeType === 'full' 
-                                ? `Você está prestes a fechar toda a posição de ${position.qty_remaining.toFixed(8)} ${position.symbol}.`
-                                : `Você está prestes a fechar ${quantity || '0'} de ${position.qty_remaining.toFixed(8)} ${position.symbol}.`
+                                ? `Você está prestes a fechar toda a posição de ${Number(position.qty_remaining || 0).toFixed(8)} ${position.symbol}.`
+                                : `Você está prestes a fechar ${quantity || '0'} de ${Number(position.qty_remaining || 0).toFixed(8)} ${position.symbol}.`
                             }
                         </p>
                     </div>

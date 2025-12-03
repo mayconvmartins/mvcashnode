@@ -112,17 +112,17 @@ export default function PositionDetailPage() {
         )
     }
 
-    // Calcular PnL não realizado (assumindo que temos preço atual - em produção viria da API)
-    // Por enquanto, vamos usar o preço de abertura como referência
-    const qtyClosed = position.qty_total - position.qty_remaining
-    const qtyClosedPct = position.qty_total > 0 ? (qtyClosed / position.qty_total) * 100 : 0
+    // Calcular métricas
+    const qtyClosed = Number(position.qty_total || 0) - Number(position.qty_remaining || 0)
+    const qtyClosedPct = Number(position.qty_total || 0) > 0 ? (qtyClosed / Number(position.qty_total || 0)) * 100 : 0
 
     // Calcular preços de SL/TP
+    const priceOpen = Number(position.price_open || 0)
     const slPrice = position.sl_enabled && position.sl_pct
-        ? position.price_open * (1 - position.sl_pct / 100)
+        ? priceOpen * (1 - Number(position.sl_pct || 0) / 100)
         : null
     const tpPrice = position.tp_enabled && position.tp_pct
-        ? position.price_open * (1 + position.tp_pct / 100)
+        ? priceOpen * (1 + Number(position.tp_pct || 0) / 100)
         : null
 
     // Colunas para tabela de fills
@@ -187,7 +187,7 @@ export default function PositionDetailPage() {
                         {position.status === 'OPEN' ? 'ABERTA' : 'FECHADA'}
                     </Badge>
                     <Badge variant={position.side === 'LONG' ? 'default' : 'destructive'}>
-                        {position.side}
+                        {position.side === 'LONG' ? 'COMPRA' : position.side}
                     </Badge>
                 </div>
             </div>
@@ -203,21 +203,85 @@ export default function PositionDetailPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="flex items-center gap-2">
-                            {position.realized_profit_usd >= 0 ? (
+                            {Number(position.realized_profit_usd || 0) >= 0 ? (
                                 <TrendingUp className="h-5 w-5 text-green-500" />
                             ) : (
                                 <TrendingDown className="h-5 w-5 text-red-500" />
                             )}
                             <span
                                 className={`text-2xl font-bold ${
-                                    position.realized_profit_usd >= 0 ? 'text-green-500' : 'text-red-500'
+                                    Number(position.realized_profit_usd || 0) >= 0 ? 'text-green-500' : 'text-red-500'
                                 }`}
                             >
-                                {formatCurrency(position.realized_profit_usd)}
+                                {formatCurrency(Number(position.realized_profit_usd || 0))}
                             </span>
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">
                             {qtyClosed > 0 ? `${formatAssetAmount(qtyClosed)} (${qtyClosedPct.toFixed(1)}%) fechado` : 'Nenhuma venda realizada'}
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardDescription className="flex items-center gap-2">
+                            <Activity className="h-4 w-4" />
+                            PnL Não Realizado
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {position.unrealized_pnl !== null && position.unrealized_pnl !== undefined ? (
+                            <>
+                                <div className="flex items-center gap-2">
+                                    {position.unrealized_pnl >= 0 ? (
+                                        <TrendingUp className="h-5 w-5 text-green-500" />
+                                    ) : (
+                                        <TrendingDown className="h-5 w-5 text-red-500" />
+                                    )}
+                                    <span
+                                        className={`text-2xl font-bold ${
+                                            position.unrealized_pnl >= 0 ? 'text-green-500' : 'text-red-500'
+                                        }`}
+                                    >
+                                        {formatCurrency(position.unrealized_pnl)}
+                                    </span>
+                                </div>
+                                {position.unrealized_pnl_pct !== null && position.unrealized_pnl_pct !== undefined && (
+                                    <p className={`text-sm mt-1 ${position.unrealized_pnl_pct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                        {position.unrealized_pnl_pct >= 0 ? '+' : ''}{position.unrealized_pnl_pct.toFixed(2)}%
+                                    </p>
+                                )}
+                                {position.current_price && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Preço atual: {formatCurrency(position.current_price)}
+                                    </p>
+                                )}
+                            </>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Carregando...</p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardDescription className="flex items-center gap-2">
+                            <DollarSign className="h-4 w-4" />
+                            Valor Comprado
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">
+                            {position.invested_value_usd ? formatCurrency(position.invested_value_usd) : '-'}
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            {position.current_value_usd ? (
+                                <>
+                                    Valor atual: {formatCurrency(position.current_value_usd)}
+                                </>
+                            ) : (
+                                'Total investido na posição'
+                            )}
                         </p>
                     </CardContent>
                 </Card>
@@ -230,12 +294,12 @@ export default function PositionDetailPage() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{formatAssetAmount(position.qty_total)}</div>
+                        <div className="text-2xl font-bold">{formatAssetAmount(Number(position.qty_total || 0))}</div>
                         <p className="text-sm text-muted-foreground">
-                            {formatAssetAmount(position.qty_remaining)} restante
+                            {formatAssetAmount(Number(position.qty_remaining || 0))} restante
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                            Preço médio: {formatCurrency(position.price_open)}
+                            Preço médio: {formatCurrency(Number(position.price_open || 0))}
                         </p>
                     </CardContent>
                 </Card>
@@ -408,26 +472,61 @@ export default function PositionDetailPage() {
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Quantidade Total</p>
-                                    <p className="font-medium">{formatAssetAmount(position.qty_total)}</p>
+                                    <p className="font-medium">{formatAssetAmount(Number(position.qty_total || 0))}</p>
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Quantidade Restante</p>
-                                    <p className="font-medium">{formatAssetAmount(position.qty_remaining)}</p>
+                                    <p className="font-medium">{formatAssetAmount(Number(position.qty_remaining || 0))}</p>
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Preço de Abertura</p>
-                                    <p className="font-medium">{formatCurrency(position.price_open)}</p>
+                                    <p className="font-medium">{formatCurrency(Number(position.price_open || 0))}</p>
                                 </div>
+                                {position.current_price && (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Preço Atual</p>
+                                        <p className="font-medium">{formatCurrency(position.current_price)}</p>
+                                    </div>
+                                )}
+                                {position.invested_value_usd && (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Valor Comprado</p>
+                                        <p className="font-medium">{formatCurrency(position.invested_value_usd)}</p>
+                                    </div>
+                                )}
+                                {position.current_value_usd && (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Valor Atual</p>
+                                        <p className="font-medium">{formatCurrency(position.current_value_usd)}</p>
+                                    </div>
+                                )}
                                 <div>
                                     <p className="text-sm text-muted-foreground">PnL Realizado</p>
                                     <p
                                         className={`font-medium ${
-                                            position.realized_profit_usd >= 0 ? 'text-green-500' : 'text-red-500'
+                                            Number(position.realized_profit_usd || 0) >= 0 ? 'text-green-500' : 'text-red-500'
                                         }`}
                                     >
-                                        {formatCurrency(position.realized_profit_usd)}
+                                        {formatCurrency(Number(position.realized_profit_usd || 0))}
                                     </p>
                                 </div>
+                                {position.unrealized_pnl !== null && position.unrealized_pnl !== undefined && (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">PnL Não Realizado</p>
+                                        <p
+                                            className={`font-medium ${
+                                                position.unrealized_pnl >= 0 ? 'text-green-500' : 'text-red-500'
+                                            }`}
+                                        >
+                                            {formatCurrency(position.unrealized_pnl)}
+                                            {position.unrealized_pnl_pct !== null && position.unrealized_pnl_pct !== undefined && (
+                                                <span className="ml-2 text-sm">
+                                                    ({position.unrealized_pnl_pct >= 0 ? '+' : ''}{position.unrealized_pnl_pct.toFixed(2)}%)
+                                                </span>
+                                            )}
+                                        </p>
+                                    </div>
+                                )}
                                 <div>
                                     <p className="text-sm text-muted-foreground">Criada em</p>
                                     <p className="font-medium">{formatDateTime(position.created_at)}</p>

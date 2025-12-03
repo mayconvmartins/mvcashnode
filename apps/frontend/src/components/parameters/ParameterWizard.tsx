@@ -24,6 +24,7 @@ type WizardData = {
     orderSizeValue: number
     stopLossPercent?: number
     takeProfitPercent?: number
+    minProfitPct?: number
     trailingStop?: boolean
     maxDailyTrades?: number
     maxWeeklyTrades?: number
@@ -40,6 +41,7 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
         orderSizeValue: parameter?.orderSizeValue || 100,
         stopLossPercent: parameter?.stopLossPercent,
         takeProfitPercent: parameter?.takeProfitPercent,
+        minProfitPct: parameter?.min_profit_pct || parameter?.minProfitPct,
         trailingStop: parameter?.trailingStop || false,
         maxDailyTrades: parameter?.maxDailyTrades,
         maxWeeklyTrades: parameter?.maxWeeklyTrades,
@@ -49,9 +51,19 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
     const mutation = useMutation({
         mutationFn: () => {
             // Converter accountId e vaultId para número antes de enviar
-            const payload = {
-                ...data,
-                accountId: data.accountId ? Number(data.accountId) : undefined,
+            // Mapear campos do wizard para o formato da API
+            const payload: any = {
+                exchange_account_id: data.accountId ? Number(data.accountId) : undefined,
+                symbol: data.symbol,
+                side: data.side,
+                orderSizeType: data.orderSizeType,
+                orderSizeValue: data.orderSizeValue,
+                stopLossPercent: data.stopLossPercent,
+                takeProfitPercent: data.takeProfitPercent,
+                minProfitPct: data.minProfitPct,
+                trailingStop: data.trailingStop,
+                maxDailyTrades: data.maxDailyTrades,
+                maxWeeklyTrades: data.maxWeeklyTrades,
                 vaultId: data.vaultId ? Number(data.vaultId) : undefined,
             }
             
@@ -84,6 +96,12 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
         if (currentStep === 2) {
             if (!data.orderSizeValue || data.orderSizeValue <= 0) {
                 toast.error('Tamanho da ordem inválido')
+                return
+            }
+        }
+        if (currentStep === 3) {
+            if (!data.minProfitPct || data.minProfitPct <= 0) {
+                toast.error('Lucro mínimo é obrigatório e deve ser maior que zero')
                 return
             }
         }

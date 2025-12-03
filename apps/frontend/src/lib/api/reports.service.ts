@@ -59,7 +59,7 @@ export const reportsService = {
         return response.data
     },
 
-    getDashboardSummary: async (): Promise<{
+    getDashboardSummary: async (tradeMode?: string): Promise<{
         openPositions: number
         dailyPnL: number
         totalBalance: number
@@ -80,23 +80,27 @@ export const reportsService = {
         }>
     }> => {
         try {
+            // Preparar parâmetros com trade_mode se fornecido
+            const params = tradeMode ? { trade_mode: tradeMode } : {}
+            
             // Buscar dados de múltiplas fontes em paralelo
             const [pnlSummary, openPositions] = await Promise.all([
-                apiClient.get('/reports/pnl/summary').catch(() => ({ data: null })),
-                apiClient.get('/reports/open-positions/summary').catch(() => ({ data: [] })),
+                apiClient.get('/reports/pnl/summary', { params }).catch(() => ({ data: null })),
+                apiClient.get('/reports/open-positions/summary', { params }).catch(() => ({ data: null })),
             ])
 
-            const openCount = Array.isArray(openPositions.data) 
-                ? openPositions.data.reduce((sum: number, p: any) => sum + (p.total_positions || 0), 0)
-                : 0
+            // open-positions/summary retorna um objeto, não um array
+            const openPositionsData = openPositions.data || {}
+            const openCount = openPositionsData.totalPositions || 0
+            const activeAccounts = openPositionsData.bySymbol?.length || 0
 
             return {
                 openPositions: openCount,
-                dailyPnL: pnlSummary.data?.net_pnl || 0,
-                totalBalance: pnlSummary.data?.total_profit || 0,
-                activeAccounts: Array.isArray(openPositions.data) ? openPositions.data.length : 0,
+                dailyPnL: pnlSummary.data?.dailyPnL || pnlSummary.data?.netPnL || 0,
+                totalBalance: (pnlSummary.data?.realizedPnL || 0) + (pnlSummary.data?.unrealizedPnL || 0),
+                activeAccounts: activeAccounts,
                 positionsTrend: undefined,
-                pnlTrend: pnlSummary.data?.win_rate ? (pnlSummary.data.win_rate > 50 ? 1 : -1) : undefined,
+                pnlTrend: pnlSummary.data?.winRate ? (pnlSummary.data.winRate > 50 ? 1 : -1) : undefined,
                 recentTrades: [],
                 topSymbols: [],
             }

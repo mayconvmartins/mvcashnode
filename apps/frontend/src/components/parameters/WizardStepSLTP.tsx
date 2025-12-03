@@ -52,6 +52,23 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                     </p>
                 </div>
 
+                <div>
+                    <Label htmlFor="minProfitPct">Lucro Mínimo (%) *</Label>
+                    <Input
+                        id="minProfitPct"
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        required
+                        value={data.minProfitPct || ''}
+                        onChange={(e) => updateData({ minProfitPct: e.target.value ? parseFloat(e.target.value) : undefined })}
+                        placeholder="Ex: 1.0"
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">
+                        Lucro mínimo necessário para executar venda via webhook. Stop loss ignora esta validação.
+                    </p>
+                </div>
+
                 <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
                     <div className="space-y-0.5">
                         <Label htmlFor="trailingStop">Trailing Stop</Label>

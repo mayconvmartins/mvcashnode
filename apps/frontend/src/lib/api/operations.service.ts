@@ -2,11 +2,33 @@ import { apiClient } from './client'
 import type { TradeJob, TradeExecution, TradeMode, JobStatus } from '@/lib/types'
 
 export interface Operation {
-    id: string
-    type: 'job' | 'execution'
-    data: TradeJob | TradeExecution
-    created_at: string
-    updated_at: string
+    job: any
+    executions: any[]
+    position: any | null
+}
+
+export interface OperationDetail {
+    job: any
+    executions: any[]
+    position: any | null
+    sell_jobs: any[]
+    webhook_event: any | null
+    timeline: Array<{
+        type: string
+        timestamp: string
+        description: string
+        data: any
+    }>
+}
+
+export interface OperationsResponse {
+    data: Operation[]
+    pagination: {
+        current_page: number
+        per_page: number
+        total_items: number
+        total_pages: number
+    }
 }
 
 export interface OperationsFilters {
@@ -14,13 +36,18 @@ export interface OperationsFilters {
     status?: JobStatus
     from?: string
     to?: string
+    page?: number
+    limit?: number
+    exchange_account_id?: number
+    symbol?: string
 }
 
 export const operationsService = {
-    list: async (filters?: OperationsFilters): Promise<Operation[]> => {
-        const response = await apiClient.get<Operation[]>('/operations', {
+    list: async (filters?: OperationsFilters): Promise<OperationsResponse> => {
+        const response = await apiClient.get<OperationsResponse>('/operations', {
             params: filters,
         })
+        // O axios já extrai data da resposta HTTP, então response.data é { data: [...], pagination: {...} }
         return response.data
     },
 
@@ -43,6 +70,11 @@ export const operationsService = {
 
     listExecutions: async (): Promise<TradeExecution[]> => {
         const response = await apiClient.get<TradeExecution[]>('/trade-executions')
+        return response.data
+    },
+
+    getById: async (id: number): Promise<OperationDetail> => {
+        const response = await apiClient.get<OperationDetail>(`/operations/${id}`)
         return response.data
     },
 }

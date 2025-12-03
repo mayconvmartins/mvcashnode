@@ -20,7 +20,7 @@ interface SellLimitModalProps {
 export function SellLimitModal({ position, open, onClose }: SellLimitModalProps) {
     const queryClient = useQueryClient()
     const [price, setPrice] = useState('')
-    const [quantity, setQuantity] = useState(position.qty_remaining.toString())
+    const [quantity, setQuantity] = useState(Number(position.qty_remaining || 0).toString())
 
     const sellLimitMutation = useMutation({
         mutationFn: () => positionsService.sellLimit(position.id, {
@@ -49,7 +49,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
             return
         }
         
-        if (!qtyVal || qtyVal <= 0 || qtyVal > position.qty_remaining) {
+        if (!qtyVal || qtyVal <= 0 || qtyVal > Number(position.qty_remaining || 0)) {
             toast.error('Quantidade inválida')
             return
         }
@@ -58,7 +58,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
     }
 
     const pricePercent = price && position.price_open
-        ? ((parseFloat(price) - position.price_open) / position.price_open * 100).toFixed(2)
+        ? ((parseFloat(price) - Number(position.price_open || 0)) / Number(position.price_open || 0) * 100).toFixed(2)
         : null
 
     return (
@@ -67,7 +67,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                 <DialogHeader>
                     <DialogTitle>Criar Ordem Limite de Venda</DialogTitle>
                     <DialogDescription>
-                        {position.symbol} • Quantidade Disponível: {position.qty_remaining.toFixed(8)}
+                        {position.symbol} • Quantidade Disponível: {Number(position.qty_remaining || 0).toFixed(8)}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -84,7 +84,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                         />
                         {pricePercent && (
                             <p className={`text-sm mt-1 ${parseFloat(pricePercent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                {parseFloat(pricePercent) >= 0 ? '+' : ''}{pricePercent}% da entrada ({formatCurrency(position.price_open)})
+                                {parseFloat(pricePercent) >= 0 ? '+' : ''}{pricePercent}% da entrada ({formatCurrency(Number(position.price_open || 0))})
                             </p>
                         )}
                     </div>
@@ -96,12 +96,12 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                             step="0.00000001"
                             value={quantity}
                             onChange={(e) => setQuantity(e.target.value)}
-                            placeholder={`Máx: ${position.qty_remaining.toFixed(8)}`}
-                            max={position.qty_remaining}
+                            placeholder={`Máx: ${Number(position.qty_remaining || 0).toFixed(8)}`}
+                            max={Number(position.qty_remaining || 0)}
                             required
                         />
                         <p className="text-sm text-muted-foreground mt-1">
-                            Máximo disponível: {position.qty_remaining.toFixed(8)}
+                            Máximo disponível: {Number(position.qty_remaining || 0).toFixed(8)}
                         </p>
                     </div>
 
@@ -118,7 +118,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                                 <span className="text-muted-foreground">PnL Estimado:</span>
                                 <span className={`font-medium ${pricePercent && parseFloat(pricePercent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                                     {price && quantity 
-                                        ? formatCurrency((parseFloat(price) - position.price_open) * parseFloat(quantity))
+                                        ? formatCurrency((parseFloat(price) - Number(position.price_open || 0)) * parseFloat(quantity))
                                         : formatCurrency(0)
                                     }
                                 </span>
