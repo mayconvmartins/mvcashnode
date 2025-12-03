@@ -60,20 +60,39 @@ export class ReportsService {
       if (to) whereClosed.closed_at.lte = to;
     }
 
-    const closedPositions = await this.prisma.tradePosition.findMany({
-      where: whereClosed,
-      select: {
-        id: true,
-        realized_profit_usd: true,
-        closed_at: true,
-        exchange_account: {
-          select: {
-            id: true,
-            exchange: true,
-          },
+    // Buscar posições fechadas e calcular dailyPnL em paralelo
+    const [closedPositions, dailyPnLAggregate] = await Promise.all([
+      this.prisma.tradePosition.findMany({
+        where: whereClosed,
+        select: {
+          id: true,
+          realized_profit_usd: true,
+          closed_at: true,
         },
-      },
-    });
+      }),
+      // Calcular PnL do dia usando agregação
+      (async () => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const dailyAggregate = await this.prisma.tradePosition.aggregate({
+          where: {
+            ...whereClosed,
+            closed_at: {
+              gte: today,
+              lt: tomorrow,
+            },
+          },
+          _sum: {
+            realized_profit_usd: true,
+          },
+        });
+        
+        return dailyAggregate._sum.realized_profit_usd?.toNumber() || 0;
+      })(),
+    ]);
 
     console.log(`[ReportsService] Posições fechadas encontradas: ${closedPositions.length}`);
 
@@ -103,66 +122,107 @@ export class ReportsService {
 
     console.log(`[ReportsService] Posições abertas encontradas: ${openPositions.length}`);
 
-    // Calcular PnL realizado (posições fechadas)
-    const totalProfit = closedPositions
-      .filter((p) => p.realized_profit_usd.toNumber() > 0)
-      .reduce((sum, p) => sum + p.realized_profit_usd.toNumber(), 0);
+    // Calcular PnL realizado usando agregações do Prisma (mais eficiente)
+    const [aggregatedData, winningCount] = await Promise.all([
+      this.prisma.tradePosition.aggregate({
+        where: whereClosed,
+        _sum: {
+          realized_profit_usd: true,
+        },
+        _count: {
+          id: true,
+        },
+      }),
+      this.prisma.tradePosition.count({
+        where: {
+          ...whereClosed,
+          realized_profit_usd: { gt: 0 },
+        },
+      }),
+    ]);
 
-    const totalLoss = closedPositions
-      .filter((p) => p.realized_profit_usd.toNumber() < 0)
-      .reduce((sum, p) => sum + Math.abs(p.realized_profit_usd.toNumber()), 0);
+    // Calcular profit e loss usando agregações separadas (mais eficiente)
+    const [profitAggregate, lossAggregate] = await Promise.all([
+      this.prisma.tradePosition.aggregate({
+        where: {
+          ...whereClosed,
+          realized_profit_usd: { gt: 0 },
+        },
+        _sum: {
+          realized_profit_usd: true,
+        },
+      }),
+      this.prisma.tradePosition.aggregate({
+        where: {
+          ...whereClosed,
+          realized_profit_usd: { lt: 0 },
+        },
+        _sum: {
+          realized_profit_usd: true,
+        },
+      }),
+    ]);
 
+    const totalProfit = profitAggregate._sum.realized_profit_usd?.toNumber() || 0;
+    const totalLoss = Math.abs(lossAggregate._sum.realized_profit_usd?.toNumber() || 0);
     const realizedPnL = totalProfit - totalLoss;
-    const totalTrades = closedPositions.length;
-    const winningTrades = closedPositions.filter((p) => p.realized_profit_usd.toNumber() > 0).length;
+    const totalTrades = aggregatedData._count.id;
+    const winningTrades = winningCount;
     const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
 
-    // Calcular PnL não realizado (posições abertas)
-    let unrealizedPnL = 0;
+    // Calcular PnL não realizado (posições abertas) - PARALELIZADO
     let totalUnrealizedPnL = 0;
 
-    for (const position of openPositions) {
-      try {
-        // Criar adapter read-only (sem API keys necessárias para buscar preço)
-        const adapter = AdapterFactory.createAdapter(
-          position.exchange_account.exchange as ExchangeType
-        );
-        
-        const ticker = await adapter.fetchTicker(position.symbol);
-        const currentPrice = ticker.last;
-
-        if (currentPrice && currentPrice > 0) {
-          const priceOpen = position.price_open.toNumber();
-          const qtyRemaining = position.qty_remaining.toNumber();
-          
-          // PnL não realizado para esta posição
-          const positionUnrealizedPnL = (currentPrice - priceOpen) * qtyRemaining;
-          totalUnrealizedPnL += positionUnrealizedPnL;
+    if (openPositions.length > 0) {
+      // Agrupar posições por exchange para reutilizar adapters
+      const positionsByExchange = new Map<string, typeof openPositions>();
+      for (const position of openPositions) {
+        const exchangeKey = `${position.exchange_account.exchange}_${position.exchange_account.testnet}`;
+        if (!positionsByExchange.has(exchangeKey)) {
+          positionsByExchange.set(exchangeKey, []);
         }
-      } catch (error: any) {
-        // Se falhar ao buscar preço, continuar sem essa posição
-        console.warn(`[ReportsService] Erro ao buscar preço atual para posição ${position.id}: ${error.message}`);
+        positionsByExchange.get(exchangeKey)!.push(position);
       }
+
+      // Processar todas as exchanges em paralelo
+      const unrealizedPnLPromises = Array.from(positionsByExchange.entries()).map(
+        async ([exchangeKey, positions]) => {
+          const [exchange, testnetStr] = exchangeKey.split('_');
+          const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
+          let exchangeUnrealizedPnL = 0;
+
+          // Buscar todos os tickers em paralelo para esta exchange
+          const tickerPromises = positions.map(async (position) => {
+            try {
+              const ticker = await adapter.fetchTicker(position.symbol);
+              const currentPrice = ticker.last;
+
+              if (currentPrice && currentPrice > 0) {
+                const priceOpen = position.price_open.toNumber();
+                const qtyRemaining = position.qty_remaining.toNumber();
+                return (currentPrice - priceOpen) * qtyRemaining;
+              }
+              return 0;
+            } catch (error: any) {
+              console.warn(`[ReportsService] Erro ao buscar preço atual para posição ${position.id}: ${error.message}`);
+              return 0;
+            }
+          });
+
+          const positionPnLs = await Promise.all(tickerPromises);
+          exchangeUnrealizedPnL = positionPnLs.reduce((sum, pnl) => sum + pnl, 0);
+          return exchangeUnrealizedPnL;
+        }
+      );
+
+      const exchangePnLs = await Promise.all(unrealizedPnLPromises);
+      totalUnrealizedPnL = exchangePnLs.reduce((sum, pnl) => sum + pnl, 0);
     }
 
-    unrealizedPnL = totalUnrealizedPnL;
+    const unrealizedPnL = totalUnrealizedPnL;
 
-    // Calcular PnL do dia (posições fechadas hoje)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const todayClosedPositions = closedPositions.filter((p) => {
-      if (!p.closed_at) return false;
-      const closedDate = new Date(p.closed_at);
-      return closedDate >= today && closedDate < tomorrow;
-    });
-
-    const dailyPnL = todayClosedPositions.reduce(
-      (sum, p) => sum + p.realized_profit_usd.toNumber(),
-      0
-    );
+    // dailyPnL já foi calculado em paralelo acima (já é o resultado, não uma Promise)
+    const dailyPnL = dailyPnLAggregate;
 
     // PnL total (realizado + não realizado)
     const netPnL = realizedPnL + unrealizedPnL;
@@ -321,8 +381,19 @@ export class ReportsService {
 
     const positions = await this.prisma.tradePosition.findMany({
       where,
-      include: {
-        exchange_account: true,
+      select: {
+        id: true,
+        symbol: true,
+        price_open: true,
+        qty_total: true,
+        qty_remaining: true,
+        exchange_account: {
+          select: {
+            id: true,
+            exchange: true,
+            testnet: true,
+          },
+        },
       },
     });
 
@@ -330,7 +401,7 @@ export class ReportsService {
     let totalInvested = 0;
     const bySymbol: Record<string, { symbol: string; count: number; unrealizedPnL: number; invested: number }> = {};
 
-    // Calcular métricas para cada posição
+    // Calcular valor investido primeiro (não precisa de API)
     for (const position of positions) {
       const symbol = position.symbol;
       
@@ -351,27 +422,65 @@ export class ReportsService {
       const invested = qtyTotal * priceOpen;
       totalInvested += invested;
       bySymbol[symbol].invested += invested;
+    }
 
-      // Buscar preço atual e calcular PnL não realizado
-      try {
-        const adapter = AdapterFactory.createAdapter(
-          position.exchange_account.exchange as ExchangeType
-        );
-        
-        const ticker = await adapter.fetchTicker(position.symbol);
-        const currentPrice = ticker.last;
-
-        if (currentPrice && currentPrice > 0) {
-          const qtyRemaining = position.qty_remaining.toNumber();
-          
-          // PnL não realizado para esta posição
-          const positionUnrealizedPnL = (currentPrice - priceOpen) * qtyRemaining;
-          totalUnrealizedPnL += positionUnrealizedPnL;
-          bySymbol[symbol].unrealizedPnL += positionUnrealizedPnL;
+    // Calcular PnL não realizado - PARALELIZADO e agrupado por exchange
+    if (positions.length > 0) {
+      // Agrupar posições por exchange para reutilizar adapters
+      const positionsByExchange = new Map<string, typeof positions>();
+      for (const position of positions) {
+        const exchangeKey = `${position.exchange_account.exchange}_${position.exchange_account.testnet}`;
+        if (!positionsByExchange.has(exchangeKey)) {
+          positionsByExchange.set(exchangeKey, []);
         }
-      } catch (error: any) {
-        // Se falhar ao buscar preço, continuar sem essa posição
-        console.warn(`[ReportsService] Erro ao buscar preço atual para posição ${position.id}: ${error.message}`);
+        positionsByExchange.get(exchangeKey)!.push(position);
+      }
+
+      // Processar todas as exchanges em paralelo
+      const unrealizedPnLPromises = Array.from(positionsByExchange.entries()).map(
+        async ([exchangeKey, exchangePositions]) => {
+          const [exchange] = exchangeKey.split('_');
+          const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
+          const exchangeResults: Array<{ symbol: string; unrealizedPnL: number }> = [];
+
+          // Buscar todos os tickers em paralelo para esta exchange
+          const tickerPromises = exchangePositions.map(async (position) => {
+            try {
+              const ticker = await adapter.fetchTicker(position.symbol);
+              const currentPrice = ticker.last;
+
+              if (currentPrice && currentPrice > 0) {
+                const priceOpen = position.price_open.toNumber();
+                const qtyRemaining = position.qty_remaining.toNumber();
+                const positionUnrealizedPnL = (currentPrice - priceOpen) * qtyRemaining;
+                return {
+                  symbol: position.symbol,
+                  unrealizedPnL: positionUnrealizedPnL,
+                };
+              }
+              return { symbol: position.symbol, unrealizedPnL: 0 };
+            } catch (error: any) {
+              console.warn(`[ReportsService] Erro ao buscar preço atual para posição ${position.id}: ${error.message}`);
+              return { symbol: position.symbol, unrealizedPnL: 0 };
+            }
+          });
+
+          const results = await Promise.all(tickerPromises);
+          exchangeResults.push(...results);
+          return exchangeResults;
+        }
+      );
+
+      const allResults = await Promise.all(unrealizedPnLPromises);
+      
+      // Consolidar resultados
+      for (const results of allResults) {
+        for (const result of results) {
+          totalUnrealizedPnL += result.unrealizedPnL;
+          if (bySymbol[result.symbol]) {
+            bySymbol[result.symbol].unrealizedPnL += result.unrealizedPnL;
+          }
+        }
       }
     }
 
