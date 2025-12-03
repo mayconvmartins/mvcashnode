@@ -206,15 +206,18 @@ export class PositionService {
     }
 
     // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+    // Se for LIMIT, usar limitPrice para validação; se for MARKET, buscar preço atual
     const minProfitValidationService = new MinProfitValidationService(this.prisma);
     const priceOpen = position.price_open.toNumber();
+    const sellPrice = orderType === 'LIMIT' && limitPrice ? limitPrice : undefined;
     const validationResult = await minProfitValidationService.validateMinProfit(
       position.exchange_account_id,
       position.symbol,
       priceOpen,
       'MANUAL',
       position.exchange_account.exchange as ExchangeType,
-      position.trade_mode as 'REAL' | 'SIMULATION'
+      position.trade_mode as 'REAL' | 'SIMULATION',
+      sellPrice
     );
 
     if (!validationResult.valid) {
@@ -268,6 +271,7 @@ export class PositionService {
     }
 
     // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+    // Usa o limitPrice fornecido para validar
     const minProfitValidationService = new MinProfitValidationService(this.prisma);
     const priceOpen = position.price_open.toNumber();
     const validationResult = await minProfitValidationService.validateMinProfit(
@@ -276,7 +280,8 @@ export class PositionService {
       priceOpen,
       'MANUAL',
       position.exchange_account.exchange as ExchangeType,
-      position.trade_mode as 'REAL' | 'SIMULATION'
+      position.trade_mode as 'REAL' | 'SIMULATION',
+      limitPrice // Passar o limitPrice para validação
     );
 
     if (!validationResult.valid) {

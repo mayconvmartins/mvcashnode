@@ -264,6 +264,7 @@ export class PositionsController {
       const shouldIncludeFills = includeFills === true;
 
       // Buscar posições
+      // Sempre incluir fills para calcular price_close em posições fechadas
       const positions = await this.prisma.tradePosition.findMany({
         where,
         include: {
@@ -285,33 +286,53 @@ export class PositionsController {
               created_at: true,
             },
           },
-          ...(shouldIncludeFills ? {
-            fills: {
-              orderBy: {
-                created_at: 'desc',
-              },
-              take: 10, // Limitar fills retornados
-              include: {
-                execution: {
-                  include: {
-                    trade_job: {
-                      select: {
-                        id: true,
-                        symbol: true,
-                        side: true,
-                        order_type: true,
-                        status: true,
-                        created_at: true,
-                        limit_price: true,
-                        base_quantity: true,
-                        quote_amount: true,
-                      },
+          fills: {
+            where: {
+              side: 'SELL', // Apenas fills de venda para obter preço de fechamento
+            },
+            select: shouldIncludeFills ? {
+              id: true,
+              price: true,
+              qty: true,
+              created_at: true,
+              execution: {
+                select: {
+                  id: true,
+                  avg_price: true,
+                  executed_qty: true,
+                  created_at: true,
+                  trade_job: {
+                    select: {
+                      id: true,
+                      symbol: true,
+                      side: true,
+                      order_type: true,
+                      status: true,
+                      created_at: true,
+                      limit_price: true,
+                      base_quantity: true,
+                      quote_amount: true,
                     },
                   },
                 },
               },
+            } : {
+              id: true,
+              price: true,
+              qty: true,
+              created_at: true,
+              execution: {
+                select: {
+                  id: true,
+                  avg_price: true,
+                  created_at: true,
+                },
+              },
             },
-          } : {}),
+            orderBy: {
+              created_at: 'desc',
+            },
+          },
         },
         orderBy: {
           created_at: 'desc',
@@ -392,6 +413,7 @@ export class PositionsController {
         const qtyTotal = position.qty_total.toNumber();
         
         let currentPrice: number | null = null;
+        let priceClose: number | null = null;
         let unrealizedPnl: number | null = null;
         let unrealizedPnlPct: number | null = null;
         let investedValueUsd: number | null = null;
@@ -421,7 +443,17 @@ export class PositionsController {
             totalInvested += investedValueUsd;
           }
         } else {
-          // Para posições fechadas, apenas calcular valor investido
+          // Para posições fechadas, pegar o preço médio da execução que fechou a posição
+          // Pegar o fill de SELL mais recente (último que fechou) e usar o avg_price da execução
+          if (position.fills && position.fills.length > 0) {
+            // O fill mais recente é o primeiro da lista (ordenado por created_at desc)
+            const lastSellFill = position.fills[0];
+            if (lastSellFill.execution?.avg_price) {
+              priceClose = lastSellFill.execution.avg_price.toNumber();
+            }
+          }
+          
+          // Calcular valor investido
           investedValueUsd = qtyTotal * priceOpen;
           totalInvested += investedValueUsd;
         }
@@ -433,20 +465,21 @@ export class PositionsController {
         // Extrair sell_jobs dos fills (apenas fills de SELL)
         const sellJobs: any[] = [];
         if (shouldIncludeFills && position.fills) {
-          const sellFills = position.fills.filter((fill: any) => fill.side === 'SELL');
           const uniqueJobIds = new Set<number>();
           
-          for (const fill of sellFills) {
-            if (fill.execution?.trade_job) {
-              const jobId = fill.execution.trade_job.id;
+          for (const fill of position.fills) {
+            // Type guard: verificar se execution tem trade_job (só quando shouldIncludeFills é true)
+            const execution = fill.execution as any;
+            if (execution?.trade_job) {
+              const jobId = execution.trade_job.id;
               // Evitar duplicatas (mesmo job pode ter múltiplos fills)
               if (!uniqueJobIds.has(jobId)) {
                 uniqueJobIds.add(jobId);
                 sellJobs.push({
-                  ...fill.execution.trade_job,
-                  limit_price: fill.execution.trade_job.limit_price?.toNumber() || null,
-                  base_quantity: fill.execution.trade_job.base_quantity?.toNumber() || null,
-                  quote_amount: fill.execution.trade_job.quote_amount?.toNumber() || null,
+                  ...execution.trade_job,
+                  limit_price: execution.trade_job.limit_price?.toNumber() || null,
+                  base_quantity: execution.trade_job.base_quantity?.toNumber() || null,
+                  quote_amount: execution.trade_job.quote_amount?.toNumber() || null,
                 });
               }
             }
@@ -456,6 +489,7 @@ export class PositionsController {
         return {
           ...position,
           current_price: currentPrice,
+          price_close: priceClose,
           invested_value_usd: investedValueUsd,
           current_value_usd: currentValueUsd,
           unrealized_pnl: unrealizedPnl,
@@ -600,6 +634,9 @@ export class PositionsController {
             },
           },
           fills: {
+            where: {
+              side: 'SELL', // Apenas fills de venda para obter preço de fechamento
+            },
             orderBy: {
               created_at: 'desc',
             },
@@ -607,10 +644,22 @@ export class PositionsController {
               execution: {
                 select: {
                   id: true,
-                  exchange_order_id: true,
-                  client_order_id: true,
-                  status_exchange: true,
+                  avg_price: true,
+                  executed_qty: true,
                   created_at: true,
+                  trade_job: {
+                    select: {
+                      id: true,
+                      side: true,
+                      order_type: true,
+                      status: true,
+                      symbol: true,
+                      quote_amount: true,
+                      base_quantity: true,
+                      limit_price: true,
+                      created_at: true,
+                    },
+                  },
                 },
               },
             },
@@ -624,10 +673,24 @@ export class PositionsController {
 
       // Buscar preço atual e calcular métricas
       let currentPrice: number | null = null;
+      let priceClose: number | null = null;
       let unrealizedPnl: number | null = null;
       let unrealizedPnlPct: number | null = null;
       let investedValueUsd: number | null = null;
       let currentValueUsd: number | null = null;
+
+      // Calcular preço de venda para posições fechadas
+      // Pegar o avg_price da execução que fechou a posição
+      if (position.status === 'CLOSED' && position.fills) {
+        const sellFills = position.fills.filter((fill: any) => fill.side === 'SELL');
+        if (sellFills.length > 0) {
+          // Pegar o fill mais recente (último que fechou) e usar o avg_price da execução
+          const lastSellFill = sellFills[0]; // Já está ordenado por created_at desc
+          if (lastSellFill.execution?.avg_price) {
+            priceClose = lastSellFill.execution.avg_price.toNumber();
+          }
+        }
+      }
 
       try {
         // Criar adapter read-only (sem API keys necessárias para buscar preço)
@@ -646,12 +709,14 @@ export class PositionsController {
           // Valor investido (comprado) em USD
           investedValueUsd = qtyTotal * priceOpen;
           
-          // Valor atual em USD
-          currentValueUsd = qtyRemaining * currentPrice;
-          
-          // PnL não realizado (unrealized PnL)
-          unrealizedPnl = (currentPrice - priceOpen) * qtyRemaining;
-          unrealizedPnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+          // Valor atual em USD (apenas para posições abertas)
+          if (position.status === 'OPEN') {
+            currentValueUsd = qtyRemaining * currentPrice;
+            
+            // PnL não realizado (unrealized PnL)
+            unrealizedPnl = (currentPrice - priceOpen) * qtyRemaining;
+            unrealizedPnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+          }
         }
       } catch (error: any) {
         // Se falhar ao buscar preço, continuar sem essas métricas
@@ -659,13 +724,37 @@ export class PositionsController {
         console.warn(`[PositionsController] Erro ao buscar preço atual para posição ${id}: ${error.message}`);
       }
 
+      // Buscar jobs de venda relacionados (via fills de SELL)
+      const sellJobs: any[] = [];
+      if (position.fills) {
+        const sellFills = position.fills.filter((fill: any) => fill.side === 'SELL');
+        const uniqueJobIds = new Set<number>();
+        
+        for (const fill of sellFills) {
+          if (fill.execution?.trade_job) {
+            const jobId = fill.execution.trade_job.id;
+            if (!uniqueJobIds.has(jobId)) {
+              uniqueJobIds.add(jobId);
+              sellJobs.push({
+                ...fill.execution.trade_job,
+                limit_price: fill.execution.trade_job.limit_price?.toNumber() || null,
+                base_quantity: fill.execution.trade_job.base_quantity?.toNumber() || null,
+                quote_amount: fill.execution.trade_job.quote_amount?.toNumber() || null,
+              });
+            }
+          }
+        }
+      }
+
       return {
         ...position,
         current_price: currentPrice,
+        price_close: priceClose,
         invested_value_usd: investedValueUsd,
         current_value_usd: currentValueUsd,
         unrealized_pnl: unrealizedPnl,
         unrealized_pnl_pct: unrealizedPnlPct,
+        sell_jobs: sellJobs,
       };
     } catch (error: any) {
       if (error instanceof NotFoundException) {

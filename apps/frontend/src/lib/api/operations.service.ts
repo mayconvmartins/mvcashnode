@@ -11,6 +11,7 @@ export interface OperationDetail {
     job: any
     executions: any[]
     position: any | null
+    positions_closed: any[]
     sell_jobs: any[]
     webhook_event: any | null
     timeline: Array<{

@@ -175,6 +175,17 @@ export default function ParameterDetailPage() {
                                 </div>
                             </div>
                         )}
+                        {parameter.min_profit_pct && (
+                            <div>
+                                <label className="text-xs text-muted-foreground">Lucro Mínimo</label>
+                                <div className="text-lg font-semibold text-blue-500">
+                                    {parameter.min_profit_pct}%
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Lucro mínimo necessário para executar venda via webhook
+                                </p>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </div>

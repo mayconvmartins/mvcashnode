@@ -127,6 +127,7 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
     ]
 
     const CurrentStepComponent = steps[currentStep - 1].component
+    const isEditing = !!parameter
 
     return (
         <div className="space-y-6">
@@ -159,7 +160,11 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
 
             {/* Step Content */}
             <div className="min-h-[300px]">
-                <CurrentStepComponent data={data} updateData={updateData} />
+                {currentStep === 1 ? (
+                    <WizardStepAccount data={data} updateData={updateData} isEditing={isEditing} />
+                ) : (
+                    <CurrentStepComponent data={data} updateData={updateData} />
+                )}
             </div>
 
             {/* Navigation */}

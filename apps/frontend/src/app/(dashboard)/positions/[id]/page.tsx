@@ -46,6 +46,7 @@ interface PositionWithRelations extends Position {
     }
     fills?: PositionFill[]
     open_job?: TradeJob
+    sell_jobs?: TradeJob[]
 }
 
 export default function PositionDetailPage() {
@@ -482,12 +483,17 @@ export default function PositionDetailPage() {
                                     <p className="text-sm text-muted-foreground">Preço de Abertura</p>
                                     <p className="font-medium">{formatCurrency(Number(position.price_open || 0))}</p>
                                 </div>
-                                {position.current_price && (
+                                {position.status === 'CLOSED' && position.price_close ? (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Preço de Venda</p>
+                                        <p className="font-medium">{formatCurrency(position.price_close)}</p>
+                                    </div>
+                                ) : position.current_price ? (
                                     <div>
                                         <p className="text-sm text-muted-foreground">Preço Atual</p>
                                         <p className="font-medium">{formatCurrency(position.current_price)}</p>
                                     </div>
-                                )}
+                                ) : null}
                                 {position.invested_value_usd && (
                                     <div>
                                         <p className="text-sm text-muted-foreground">Valor Comprado</p>
@@ -658,73 +664,137 @@ export default function PositionDetailPage() {
                     </Card>
                 </TabsContent>
 
-                {/* Trade Job Tab */}
+                {/* Trade Jobs Tab */}
                 <TabsContent value="job">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Trade Job de Abertura</CardTitle>
-                            <CardDescription>
-                                Job que criou esta posição (ID: {position.trade_job_id_open})
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            {openJob ? (
-                                <div className="space-y-4">
-                                    <div className="grid gap-4 md:grid-cols-2">
-                                        <div>
-                                            <p className="text-sm text-muted-foreground">ID do Job</p>
-                                            <p className="font-mono font-medium">#{openJob.id}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-sm text-muted-foreground">Status</p>
-                                            <Badge variant={openJob.status === 'FILLED' ? 'default' : 'secondary'}>
-                                                {openJob.status}
-                                            </Badge>
-                                        </div>
-                                        <div>
-                                            <p className="text-sm text-muted-foreground">Lado</p>
-                                            <Badge variant={openJob.side === 'BUY' ? 'default' : 'destructive'}>
-                                                {openJob.side}
-                                            </Badge>
-                                        </div>
-                                        <div>
-                                            <p className="text-sm text-muted-foreground">Tipo de Ordem</p>
-                                            <p className="font-medium">{openJob.order_type}</p>
-                                        </div>
-                                        {openJob.quote_amount && (
+                    <div className="space-y-4">
+                        {/* Job de Abertura */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Trade Job de Abertura</CardTitle>
+                                <CardDescription>
+                                    Job que criou esta posição (ID: {position.trade_job_id_open})
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                {openJob ? (
+                                    <div className="space-y-4">
+                                        <div className="grid gap-4 md:grid-cols-2">
                                             <div>
-                                                <p className="text-sm text-muted-foreground">Valor em Quote</p>
-                                                <p className="font-medium">{formatCurrency(openJob.quote_amount)}</p>
+                                                <p className="text-sm text-muted-foreground">ID do Job</p>
+                                                <p className="font-mono font-medium">#{openJob.id}</p>
                                             </div>
-                                        )}
-                                        {openJob.base_quantity && (
                                             <div>
-                                                <p className="text-sm text-muted-foreground">Quantidade Base</p>
-                                                <p className="font-medium">{formatAssetAmount(openJob.base_quantity)}</p>
+                                                <p className="text-sm text-muted-foreground">Status</p>
+                                                <Badge variant={openJob.status === 'FILLED' ? 'default' : 'secondary'}>
+                                                    {openJob.status}
+                                                </Badge>
                                             </div>
-                                        )}
-                                        <div>
-                                            <p className="text-sm text-muted-foreground">Criado em</p>
-                                            <p className="font-medium">{formatDateTime(openJob.created_at)}</p>
+                                            <div>
+                                                <p className="text-sm text-muted-foreground">Lado</p>
+                                                <Badge variant={openJob.side === 'BUY' ? 'default' : 'destructive'}>
+                                                    {openJob.side}
+                                                </Badge>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm text-muted-foreground">Tipo de Ordem</p>
+                                                <p className="font-medium">{openJob.order_type}</p>
+                                            </div>
+                                            {openJob.quote_amount && (
+                                                <div>
+                                                    <p className="text-sm text-muted-foreground">Valor em Quote</p>
+                                                    <p className="font-medium">{formatCurrency(openJob.quote_amount)}</p>
+                                                </div>
+                                            )}
+                                            {openJob.base_quantity && (
+                                                <div>
+                                                    <p className="text-sm text-muted-foreground">Quantidade Base</p>
+                                                    <p className="font-medium">{formatAssetAmount(openJob.base_quantity)}</p>
+                                                </div>
+                                            )}
+                                            <div>
+                                                <p className="text-sm text-muted-foreground">Criado em</p>
+                                                <p className="font-medium">{formatDateTime(openJob.created_at)}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => router.push(`/operations/${openJob.id}`)}
+                                            >
+                                                Ver Detalhes do Job
+                                            </Button>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => router.push(`/jobs/${openJob.id}`)}
-                                        >
-                                            Ver Detalhes do Job
-                                        </Button>
+                                ) : (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        <LinkIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                                        <p>Carregando informações do job...</p>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="text-center py-8 text-muted-foreground">
-                                    <LinkIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                                    <p>Carregando informações do job...</p>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Jobs de Venda */}
+                        {position.sell_jobs && position.sell_jobs.length > 0 && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>Jobs de Venda</CardTitle>
+                                    <CardDescription>
+                                        Jobs que fecharam (parcialmente ou totalmente) esta posição ({position.sell_jobs.length})
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="space-y-4">
+                                        {position.sell_jobs.map((sellJob: any) => (
+                                            <div key={sellJob.id} className="border rounded-lg p-4 space-y-3">
+                                                <div className="grid gap-4 md:grid-cols-2">
+                                                    <div>
+                                                        <p className="text-sm text-muted-foreground">ID do Job</p>
+                                                        <p className="font-mono font-medium">#{sellJob.id}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm text-muted-foreground">Status</p>
+                                                        <Badge variant={sellJob.status === 'FILLED' ? 'default' : 'secondary'}>
+                                                            {sellJob.status}
+                                                        </Badge>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm text-muted-foreground">Tipo de Ordem</p>
+                                                        <p className="font-medium">{sellJob.order_type}</p>
+                                                    </div>
+                                                    {sellJob.limit_price && (
+                                                        <div>
+                                                            <p className="text-sm text-muted-foreground">Preço Limite</p>
+                                                            <p className="font-medium">{formatCurrency(sellJob.limit_price)}</p>
+                                                        </div>
+                                                    )}
+                                                    {sellJob.base_quantity && (
+                                                        <div>
+                                                            <p className="text-sm text-muted-foreground">Quantidade Base</p>
+                                                            <p className="font-medium">{formatAssetAmount(sellJob.base_quantity)}</p>
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <p className="text-sm text-muted-foreground">Criado em</p>
+                                                        <p className="font-medium">{formatDateTime(sellJob.created_at)}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => router.push(`/operations/${sellJob.id}`)}
+                                                    >
+                                                        Ver Detalhes do Job
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
+                    </div>
                 </TabsContent>
             </Tabs>
 

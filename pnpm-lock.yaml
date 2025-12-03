@@ -439,6 +439,9 @@ importers:
       '@mvcashnode/db':
         specifier: workspace:*
         version: link:../db
+      '@mvcashnode/exchange':
+        specifier: workspace:*
+        version: link:../exchange
       '@mvcashnode/shared':
         specifier: workspace:*
         version: link:../shared

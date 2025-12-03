@@ -20,6 +20,8 @@ export default function LoginPage() {
     const [password, setPassword] = useState('')
     const [twoFactorCode, setTwoFactorCode] = useState('')
     const [error, setError] = useState('')
+    const [requires2FA, setRequires2FA] = useState(false)
+    const [sessionToken, setSessionToken] = useState<string | null>(null)
 
     // Limpar qualquer token de impersonation ao carregar a página de login
     useEffect(() => {
@@ -52,6 +54,14 @@ export default function LoginPage() {
     const loginMutation = useMutation({
         mutationFn: authService.login,
         onSuccess: (data) => {
+            // Verificar se requer 2FA
+            if (data.requires2FA && data.sessionToken) {
+                setRequires2FA(true)
+                setSessionToken(data.sessionToken)
+                toast.info('Por favor, informe o código 2FA')
+                return
+            }
+
             // Limpar qualquer flag de impersonation antes de salvar novos tokens
             if (typeof window !== 'undefined') {
                 localStorage.removeItem('isImpersonating')
@@ -59,16 +69,21 @@ export default function LoginPage() {
             }
             
             // Salvar tokens e usuário
-            setTokens(data.accessToken, data.refreshToken)
-            setUser(data.user)
-            toast.success('Login realizado com sucesso!')
-            
-            // Aguardar para garantir que os cookies foram salvos
-            setTimeout(() => {
-                const redirect = searchParams.get('redirect')
-                // Usar window.location.replace para forçar reload completo
-                window.location.replace(redirect || '/')
-            }, 200)
+            if (data.accessToken && data.refreshToken && data.user) {
+                setTokens(data.accessToken, data.refreshToken)
+                setUser(data.user)
+                toast.success('Login realizado com sucesso!')
+                
+                // Aguardar para garantir que os cookies foram salvos
+                setTimeout(() => {
+                    const redirect = searchParams.get('redirect')
+                    // Usar window.location.replace para forçar reload completo
+                    window.location.replace(redirect || '/')
+                }, 200)
+            } else {
+                setError('Resposta inválida do servidor')
+                toast.error('Erro ao realizar login')
+            }
         },
         onError: (error: any) => {
             const errorMessage = error.message || error.response?.data?.message || 'Falha no login'
@@ -81,11 +96,27 @@ export default function LoginPage() {
         e.preventDefault()
         setError('')
 
-        loginMutation.mutate({ 
-            email, 
-            password,
-            ...(twoFactorCode ? { twoFactorCode } : {})
-        })
+        if (requires2FA && sessionToken) {
+            // Segunda etapa: validar 2FA
+            loginMutation.mutate({ 
+                email, 
+                password,
+                twoFactorCode
+            })
+        } else {
+            // Primeira etapa: validar email e senha
+            loginMutation.mutate({ 
+                email, 
+                password
+            })
+        }
+    }
+
+    const handleBack = () => {
+        setRequires2FA(false)
+        setSessionToken(null)
+        setTwoFactorCode('')
+        setError('')
     }
 
     return (
@@ -113,73 +144,111 @@ export default function LoginPage() {
                         Trading Automation
                     </CardTitle>
                     <CardDescription className="text-center">
-                        Entre com suas credenciais para acessar o dashboard
+                        {requires2FA ? 'Informe o código 2FA para continuar' : 'Entre com suas credenciais para acessar o dashboard'}
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {error && (
-                            <div className="bg-destructive/10 border border-destructive/50 text-destructive text-sm p-3 rounded-md">
+                            <div className="bg-destructive/10 border border-destructive/50 text-destructive text-sm p-3 rounded-md animate-in fade-in">
                                 {error}
                             </div>
                         )}
 
-                        <div className="space-y-2">
-                            <label htmlFor="email" className="text-sm font-medium">
-                                Email
-                            </label>
-                            <Input
-                                id="email"
-                                type="email"
-                                placeholder="seu@email.com"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                disabled={loginMutation.isPending}
-                                required
-                            />
-                        </div>
+                        {!requires2FA ? (
+                            <>
+                                <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                                    <label htmlFor="email" className="text-sm font-medium">
+                                        Email
+                                    </label>
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        placeholder="seu@email.com"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        disabled={loginMutation.isPending}
+                                        required
+                                        autoFocus
+                                    />
+                                </div>
 
-                        <div className="space-y-2">
-                            <Label htmlFor="password">Senha</Label>
-                            <Input
-                                id="password"
-                                type="password"
-                                placeholder="••••••••"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                disabled={loginMutation.isPending}
-                                required
-                            />
-                        </div>
+                                <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                                    <Label htmlFor="password">Senha</Label>
+                                    <Input
+                                        id="password"
+                                        type="password"
+                                        placeholder="••••••••"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        disabled={loginMutation.isPending}
+                                        required
+                                    />
+                                </div>
 
-                        <div className="space-y-2">
-                            <Label htmlFor="twoFactorCode" className="flex items-center gap-2">
-                                <Shield className="h-4 w-4" />
-                                Código 2FA (opcional)
-                            </Label>
-                            <Input
-                                id="twoFactorCode"
-                                type="text"
-                                placeholder="000000"
-                                value={twoFactorCode}
-                                onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                maxLength={6}
-                                className="text-center text-lg font-mono tracking-widest"
-                                disabled={loginMutation.isPending}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                                Digite o código de 6 dígitos se você habilitou 2FA
-                            </p>
-                        </div>
+                                <Button
+                                    type="submit"
+                                    className="w-full animate-in fade-in slide-in-from-bottom-2"
+                                    variant="gradient"
+                                    disabled={loginMutation.isPending || !email || !password}
+                                >
+                                    {loginMutation.isPending ? 'Verificando...' : 'Entrar'}
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                                    <div className="flex items-center justify-center p-4 bg-primary/10 rounded-lg">
+                                        <Shield className="h-8 w-8 text-primary mr-3" />
+                                        <div>
+                                            <p className="font-medium">Autenticação em duas etapas</p>
+                                            <p className="text-sm text-muted-foreground">Digite o código do seu aplicativo autenticador</p>
+                                        </div>
+                                    </div>
 
-                        <Button
-                            type="submit"
-                            className="w-full"
-                            variant="gradient"
-                            disabled={loginMutation.isPending}
-                        >
-                            {loginMutation.isPending ? 'Entrando...' : 'Entrar'}
-                        </Button>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="twoFactorCode" className="flex items-center gap-2">
+                                            <Shield className="h-4 w-4" />
+                                            Código 2FA
+                                        </Label>
+                                        <Input
+                                            id="twoFactorCode"
+                                            type="text"
+                                            placeholder="000000"
+                                            value={twoFactorCode}
+                                            onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                            maxLength={6}
+                                            className="text-center text-2xl font-mono tracking-widest"
+                                            disabled={loginMutation.isPending}
+                                            autoFocus
+                                        />
+                                        <p className="text-xs text-muted-foreground text-center">
+                                            Código de 6 dígitos do seu aplicativo autenticador
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-2 animate-in fade-in slide-in-from-bottom-2">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="flex-1"
+                                        onClick={handleBack}
+                                        disabled={loginMutation.isPending}
+                                    >
+                                        Voltar
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        className="flex-1"
+                                        variant="gradient"
+                                        disabled={loginMutation.isPending || !twoFactorCode || twoFactorCode.length !== 6}
+                                    >
+                                        {loginMutation.isPending ? 'Verificando...' : 'Verificar'}
+                                    </Button>
+                                </div>
+                            </>
+                        )}
                     </form>
                 </CardContent>
             </Card>

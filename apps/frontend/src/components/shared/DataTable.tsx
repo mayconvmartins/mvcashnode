@@ -16,7 +16,7 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-r
 
 export interface Column<T> {
     key: string
-    label: string
+    label: string | ((data: T[]) => string)
     render?: (item: T) => React.ReactNode
     sortable?: boolean
     className?: string
@@ -88,7 +88,9 @@ export function DataTable<T extends { id?: number | string }>({
                         <TableHeader>
                             <TableRow>
                                 {columns.map((column) => (
-                                    <TableHead key={column.key}>{column.label}</TableHead>
+                                    <TableHead key={column.key}>
+                                        {typeof column.label === 'function' ? column.label(safeData) : column.label}
+                                    </TableHead>
                                 ))}
                                 {actions && <TableHead>Ações</TableHead>}
                             </TableRow>
@@ -147,7 +149,7 @@ export function DataTable<T extends { id?: number | string }>({
                                     onClick={() => column.sortable && handleSort(column.key)}
                                 >
                                     <div className="flex items-center gap-2">
-                                        {column.label}
+                                        {typeof column.label === 'function' ? column.label(safeData) : column.label}
                                         {column.sortable && sortColumn === column.key && (
                                             <span className="text-xs">
                                                 {sortDirection === 'asc' ? '↑' : '↓'}

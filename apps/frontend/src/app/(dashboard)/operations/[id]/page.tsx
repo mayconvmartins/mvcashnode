@@ -111,7 +111,12 @@ export default function OperationDetailPage() {
         )
     }
 
-    const { job, executions, position, sell_jobs, webhook_event, timeline } = operation
+    const { job, executions, position, positions_closed, sell_jobs, webhook_event, timeline } = operation
+
+    // Debug: verificar se positions_closed está chegando
+    if (job.side === 'SELL') {
+        console.log('[OperationDetail] Job SELL - positions_closed:', positions_closed)
+    }
 
     return (
         <div className="space-y-6">
@@ -201,7 +206,7 @@ export default function OperationDetailPage() {
                         <TrendingUp className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        {position ? (
+                        {job.side === 'BUY' && position ? (
                             <>
                                 <div className="text-2xl font-bold">
                                     <Badge variant={position.status === 'OPEN' ? 'success' : 'secondary'}>
@@ -210,6 +215,17 @@ export default function OperationDetailPage() {
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-1">
                                     {formatAssetAmount(position.qty_remaining, job.symbol.split('/')[0])} restante
+                                </p>
+                            </>
+                        ) : job.side === 'SELL' && positions_closed && positions_closed.length > 0 ? (
+                            <>
+                                <div className="text-2xl font-bold">
+                                    <Badge variant="secondary">
+                                        {positions_closed.length} posição(ões) fechada(s)
+                                    </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {positions_closed.map((p: any) => `#${p.id}`).join(', ')}
                                 </p>
                             </>
                         ) : (
@@ -226,8 +242,10 @@ export default function OperationDetailPage() {
                     <TabsTrigger value="executions">
                         Execuções ({executions.length})
                     </TabsTrigger>
-                    {position && (
-                        <TabsTrigger value="position">Posição</TabsTrigger>
+                    {(position || (positions_closed && positions_closed.length > 0)) && (
+                        <TabsTrigger value="position">
+                            {job.side === 'BUY' ? 'Posição' : 'Posições Fechadas'}
+                        </TabsTrigger>
                     )}
                     {sell_jobs && sell_jobs.length > 0 && (
                         <TabsTrigger value="sell-jobs">
@@ -436,79 +454,143 @@ export default function OperationDetailPage() {
                 </TabsContent>
 
                 {/* Posição */}
-                {position && (
+                {(position || (positions_closed && positions_closed.length > 0)) && (
                     <TabsContent value="position">
-                        <Card className="glass">
-                            <CardHeader>
-                                <CardTitle>Posição Relacionada</CardTitle>
-                                <CardDescription>Informações da posição aberta/fechada</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    <div>
-                                        <label className="text-sm font-medium text-muted-foreground">ID da Posição</label>
-                                        <div className="mt-1">
-                                            <Link
-                                                href={`/positions/${position.id}`}
-                                                className="text-primary hover:underline font-mono"
-                                            >
-                                                #{position.id}
-                                            </Link>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm font-medium text-muted-foreground">Status</label>
-                                        <div className="mt-1">
-                                            <Badge variant={position.status === 'OPEN' ? 'success' : 'secondary'}>
-                                                {position.status}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm font-medium text-muted-foreground">Quantidade Total</label>
-                                        <div className="mt-1 font-mono">
-                                            {formatAssetAmount(position.qty_total, job.symbol.split('/')[0])}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm font-medium text-muted-foreground">Quantidade Restante</label>
-                                        <div className="mt-1 font-mono">
-                                            {formatAssetAmount(position.qty_remaining, job.symbol.split('/')[0])}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm font-medium text-muted-foreground">Preço de Abertura</label>
-                                        <div className="mt-1 font-mono">{formatCurrency(position.price_open)}</div>
-                                    </div>
-                                </div>
-
-                                {position.fills && position.fills.length > 0 && (
-                                    <>
-                                        <Separator />
+                        {job.side === 'BUY' && position ? (
+                            <Card className="glass">
+                                <CardHeader>
+                                    <CardTitle>Posição Relacionada</CardTitle>
+                                    <CardDescription>Informações da posição aberta/fechada</CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <div className="grid gap-4 md:grid-cols-2">
                                         <div>
-                                            <label className="text-sm font-medium text-muted-foreground mb-2 block">Fills</label>
-                                            <div className="space-y-2">
-                                                {position.fills.map((fill) => (
-                                                    <div key={fill.id} className="flex items-center justify-between p-2 bg-muted/50 rounded">
-                                                        <div className="flex items-center gap-2">
-                                                            <Badge variant={fill.side === 'BUY' ? 'success' : 'destructive'}>
-                                                                {fill.side}
-                                                            </Badge>
-                                                            <span className="text-sm">
-                                                                {formatAssetAmount(fill.qty, job.symbol.split('/')[0])} @ {formatCurrency(fill.price)}
-                                                            </span>
-                                                        </div>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {formatDateTime(fill.created_at)}
-                                                        </span>
-                                                    </div>
-                                                ))}
+                                            <label className="text-sm font-medium text-muted-foreground">ID da Posição</label>
+                                            <div className="mt-1">
+                                                <Link
+                                                    href={`/positions/${position.id}`}
+                                                    className="text-primary hover:underline font-mono"
+                                                >
+                                                    #{position.id}
+                                                </Link>
                                             </div>
                                         </div>
-                                    </>
-                                )}
-                            </CardContent>
-                        </Card>
+                                        <div>
+                                            <label className="text-sm font-medium text-muted-foreground">Status</label>
+                                            <div className="mt-1">
+                                                <Badge variant={position.status === 'OPEN' ? 'success' : 'secondary'}>
+                                                    {position.status}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium text-muted-foreground">Quantidade Total</label>
+                                            <div className="mt-1 font-mono">
+                                                {formatAssetAmount(position.qty_total, job.symbol.split('/')[0])}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium text-muted-foreground">Quantidade Restante</label>
+                                            <div className="mt-1 font-mono">
+                                                {formatAssetAmount(position.qty_remaining, job.symbol.split('/')[0])}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium text-muted-foreground">Preço de Abertura</label>
+                                            <div className="mt-1 font-mono">{formatCurrency(position.price_open)}</div>
+                                        </div>
+                                    </div>
+
+                                    {position.fills && position.fills.length > 0 && (
+                                        <>
+                                            <Separator />
+                                            <div>
+                                                <label className="text-sm font-medium text-muted-foreground mb-2 block">Fills</label>
+                                                <div className="space-y-2">
+                                                    {position.fills.map((fill) => (
+                                                        <div key={fill.id} className="flex items-center justify-between p-2 bg-muted/50 rounded">
+                                                            <div className="flex items-center gap-2">
+                                                                <Badge variant={fill.side === 'BUY' ? 'success' : 'destructive'}>
+                                                                    {fill.side}
+                                                                </Badge>
+                                                                <span className="text-sm">
+                                                                    {formatAssetAmount(fill.qty, job.symbol.split('/')[0])} @ {formatCurrency(fill.price)}
+                                                                </span>
+                                                            </div>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {formatDateTime(fill.created_at)}
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        ) : job.side === 'SELL' && positions_closed && positions_closed.length > 0 ? (
+                            <Card className="glass">
+                                <CardHeader>
+                                    <CardTitle>Posições Fechadas</CardTitle>
+                                    <CardDescription>
+                                        Posições que foram fechadas (parcialmente ou totalmente) por este job de venda
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    {positions_closed.map((pos: any) => (
+                                        <Card key={pos.id} className="bg-muted/50">
+                                            <CardContent className="pt-6">
+                                                <div className="grid gap-4 md:grid-cols-2">
+                                                    <div>
+                                                        <label className="text-sm font-medium text-muted-foreground">ID da Posição</label>
+                                                        <div className="mt-1">
+                                                            <Link
+                                                                href={`/positions/${pos.id}`}
+                                                                className="text-primary hover:underline font-mono"
+                                                            >
+                                                                #{pos.id}
+                                                            </Link>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-sm font-medium text-muted-foreground">Status</label>
+                                                        <div className="mt-1">
+                                                            <Badge variant={pos.status === 'CLOSED' ? 'secondary' : 'success'}>
+                                                                {pos.status}
+                                                            </Badge>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-sm font-medium text-muted-foreground">Quantidade Total</label>
+                                                        <div className="mt-1 font-mono">
+                                                            {formatAssetAmount(pos.qty_total, job.symbol.split('/')[0])}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-sm font-medium text-muted-foreground">Quantidade Restante</label>
+                                                        <div className="mt-1 font-mono">
+                                                            {formatAssetAmount(pos.qty_remaining, job.symbol.split('/')[0])}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-sm font-medium text-muted-foreground">Preço de Abertura</label>
+                                                        <div className="mt-1 font-mono">{formatCurrency(pos.price_open)}</div>
+                                                    </div>
+                                                    {pos.close_reason && (
+                                                        <div>
+                                                            <label className="text-sm font-medium text-muted-foreground">Motivo do Fechamento</label>
+                                                            <div className="mt-1">
+                                                                <Badge variant="outline">{pos.close_reason}</Badge>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </CardContent>
+                            </Card>
+                        ) : null}
                     </TabsContent>
                 )}
 

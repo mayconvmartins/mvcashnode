@@ -14,12 +14,42 @@ export class ReportsService {
     to?: Date,
     exchangeAccountId?: number
   ) {
+    console.log(`[ReportsService] getPnLSummary chamado: userId=${userId}, tradeMode=${tradeMode}, from=${from}, to=${to}, exchangeAccountId=${exchangeAccountId}`);
+    
+    // Buscar IDs das exchange accounts do usuário
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: userId },
+      select: { id: true },
+    });
+
+    const accountIds = userAccounts.map((acc) => acc.id);
+
+    if (accountIds.length === 0) {
+      console.log(`[ReportsService] Nenhuma conta encontrada para o usuário ${userId}`);
+      return {
+        totalProfit: 0,
+        totalLoss: 0,
+        netPnL: 0,
+        realizedPnL: 0,
+        unrealizedPnL: 0,
+        dailyPnL: 0,
+        totalTrades: 0,
+        winningTrades: 0,
+        losingTrades: 0,
+        winRate: 0,
+        openPositionsCount: 0,
+        hasData: false,
+      };
+    }
+
+    // Filtrar por conta específica se fornecida
+    const finalAccountIds = exchangeAccountId && accountIds.includes(exchangeAccountId)
+      ? [exchangeAccountId]
+      : accountIds;
+
     // Buscar posições fechadas
     const whereClosed: any = {
-      exchange_account: {
-        user_id: userId,
-        ...(exchangeAccountId && { id: exchangeAccountId }),
-      },
+      exchange_account_id: { in: finalAccountIds },
       ...(tradeMode && { trade_mode: tradeMode }),
       status: 'CLOSED',
     };
@@ -37,12 +67,11 @@ export class ReportsService {
       },
     });
 
+    console.log(`[ReportsService] Posições fechadas encontradas: ${closedPositions.length}`);
+
     // Buscar posições abertas
     const whereOpen: any = {
-      exchange_account: {
-        user_id: userId,
-        ...(exchangeAccountId && { id: exchangeAccountId }),
-      },
+      exchange_account_id: { in: finalAccountIds },
       ...(tradeMode && { trade_mode: tradeMode }),
       status: 'OPEN',
     };
@@ -53,6 +82,8 @@ export class ReportsService {
         exchange_account: true,
       },
     });
+
+    console.log(`[ReportsService] Posições abertas encontradas: ${openPositions.length}`);
 
     // Calcular PnL realizado (posições fechadas)
     const totalProfit = closedPositions
@@ -118,7 +149,7 @@ export class ReportsService {
     // PnL total (realizado + não realizado)
     const netPnL = realizedPnL + unrealizedPnL;
 
-    return {
+    const result = {
       totalProfit,
       totalLoss,
       netPnL,
@@ -132,6 +163,9 @@ export class ReportsService {
       openPositionsCount: openPositions.length,
       hasData: closedPositions.length > 0 || openPositions.length > 0,
     };
+
+    console.log(`[ReportsService] Resultado getPnLSummary:`, JSON.stringify(result, null, 2));
+    return result;
   }
 
   async getPnLBySymbol(
@@ -140,8 +174,23 @@ export class ReportsService {
     from?: Date,
     to?: Date
   ) {
+    console.log(`[ReportsService] getPnLBySymbol chamado: userId=${userId}, tradeMode=${tradeMode}, from=${from}, to=${to}`);
+    
+    // Buscar IDs das exchange accounts do usuário
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: userId },
+      select: { id: true },
+    });
+
+    const accountIds = userAccounts.map((acc) => acc.id);
+
+    if (accountIds.length === 0) {
+      console.log(`[ReportsService] Nenhuma conta encontrada para o usuário ${userId}`);
+      return [];
+    }
+
     const where: any = {
-      exchange_account: { user_id: userId },
+      exchange_account_id: { in: accountIds },
       ...(tradeMode && { trade_mode: tradeMode }),
       status: 'CLOSED',
     };
@@ -156,6 +205,8 @@ export class ReportsService {
       where,
     });
 
+    console.log(`[ReportsService] Posições encontradas para bySymbol: ${positions.length}`);
+
     const bySymbol = positions.reduce((acc, pos) => {
       const symbol = pos.symbol;
       if (!acc[symbol]) {
@@ -166,7 +217,9 @@ export class ReportsService {
       return acc;
     }, {} as Record<string, { symbol: string; pnl_usd: number; trades: number }>);
 
-    return Object.values(bySymbol);
+    const result = Object.values(bySymbol);
+    console.log(`[ReportsService] Resultado getPnLBySymbol:`, JSON.stringify(result, null, 2));
+    return result;
   }
 
   async getPnLByDay(
@@ -175,8 +228,23 @@ export class ReportsService {
     from?: Date,
     to?: Date
   ) {
+    console.log(`[ReportsService] getPnLByDay chamado: userId=${userId}, tradeMode=${tradeMode}, from=${from}, to=${to}`);
+    
+    // Buscar IDs das exchange accounts do usuário
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: userId },
+      select: { id: true },
+    });
+
+    const accountIds = userAccounts.map((acc) => acc.id);
+
+    if (accountIds.length === 0) {
+      console.log(`[ReportsService] Nenhuma conta encontrada para o usuário ${userId}`);
+      return [];
+    }
+
     const where: any = {
-      exchange_account: { user_id: userId },
+      exchange_account_id: { in: accountIds },
       ...(tradeMode && { trade_mode: tradeMode }),
       status: 'CLOSED',
       closed_at: { not: null },
@@ -192,6 +260,8 @@ export class ReportsService {
       where,
     });
 
+    console.log(`[ReportsService] Posições encontradas para byDay: ${positions.length}`);
+
     const byDay = positions.reduce((acc, pos) => {
       if (!pos.closed_at) return acc;
       const date = pos.closed_at.toISOString().split('T')[0];
@@ -202,12 +272,31 @@ export class ReportsService {
       return acc;
     }, {} as Record<string, { date: string; pnl_usd: number }>);
 
-    return Object.values(byDay).sort((a: any, b: any) => a.date.localeCompare(b.date));
+    const result = Object.values(byDay).sort((a: any, b: any) => a.date.localeCompare(b.date));
+    console.log(`[ReportsService] Resultado getPnLByDay:`, JSON.stringify(result, null, 2));
+    return result;
   }
 
   async getOpenPositionsSummary(userId: number, tradeMode?: TradeMode) {
+    // Buscar IDs das exchange accounts do usuário
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: userId },
+      select: { id: true },
+    });
+
+    const accountIds = userAccounts.map((acc) => acc.id);
+
+    if (accountIds.length === 0) {
+      return {
+        totalPositions: 0,
+        totalUnrealizedPnL: 0,
+        totalInvested: 0,
+        bySymbol: [],
+      };
+    }
+
     const where: any = {
-      exchange_account: { user_id: userId },
+      exchange_account_id: { in: accountIds },
       ...(tradeMode && { trade_mode: tradeMode }),
       status: 'OPEN',
     };

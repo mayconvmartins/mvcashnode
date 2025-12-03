@@ -8,21 +8,18 @@ import {
   TradeParameterService,
 } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
-import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
+import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
-import { NotificationHttpService } from '@mvcashnode/notifications';
 
 @Processor('trade-execution-sim')
 export class TradeExecutionSimProcessor extends WorkerHost {
   private readonly logger = new Logger(TradeExecutionSimProcessor.name);
-  private notificationService: NotificationHttpService;
 
   constructor(
     private prisma: PrismaService
   ) {
     super();
     // Para simulação, não enviar notificações por padrão (pode ser configurável depois)
-    // this.notificationService = new NotificationHttpService(process.env.API_URL || 'http://localhost:4010');
   }
 
   async process(job: Job<any>): Promise<any> {
@@ -42,6 +39,8 @@ export class TradeExecutionSimProcessor extends WorkerHost {
       if (!tradeJob) {
         throw new Error(`Trade job ${tradeJobId} não encontrado`);
       }
+
+      this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} - orderType=${tradeJob.order_type}, limitPrice=${tradeJob.limit_price?.toNumber() || 'NULL'}, side=${tradeJob.side}`);
 
       if (tradeJob.trade_mode !== 'SIMULATION') {
         throw new Error(`Trade job ${tradeJobId} não é do modo SIMULATION`);
@@ -70,7 +69,7 @@ export class TradeExecutionSimProcessor extends WorkerHost {
             tradeJob.exchange_account_id,
             tradeJob.symbol,
             tradeJob.side,
-            tradeJob.trade_mode
+            tradeJob.trade_mode as TradeMode
           );
           
           // Validar se a quantidade calculada é válida
@@ -212,26 +211,38 @@ export class TradeExecutionSimProcessor extends WorkerHost {
 
       // Se for ordem com quote_amount, calcular base_quantity
       if (quoteAmount > 0 && baseQty === 0) {
+        // Para ordens LIMIT, usar limitPrice para calcular quantidade se disponível
+        if (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price) {
+          executedQty = quoteAmount / tradeJob.limit_price.toNumber();
+        } else {
         executedQty = quoteAmount / currentPrice;
+        }
       }
 
-      // If it's a LIMIT order, check if price was reached
+      // If it's a LIMIT order, ALWAYS use limitPrice (não usar preço atual)
       if (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price) {
         const limitPrice = tradeJob.limit_price.toNumber();
-        this.logger.debug(`[EXECUTOR-SIM] Verificando ordem LIMIT: preço atual ${currentPrice}, limite ${limitPrice}, lado ${tradeJob.side}`);
+        this.logger.log(`[EXECUTOR-SIM] ⚠️ Ordem LIMIT detectada: preço atual ${currentPrice}, limite ${limitPrice}, lado ${tradeJob.side}`);
+        this.logger.log(`[EXECUTOR-SIM] ⚠️ Para ordens LIMIT, sempre usar limitPrice ao invés de preço atual`);
 
+        // Verificar se a ordem pode ser executada (preço atingiu o limite)
         if (tradeJob.side === 'BUY' && currentPrice > limitPrice) {
           // Limit not reached for buy (preço atual maior que limite)
           executedQty = 0;
-          this.logger.debug(`[EXECUTOR-SIM] Ordem LIMIT BUY não executada: preço atual (${currentPrice}) > limite (${limitPrice})`);
+          this.logger.log(`[EXECUTOR-SIM] ⚠️ Ordem LIMIT BUY não executada: preço atual (${currentPrice}) > limite (${limitPrice})`);
         } else if (tradeJob.side === 'SELL' && currentPrice < limitPrice) {
           // Limit not reached for sell (preço atual menor que limite)
           executedQty = 0;
-          this.logger.debug(`[EXECUTOR-SIM] Ordem LIMIT SELL não executada: preço atual (${currentPrice}) < limite (${limitPrice})`);
+          this.logger.log(`[EXECUTOR-SIM] ⚠️ Ordem LIMIT SELL não executada: preço atual (${currentPrice}) < limite (${limitPrice})`);
         } else {
+          // Ordem pode ser executada - SEMPRE usar limitPrice
           avgPrice = limitPrice;
-          this.logger.debug(`[EXECUTOR-SIM] Ordem LIMIT executada a preço ${limitPrice}`);
+          this.logger.log(`[EXECUTOR-SIM] ✅ Ordem LIMIT executada a preço ${limitPrice} (não ${currentPrice})`);
         }
+      } else if (tradeJob.order_type === 'MARKET') {
+        // Para ordens MARKET, usar preço atual
+        avgPrice = currentPrice;
+        this.logger.debug(`[EXECUTOR-SIM] Ordem MARKET executada a preço atual ${currentPrice}`);
       }
 
       if (executedQty === 0) {

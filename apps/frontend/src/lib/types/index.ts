@@ -87,9 +87,12 @@ export interface Profile {
 }
 
 export interface LoginResponse {
-    accessToken: string
-    refreshToken: string
-    user: User
+    requires2FA?: boolean
+    sessionToken?: string
+    accessToken?: string
+    refreshToken?: string
+    user?: User
+    expiresIn?: number
 }
 
 export interface RefreshTokenResponse {
@@ -373,6 +376,7 @@ export interface Position {
     updated_at: string
     // Campos calculados
     current_price?: number | null
+    price_close?: number | null
     invested_value_usd?: number | null
     current_value_usd?: number | null
     unrealized_pnl?: number | null

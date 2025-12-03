@@ -41,6 +41,7 @@ export class WebhookEventService {
     }
 
     // Create event
+    console.log(`[WEBHOOK-EVENT] Criando evento com priceReference: ${parsed.priceReference}`);
     const event = await this.prisma.webhookEvent.create({
       data: {
         webhook_source_id: dto.webhookSourceId,
@@ -57,6 +58,8 @@ export class WebhookEventService {
         status: WebhookEventStatus.RECEIVED,
       },
     });
+
+    console.log(`[WEBHOOK-EVENT] ✅ Evento criado: ID=${event.id}, price_reference=${event.price_reference ? event.price_reference.toNumber() : 'NULL'}, action=${event.action}`);
 
     // Create jobs from event
     const { count: jobsCreated, jobIds } = await this.createJobsFromEvent(event.id);
@@ -100,6 +103,7 @@ export class WebhookEventService {
       action: event?.action,
       symbol_normalized: event?.symbol_normalized,
       trade_mode: event?.trade_mode,
+      price_reference: event?.price_reference ? event.price_reference.toNumber() : 'NULL',
       bindings_count: event?.webhook_source?.bindings?.length || 0,
     });
 
@@ -190,9 +194,31 @@ export class WebhookEventService {
         let limitPrice: number | undefined = undefined;
         let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
         
+        console.log(`[WEBHOOK-EVENT] Processando ${side} para evento ${event.id}, price_reference: ${event.price_reference ? event.price_reference.toNumber() : 'NULL'}`);
+        
         if (side === 'SELL') {
           // Todas ordens de venda devem ser LIMIT
           orderType = 'LIMIT';
+          console.log(`[WEBHOOK-EVENT] 🔴 VENDA DETECTADA - Definindo orderType como LIMIT`);
+          
+          // VALIDAÇÃO OBRIGATÓRIA: price_reference deve existir para vendas via webhook
+          console.log(`[WEBHOOK-EVENT] Verificando price_reference: ${event.price_reference ? `EXISTE (${event.price_reference.toNumber()})` : 'NULL'}`);
+          
+          if (!event.price_reference) {
+            const errorMsg = `[WEBHOOK-EVENT] ❌ ERRO CRÍTICO: price_reference é NULL para venda via webhook. Evento ${event.id}. Payload: ${event.raw_text || JSON.stringify(event.raw_payload_json)}`;
+            console.error(errorMsg);
+            throw new Error(errorMsg);
+          }
+          
+          const priceRefValue = event.price_reference.toNumber();
+          if (priceRefValue <= 0 || isNaN(priceRefValue)) {
+            const errorMsg = `[WEBHOOK-EVENT] ❌ ERRO CRÍTICO: price_reference é inválido (${priceRefValue}) para venda via webhook. Evento ${event.id}`;
+            console.error(errorMsg);
+            throw new Error(errorMsg);
+          }
+
+          limitPrice = priceRefValue;
+          console.log(`[WEBHOOK-EVENT] ✅ Usando price_reference do evento: ${limitPrice} para criar ordem LIMIT`);
           
           const openPosition = await this.prisma.tradePosition.findFirst({
             where: {
@@ -209,65 +235,90 @@ export class WebhookEventService {
 
           if (openPosition) {
             baseQuantity = openPosition.qty_remaining.toNumber();
-            console.log(`[WEBHOOK-EVENT] Posição aberta encontrada: ID ${openPosition.id}, quantidade restante: ${baseQuantity}`);
-          } else {
-            console.warn(`[WEBHOOK-EVENT] Nenhuma posição aberta encontrada para vender ${event.symbol_normalized} na conta ${binding.exchange_account.id}`);
-            // Continuar mesmo sem posição - o executor vai falhar mas pelo menos o evento será registrado
-          }
+            const priceOpen = openPosition.price_open.toNumber();
+            console.log(`[WEBHOOK-EVENT] Posição aberta encontrada: ID ${openPosition.id}, quantidade restante: ${baseQuantity}, preço abertura: ${priceOpen}`);
 
-          // Usar price_reference do evento se disponível, senão buscar preço atual
-          if (event.price_reference) {
-            limitPrice = event.price_reference.toNumber();
-            console.log(`[WEBHOOK-EVENT] Usando price_reference do evento: ${limitPrice}`);
-          } else {
-            // Buscar preço atual via ticker como fallback
+            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+            // Usa o price_reference do webhook para validar
+            // Stop Loss ignora esta validação (mas vendas via webhook não são stop loss)
+            console.log(`[WEBHOOK-EVENT] ========== INICIANDO VALIDAÇÃO DE LUCRO MÍNIMO ==========`);
+            console.log(`[WEBHOOK-EVENT] Preço de abertura: ${priceOpen}`);
+            console.log(`[WEBHOOK-EVENT] Preço de venda (limitPrice): ${limitPrice}`);
+            console.log(`[WEBHOOK-EVENT] Conta: ${binding.exchange_account.id}, Símbolo: ${event.symbol_normalized}`);
+            
             try {
-              const { AdapterFactory } = await import('@mvcashnode/exchange');
-              const adapter = AdapterFactory.createAdapter(
-                binding.exchange_account.exchange as ExchangeType
-              );
-              const ticker = await adapter.fetchTicker(event.symbol_normalized);
-              limitPrice = ticker.last;
-              console.log(`[WEBHOOK-EVENT] Preço atual obtido via ticker: ${limitPrice}`);
-            } catch (tickerError: any) {
-              console.warn(`[WEBHOOK-EVENT] Erro ao buscar preço via ticker: ${tickerError.message}`);
-              // Continuar sem limitPrice - o executor pode falhar ou usar preço de mercado
-            }
-          }
-
-          // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
-          // Esta validação usa o preço ATUAL do mercado, não o preço do webhook
-          // Stop Loss ignora esta validação (mas vendas via webhook não são stop loss)
-          if (openPosition) {
-            try {
-              const priceOpen = openPosition.price_open.toNumber();
               const validationResult = await this.minProfitValidationService.validateMinProfit(
                 binding.exchange_account.id,
                 event.symbol_normalized,
                 priceOpen,
                 'WEBHOOK',
                 binding.exchange_account.exchange as ExchangeType,
-                event.trade_mode as 'REAL' | 'SIMULATION'
+                event.trade_mode as 'REAL' | 'SIMULATION',
+                limitPrice // Passar price_reference para validação
               );
 
+              console.log(`[WEBHOOK-EVENT] ========== RESULTADO DA VALIDAÇÃO ==========`);
+              console.log(`[WEBHOOK-EVENT] Válido: ${validationResult.valid}`);
+              console.log(`[WEBHOOK-EVENT] Motivo: ${validationResult.reason}`);
+              console.log(`[WEBHOOK-EVENT] Lucro %: ${validationResult.profitPct?.toFixed(2) || 'N/A'}%`);
+              console.log(`[WEBHOOK-EVENT] Lucro mínimo %: ${validationResult.minProfitPct?.toFixed(2) || 'N/A'}%`);
+
               if (!validationResult.valid) {
-                console.warn(`[WEBHOOK-EVENT] ⚠️ Venda via webhook SKIPADA: ${validationResult.reason}`);
+                console.warn(`[WEBHOOK-EVENT] ⚠️⚠️⚠️ VENDA VIA WEBHOOK SKIPADA: ${validationResult.reason} ⚠️⚠️⚠️`);
                 // Não criar o job de venda
                 continue;
               } else {
-                console.log(`[WEBHOOK-EVENT] ✅ Validação de lucro mínimo: ${validationResult.reason}`);
-                // Atualizar limitPrice com o preço atual se não foi definido
-                if (!limitPrice && validationResult.currentPrice) {
-                  limitPrice = validationResult.currentPrice;
-                  console.log(`[WEBHOOK-EVENT] Usando preço atual do mercado: ${limitPrice}`);
-                }
+                console.log(`[WEBHOOK-EVENT] ✅✅✅ Validação de lucro mínimo PASSOU: ${validationResult.reason} ✅✅✅`);
               }
             } catch (profitCheckError: any) {
-              console.error(`[WEBHOOK-EVENT] Erro ao verificar lucro mínimo: ${profitCheckError.message}`);
+              console.error(`[WEBHOOK-EVENT] ❌ ERRO ao verificar lucro mínimo: ${profitCheckError.message}`);
+              console.error(`[WEBHOOK-EVENT] Stack: ${profitCheckError.stack}`);
               // Em caso de erro, continuar com a venda (não bloquear por erro de validação)
             }
+          } else {
+            console.warn(`[WEBHOOK-EVENT] ⚠️ Nenhuma posição aberta encontrada para vender ${event.symbol_normalized} na conta ${binding.exchange_account.id}`);
+            // Continuar mesmo sem posição - o executor vai falhar mas pelo menos o evento será registrado
           }
         }
+
+        // VALIDAÇÃO FINAL: Garantir que vendas via webhook são sempre LIMIT
+        if (side === 'SELL') {
+          if (orderType !== 'LIMIT') {
+            console.error(`[WEBHOOK-EVENT] ⚠️ ERRO: Venda via webhook deve ser LIMIT, mas orderType=${orderType}. Forçando LIMIT.`);
+            orderType = 'LIMIT';
+          }
+          if (!limitPrice || limitPrice <= 0) {
+            console.error(`[WEBHOOK-EVENT] ⚠️ ERRO: Venda via webhook requer limitPrice, mas limitPrice=${limitPrice}. Pulando criação do job.`);
+            continue;
+          }
+        }
+        
+        console.log(`[WEBHOOK-EVENT] ========== ANTES DE CRIAR JOB ==========`);
+        console.log(`[WEBHOOK-EVENT] side: ${side}`);
+        console.log(`[WEBHOOK-EVENT] orderType: ${orderType} (tipo: ${typeof orderType})`);
+        console.log(`[WEBHOOK-EVENT] limitPrice: ${limitPrice} (tipo: ${typeof limitPrice})`);
+        console.log(`[WEBHOOK-EVENT] baseQuantity: ${baseQuantity}`);
+        console.log(`[WEBHOOK-EVENT] event.price_reference: ${event.price_reference ? event.price_reference.toNumber() : 'NULL'}`);
+        
+        // GARANTIR que orderType é LIMIT para vendas
+        if (side === 'SELL') {
+          if (orderType !== 'LIMIT') {
+            console.error(`[WEBHOOK-EVENT] ❌ FORÇANDO orderType para LIMIT (era ${orderType})`);
+            orderType = 'LIMIT';
+          }
+          if (!limitPrice || limitPrice <= 0) {
+            throw new Error(`[WEBHOOK-EVENT] ❌ limitPrice inválido para venda: ${limitPrice}`);
+          }
+        }
+        
+        console.log(`[WEBHOOK-EVENT] ========== CHAMANDO createJob ==========`);
+        console.log(`[WEBHOOK-EVENT] Parâmetros:`, {
+          side,
+          orderType,
+          limitPrice,
+          baseQuantity,
+          webhookEventId: event.id,
+        });
 
         const tradeJob = await this.tradeJobService.createJob({
           webhookEventId: event.id,
@@ -281,7 +332,15 @@ export class WebhookEventService {
           skipParameterValidation: side === 'SELL' && baseQuantity !== undefined, // Pular validação se já temos quantidade
         });
         
-        console.log(`[WEBHOOK-EVENT] Job criado com sucesso: ${tradeJob.id}, quantidade: ${baseQuantity || tradeJob.quote_amount || 'calculada automaticamente'}`);
+        // VALIDAÇÃO PÓS-CRIAÇÃO: Verificar se foi salvo corretamente
+        if (side === 'SELL' && tradeJob.order_type !== 'LIMIT') {
+          console.error(`[WEBHOOK-EVENT] ⚠️ ERRO CRÍTICO: Job de venda criado como ${tradeJob.order_type} ao invés de LIMIT! ID=${tradeJob.id}`);
+        }
+        if (side === 'SELL' && (!tradeJob.limit_price || tradeJob.limit_price.toNumber() <= 0)) {
+          console.error(`[WEBHOOK-EVENT] ⚠️ ERRO CRÍTICO: Job de venda criado sem limitPrice! ID=${tradeJob.id}`);
+        }
+        
+        console.log(`[WEBHOOK-EVENT] ✅ Job criado: ID=${tradeJob.id}, orderType=${tradeJob.order_type}, limitPrice=${tradeJob.limit_price?.toNumber() || 'NULL'}, quantidade: ${baseQuantity || tradeJob.quote_amount || 'calculada automaticamente'}`);
         jobsCreated++;
         jobIds.push(tradeJob.id);
       } catch (error: any) {

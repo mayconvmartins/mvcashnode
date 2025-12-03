@@ -10,7 +10,7 @@ import {
 } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
-import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
+import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { NotificationHttpService } from '@mvcashnode/notifications';
 
 @Processor('trade-execution-real')
@@ -103,7 +103,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             tradeJob.exchange_account_id,
             tradeJob.symbol,
             side as 'BUY' | 'SELL',
-            tradeJob.trade_mode
+            tradeJob.trade_mode as TradeMode
           );
           
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - computeQuoteAmount retornou: ${quoteAmount}`);
@@ -335,12 +335,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const orderAmount = baseQty > 0 ? baseQty : quoteAmount;
       this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${orderAmount} ${tradeJob.symbol} (baseQty=${baseQty}, quoteAmount=${quoteAmount})`);
 
+      // Para MARKET BUY, sempre usar baseQty (já calculado acima se necessário)
+      // Para LIMIT BUY, usar baseQty se disponível, senão usar quoteAmount com limit_price
+      const amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
+      
       let order;
       try {
-        // Para MARKET BUY, sempre usar baseQty (já calculado acima se necessário)
-        // Para LIMIT BUY, usar baseQty se disponível, senão usar quoteAmount com limit_price
-        const amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
-        
         if (amountToUse <= 0) {
           throw new Error(`Quantidade inválida para criar ordem: baseQty=${baseQty}, quoteAmount=${quoteAmount}, amountToUse=${amountToUse}`);
         }

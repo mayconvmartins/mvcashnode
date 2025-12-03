@@ -325,6 +325,40 @@ export class TradeJobsController {
         throw new NotFoundException('Trade job não encontrado');
       }
 
+      // Para jobs de SELL, buscar posição fechada através de position_fills se position_open estiver null
+      if (job.side === 'SELL' && !job.position_open) {
+        const executionIds = job.executions.map((e) => e.id);
+        if (executionIds.length > 0) {
+          try {
+            const positionFills = await this.prisma.positionFill.findMany({
+              where: {
+                trade_execution_id: { in: executionIds },
+                side: 'SELL',
+              },
+              include: {
+                position: {
+                  select: {
+                    id: true,
+                    status: true,
+                    qty_total: true,
+                    qty_remaining: true,
+                    price_open: true,
+                  },
+                },
+              },
+            });
+
+            // Extrair a primeira posição única dos fills
+            if (positionFills.length > 0 && positionFills[0].position) {
+              job.position_open = positionFills[0].position;
+            }
+          } catch (error: any) {
+            // Log do erro mas não falha a requisição
+            console.error(`[TradeJobsController] Erro ao buscar posição fechada para job SELL #${job.id}:`, error.message);
+          }
+        }
+      }
+
       return {
         ...job,
         webhook_event: webhookEvent ? {

@@ -117,14 +117,48 @@ export class WebhookParserService {
       }
 
       // Extract price from "Preço (213.09)" or "Price (213.09)" or just "(213.09)"
+      // Priorizar regex que procura especificamente por "Preço" ou "Price" para evitar pegar timeframe
       if (!priceReference) {
-        const priceMatch = text.match(/[Pp]re[çc]o\s*\(([\d.,]+)\)/i) || 
-                          text.match(/[Pp]rice\s*\(([\d.,]+)\)/i) ||
-                          text.match(/\(([\d.,]+)\)$/);
+        console.log(`[WEBHOOK-PARSER] Tentando extrair preço do texto: "${text}"`);
+        
+        // Primeiro, tentar pegar preço após "Preço" ou "Price" (mais específico)
+        const priceMatch1 = text.match(/[Pp]re[çc]o\s*\(([\d.,]+)\)/i);
+        const priceMatch2 = text.match(/[Pp]rice\s*\(([\d.,]+)\)/i);
+        
+        // Se não encontrou, tentar pegar o último número entre parênteses (fallback)
+        // Mas só se não for um timeframe conhecido (H1, H4, M15, D1, etc)
+        let priceMatch3 = null;
+        if (!priceMatch1 && !priceMatch2) {
+          const allMatches = text.matchAll(/\(([\d.,]+)\)/g);
+          const matchesArray = Array.from(allMatches);
+          // Pegar o último match que não seja um timeframe
+          for (let i = matchesArray.length - 1; i >= 0; i--) {
+            const match = matchesArray[i];
+            const value = match[1];
+            // Verificar se não é um timeframe (H1, H4, M15, D1, etc)
+            if (!/^[A-Z]?\d+[A-Z]?$/i.test(value)) {
+              priceMatch3 = match;
+              break;
+            }
+          }
+        }
+        
+        console.log(`[WEBHOOK-PARSER] Tentativas de match: match1=${priceMatch1 ? priceMatch1[1] : 'null'}, match2=${priceMatch2 ? priceMatch2[1] : 'null'}, match3=${priceMatch3 ? priceMatch3[1] : 'null'}`);
+        
+        const priceMatch = priceMatch1 || priceMatch2 || priceMatch3;
         if (priceMatch) {
           priceReference = Number(priceMatch[1].replace(',', '.'));
-          console.log(`[WEBHOOK-PARSER] Preço extraído: ${priceReference}`);
+          if (isNaN(priceReference) || priceReference <= 0) {
+            console.warn(`[WEBHOOK-PARSER] ⚠️ Preço extraído é inválido: ${priceMatch[1]}`);
+            priceReference = undefined;
+          } else {
+            console.log(`[WEBHOOK-PARSER] ✅ Preço extraído com sucesso: ${priceReference}`);
+          }
+        } else {
+          console.warn(`[WEBHOOK-PARSER] ⚠️ Nenhum preço encontrado no texto`);
         }
+      } else {
+        console.log(`[WEBHOOK-PARSER] Preço já definido anteriormente: ${priceReference}`);
       }
 
       // Extract pattern name

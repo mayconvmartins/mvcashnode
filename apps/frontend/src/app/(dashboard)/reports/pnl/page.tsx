@@ -41,11 +41,8 @@ export default function PnLReportPage() {
 
     const columns: Column<any>[] = [
         { key: 'symbol', label: 'Símbolo', render: (row) => <span className="font-mono">{row.symbol}</span> },
-        { key: 'total_trades', label: 'Trades', render: (row) => <span>{row.total_trades}</span> },
-        { key: 'wins', label: 'Ganhos', render: (row) => <span className="text-success">{row.wins}</span> },
-        { key: 'losses', label: 'Perdas', render: (row) => <span className="text-destructive">{row.losses}</span> },
-        { key: 'win_rate', label: 'Taxa', render: (row) => <span>{(row.win_rate * 100).toFixed(1)}%</span> },
-        { key: 'net_pnl', label: 'PnL', render: (row) => <PnLBadge value={row.net_pnl} /> },
+        { key: 'trades', label: 'Trades', render: (row) => <span>{row.trades}</span> },
+        { key: 'pnl_usd', label: 'PnL', render: (row) => <PnLBadge value={row.pnl_usd} /> },
     ]
 
     return (
@@ -59,10 +56,10 @@ export default function PnLReportPage() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <StatsCard title="PnL Total" value={summary?.net_pnl || 0} icon={TrendingUp} loading={loadingSummary} />
-                <StatsCard title="Total de Trades" value={summary?.total_trades?.toString() || '0'} icon={Target} loading={loadingSummary} />
-                <StatsCard title="Taxa de Acerto" value={summary ? `${(summary.win_rate * 100).toFixed(1)}%` : '0%'} icon={Award} loading={loadingSummary} />
-                <StatsCard title="Lucro Médio" value={summary?.avg_win || 0} icon={TrendingUp} loading={loadingSummary} />
+                <StatsCard title="PnL Total" value={summary?.netPnL || 0} icon={TrendingUp} loading={loadingSummary} />
+                <StatsCard title="Total de Trades" value={summary?.totalTrades?.toString() || '0'} icon={Target} loading={loadingSummary} />
+                <StatsCard title="Taxa de Acerto" value={summary ? `${summary.winRate.toFixed(1)}%` : '0%'} icon={Award} loading={loadingSummary} />
+                <StatsCard title="PnL Realizado" value={summary?.realizedPnL || 0} icon={TrendingUp} loading={loadingSummary} />
             </div>
 
             <Card className="glass">
@@ -70,15 +67,25 @@ export default function PnLReportPage() {
                     <CardTitle>PnL por Dia (Últimos 30 dias)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={byDay || []}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" />
-                            <YAxis stroke="hsl(var(--muted-foreground))" />
-                            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
-                            <Line type="monotone" dataKey="pnl_usd" stroke="hsl(var(--primary))" strokeWidth={2} />
-                        </LineChart>
-                    </ResponsiveContainer>
+                    {loadingByDay ? (
+                        <div className="flex items-center justify-center h-[300px]">
+                            <div className="text-muted-foreground">Carregando dados...</div>
+                        </div>
+                    ) : !byDay || byDay.length === 0 ? (
+                        <div className="flex items-center justify-center h-[300px]">
+                            <div className="text-muted-foreground">Nenhum dado disponível</div>
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height={300}>
+                            <LineChart data={byDay}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                                <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" />
+                                <YAxis stroke="hsl(var(--muted-foreground))" />
+                                <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
+                                <Line type="monotone" dataKey="pnl_usd" stroke="hsl(var(--primary))" strokeWidth={2} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    )}
                 </CardContent>
             </Card>
 
@@ -87,7 +94,17 @@ export default function PnLReportPage() {
                     <CardTitle>PnL por Símbolo</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <DataTable data={bySymbol || []} columns={columns} loading={loadingBySymbol} />
+                    {loadingBySymbol ? (
+                        <div className="flex items-center justify-center h-[200px]">
+                            <div className="text-muted-foreground">Carregando dados...</div>
+                        </div>
+                    ) : !bySymbol || bySymbol.length === 0 ? (
+                        <div className="flex items-center justify-center h-[200px]">
+                            <div className="text-muted-foreground">Nenhum dado disponível</div>
+                        </div>
+                    ) : (
+                        <DataTable data={bySymbol} columns={columns} loading={false} />
+                    )}
                 </CardContent>
             </Card>
         </div>

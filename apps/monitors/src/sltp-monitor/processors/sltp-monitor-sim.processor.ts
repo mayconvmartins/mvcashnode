@@ -93,14 +93,20 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         // Check Take Profit
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
           if (!position.tp_triggered) {
+            // Calcular preço LIMIT para Take Profit: price_open * (1 + tp_pct / 100)
+            const tpPct = position.tp_pct.toNumber();
+            const limitPrice = priceOpen * (1 + tpPct / 100);
+            
             // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+            // Usa o limitPrice calculado para validar
             const validationResult = await minProfitValidationService.validateMinProfit(
               position.exchange_account_id,
               position.symbol,
               priceOpen,
               'TAKE_PROFIT',
               position.exchange_account.exchange as ExchangeType,
-              TradeMode.SIMULATION
+              TradeMode.SIMULATION,
+              limitPrice // Passar o preço calculado para validação
             );
 
             if (!validationResult.valid) {
@@ -108,10 +114,6 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               // Não criar o job de venda
               continue;
             }
-
-            // Calcular preço LIMIT para Take Profit: price_open * (1 + tp_pct / 100)
-            const tpPct = position.tp_pct.toNumber();
-            const limitPrice = priceOpen * (1 + tpPct / 100);
             
             const tradeJob = await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,
@@ -154,14 +156,19 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           const trailingTriggerPrice = trailingMaxPrice * (1 - trailingDistance / 100);
 
           if (currentPrice <= trailingTriggerPrice && !position.trailing_triggered) {
+            // Calcular preço LIMIT para Trailing Stop: usar trailingTriggerPrice
+            const limitPrice = trailingTriggerPrice;
+            
             // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado
+            // Usa o limitPrice calculado para validar
             const validationResult = await minProfitValidationService.validateMinProfit(
               position.exchange_account_id,
               position.symbol,
               priceOpen,
               'TRAILING',
               position.exchange_account.exchange as ExchangeType,
-              TradeMode.SIMULATION
+              TradeMode.SIMULATION,
+              limitPrice // Passar o preço calculado para validação
             );
 
             if (!validationResult.valid) {
@@ -169,9 +176,6 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               // Não criar o job de venda
               continue;
             }
-
-            // Calcular preço LIMIT para Trailing Stop: usar trailingTriggerPrice
-            const limitPrice = trailingTriggerPrice;
             
             const tradeJob = await tradeJobService.createJob({
               exchangeAccountId: position.exchange_account_id,

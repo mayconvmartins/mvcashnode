@@ -231,12 +231,33 @@ export default function PositionsPage() {
         },
         {
             key: 'current_price',
-            label: 'Preço Atual',
-            render: (position) => (
-                <span className="font-mono">
-                    {position.current_price ? formatCurrency(position.current_price) : '-'}
-                </span>
-            ),
+            label: (data) => {
+                // Verificar se há posições fechadas nos dados
+                const hasClosed = data.some((p: Position) => p.status === 'CLOSED')
+                const hasOpen = data.some((p: Position) => p.status === 'OPEN')
+                // Se houver apenas fechadas, mostrar "Preço de Venda"
+                if (hasClosed && !hasOpen) return 'Preço de Venda'
+                // Se houver apenas abertas, mostrar "Preço Atual"
+                if (hasOpen && !hasClosed) return 'Preço Atual'
+                // Se houver ambos, usar label genérico
+                return 'Preço'
+            },
+            render: (position) => {
+                // Para posições fechadas, mostrar preço de venda executado
+                if (position.status === 'CLOSED') {
+                    return (
+                        <span className="font-mono">
+                            {position.price_close ? formatCurrency(position.price_close) : '-'}
+                        </span>
+                    )
+                }
+                // Para posições abertas, mostrar preço atual
+                return (
+                    <span className="font-mono">
+                        {position.current_price ? formatCurrency(position.current_price) : '-'}
+                    </span>
+                )
+            },
         },
         {
             key: 'invested_value_usd',
@@ -255,16 +276,7 @@ export default function PositionsPage() {
         {
             key: 'unrealized_pnl',
             label: 'PnL Não Realizado',
-            render: (position) => (
-                <div className="flex flex-col gap-1">
-                    <PnLBadge value={position.unrealized_pnl || 0} />
-                    {position.unrealized_pnl_pct !== null && position.unrealized_pnl_pct !== undefined && (
-                        <span className={`text-xs ${position.unrealized_pnl_pct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                            {position.unrealized_pnl_pct >= 0 ? '+' : ''}{position.unrealized_pnl_pct.toFixed(2)}%
-                        </span>
-                    )}
-                </div>
-            ),
+            render: (position) => <PnLBadge value={position.unrealized_pnl || 0} />,
         },
         {
             key: 'sl_tp',

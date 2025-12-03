@@ -59,13 +59,39 @@ export class TradeJobService {
       }
     }
 
+    // VALIDAÇÃO: Se for ordem LIMIT, limitPrice é obrigatório
+    if (dto.orderType === 'LIMIT' && (!dto.limitPrice || dto.limitPrice <= 0)) {
+      throw new Error(`Ordem LIMIT requer limitPrice válido. Recebido: ${dto.limitPrice}`);
+    }
+
+    // VALIDAÇÃO: Se for venda via webhook (tem webhookEventId), deve ser LIMIT
+    if (dto.webhookEventId && dto.side === 'SELL' && dto.orderType !== 'LIMIT') {
+      console.warn(`[TRADE-JOB-SERVICE] ⚠️ Venda via webhook deve ser LIMIT, mas recebeu ${dto.orderType}. Forçando LIMIT.`);
+      dto.orderType = 'LIMIT';
+      if (!dto.limitPrice || dto.limitPrice <= 0) {
+        throw new Error(`Venda via webhook requer limitPrice válido. Recebido: ${dto.limitPrice}`);
+      }
+    }
+
     // Determinar status inicial baseado no order type
     let initialStatus = TradeJobStatus.PENDING;
     if (dto.orderType === 'LIMIT') {
       initialStatus = TradeJobStatus.PENDING_LIMIT;
     }
 
-    return this.prisma.tradeJob.create({
+    console.log(`[TRADE-JOB-SERVICE] ========== CRIANDO JOB NO BANCO ==========`);
+    console.log(`[TRADE-JOB-SERVICE] side: ${dto.side}`);
+    console.log(`[TRADE-JOB-SERVICE] orderType (dto): ${dto.orderType} (tipo: ${typeof dto.orderType})`);
+    console.log(`[TRADE-JOB-SERVICE] limitPrice (dto): ${dto.limitPrice} (tipo: ${typeof dto.limitPrice})`);
+    console.log(`[TRADE-JOB-SERVICE] initialStatus: ${initialStatus}`);
+    console.log(`[TRADE-JOB-SERVICE] Dados que serão salvos:`, {
+      order_type: dto.orderType,
+      limit_price: dto.limitPrice,
+      side: dto.side,
+      webhook_event_id: dto.webhookEventId,
+    });
+
+    const job = await this.prisma.tradeJob.create({
       data: {
         webhook_event_id: dto.webhookEventId || null,
         exchange_account_id: dto.exchangeAccountId,
@@ -81,6 +107,23 @@ export class TradeJobService {
         status: initialStatus,
       },
     });
+
+    console.log(`[TRADE-JOB-SERVICE] ========== JOB CRIADO NO BANCO ==========`);
+    console.log(`[TRADE-JOB-SERVICE] Job ID: ${job.id}`);
+    console.log(`[TRADE-JOB-SERVICE] order_type (salvo): ${job.order_type}`);
+    console.log(`[TRADE-JOB-SERVICE] limit_price (salvo): ${job.limit_price ? job.limit_price.toNumber() : 'NULL'}`);
+    console.log(`[TRADE-JOB-SERVICE] status (salvo): ${job.status}`);
+
+    // VALIDAÇÃO PÓS-CRIAÇÃO: Verificar se foi salvo corretamente
+    if (dto.orderType === 'LIMIT' && job.order_type !== 'LIMIT') {
+      console.error(`[TRADE-JOB-SERVICE] ⚠️ ERRO: Job criado com orderType incorreto! Esperado: LIMIT, Recebido: ${job.order_type}`);
+    }
+    if (dto.orderType === 'LIMIT' && (!job.limit_price || job.limit_price.toNumber() <= 0)) {
+      console.error(`[TRADE-JOB-SERVICE] ⚠️ ERRO: Job LIMIT criado sem limitPrice válido!`);
+    }
+
+    console.log(`[TRADE-JOB-SERVICE] ✅ Job criado: ID=${job.id}, order_type=${job.order_type}, limit_price=${job.limit_price?.toNumber() || 'NULL'}, status=${job.status}`);
+    return job;
   }
 
   async updateJobStatus(jobId: number, status: TradeJobStatus, reasonCode?: string, reasonMessage?: string): Promise<any> {

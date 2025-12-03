@@ -418,6 +418,51 @@ export class OperationsController {
         position_open: typeof job.position_open;
       };
 
+      // Para jobs de SELL, buscar posições que foram fechadas por este job
+      let positionsClosed: any[] = [];
+      if (jobWithRelations.side === 'SELL') {
+        // Buscar posições através de position_fills das execuções deste job
+        const executionIds = jobWithRelations.executions.map((e) => e.id);
+        if (executionIds.length > 0) {
+          try {
+            const positionFills = await this.prisma.positionFill.findMany({
+              where: {
+                trade_execution_id: { in: executionIds },
+                side: 'SELL',
+              },
+              include: {
+                position: {
+                  select: {
+                    id: true,
+                    status: true,
+                    symbol: true,
+                    qty_total: true,
+                    qty_remaining: true,
+                    price_open: true,
+                    created_at: true,
+                    closed_at: true,
+                    close_reason: true,
+                  },
+                },
+              },
+            });
+
+            // Extrair posições únicas
+            const uniquePositions = new Map<number, any>();
+            for (const fill of positionFills) {
+              if (fill.position && !uniquePositions.has(fill.position.id)) {
+                uniquePositions.set(fill.position.id, fill.position);
+              }
+            }
+            positionsClosed = Array.from(uniquePositions.values());
+            
+            console.log(`[OperationsController] Job SELL #${jobWithRelations.id}: Encontradas ${positionsClosed.length} posições fechadas`);
+          } catch (error: any) {
+            console.error(`[OperationsController] Erro ao buscar posições fechadas para job SELL #${jobWithRelations.id}:`, error.message);
+          }
+        }
+      }
+
       // Buscar jobs de venda relacionados (via fills de SELL da posição)
       let sellJobs: any[] = [];
       if (jobWithRelations.position_open) {
@@ -505,6 +550,23 @@ export class OperationsController {
         }
       }
 
+      // Para jobs de SELL, adicionar eventos de posições fechadas na timeline
+      if (jobWithRelations.side === 'SELL' && positionsClosed.length > 0) {
+        positionsClosed.forEach((pos) => {
+          timeline.push({
+            type: 'POSITION_CLOSED',
+            timestamp: pos.closed_at || pos.created_at,
+            description: `Posição #${pos.id} fechada: ${pos.close_reason || 'WEBHOOK_SELL'}`,
+            data: {
+              position_id: pos.id,
+              close_reason: pos.close_reason,
+              qty_total: pos.qty_total?.toNumber() || 0,
+              qty_remaining: pos.qty_remaining?.toNumber() || 0,
+            },
+          });
+        });
+      }
+
       // Ordenar timeline por timestamp
       timeline.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
@@ -547,7 +609,8 @@ export class OperationsController {
             position_id: fill.position_id,
           })),
         })),
-        position: jobWithRelations.position_open
+        // Para jobs de BUY, mostrar position_open. Para jobs de SELL, mostrar positions_closed
+        position: jobWithRelations.side === 'BUY' && jobWithRelations.position_open
           ? {
               id: jobWithRelations.position_open.id,
               status: jobWithRelations.position_open.status,
@@ -569,6 +632,17 @@ export class OperationsController {
               })),
             }
           : null,
+        positions_closed: jobWithRelations.side === 'SELL' ? positionsClosed.map((pos) => ({
+          id: pos.id,
+          status: pos.status,
+          symbol: pos.symbol,
+          qty_total: pos.qty_total?.toNumber() || 0,
+          qty_remaining: pos.qty_remaining?.toNumber() || 0,
+          price_open: pos.price_open?.toNumber() || 0,
+          created_at: pos.created_at,
+          closed_at: pos.closed_at,
+          close_reason: pos.close_reason,
+        })) : [],
         sell_jobs: sellJobs.map((sellJob) => ({
           id: sellJob.id,
           side: sellJob.side,

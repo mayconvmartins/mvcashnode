@@ -52,6 +52,7 @@ export default function EditParameterPage() {
         orderSizeValue: parameter.quote_amount_fixed || parameter.quote_amount_pct_balance || 0,
         stopLossPercent: parameter.default_sl_pct,
         takeProfitPercent: parameter.default_tp_pct,
+        minProfitPct: parameter.min_profit_pct || parameter.minProfitPct,
         trailingStop: parameter.trailing_stop_enabled || false,
         maxDailyTrades: parameter.max_orders_per_hour, // Ajustar se necessário
         maxWeeklyTrades: undefined, // Não existe no schema
