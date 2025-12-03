@@ -8,6 +8,7 @@ import { PrismaService } from '@mvcashnode/db';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EncryptionService } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
+import { WebSocketModule } from '../websocket/websocket.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { ConfigService } from '@nestjs/config';
     BullModule.registerQueue({
       name: 'trade-execution-sim',
     }),
+    WebSocketModule,
   ],
   controllers: [PositionsController, LimitOrdersController],
   providers: [

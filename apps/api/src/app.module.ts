@@ -17,6 +17,7 @@ import { TradeJobsModule } from './trade-jobs/trade-jobs.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { InternalModule } from './internal/internal.module';
+import { WebSocketModule } from './websocket/websocket.module';
 import * as path from 'path';
 
 @Module({
@@ -66,6 +67,7 @@ import * as path from 'path';
     MonitoringModule,
     NotificationsModule,
     InternalModule,
+    WebSocketModule,
   ],
   controllers: [AppController],
   providers: [

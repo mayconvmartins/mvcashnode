@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WebSocketModule } from '../websocket/websocket.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       name: 'trade-execution-sim',
     }),
     NotificationsModule,
+    WebSocketModule,
   ],
   controllers: [
     WebhookSourcesController,

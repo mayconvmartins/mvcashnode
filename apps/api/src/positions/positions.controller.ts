@@ -30,6 +30,7 @@ import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { PrismaService } from '@mvcashnode/db';
 import { OrderType, ExchangeType } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
+import { WebSocketService } from '../websocket/websocket.service';
 
 @ApiTags('Positions')
 @Controller('positions')
@@ -43,7 +44,8 @@ export class PositionsController {
   constructor(
     private positionsService: PositionsService,
     private tradeJobQueueService: TradeJobQueueService,
-    private prisma: PrismaService
+    private prisma: PrismaService,
+    private wsService: WebSocketService
   ) {}
 
   private getCachedPrice(symbol: string, exchange: string): number | null {
@@ -1102,13 +1104,25 @@ export class PositionsController {
         throw new BadRequestException('Apenas posições abertas podem ter SL/TP atualizados');
       }
 
-      return await this.positionsService.getDomainService().updateSLTP(
+      const updatedPosition = await this.positionsService.getDomainService().updateSLTP(
         id,
         updateDto.slEnabled,
         updateDto.slPct,
         updateDto.tpEnabled,
         updateDto.tpPct
       );
+
+      // Emitir evento WebSocket
+      this.wsService.emitToUser(user.userId, 'position.updated', {
+        id: updatedPosition.id,
+        symbol: updatedPosition.symbol,
+        sl_enabled: updatedPosition.sl_enabled,
+        sl_pct: updatedPosition.sl_pct,
+        tp_enabled: updatedPosition.tp_enabled,
+        tp_pct: updatedPosition.tp_pct,
+      });
+
+      return updatedPosition;
     } catch (error: any) {
       if (error instanceof NotFoundException || error instanceof ForbiddenException || error instanceof BadRequestException) {
         throw error;

@@ -19,6 +19,7 @@ import { WebhooksService } from './webhooks.service';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { NotificationWrapperService } from '../notifications/notification-wrapper.service';
 import { PrismaService } from '@mvcashnode/db';
+import { WebSocketService } from '../websocket/websocket.service';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
@@ -27,7 +28,8 @@ export class WebhooksController {
     private webhooksService: WebhooksService,
     private tradeJobQueueService: TradeJobQueueService,
     private notificationWrapper: NotificationWrapperService,
-    private prisma: PrismaService
+    private prisma: PrismaService,
+    private wsService: WebSocketService
   ) {}
 
   @Post(':code')
@@ -205,6 +207,17 @@ export class WebhooksController {
         });
 
         console.log(`[WEBHOOK] Evento criado. Jobs criados: ${result.jobsCreated}`);
+
+        // Emitir evento WebSocket para o dono do webhook
+        if (result.event && source.owner_user_id) {
+          this.wsService.emitToUser(source.owner_user_id, 'webhook.received', {
+            id: result.event.id,
+            webhook_source_id: source.id,
+            symbol: result.event.symbol_normalized,
+            action: result.event.action,
+            jobs_created: result.jobsCreated || 0,
+          });
+        }
 
         // Enviar notificação de webhook recebido IMEDIATAMENTE após criar o evento
         // (apenas uma vez por webhook, ANTES de processar jobs, mesmo se jobs falharem)
