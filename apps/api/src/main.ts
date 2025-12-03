@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -68,6 +69,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bodyParser: false, // Desabilitar body parser padrão globalmente
   });
+  
+  // Configurar WebSocket adapter (ws nativo)
+  app.useWebSocketAdapter(new WsAdapter(app));
+  console.log('[WebSocket] ✅ WebSocket adapter configurado (ws nativo)');
   
   // Compressão HTTP (gzip/brotli)
   const compression = require('compression');
@@ -173,9 +178,27 @@ async function bootstrap() {
     console.log('[CORS] ✅ CORS_DISABLED=true - permitindo todas as origens (sem restrições)');
   } else {
     // Quando CORS_DISABLED=false ou não definido, usar lista de origens permitidas
+    const defaultOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5010',
+      'https://app.mvcash.com.br',
+      'https://core.mvcash.com.br',
+      'https://webhook.mvcash.com.br',
+    ];
+    
     const allowedOrigins = process.env.CORS_ORIGIN 
       ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-      : ['http://localhost:3000', 'http://localhost:5010'];
+      : defaultOrigins;
+    
+    // Função para verificar se a origem é um subdomínio de mvcash.com.br
+    const isMvcashSubdomain = (origin: string): boolean => {
+      try {
+        const url = new URL(origin);
+        return url.hostname === 'mvcash.com.br' || url.hostname.endsWith('.mvcash.com.br');
+      } catch {
+        return false;
+      }
+    };
     
     app.enableCors({
       origin: (origin, callback) => {
@@ -185,12 +208,20 @@ async function bootstrap() {
           return;
         }
         
+        // Verificar se está na lista de origens permitidas
         if (allowedOrigins.includes(origin)) {
           callback(null, true);
-        } else {
-          console.warn(`[CORS] ⚠️ Origem bloqueada: ${origin}`);
-          callback(new Error('Not allowed by CORS'));
+          return;
         }
+        
+        // Permitir qualquer subdomínio de mvcash.com.br (HTTPS)
+        if (origin.startsWith('https://') && isMvcashSubdomain(origin)) {
+          callback(null, true);
+          return;
+        }
+        
+        console.warn(`[CORS] ⚠️ Origem bloqueada: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
