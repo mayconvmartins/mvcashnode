@@ -12,9 +12,15 @@ export function Providers({ children }: { children: ReactNode }) {
             new QueryClient({
                 defaultOptions: {
                     queries: {
-                        staleTime: 60 * 1000, // 1 minute
-                        refetchOnWindowFocus: false,
-                        retry: 1,
+                        staleTime: 0, // Dados sempre considerados stale (tempo real)
+                        gcTime: 5 * 60 * 1000, // 5 minutos de cache em memória (antes era cacheTime)
+                        refetchOnWindowFocus: false, // Não refetch ao focar janela
+                        refetchOnReconnect: true, // Refetch ao reconectar
+                        retry: 1, // Apenas 1 tentativa de retry
+                        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Backoff exponencial
+                    },
+                    mutations: {
+                        retry: 0, // Não retry em mutations
                     },
                 },
             })

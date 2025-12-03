@@ -1,5 +1,12 @@
-import axios, { type AxiosError, type AxiosRequestConfig } from 'axios'
+import axios, { type AxiosError, type AxiosRequestConfig, CancelTokenSource } from 'axios'
 import type { ApiError } from '@/lib/types'
+
+// Request deduplication: cancelar requisições duplicadas
+const pendingRequests = new Map<string, CancelTokenSource>()
+
+function getRequestKey(config: AxiosRequestConfig): string {
+    return `${config.method?.toUpperCase() || 'GET'}_${config.url}_${JSON.stringify(config.params || {})}_${JSON.stringify(config.data || {})}`
+}
 
 // Sanitizar strings para prevenir XSS
 const sanitizeString = (str: string): string => {
@@ -33,13 +40,33 @@ const apiClient = axios.create({
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest', // Proteção básica CSRF
     },
-    timeout: 30000,
+    timeout: 10000, // 10 segundos para requisições normais (reduzido de 30s)
     withCredentials: false, // Não enviar cookies automaticamente
 })
 
-// Request interceptor para adicionar token e sanitizar dados
+// Request interceptor para adicionar token, sanitizar dados e deduplicação
 apiClient.interceptors.request.use(
     (config) => {
+        // Request deduplication: cancelar requisições duplicadas pendentes
+        const requestKey = getRequestKey(config)
+        const pendingRequest = pendingRequests.get(requestKey)
+        
+        if (pendingRequest) {
+            // Cancelar requisição anterior
+            pendingRequest.cancel('Request deduplication: nova requisição substitui a anterior')
+            pendingRequests.delete(requestKey)
+        }
+        
+        // Criar novo cancel token para esta requisição
+        const cancelTokenSource = axios.CancelToken.source()
+        config.cancelToken = cancelTokenSource.token
+        pendingRequests.set(requestKey, cancelTokenSource)
+        
+        // Timeout maior para operações longas (uploads, etc)
+        if (config.data instanceof FormData || config.timeout === undefined) {
+            config.timeout = 60000 // 60 segundos para uploads
+        }
+        
         if (typeof window !== 'undefined') {
             const token = localStorage.getItem('accessToken')
             if (token) {
@@ -57,7 +84,7 @@ apiClient.interceptors.request.use(
         }
         
         // Sanitizar dados de entrada para prevenir XSS no backend
-        if (config.data && typeof config.data === 'object') {
+        if (config.data && typeof config.data === 'object' && !(config.data instanceof FormData)) {
             // Não sanitizar senhas ou campos específicos
             const sensitiveFields = ['password', 'api_key', 'api_secret', 'signing_secret']
             const sanitizedData: any = {}
@@ -80,9 +107,13 @@ apiClient.interceptors.request.use(
     }
 )
 
-// Response interceptor para extrair data e refresh token
+// Response interceptor para extrair data, refresh token e limpar deduplicação
 apiClient.interceptors.response.use(
     (response) => {
+        // Limpar requisição pendente após sucesso
+        const requestKey = getRequestKey(response.config)
+        pendingRequests.delete(requestKey)
+        
         // Backend retorna { data: {...} }, então extraímos o data interno
         // MAS: se a resposta já tem pagination (PaginatedResponse), não extrair
         if (response.data && typeof response.data === 'object' && 'data' in response.data) {
@@ -98,6 +129,17 @@ apiClient.interceptors.response.use(
     },
     async (error: AxiosError<ApiError>) => {
         const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean }
+        
+        // Limpar requisição pendente após erro (exceto se for cancelamento)
+        if (originalRequest && !axios.isCancel(error)) {
+            const requestKey = getRequestKey(originalRequest)
+            pendingRequests.delete(requestKey)
+        }
+        
+        // Ignorar erros de cancelamento (deduplicação)
+        if (axios.isCancel(error)) {
+            return Promise.reject(error)
+        }
 
         // Refresh token logic
         if (error.response?.status === 401 && !originalRequest._retry) {
@@ -154,11 +196,11 @@ apiClient.interceptors.response.use(
     }
 )
 
-// Função helper para retry em requisições críticas
+// Função helper para retry em requisições críticas com backoff exponencial
 export async function retryRequest<T>(
     requestFn: () => Promise<T>,
     maxRetries = 3,
-    delay = 1000
+    baseDelay = 1000
 ): Promise<T> {
     let lastError: unknown
 
@@ -168,7 +210,9 @@ export async function retryRequest<T>(
         } catch (error) {
             lastError = error
             if (i < maxRetries - 1) {
-                await new Promise((resolve) => setTimeout(resolve, delay * (i + 1)))
+                // Backoff exponencial: 1s, 2s, 4s, etc (máximo 30s)
+                const delay = Math.min(baseDelay * Math.pow(2, i), 30000)
+                await new Promise((resolve) => setTimeout(resolve, delay))
             }
         }
     }

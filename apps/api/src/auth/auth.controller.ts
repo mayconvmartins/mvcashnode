@@ -11,6 +11,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -24,6 +25,7 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('login')
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 tentativas por minuto
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
     summary: 'Autenticação de usuário',
@@ -91,6 +93,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 renovações por minuto
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
     summary: 'Renovar access token',
@@ -176,6 +179,7 @@ export class AuthController {
   }
 
   @Post('2fa/verify')
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 tentativas por minuto
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ 

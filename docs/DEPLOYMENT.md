@@ -44,6 +44,10 @@ ENCRYPTION_KEY=sua-chave-de-criptografia-32-bytes
 API_PORT=4010
 NODE_ENV=production
 
+# Swagger/OpenAPI
+SWAGGER_SERVER_URL=https://core.mvcash.com.br
+SWAGGER_SERVER_DESCRIPTION=Produção
+
 # CORS (produção)
 CORS_DISABLED=false
 CORS_ORIGIN=https://seu-dominio.com,https://www.seu-dominio.com

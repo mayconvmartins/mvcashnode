@@ -148,6 +148,10 @@ ENCRYPTION_KEY=your-exactly-32-byte-key-here
 API_PORT=4010
 NODE_ENV=development
 
+# Swagger/OpenAPI (opcional - para desenvolvimento, usar localhost)
+SWAGGER_SERVER_URL=http://localhost:4010
+SWAGGER_SERVER_DESCRIPTION=Desenvolvimento Local
+
 # CORS (para desenvolvimento)
 CORS_DISABLED=true  # Define como true para desabilitar CORS e permitir todas as origens em dev
 CORS_ORIGIN=http://localhost:3000  # Origem permitida quando CORS_DISABLED=false

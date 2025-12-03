@@ -69,6 +69,31 @@ async function bootstrap() {
     bodyParser: false, // Desabilitar body parser padrão globalmente
   });
   
+  // Compressão HTTP (gzip/brotli)
+  const compression = require('compression');
+  app.use(compression({
+    filter: (req: any, res: any) => {
+      // Comprimir todas as respostas exceto se o cliente não suporta
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
+    level: 6, // Nível de compressão (1-9, 6 é um bom equilíbrio)
+    threshold: 1024, // Comprimir apenas respostas maiores que 1KB
+  }));
+  console.log('[Performance] ✅ Compressão HTTP habilitada');
+  
+  // Helmet para headers de segurança e performance
+  const helmet = require('helmet');
+  app.use(helmet({
+    contentSecurityPolicy: false, // Desabilitar CSP para não quebrar Swagger
+    crossOriginEmbedderPolicy: false,
+    // Headers de cache desabilitados para dados dinâmicos
+    noCache: true, // Sempre enviar no-cache para dados dinâmicos
+  }));
+  console.log('[Performance] ✅ Helmet configurado');
+  
   // Aplicar body parsers customizados - IMPORTANTE: aplicar ANTES de qualquer outro middleware
   const bodyParser = require('body-parser');
   
@@ -198,6 +223,9 @@ async function bootstrap() {
   app.useGlobalInterceptors(new TransformInterceptor());
 
   // Swagger/OpenAPI
+  const swaggerServerUrl = process.env.SWAGGER_SERVER_URL || 'https://core.mvcash.com.br';
+  const swaggerServerDescription = process.env.SWAGGER_SERVER_DESCRIPTION || 'Produção';
+  
   const config = new DocumentBuilder()
     .setTitle('Trading Automation API')
     .setDescription('API de automação de trading para exchanges')
@@ -211,6 +239,7 @@ async function bootstrap() {
     .addTag('Reports', 'Relatórios de PnL e performance')
     .addTag('Monitoring', 'Monitoramento do sistema e alertas')
     .addTag('Admin', 'Administração do sistema')
+    .addServer(swaggerServerUrl, swaggerServerDescription)
     .addServer('http://localhost:4010', 'Desenvolvimento Local')
     .build();
 
