@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { positionsService } from '@/lib/api/positions.service'
@@ -35,6 +36,12 @@ import { UpdateSLTPModal } from '@/components/positions/UpdateSLTPModal'
 import { ClosePositionModal } from '@/components/positions/ClosePositionModal'
 import { SellLimitModal } from '@/components/positions/SellLimitModal'
 import type { Position, PositionFill, TradeJob, TradeExecution } from '@/lib/types'
+
+// Lazy load do PriceChart (componente pesado com recharts)
+const PriceChart = dynamic(() => import('@/components/positions/PriceChart').then(mod => ({ default: mod.PriceChart })), {
+    ssr: false,
+    loading: () => <Skeleton className="h-[400px] w-full" />
+})
 
 // Estender o tipo Position para incluir dados relacionados que podem vir da API
 interface PositionWithRelations extends Position {

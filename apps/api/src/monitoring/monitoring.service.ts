@@ -220,12 +220,35 @@ export class MonitoringService {
           },
         });
 
+        // Otimizar: buscar todas as execuções de uma vez ao invés de N+1 queries
+        const allJobConfigIds = cronJobConfigs.map(jc => jc.id);
+        const allExecutions = await this.prisma.cronJobExecution.findMany({
+          where: { job_config_id: { in: allJobConfigIds } },
+          select: {
+            id: true,
+            job_config_id: true,
+            started_at: true,
+            duration_ms: true,
+            status: true,
+            result_json: true,
+          },
+          orderBy: { started_at: 'desc' },
+        });
+
+        // Agrupar execuções por job_config_id
+        const executionsByJob = new Map<number, typeof allExecutions>();
+        for (const execution of allExecutions) {
+          const jobId = execution.job_config_id;
+          if (!executionsByJob.has(jobId)) {
+            executionsByJob.set(jobId, []);
+          }
+          executionsByJob.get(jobId)!.push(execution);
+        }
+
         for (const jobConfig of cronJobConfigs) {
           try {
-            // Buscar todas as execuções deste job
-            const executions = await this.prisma.cronJobExecution.findMany({
-              where: { job_config_id: jobConfig.id },
-            });
+            // Obter execuções do cache
+            const executions = executionsByJob.get(jobConfig.id) || [];
 
             // Calcular estatísticas
             const totalRuns = executions.length;
@@ -248,11 +271,8 @@ export class MonitoringService {
                   ) / completedExecutions.length
                 : 0;
 
-            // Buscar última execução
-            const lastExecutionRecord = await this.prisma.cronJobExecution.findFirst({
-              where: { job_config_id: jobConfig.id },
-              orderBy: { started_at: 'desc' },
-            });
+            // Buscar última execução (já ordenado por started_at desc)
+            const lastExecutionRecord = executions.length > 0 ? executions[0] : null;
 
             let lastExecution;
             if (lastExecutionRecord) {

@@ -391,13 +391,17 @@ export default function WebhookDetailsPage() {
                                 <Label>URL do Webhook</Label>
                                 <div className="flex gap-2">
                                     <div className="flex-1 p-3 rounded-md bg-muted font-mono text-sm overflow-x-auto">
-                                        {typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/${webhook.webhook_code}` : ''}
+                                        {typeof window !== 'undefined' 
+                                            ? `${process.env.NEXT_PUBLIC_WEBHOOK_URL || window.location.origin}/webhooks/${webhook.webhook_code}`
+                                            : ''}
                                     </div>
                                     <Button
                                         variant="outline"
                                         size="icon"
                                         onClick={() => {
-                                            const url = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/${webhook.webhook_code}` : ''
+                                            const url = typeof window !== 'undefined' 
+                                                ? `${process.env.NEXT_PUBLIC_WEBHOOK_URL || window.location.origin}/webhooks/${webhook.webhook_code}`
+                                                : ''
                                             copyToClipboard(url)
                                         }}
                                     >

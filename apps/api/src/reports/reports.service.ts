@@ -62,8 +62,15 @@ export class ReportsService {
 
     const closedPositions = await this.prisma.tradePosition.findMany({
       where: whereClosed,
-      include: {
-        exchange_account: true,
+      select: {
+        id: true,
+        realized_profit_usd: true,
+        exchange_account: {
+          select: {
+            id: true,
+            exchange: true,
+          },
+        },
       },
     });
 
@@ -78,8 +85,18 @@ export class ReportsService {
 
     const openPositions = await this.prisma.tradePosition.findMany({
       where: whereOpen,
-      include: {
-        exchange_account: true,
+      select: {
+        id: true,
+        symbol: true,
+        entry_price: true,
+        qty: true,
+        exchange_account: {
+          select: {
+            id: true,
+            exchange: true,
+            testnet: true,
+          },
+        },
       },
     });
 

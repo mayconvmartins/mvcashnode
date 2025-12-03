@@ -221,6 +221,11 @@ async function bootstrap() {
 
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
+  
+  // Performance interceptor para monitorar queries lentas
+  const { PerformanceInterceptor } = await import('./common/interceptors/performance.interceptor');
+  app.useGlobalInterceptors(new PerformanceInterceptor());
+  console.log('[Performance] ✅ Interceptor de performance habilitado');
 
   // Swagger/OpenAPI
   const swaggerServerUrl = process.env.SWAGGER_SERVER_URL || 'https://core.mvcash.com.br';

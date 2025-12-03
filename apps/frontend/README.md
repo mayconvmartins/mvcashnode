@@ -148,10 +148,11 @@ apps/frontend/
 pnpm install
 
 # Configurar variáveis de ambiente
-cp .env.example .env.local
+cp env.template .env.local
 
 # Editar .env.local com suas configurações
 # NEXT_PUBLIC_API_URL=http://localhost:4010
+# NEXT_PUBLIC_WEBHOOK_URL=http://localhost:4010
 ```
 
 ### Desenvolvimento
@@ -189,6 +190,7 @@ pnpm start
 # API Configuration
 NEXT_PUBLIC_API_URL=http://localhost:4010
 NEXT_PUBLIC_WS_URL=ws://localhost:4010
+NEXT_PUBLIC_WEBHOOK_URL=http://localhost:4010
 
 # Environment
 NEXT_PUBLIC_ENV=development

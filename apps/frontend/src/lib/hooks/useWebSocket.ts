@@ -33,7 +33,15 @@ export function useWebSocket({
 
         const connect = () => {
             try {
-                const wsUrl = new URL(url)
+                let wsUrl = new URL(url)
+                
+                // Se a página estiver em HTTPS, garantir que o WebSocket use wss://
+                if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+                    if (wsUrl.protocol === 'ws:') {
+                        wsUrl.protocol = 'wss:'
+                    }
+                }
+                
                 if (accessToken) {
                     wsUrl.searchParams.set('token', accessToken)
                 }

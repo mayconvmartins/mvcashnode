@@ -218,7 +218,8 @@ export class TradeParametersController {
   async create(@CurrentUser() user: any, @Body() createDto: any) {
     try {
       // Converter accountId para número (caso venha como string)
-      const accountId = Number(createDto.accountId || createDto.exchangeAccountId);
+      // Aceita accountId, exchangeAccountId ou exchange_account_id (formato do frontend)
+      const accountId = Number(createDto.accountId || createDto.exchangeAccountId || createDto.exchange_account_id);
       if (isNaN(accountId)) {
         throw new BadRequestException('ID da conta de exchange inválido');
       }

@@ -36,7 +36,8 @@ export default function WebhooksPage() {
     })
 
     const copyWebhookURL = (code: string) => {
-        const url = `${window.location.origin}/api/webhooks/${code}`
+        const baseUrl = process.env.NEXT_PUBLIC_WEBHOOK_URL || window.location.origin
+        const url = `${baseUrl}/webhooks/${code}`
         navigator.clipboard.writeText(url)
         toast.success('URL copiada para a área de transferência!')
     }

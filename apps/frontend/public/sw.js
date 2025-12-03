@@ -1,7 +1,8 @@
 // Service Worker para PWA
+// IMPORTANTE: NUNCA cachear requisições de API - dados devem ser sempre frescos
 const CACHE_NAME = 'mvcash-v1'
 const RUNTIME_CACHE = 'mvcash-runtime-v1'
-const API_CACHE = 'mvcash-api-v1'
+const STATIC_CACHE = 'mvcash-static-v1'
 
 // Arquivos para cache inicial (instalação)
 const PRECACHE_ASSETS = [
@@ -32,7 +33,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME && cacheName !== RUNTIME_CACHE && cacheName !== API_CACHE) {
+          if (cacheName !== CACHE_NAME && cacheName !== RUNTIME_CACHE && cacheName !== STATIC_CACHE) {
             console.log('Service Worker: Deleting old cache:', cacheName)
             return caches.delete(cacheName)
           }
@@ -55,74 +56,79 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Estratégia para API (Network First com cache fallback)
-  if (url.pathname.startsWith('/api') || url.port === '4010') {
+  // Estratégia para API - SEMPRE Network First, NUNCA cachear
+  // Dados devem ser sempre frescos em tempo real
+  if (url.pathname.startsWith('/api') || url.port === '4010' || url.hostname.includes('localhost:4010') || url.hostname.includes('core.mvcash.com.br')) {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // Só cachear respostas bem-sucedidas
+          // NUNCA cachear respostas de API - sempre retornar dados frescos
+          return response
+        })
+        .catch(() => {
+          // Se offline, retornar erro imediatamente (sem cache)
+          return new Response(
+            JSON.stringify({ error: 'Offline', message: 'Sem conexão com a internet' }),
+            {
+              headers: { 'Content-Type': 'application/json' },
+              status: 503,
+            }
+          )
+        })
+    )
+    return
+  }
+
+  // Estratégia para assets estáticos (JS, CSS, imagens, fontes) - Cache First
+  if (url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|otf|eot|webp)$/)) {
+    event.respondWith(
+      caches.match(request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse
+        }
+        return fetch(request).then((response) => {
           if (response && response.status === 200) {
             const responseClone = response.clone()
-            caches.open(API_CACHE).then((cache) => {
+            caches.open(STATIC_CACHE).then((cache) => {
+              cache.put(request, responseClone)
+            })
+          }
+          return response
+        })
+      })
+    )
+    return
+  }
+
+  // Estratégia para páginas HTML - Network First (sem cache agressivo)
+  // Páginas podem ter dados dinâmicos, então sempre buscar versão fresca
+  if (url.origin === self.location.origin && request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          // Cachear apenas para offline fallback, não para uso normal
+          if (response && response.status === 200) {
+            const responseClone = response.clone()
+            caches.open(RUNTIME_CACHE).then((cache) => {
               cache.put(request, responseClone)
             })
           }
           return response
         })
         .catch(() => {
+          // Se offline, tentar servir página offline ou cached
           return caches.match(request).then((cachedResponse) => {
             if (cachedResponse) {
               return cachedResponse
             }
-            // Se não houver cache, retornar resposta offline
-            return new Response(
-              JSON.stringify({ error: 'Offline', message: 'Sem conexão com a internet' }),
-              {
-                headers: { 'Content-Type': 'application/json' },
-                status: 503,
-              }
-            )
-          })
-        })
-    )
-    return
-  }
-
-  // Estratégia para páginas (Cache First com network fallback)
-  if (url.origin === self.location.origin) {
-    event.respondWith(
-      caches.match(request).then((cachedResponse) => {
-        if (cachedResponse) {
-          // Atualizar cache em background
-          fetch(request).then((response) => {
-            if (response && response.status === 200) {
-              caches.open(RUNTIME_CACHE).then((cache) => {
-                cache.put(request, response)
-              })
-            }
-          })
-          return cachedResponse
-        }
-
-        return fetch(request)
-          .then((response) => {
-            if (response && response.status === 200) {
-              const responseClone = response.clone()
-              caches.open(RUNTIME_CACHE).then((cache) => {
-                cache.put(request, responseClone)
-              })
-            }
-            return response
-          })
-          .catch(() => {
-            // Se offline, tentar servir página offline
             if (request.mode === 'navigate') {
               return caches.match('/offline')
             }
             return new Response('Offline', { status: 503 })
           })
-      })
+        })
     )
+    return
   }
 })
 
