@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { TradeMode } from '@/lib/types'
+import { TradeMode } from '@/lib/types'
 
 interface TradeModeState {
     tradeMode: TradeMode
@@ -11,11 +11,11 @@ interface TradeModeState {
 export const useTradeModeStore = create<TradeModeState>()(
     persist(
         (set) => ({
-            tradeMode: 'REAL',
+            tradeMode: TradeMode.REAL,
             setTradeMode: (mode) => set({ tradeMode: mode }),
             toggle: () =>
                 set((state) => ({
-                    tradeMode: state.tradeMode === 'REAL' ? 'SIMULATION' : 'REAL',
+                    tradeMode: state.tradeMode === TradeMode.REAL ? TradeMode.SIMULATION : TradeMode.REAL,
                 })),
         }),
         {
@@ -31,8 +31,8 @@ export function useTradeMode() {
         tradeMode,
         setTradeMode,
         toggle,
-        isReal: tradeMode === 'REAL',
-        isSimulation: tradeMode === 'SIMULATION',
+        isReal: tradeMode === TradeMode.REAL,
+        isSimulation: tradeMode === TradeMode.SIMULATION,
     }
 }
 

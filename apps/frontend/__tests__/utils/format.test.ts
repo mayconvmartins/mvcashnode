@@ -1,4 +1,4 @@
-import { formatCurrency, formatPercent, formatDateTime, formatDate } from '@/lib/utils/format'
+import { formatCurrency, formatPercentage, formatDateTime, formatDate } from '@/lib/utils/format'
 
 describe('format utilities', () => {
   describe('formatCurrency', () => {
@@ -18,15 +18,15 @@ describe('format utilities', () => {
     })
   })
 
-  describe('formatPercent', () => {
+  describe('formatPercentage', () => {
     it('formata porcentagens corretamente', () => {
-      expect(formatPercent(0.1234)).toBe('12.34%')
-      expect(formatPercent(1.5)).toBe('150.00%')
-      expect(formatPercent(0)).toBe('0.00%')
+      expect(formatPercentage(0.1234)).toBe('+0.12%')
+      expect(formatPercentage(1.5)).toBe('+1.50%')
+      expect(formatPercentage(0)).toBe('+0.00%')
     })
 
     it('formata porcentagens negativas', () => {
-      expect(formatPercent(-0.15)).toBe('-15.00%')
+      expect(formatPercentage(-0.15)).toBe('-0.15%')
     })
   })
 

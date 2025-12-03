@@ -23,10 +23,7 @@ export function BalancesTab({ vaultId }: BalancesTabProps) {
 
     const { data: balances, isLoading } = useQuery({
         queryKey: ['vault-balances', vaultId],
-        queryFn: async () => {
-            const response = await vaultsService.getBalances(vaultId)
-            return response.data
-        },
+        queryFn: () => vaultsService.getBalances(vaultId),
     })
 
     const handleDeposit = (asset: string) => {

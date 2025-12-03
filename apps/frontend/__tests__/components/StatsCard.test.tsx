@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import '@testing-library/jest-dom'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { TrendingUp } from 'lucide-react'
 
@@ -22,11 +23,12 @@ describe('StatsCard', () => {
         title="PnL"
         value="$1000"
         icon={TrendingUp}
-        trend={{ value: 15.5, direction: 'up' }}
+        trend="up"
+        change={15.5}
       />
     )
 
-    expect(screen.getByText('+15.5%')).toBeInTheDocument()
+    expect(screen.getByText('+15.50%')).toBeInTheDocument()
   })
 
   it('exibe trend negativa quando fornecida', () => {
@@ -35,11 +37,12 @@ describe('StatsCard', () => {
         title="PnL"
         value="$-500"
         icon={TrendingUp}
-        trend={{ value: -10.2, direction: 'down' }}
+        trend="down"
+        change={-10.2}
       />
     )
 
-    expect(screen.getByText('-10.2%')).toBeInTheDocument()
+    expect(screen.getByText('-10.20%')).toBeInTheDocument()
   })
 
   it('não exibe trend quando não fornecida', () => {

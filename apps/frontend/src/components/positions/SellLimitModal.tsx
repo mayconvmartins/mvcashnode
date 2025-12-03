@@ -24,7 +24,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
 
     const sellLimitMutation = useMutation({
         mutationFn: () => positionsService.sellLimit(position.id, {
-            price: parseFloat(price),
+            limitPrice: parseFloat(price),
             quantity: parseFloat(quantity),
         }),
         onSuccess: () => {

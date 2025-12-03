@@ -34,10 +34,7 @@ export function VaultForm({ vault, onSuccess }: VaultFormProps) {
 
     const { data: accounts } = useQuery({
         queryKey: ['accounts'],
-        queryFn: async () => {
-            const response = await accountsService.list()
-            return response.data
-        },
+        queryFn: () => accountsService.list(),
     })
 
     const {
@@ -79,9 +76,8 @@ export function VaultForm({ vault, onSuccess }: VaultFormProps) {
 
     const onSubmit = (data: VaultFormData) => {
         const payload = {
-            label: data.label,
+            name: data.label,
             description: data.description,
-            exchangeAccountId: data.exchange_account_id,
             tradeMode: data.trade_mode,
         }
 
@@ -119,7 +115,7 @@ export function VaultForm({ vault, onSuccess }: VaultFormProps) {
                             <SelectValue placeholder="Selecione uma conta" />
                         </SelectTrigger>
                         <SelectContent>
-                            {accounts?.map((account) => (
+                            {accounts?.map((account: any) => (
                                 <SelectItem key={account.id} value={account.id.toString()}>
                                     {account.label} - {account.exchange}
                                 </SelectItem>

@@ -15,6 +15,11 @@ export const vaultsService = {
         return response.data
     },
 
+    getAll: async (): Promise<Vault[]> => {
+        const response = await apiClient.get<Vault[]>('/vaults')
+        return response.data
+    },
+
     getOne: async (id: number): Promise<Vault> => {
         const response = await apiClient.get<Vault>(`/vaults/${id}`)
         return response.data
@@ -22,6 +27,11 @@ export const vaultsService = {
 
     create: async (data: CreateVaultDto): Promise<Vault> => {
         const response = await apiClient.post<Vault>('/vaults', data)
+        return response.data
+    },
+
+    update: async (id: number, data: Partial<CreateVaultDto>): Promise<Vault> => {
+        const response = await apiClient.put<Vault>(`/vaults/${id}`, data)
         return response.data
     },
 

@@ -22,7 +22,7 @@ export function PriceChart({ symbol, entryPrice, stopLoss, takeProfit }: PriceCh
             
             for (let i = 0; i < points; i++) {
                 const randomChange = (Math.random() - 0.5) * volatility
-                const price = i === 0 
+                const price: number = i === 0 
                     ? entryPrice 
                     : mockData[i - 1].price + randomChange
                 

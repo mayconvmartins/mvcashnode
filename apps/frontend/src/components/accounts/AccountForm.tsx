@@ -54,14 +54,14 @@ export function AccountForm({ account, onSuccess }: AccountFormProps) {
         watch,
         formState: { errors },
     } = useForm<AccountFormData>({
-        resolver: zodResolver(accountSchema),
+        resolver: zodResolver(accountSchema) as any,
         defaultValues: account
             ? {
                   label: account.label,
                   exchange: account.exchange,
-                  trade_mode: account.trade_mode,
-                  api_key: account.api_key_encrypted ? '••••••••' : '',
-                  api_secret: '••••••••',
+                  trade_mode: account.is_simulation ? TradeMode.SIMULATION : TradeMode.REAL,
+                  api_key: '',
+                  api_secret: '',
                   is_testnet: account.testnet,
                   is_active: account.is_active,
               }
@@ -101,7 +101,7 @@ export function AccountForm({ account, onSuccess }: AccountFormProps) {
         const payload: any = {
             label: data.label,
             exchange: data.exchange,
-            tradeMode: data.trade_mode,
+            isSimulation: data.trade_mode === TradeMode.SIMULATION,
             isTestnet: data.is_testnet,
             isActive: data.is_active,
         }
@@ -137,7 +137,7 @@ export function AccountForm({ account, onSuccess }: AccountFormProps) {
     const is_active = watch('is_active')
 
     return (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-6">
             <div className="space-y-4">
                 <div className="space-y-2">
                     <Label htmlFor="label">Nome da Conta</Label>

@@ -90,6 +90,16 @@ export const adminService = {
         return response.data
     },
 
+    resetUserPassword: async (userId: string | number, data: { newPassword: string }): Promise<{ message: string }> => {
+        const response = await apiClient.post(`/admin/users/${userId}/reset-password`, data)
+        return response.data
+    },
+
+    resetUser2FA: async (userId: string | number): Promise<{ message: string }> => {
+        const response = await apiClient.post(`/admin/users/${userId}/reset-2fa`)
+        return response.data
+    },
+
     getUserAuditLogs: async (
         id: number,
         page: number,

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminService, CreateUserDto } from '@/lib/api/admin.service'
+import { UserRole } from '@/lib/types'
 import {
     Dialog,
     DialogContent,
@@ -72,7 +73,7 @@ export function CreateUserModal({ open, onOpenChange }: CreateUserModalProps) {
             return
         }
 
-        const roles: ('admin' | 'user')[] = formData.isAdmin ? ['admin', 'user'] : ['user']
+        const roles: UserRole[] = formData.isAdmin ? [UserRole.ADMIN, UserRole.USER] : [UserRole.USER]
 
         createMutation.mutate({
             email: formData.email,

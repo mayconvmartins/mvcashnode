@@ -12,6 +12,11 @@ export const accountsService = {
         return response.data
     },
 
+    getAll: async (): Promise<ExchangeAccount[]> => {
+        const response = await apiClient.get<ExchangeAccount[]>('/exchange-accounts')
+        return response.data
+    },
+
     getOne: async (id: number): Promise<ExchangeAccount> => {
         const response = await apiClient.get<ExchangeAccount>(`/exchange-accounts/${id}`)
         return response.data

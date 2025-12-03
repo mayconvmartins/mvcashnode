@@ -64,6 +64,17 @@ export const webhooksService = {
         await apiClient.delete(`/webhook-sources/${sourceId}/bindings/${bindingId}`)
     },
 
+    addBinding: async (sourceId: string | number, data: CreateBindingDto): Promise<AccountWebhookBinding> => {
+        const id = typeof sourceId === 'string' ? parseInt(sourceId, 10) : sourceId
+        return webhooksService.createBinding(id, data)
+    },
+
+    removeBinding: async (sourceId: string | number, bindingId: string | number): Promise<void> => {
+        const id = typeof sourceId === 'string' ? parseInt(sourceId, 10) : sourceId
+        const bid = typeof bindingId === 'string' ? parseInt(bindingId, 10) : bindingId
+        await webhooksService.deleteBinding(id, bid)
+    },
+
     // Events
     listEvents: async (filters?: WebhookEventFilters): Promise<PaginatedResponse<WebhookEvent>> => {
         const response = await apiClient.get<PaginatedResponse<WebhookEvent>>('/webhook-events', {

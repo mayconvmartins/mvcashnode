@@ -30,7 +30,7 @@ export function BindingsManager({ webhookId, bindings }: BindingsManagerProps) {
 
     const addBindingMutation = useMutation({
         mutationFn: () => webhooksService.addBinding(webhookId, {
-            accountId: selectedAccount,
+            exchangeAccountId: parseInt(selectedAccount, 10),
             weight: parseFloat(weight),
         }),
         onSuccess: () => {

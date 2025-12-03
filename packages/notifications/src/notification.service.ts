@@ -229,8 +229,7 @@ export class NotificationService {
   async sendWebhookAlert(
     webhookEvent: any,
     source: any,
-    jobsCreated: number = 0,
-    jobIds: number[] = []
+    jobsCreated: number = 0
   ): Promise<void> {
     console.log(`[NOTIFICATIONS] sendWebhookAlert chamado com:`, {
       alert_group_enabled: source.alert_group_enabled,

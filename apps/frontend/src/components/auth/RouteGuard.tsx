@@ -6,6 +6,7 @@ import { useAuthStore } from '@/lib/stores/authStore'
 import { authService } from '@/lib/api/auth.service'
 import { apiClient } from '@/lib/api/client'
 import { Spinner } from '@/components/ui/spinner'
+import { UserRole } from '@/lib/types'
 
 interface RouteGuardProps {
     children: React.ReactNode
@@ -175,7 +176,7 @@ export function RouteGuard({ children, requireAuth = true, requireAdmin = false 
             return
         }
 
-        if (requireAdmin && (!user || !user.roles?.includes('admin'))) {
+        if (requireAdmin && (!user || !user.roles?.includes(UserRole.ADMIN))) {
             router.push('/')
             return
         }
@@ -204,7 +205,7 @@ export function RouteGuard({ children, requireAuth = true, requireAdmin = false 
         )
     }
 
-    if (requireAdmin && (!user || !user.roles?.includes('admin'))) {
+    if (requireAdmin && (!user || !user.roles?.includes(UserRole.ADMIN))) {
         return (
             <div className="flex min-h-screen items-center justify-center">
                 <Spinner size="lg" />

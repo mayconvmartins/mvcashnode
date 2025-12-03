@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import type { User } from '@/lib/types'
+import { UserRole } from '@/lib/types'
 
 interface EditUserModalProps {
     user: User | null
@@ -45,7 +46,7 @@ export function EditUserModal({ user, open, onOpenChange }: EditUserModalProps) 
                 full_name: user.profile?.full_name || '',
                 phone: user.profile?.phone || '',
                 whatsapp_phone: user.profile?.whatsapp_phone || '',
-                isAdmin: user.roles?.includes('admin') || false,
+                isAdmin: user.roles?.includes(UserRole.ADMIN) || false,
                 is_active: user.is_active ?? true,
                 position_alerts_enabled: user.profile?.position_alerts_enabled ?? false,
             })
@@ -70,7 +71,7 @@ export function EditUserModal({ user, open, onOpenChange }: EditUserModalProps) 
         
         if (!user) return
 
-        const roles: ('admin' | 'user')[] = formData.isAdmin ? ['admin', 'user'] : ['user']
+        const roles: UserRole[] = formData.isAdmin ? [UserRole.ADMIN, UserRole.USER] : [UserRole.USER]
 
         updateMutation.mutate({
             id: user.id,

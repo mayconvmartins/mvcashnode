@@ -1,15 +1,15 @@
 'use client'
 
 import { createContext, useContext, ReactNode } from 'react'
-import { useWebSocketWithQueryInvalidation } from '@/lib/hooks/useWebSocketWithQueryInvalidation'
+import { useWebSocketWithQueryInvalidation, type WebSocketEvent } from '@/lib/hooks/useWebSocketWithQueryInvalidation'
 
 interface WebSocketContextType {
     isConnected: boolean
     reconnectAttempts: number
     lastMessage: any
     send: (data: any) => boolean
-    subscribe: (events: string[]) => boolean
-    unsubscribe: (events: string[]) => boolean
+    subscribe: (events: WebSocketEvent[]) => boolean
+    unsubscribe: (events: WebSocketEvent[]) => boolean
     connect: () => void
     disconnect: () => void
 }
