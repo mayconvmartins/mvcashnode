@@ -120,6 +120,19 @@ class MonitoringService {
         })
         return data
     }
+
+    async getBackendLogs(options?: {
+        level?: string
+        from?: string
+        to?: string
+        search?: string
+        limit?: number
+    }): Promise<any[]> {
+        const { data } = await apiClient.get('/monitoring/backend-logs', {
+            params: options,
+        })
+        return data
+    }
 }
 
 export const monitoringService = new MonitoringService()

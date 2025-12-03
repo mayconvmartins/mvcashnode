@@ -239,9 +239,27 @@ export class ExchangeAccountsController {
     @Body() updateDto: UpdateExchangeAccountDto
   ) {
     try {
+      // Mapear campos do frontend para o formato esperado pelo domain service
+      const mappedDto: any = {
+        label: updateDto.label,
+        apiKey: updateDto.apiKey,
+        apiSecret: updateDto.apiSecret,
+        proxyUrl: updateDto.proxyUrl,
+        testnet: updateDto.testnet,
+        isActive: updateDto.isActive,
+        initialBalances: updateDto.initialBalances,
+      };
+
+      // Mapear tradeMode se fornecido (pode vir do frontend como tradeMode)
+      if ((updateDto as any).tradeMode !== undefined) {
+        mappedDto.isSimulation = (updateDto as any).tradeMode === 'SIMULATION';
+      } else if ((updateDto as any).isSimulation !== undefined) {
+        mappedDto.isSimulation = (updateDto as any).isSimulation;
+      }
+
       return await this.exchangeAccountsService
         .getDomainService()
-        .updateAccount(id, user.userId, updateDto);
+        .updateAccount(id, user.userId, mappedDto);
     } catch (error: any) {
       const errorMessage = error?.message || 'Erro ao atualizar conta';
       

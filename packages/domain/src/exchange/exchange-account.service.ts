@@ -65,20 +65,38 @@ export class ExchangeAccountService {
     });
   }
 
-  async updateAccount(accountId: number, userId: number, updates: Partial<CreateExchangeAccountDto>): Promise<any> {
+  async updateAccount(accountId: number, userId: number, updates: Partial<CreateExchangeAccountDto> & { isActive?: boolean }): Promise<any> {
     const updateData: any = {};
 
     if (updates.label !== undefined) updateData.label = updates.label;
     if (updates.isSimulation !== undefined) updateData.is_simulation = updates.isSimulation;
     if (updates.proxyUrl !== undefined) updateData.proxy_url = updates.proxyUrl;
     if (updates.testnet !== undefined) updateData.testnet = updates.testnet;
+    if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
     if (updates.initialBalances !== undefined) {
       updateData.initial_balances_json = JSON.parse(JSON.stringify(updates.initialBalances));
     }
 
-    if (!updates.isSimulation && updates.apiKey && updates.apiSecret) {
-      updateData.api_key_enc = await this.encryptionService.encrypt(updates.apiKey);
-      updateData.api_secret_enc = await this.encryptionService.encrypt(updates.apiSecret);
+    // Só atualiza credenciais se ambas forem fornecidas E não forem vazias
+    // Isso permite atualizar outros campos sem precisar fornecer credenciais
+    if (updates.apiKey !== undefined && updates.apiSecret !== undefined) {
+      const apiKey = updates.apiKey.trim();
+      const apiSecret = updates.apiSecret.trim();
+      
+      // Se ambas são strings não vazias, atualiza as credenciais
+      if (apiKey.length > 0 && apiSecret.length > 0) {
+        // Buscar conta atual para verificar se é simulação
+        const currentAccount = await this.prisma.exchangeAccount.findUnique({
+          where: { id: accountId },
+          select: { is_simulation: true },
+        });
+        
+        // Só atualiza credenciais se não for simulação
+        if (!currentAccount?.is_simulation) {
+          updateData.api_key_enc = await this.encryptionService.encrypt(apiKey);
+          updateData.api_secret_enc = await this.encryptionService.encrypt(apiSecret);
+        }
+      }
     }
 
     return this.prisma.exchangeAccount.update({

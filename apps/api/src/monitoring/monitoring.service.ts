@@ -3,6 +3,9 @@ import { PrismaService } from '@mvcashnode/db';
 import { MonitorService, ProcessMetrics, SystemMetrics } from '@mvcashnode/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import * as fs from 'fs';
+import * as path from 'path';
+import { readdir, readFile } from 'fs/promises';
 
 export interface JobMetrics {
   name: string;
@@ -357,6 +360,111 @@ export class MonitoringService {
     }
 
     return byService;
+  }
+
+  /**
+   * Retorna logs do backend lendo arquivos de log
+   */
+  async getBackendLogs(options: {
+    level?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+    limit?: number;
+  }): Promise<any[]> {
+    const logsPath = path.resolve(process.cwd(), 'logs');
+    
+    // Verificar se o diretório existe
+    if (!fs.existsSync(logsPath)) {
+      return [];
+    }
+
+    const { level, from, to, search, limit = 1000 } = options;
+    
+    // Buscar arquivos de log
+    const logFiles: string[] = [];
+    try {
+      const files = await readdir(logsPath);
+      // Buscar arquivos application-*.log e error-*.log
+      const today = new Date().toISOString().split('T')[0];
+      const pattern = /^(application|error)-\d{4}-\d{2}-\d{2}\.log$/;
+      
+      for (const file of files) {
+        if (pattern.test(file)) {
+          logFiles.push(path.join(logsPath, file));
+        }
+      }
+      
+      // Ordenar por data (mais recente primeiro)
+      logFiles.sort().reverse();
+    } catch (error) {
+      console.error('[Monitoring] Erro ao ler diretório de logs:', error);
+      return [];
+    }
+
+    const allLogs: any[] = [];
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+
+    // Ler os arquivos mais recentes primeiro
+    for (const filePath of logFiles.slice(0, 5)) { // Limitar a 5 arquivos mais recentes
+      try {
+        const content = await readFile(filePath, 'utf-8');
+        const lines = content.split('\n').filter(line => line.trim());
+        
+        for (const line of lines) {
+          try {
+            const logEntry = JSON.parse(line);
+            
+            // Filtrar por nível
+            if (level && logEntry.level?.toLowerCase() !== level.toLowerCase()) {
+              continue;
+            }
+            
+            // Filtrar por data
+            if (logEntry.timestamp) {
+              const logDate = new Date(logEntry.timestamp);
+              if (fromDate && logDate < fromDate) continue;
+              if (toDate && logDate > toDate) continue;
+            }
+            
+            // Filtrar por busca de texto
+            if (search) {
+              const searchLower = search.toLowerCase();
+              const message = (logEntry.message || '').toLowerCase();
+              const context = JSON.stringify(logEntry).toLowerCase();
+              if (!message.includes(searchLower) && !context.includes(searchLower)) {
+                continue;
+              }
+            }
+            
+            allLogs.push({
+              timestamp: logEntry.timestamp || new Date().toISOString(),
+              level: logEntry.level || 'info',
+              message: logEntry.message || '',
+              metadata: logEntry.meta || logEntry.context || {},
+              service: logEntry.service || 'API',
+              ...(logEntry.stack && { stack: logEntry.stack }),
+            });
+          } catch (parseError) {
+            // Ignorar linhas que não são JSON válido
+            continue;
+          }
+        }
+      } catch (error) {
+        console.error(`[Monitoring] Erro ao ler arquivo ${filePath}:`, error);
+        continue;
+      }
+    }
+
+    // Ordenar por timestamp (mais recente primeiro) e limitar
+    allLogs.sort((a, b) => {
+      const dateA = new Date(a.timestamp).getTime();
+      const dateB = new Date(b.timestamp).getTime();
+      return dateB - dateA;
+    });
+
+    return allLogs.slice(0, limit);
   }
 }
 

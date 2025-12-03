@@ -24,8 +24,22 @@ export class AdminSystemController {
   ) {}
 
   @Get('health')
-  @ApiOperation({ summary: 'Health check do sistema' })
-  @ApiResponse({ status: 200, description: 'Status do sistema' })
+  @ApiOperation({ 
+    summary: 'Health check do sistema',
+    description: 'Verifica o status de saúde do sistema, incluindo conectividade com banco de dados. Útil para monitoramento e alertas.',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Status do sistema retornado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['ok', 'error'], example: 'ok' },
+        database: { type: 'string', enum: ['connected', 'disconnected'], example: 'connected' },
+        timestamp: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+      },
+    },
+  })
   async getHealth() {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
@@ -44,8 +58,24 @@ export class AdminSystemController {
   }
 
   @Get('metrics')
-  @ApiOperation({ summary: 'Métricas do sistema' })
-  @ApiResponse({ status: 200, description: 'Métricas agregadas' })
+  @ApiOperation({ 
+    summary: 'Métricas gerais do sistema',
+    description: 'Retorna métricas agregadas do sistema para dashboard administrativo, incluindo contagem de usuários, posições abertas e trades totais.',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Métricas retornadas com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        totalUsers: { type: 'number', example: 10, description: 'Total de usuários cadastrados' },
+        activeUsers: { type: 'number', example: 8, description: 'Usuários ativos' },
+        openPositions: { type: 'number', example: 15, description: 'Posições abertas no sistema' },
+        totalTrades: { type: 'number', example: 500, description: 'Total de trades executados' },
+        timestamp: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+      },
+    },
+  })
   async getMetrics() {
     const [totalUsers, activeUsers, openPositions, totalTrades] = await Promise.all([
       this.prisma.user.count(),

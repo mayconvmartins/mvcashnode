@@ -9,9 +9,10 @@ import { AlertsPanel } from '@/components/monitoring/AlertsPanel'
 import { JobsList } from '@/components/monitoring/JobsList'
 import { ExecutionLogs } from '@/components/monitoring/ExecutionLogs'
 import { CronJobsManager } from '@/components/monitoring/CronJobsManager'
+import { BackendLogs } from '@/components/monitoring/BackendLogs'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { RefreshCw, Activity, Clock, History, AlertTriangle } from 'lucide-react'
+import { RefreshCw, Activity, Clock, History, AlertTriangle, FileCode } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function MonitoringPage() {
@@ -122,7 +123,7 @@ export default function MonitoringPage() {
 
             {/* Tabs de Conteúdo */}
             <Tabs defaultValue="overview" className="space-y-6">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                     <TabsTrigger value="overview" className="flex items-center space-x-2">
                         <Activity className="h-4 w-4" />
                         <span>Visão Geral</span>
@@ -134,6 +135,10 @@ export default function MonitoringPage() {
                     <TabsTrigger value="logs" className="flex items-center space-x-2">
                         <History className="h-4 w-4" />
                         <span>Logs</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="backend" className="flex items-center space-x-2">
+                        <FileCode className="h-4 w-4" />
+                        <span>Backend</span>
                     </TabsTrigger>
                     <TabsTrigger value="alerts" className="flex items-center space-x-2">
                         <AlertTriangle className="h-4 w-4" />
@@ -171,6 +176,11 @@ export default function MonitoringPage() {
                 {/* Logs */}
                 <TabsContent value="logs">
                     {logs && logs.length > 0 && <ExecutionLogs logs={logs} />}
+                </TabsContent>
+
+                {/* Backend Logs */}
+                <TabsContent value="backend">
+                    <BackendLogs autoRefresh={autoRefresh} />
                 </TabsContent>
 
                 {/* Alertas */}

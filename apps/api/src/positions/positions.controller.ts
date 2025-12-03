@@ -42,16 +42,94 @@ export class PositionsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar posições' })
-  @ApiQuery({ name: 'status', required: false, enum: ['OPEN', 'CLOSED'] })
-  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'] })
-  @ApiQuery({ name: 'exchange_account_id', required: false, type: Number })
-  @ApiQuery({ name: 'symbol', required: false, type: String })
-  @ApiQuery({ name: 'from', required: false, type: String })
-  @ApiQuery({ name: 'to', required: false, type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiResponse({ status: 200, description: 'Lista de posições' })
+  @ApiOperation({ 
+    summary: 'Listar posições',
+    description: 'Retorna todas as posições do usuário autenticado com filtros opcionais. Suporta paginação e filtros por status, modo de trading, conta de exchange, símbolo e período.',
+  })
+  @ApiQuery({ 
+    name: 'status', 
+    required: false, 
+    enum: ['OPEN', 'CLOSED'],
+    description: 'Filtrar por status da posição (aberta ou fechada)',
+    example: 'OPEN'
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'],
+    description: 'Filtrar por modo de trading (REAL ou SIMULATION)',
+    example: 'REAL'
+  })
+  @ApiQuery({ 
+    name: 'exchange_account_id', 
+    required: false, 
+    type: Number,
+    description: 'Filtrar por ID da conta de exchange',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'symbol', 
+    required: false, 
+    type: String,
+    description: 'Filtrar por símbolo do par de trading (ex: BTCUSDT, SOL/USDT)',
+    example: 'BTCUSDT'
+  })
+  @ApiQuery({ 
+    name: 'from', 
+    required: false, 
+    type: String,
+    description: 'Data inicial para filtrar posições (ISO 8601)',
+    example: '2025-02-01T00:00:00.000Z'
+  })
+  @ApiQuery({ 
+    name: 'to', 
+    required: false, 
+    type: String,
+    description: 'Data final para filtrar posições (ISO 8601)',
+    example: '2025-02-12T23:59:59.999Z'
+  })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number,
+    description: 'Número da página para paginação (começa em 1)',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number,
+    description: 'Quantidade de itens por página',
+    example: 20
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Lista de posições retornada com sucesso',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', example: 1 },
+          exchange_account_id: { type: 'number', example: 1 },
+          symbol: { type: 'string', example: 'BTCUSDT' },
+          side: { type: 'string', enum: ['BUY', 'SELL'], example: 'BUY' },
+          status: { type: 'string', enum: ['OPEN', 'CLOSED'], example: 'OPEN' },
+          qty_total: { type: 'number', example: 0.001 },
+          qty_remaining: { type: 'number', example: 0.001 },
+          price_open: { type: 'number', example: 50000 },
+          price_close: { type: 'number', nullable: true, example: null },
+          pnl: { type: 'number', nullable: true, example: 0 },
+          pnl_pct: { type: 'number', nullable: true, example: 0 },
+          sl_enabled: { type: 'boolean', example: true },
+          sl_pct: { type: 'number', nullable: true, example: 2.0 },
+          tp_enabled: { type: 'boolean', example: true },
+          tp_pct: { type: 'number', nullable: true, example: 5.0 },
+          created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+        },
+      },
+    },
+  })
   async list(
     @CurrentUser() user: any,
     @Query('status') status?: string,
@@ -68,18 +146,112 @@ export class PositionsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obter posição por ID' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 200, description: 'Posição encontrada' })
+  @ApiOperation({ 
+    summary: 'Obter posição por ID',
+    description: 'Retorna os detalhes completos de uma posição específica, incluindo histórico de fills, SL/TP configurados e informações da conta de exchange.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID da posição',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Posição encontrada com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', example: 1 },
+        exchange_account_id: { type: 'number', example: 1 },
+        symbol: { type: 'string', example: 'BTCUSDT' },
+        side: { type: 'string', enum: ['BUY', 'SELL'], example: 'BUY' },
+        status: { type: 'string', enum: ['OPEN', 'CLOSED'], example: 'OPEN' },
+        qty_total: { type: 'number', example: 0.001 },
+        qty_remaining: { type: 'number', example: 0.001 },
+        price_open: { type: 'number', example: 50000 },
+        price_close: { type: 'number', nullable: true, example: null },
+        pnl: { type: 'number', nullable: true, example: 0 },
+        pnl_pct: { type: 'number', nullable: true, example: 0 },
+        sl_enabled: { type: 'boolean', example: true },
+        sl_pct: { type: 'number', nullable: true, example: 2.0 },
+        tp_enabled: { type: 'boolean', example: true },
+        tp_pct: { type: 'number', nullable: true, example: 5.0 },
+        lock_sell_by_webhook: { type: 'boolean', example: false },
+        fills: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', example: 1 },
+              executed_qty: { type: 'number', example: 0.001 },
+              avg_price: { type: 'number', example: 50000 },
+              created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+            },
+          },
+        },
+        created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+        updated_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Posição não encontrada',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: 'Posição não encontrada',
+        error: 'Not Found',
+      },
+    },
+  })
   async getOne(@Param('id', ParseIntPipe) id: number) {
     // Implementation would get position by ID with fills
     return {};
   }
 
   @Put(':id/sltp')
-  @ApiOperation({ summary: 'Atualizar SL/TP da posição' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 200, description: 'SL/TP atualizado' })
+  @ApiOperation({ 
+    summary: 'Atualizar Stop Loss e Take Profit da posição',
+    description: 'Atualiza os valores de Stop Loss (SL) e Take Profit (TP) de uma posição aberta. Os valores são em percentual do preço de abertura. Se a posição já tiver SL/TP configurados, eles serão substituídos.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID da posição',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'SL/TP atualizado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', example: 1 },
+        sl_enabled: { type: 'boolean', example: true },
+        sl_pct: { type: 'number', example: 2.0, description: 'Stop Loss em percentual (ex: 2.0 = 2%)' },
+        tp_enabled: { type: 'boolean', example: true },
+        tp_pct: { type: 'number', example: 5.0, description: 'Take Profit em percentual (ex: 5.0 = 5%)' },
+        updated_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Valores inválidos ou posição já fechada',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Valores de SL/TP inválidos',
+        error: 'Bad Request',
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Posição não encontrada',
+  })
   async updateSLTP(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDto: UpdateSLTPDto
@@ -108,9 +280,32 @@ export class PositionsController {
   }
 
   @Put(':id/lock-sell-by-webhook')
-  @ApiOperation({ summary: 'Travar venda por webhook' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 200, description: 'Lock atualizado' })
+  @ApiOperation({ 
+    summary: 'Travar/desbloquear venda por webhook',
+    description: 'Bloqueia ou desbloqueia a venda automática de uma posição via webhook. Quando bloqueado (lock_sell_by_webhook=true), a posição não pode ser fechada automaticamente por webhooks, apenas manualmente.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID da posição',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Lock atualizado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', example: 1 },
+        lock_sell_by_webhook: { type: 'boolean', example: true, description: 'true = bloqueado, false = desbloqueado' },
+        updated_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Posição não encontrada',
+  })
   async lockSellByWebhook(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { lock_sell_by_webhook: boolean }
@@ -131,9 +326,48 @@ export class PositionsController {
   }
 
   @Post(':id/close')
-  @ApiOperation({ summary: 'Fechar posição (total ou parcial)' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 201, description: 'Job de fechamento criado' })
+  @ApiOperation({ 
+    summary: 'Fechar posição (total ou parcial)',
+    description: 'Fecha uma posição aberta total ou parcialmente. Pode ser fechada com ordem MARKET (execução imediata) ou LIMIT (aguarda preço). Se não especificar quantidade, fecha toda a posição. Retorna um trade job que será processado assincronamente.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID da posição a ser fechada',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 201, 
+    description: 'Job de fechamento criado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Job de venda criado com sucesso' },
+        positionId: { type: 'number', example: 1 },
+        qtyToClose: { type: 'number', example: 0.001, description: 'Quantidade que será fechada' },
+        tradeJobId: { type: 'number', example: 123, description: 'ID do job de trading criado' },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Posição já fechada, quantidade insuficiente ou dados inválidos',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Posição já está fechada',
+        error: 'Bad Request',
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 403, 
+    description: 'Sem permissão para fechar esta posição',
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Posição não encontrada',
+  })
   async close(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,
@@ -204,9 +438,48 @@ export class PositionsController {
   }
 
   @Post(':id/sell-limit')
-  @ApiOperation({ summary: 'Vender posição com ordem LIMIT' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 201, description: 'Ordem LIMIT criada' })
+  @ApiOperation({ 
+    summary: 'Criar ordem LIMIT de venda para posição',
+    description: 'Cria uma ordem LIMIT de venda para uma posição aberta. A ordem será executada quando o preço atingir o valor especificado. Pode especificar quantidade parcial ou vender toda a posição. Pode definir expiração em horas.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID da posição',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 201, 
+    description: 'Ordem LIMIT criada com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Ordem LIMIT de venda criada com sucesso' },
+        tradeJobId: { type: 'number', example: 123, description: 'ID do trade job criado' },
+        limitPrice: { type: 'number', example: 52000, description: 'Preço limite da ordem' },
+        quantity: { type: 'number', example: 0.001, description: 'Quantidade a ser vendida' },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Preço limite inválido, quantidade excede disponível, ou posição já tem ordem LIMIT pendente',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Preço limite inválido',
+        error: 'Bad Request',
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 403, 
+    description: 'Sem permissão para criar ordem nesta posição',
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Posição não encontrada',
+  })
   async sellLimit(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,

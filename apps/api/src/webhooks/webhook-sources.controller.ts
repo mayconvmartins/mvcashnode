@@ -118,33 +118,53 @@ export class WebhookSourcesController {
   @Post()
   @ApiOperation({ 
     summary: 'Criar webhook source',
-    description: 'Cria um novo webhook source. A URL do webhook será gerada automaticamente com base no código fornecido.'
+    description: `Cria um novo webhook source (fonte de webhook). Um webhook source é um endpoint que recebe sinais de trading de fontes externas (ex: TradingView, bots, etc.) e os converte em trades.
+
+**Campos importantes:**
+- \`label\`: Nome descritivo do webhook source
+- \`webhook_code\`: Código único que será usado na URL (ex: 'tradingview-alerts')
+- \`trade_mode\`: 'REAL' ou 'SIMULATION' - determina se trades serão executados em modo real ou simulação
+- \`require_signature\`: Se true, valida assinatura HMAC dos webhooks recebidos
+- \`rate_limit_per_min\`: Limite de requisições por minuto (padrão: 60)
+- \`allowed_ips\`: Lista de IPs permitidos (opcional, para segurança)
+
+A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
+
+**Exemplo de uso:**
+1. Criar webhook source com código 'tradingview-alerts'
+2. URL gerada: \`http://localhost:4010/webhooks/tradingview-alerts\`
+3. Configurar esta URL no TradingView ou outra fonte
+4. Vincular contas de exchange via bindings (POST /webhook-sources/:id/bindings)`
   })
   @ApiResponse({ 
     status: 201, 
     description: 'Webhook source criado com sucesso',
     schema: {
-      example: {
-        id: 1,
-        label: 'Webhook Teste',
-        webhook_code: 'test-webhook-001',
-        webhook_url: 'http://localhost:4010/webhooks/test-webhook-001',
-        trade_mode: 'SIMULATION',
-        is_active: true,
-        created_at: '2025-02-12T10:00:00.000Z'
-      }
-    }
+      type: 'object',
+      properties: {
+        id: { type: 'number', example: 1 },
+        label: { type: 'string', example: 'TradingView Alerts' },
+        webhook_code: { type: 'string', example: 'tradingview-alerts' },
+        webhook_url: { type: 'string', example: 'http://localhost:4010/webhooks/tradingview-alerts', description: 'URL completa do webhook para uso externo' },
+        trade_mode: { type: 'string', enum: ['REAL', 'SIMULATION'], example: 'SIMULATION' },
+        is_active: { type: 'boolean', example: true },
+        require_signature: { type: 'boolean', example: false },
+        rate_limit_per_min: { type: 'number', example: 60 },
+        allowed_ips: { type: 'array', items: { type: 'string' }, nullable: true, example: ['192.168.1.1'] },
+        created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+      },
+    },
   })
   @ApiResponse({ 
     status: 400, 
-    description: 'Dados inválidos ou código já existe',
+    description: 'Dados inválidos ou código de webhook já existe',
     schema: {
       example: {
         statusCode: 400,
-        message: 'Código de webhook já existe',
-        error: 'Bad Request'
-      }
-    }
+        message: 'Código de webhook já existe. Escolha outro código.',
+        error: 'Bad Request',
+      },
+    },
   })
   async create(
     @CurrentUser() user: any,
@@ -293,9 +313,40 @@ export class WebhookSourcesController {
   @Put(':id')
   @ApiOperation({ 
     summary: 'Atualizar webhook source',
-    description: 'Atualiza um webhook source existente. A URL do webhook permanece a mesma (baseada no código).'
+    description: 'Atualiza as configurações de um webhook source existente. A URL do webhook permanece a mesma (baseada no código), mas é possível alterar trade_mode, rate limits, IPs permitidos, etc. O código do webhook não pode ser alterado após criação.',
   })
-  @ApiParam({ name: 'id', type: 'number', description: 'ID do webhook source', example: 1 })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number', 
+    description: 'ID do webhook source',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200,
+    description: 'Webhook source atualizado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', example: 1 },
+        label: { type: 'string', example: 'TradingView Alerts Atualizado' },
+        webhook_code: { type: 'string', example: 'tradingview-alerts' },
+        webhook_url: { type: 'string', example: 'http://localhost:4010/webhooks/tradingview-alerts' },
+        trade_mode: { type: 'string', enum: ['REAL', 'SIMULATION'], example: 'REAL' },
+        is_active: { type: 'boolean', example: true },
+        require_signature: { type: 'boolean', example: true },
+        rate_limit_per_min: { type: 'number', example: 120 },
+        updated_at: { type: 'string', format: 'date-time', example: '2025-02-12T11:00:00.000Z' },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 404,
+    description: 'Webhook source não encontrado',
+  })
+  @ApiResponse({ 
+    status: 403,
+    description: 'Sem permissão para atualizar este webhook source',
+  })
   @ApiResponse({ 
     status: 200, 
     description: 'Webhook source atualizado com sucesso',

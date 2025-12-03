@@ -33,14 +33,44 @@ export class WebhookEventsController {
 
   @Get()
   @ApiOperation({
-    summary: 'Listar webhook events',
-    description: 'Retorna todos os eventos de webhook recebidos, com filtros opcionais por webhook source, status e trade_mode.',
+    summary: 'Listar eventos de webhook',
+    description: 'Retorna todos os eventos de webhook recebidos pelo sistema, com filtros opcionais. Cada evento representa um webhook recebido de uma fonte externa (TradingView, bot, etc.) e seu status de processamento.',
   })
-  @ApiQuery({ name: 'webhookSourceId', required: false, type: Number, description: 'Filtrar por webhook source' })
-  @ApiQuery({ name: 'status', required: false, type: String, description: 'Filtrar por status (RECEIVED, JOB_CREATED, SKIPPED, FAILED)' })
-  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'], description: 'Filtrar por modo de trading' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número da página', example: 1 })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Itens por página', example: 20 })
+  @ApiQuery({ 
+    name: 'webhookSourceId', 
+    required: false, 
+    type: Number, 
+    description: 'Filtrar por webhook source específico',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'status', 
+    required: false, 
+    type: String, 
+    description: 'Filtrar por status de processamento: RECEIVED (recebido), JOB_CREATED (job criado com sucesso), SKIPPED (ignorado), FAILED (falhou)',
+    example: 'JOB_CREATED'
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'], 
+    description: 'Filtrar por modo de trading',
+    example: 'REAL'
+  })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number, 
+    description: 'Número da página para paginação',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number, 
+    description: 'Quantidade de itens por página',
+    example: 20
+  })
   @ApiResponse({
     status: 200,
     description: 'Lista de webhook events',
@@ -161,10 +191,15 @@ export class WebhookEventsController {
 
   @Get(':id')
   @ApiOperation({
-    summary: 'Obter webhook event por ID',
-    description: 'Retorna os detalhes completos de um evento de webhook, incluindo jobs criados e execuções relacionadas.',
+    summary: 'Obter evento de webhook por ID',
+    description: 'Retorna os detalhes completos de um evento de webhook específico, incluindo payload recebido, jobs de trading criados a partir do evento, execuções relacionadas e posições abertas. Útil para debug e rastreamento de fluxo completo.',
   })
-  @ApiParam({ name: 'id', type: 'number', description: 'ID do webhook event', example: 1 })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number', 
+    description: 'ID do webhook event',
+    example: 1
+  })
   @ApiResponse({
     status: 200,
     description: 'Webhook event encontrado',

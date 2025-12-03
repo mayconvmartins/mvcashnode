@@ -130,7 +130,18 @@ export class CronManagementService implements OnModuleInit {
         if (queue) {
           try {
             const repeatableJobs = await queue.getRepeatableJobs();
-            const repeatJob = repeatableJobs.find((rj) => rj.id === job.job_id);
+            // O BullMQ retorna jobs repetitivos com id no formato "repeat:{jobId}:{pattern}"
+            // ou pode usar a propriedade "key" que contém o jobId
+            const repeatJob = repeatableJobs.find((rj) => {
+              // Tentar comparar pelo id completo
+              if (rj.id === job.job_id) return true;
+              // Tentar comparar pelo key se disponível
+              if (rj.key && rj.key.includes(job.job_id)) return true;
+              // Tentar extrair o jobId do id (formato: repeat:{jobId}:{pattern})
+              const idParts = rj.id?.split(':');
+              if (idParts && idParts.length >= 2 && idParts[1] === job.job_id) return true;
+              return false;
+            });
             bullmqStatus = repeatJob ? 'active' : 'not_found';
           } catch (error) {
             console.error(`Erro ao verificar job ${job.name} no BullMQ:`, error);

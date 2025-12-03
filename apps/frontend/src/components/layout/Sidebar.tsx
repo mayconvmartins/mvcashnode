@@ -22,7 +22,8 @@ import {
     FileText,
     MessageSquare,
     ChevronDown,
-    ChevronRight
+    ChevronRight,
+    BookOpen
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -51,6 +52,7 @@ const adminMenuItems = [
     { icon: Users, label: 'Usuários', href: '/admin/users' },
     { icon: FileText, label: 'Audit Logs', href: '/admin/audit' },
     { icon: MessageSquare, label: 'WhatsApp', href: '/admin/notifications' },
+    { icon: BookOpen, label: 'API Docs', href: '/api-docs', external: true },
 ]
 
 function AdminDropdown({ pathname, onNavigate }: { pathname: string; onNavigate: () => void }) {
@@ -80,6 +82,27 @@ function AdminDropdown({ pathname, onNavigate }: { pathname: string; onNavigate:
             <CollapsibleContent className="space-y-1 mt-1 ml-4 pl-4 border-l border-border">
                 {adminMenuItems.map((item) => {
                     const isActive = pathname === item.href || (item.href === '/admin' && pathname === '/admin')
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010'
+                    const fullUrl = item.external ? `${apiUrl}${item.href}` : item.href
+
+                    if (item.external) {
+                        return (
+                            <a
+                                key={item.href}
+                                href={fullUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={cn(
+                                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                                    "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                )}
+                                onClick={onNavigate}
+                            >
+                                <item.icon className="h-4 w-4 text-muted-foreground" />
+                                {item.label}
+                            </a>
+                        )
+                    }
 
                     return (
                         <Link

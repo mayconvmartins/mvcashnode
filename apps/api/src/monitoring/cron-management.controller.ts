@@ -41,13 +41,54 @@ export class CronManagementController {
 
   @Get('jobs')
   @ApiOperation({
-    summary: 'Listar todos os jobs agendados',
-    description: 'Retorna lista completa de jobs com estatísticas e status',
+    summary: 'Listar todos os jobs agendados (cron jobs)',
+    description: `Retorna lista completa de jobs agendados do sistema com estatísticas e status. Jobs agendados são tarefas que executam periodicamente (ex: monitor SL/TP a cada 30s, sincronização de saldos a cada 5min).
+
+**Jobs padrão do sistema:**
+- \`sl-tp-monitor-real\`: Monitor de Stop Loss/Take Profit modo REAL (a cada 30s)
+- \`sl-tp-monitor-sim\`: Monitor de Stop Loss/Take Profit modo SIMULAÇÃO (a cada 30s)
+- \`limit-orders-monitor-real\`: Monitor de ordens LIMIT modo REAL (a cada 60s)
+- \`limit-orders-monitor-sim\`: Monitor de ordens LIMIT modo SIMULAÇÃO (a cada 60s)
+- \`balances-sync-real\`: Sincronização de saldos (a cada 5min)
+- \`system-monitor\`: Monitor de sistema e alertas (a cada 30s)`,
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de jobs retornada com sucesso',
+    description: 'Lista de jobs agendados retornada com sucesso',
     type: [CronJobConfigDto],
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', example: 'sl-tp-monitor-real' },
+          description: { type: 'string', example: 'Monitor SL/TP modo REAL' },
+          cron_expression: { type: 'string', example: '*/30 * * * * *', description: 'Expressão cron (segundo minuto hora dia mês dia-semana)' },
+          is_active: { type: 'boolean', example: true },
+          is_paused: { type: 'boolean', example: false },
+          timeout_ms: { type: 'number', example: 30000 },
+          last_execution: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              timestamp: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
+              status: { type: 'string', enum: ['SUCCESS', 'FAILED', 'RUNNING'], example: 'SUCCESS' },
+              duration_ms: { type: 'number', example: 1500 },
+            },
+          },
+          next_execution: { type: 'string', nullable: true, format: 'date-time', example: '2025-02-12T10:30:30.000Z' },
+          statistics: {
+            type: 'object',
+            properties: {
+              total_runs: { type: 'number', example: 1000 },
+              success_count: { type: 'number', example: 995 },
+              failure_count: { type: 'number', example: 5 },
+              avg_duration_ms: { type: 'number', example: 1200 },
+            },
+          },
+        },
+      },
+    },
   })
   async getAllJobs(): Promise<any[]> {
     return this.cronService.getAllJobs();
@@ -167,21 +208,39 @@ export class CronManagementController {
   @Post('jobs/:name/execute')
   @ApiOperation({
     summary: 'Executar job manualmente',
-    description: 'Dispara a execução imediata de um job fora do agendamento',
+    description: `Dispara a execução imediata de um job agendado fora do cronograma normal. Útil para testes, debug ou execução sob demanda.
+
+**Nota:** A execução manual não afeta o agendamento normal do job. O próximo agendamento continuará normalmente.`,
   })
   @ApiParam({
     name: 'name',
-    description: 'Nome do job',
+    description: 'Nome do job a ser executado',
     example: 'sl-tp-monitor-real',
   })
   @ApiResponse({
     status: 200,
-    description: 'Job disparado para execução manual',
+    description: 'Job disparado para execução manual com sucesso',
     type: ManualExecutionResponseDto,
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Job disparado para execução manual' },
+        job_name: { type: 'string', example: 'sl-tp-monitor-real' },
+        execution_id: { type: 'number', example: 123, description: 'ID da execução criada' },
+        timestamp: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
+      },
+    },
   })
   @ApiResponse({
     status: 404,
     description: 'Job não encontrado',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: 'Job não encontrado',
+        error: 'Not Found',
+      },
+    },
   })
   async executeJobManually(@Param('name') name: string): Promise<any> {
     return this.cronService.executeJobManually(name);
@@ -189,20 +248,41 @@ export class CronManagementController {
 
   @Get('history')
   @ApiOperation({
-    summary: 'Histórico de execuções',
-    description: 'Retorna histórico de execuções de todos os jobs ou de um job específico',
+    summary: 'Histórico de execuções de cron jobs',
+    description: 'Retorna histórico completo de execuções de jobs agendados, incluindo sucessos, falhas, durações e resultados. Permite análise de performance e debug de problemas.',
   })
   @ApiQuery({
     name: 'name',
     required: false,
-    description: 'Filtrar por nome do job',
+    description: 'Filtrar por nome do job específico',
     example: 'sl-tp-monitor-real',
   })
   @ApiQuery({
     name: 'limit',
     required: false,
-    description: 'Limitar quantidade de resultados (padrão: 100)',
+    description: 'Limitar quantidade de resultados retornados (padrão: 100, máximo recomendado: 1000)',
     type: Number,
+    example: 100,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Histórico de execuções retornado com sucesso',
+    type: [CronJobExecutionDto],
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', example: 1 },
+          job_name: { type: 'string', example: 'sl-tp-monitor-real' },
+          status: { type: 'string', enum: ['SUCCESS', 'FAILED', 'RUNNING'], example: 'SUCCESS' },
+          duration_ms: { type: 'number', example: 1500 },
+          error_message: { type: 'string', nullable: true, example: null },
+          result_json: { type: 'object', nullable: true, example: { positions_checked: 5 } },
+          created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
+        },
+      },
+    },
   })
   @ApiResponse({
     status: 200,

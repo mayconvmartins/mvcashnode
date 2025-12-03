@@ -98,14 +98,30 @@ export function AccountForm({ account, onSuccess }: AccountFormProps) {
     })
 
     const onSubmit = (data: AccountFormData) => {
-        const payload = {
+        const payload: any = {
             label: data.label,
             exchange: data.exchange,
             tradeMode: data.trade_mode,
-            apiKey: data.api_key === '••••••••' ? undefined : data.api_key,
-            apiSecret: data.api_secret === '••••••••' ? undefined : data.api_secret,
             isTestnet: data.is_testnet,
             isActive: data.is_active,
+        }
+
+        // Só inclui credenciais se não forem o placeholder e não forem vazias
+        if (isEditing) {
+            // Na edição, só envia credenciais se o usuário forneceu novas
+            const apiKey = data.api_key?.trim()
+            const apiSecret = data.api_secret?.trim()
+            
+            if (apiKey && apiKey !== '••••••••' && apiKey.length > 0) {
+                payload.apiKey = apiKey
+            }
+            if (apiSecret && apiSecret !== '••••••••' && apiSecret.length > 0) {
+                payload.apiSecret = apiSecret
+            }
+        } else {
+            // Na criação, credenciais são obrigatórias
+            payload.apiKey = data.api_key
+            payload.apiSecret = data.api_secret
         }
 
         if (isEditing && account) {

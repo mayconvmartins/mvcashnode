@@ -174,5 +174,92 @@ export class MonitoringController {
     const hoursNum = hours ? parseInt(hours) : 24;
     return this.monitoringService.getAggregatedMetrics(hoursNum);
   }
+
+  @Get('backend-logs')
+  @ApiOperation({
+    summary: 'Logs de execução do backend',
+    description: 'Retorna logs de execução do backend lendo arquivos de log (application-*.log e error-*.log) do diretório /logs. Suporta filtros por nível, data e busca de texto.',
+  })
+  @ApiQuery({
+    name: 'level',
+    required: false,
+    description: 'Filtrar por nível de log (info, warn, error, debug)',
+    enum: ['info', 'warn', 'error', 'debug'],
+  })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    description: 'Data inicial (ISO 8601) - ex: 2025-02-12T00:00:00.000Z',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'to',
+    required: false,
+    description: 'Data final (ISO 8601) - ex: 2025-02-12T23:59:59.999Z',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Buscar texto na mensagem ou metadata do log',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Limite de resultados (padrão: 1000)',
+    type: Number,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Logs retornados com sucesso',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          timestamp: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
+          level: { type: 'string', enum: ['info', 'warn', 'error', 'debug'], example: 'info' },
+          message: { type: 'string', example: 'Request processed successfully' },
+          service: { type: 'string', example: 'API' },
+          metadata: { type: 'object', example: { userId: 1, requestId: 'abc123' } },
+          stack: { type: 'string', description: 'Stack trace (apenas para erros)' },
+        },
+      },
+      example: [
+        {
+          timestamp: '2025-02-12T10:30:00.000Z',
+          level: 'info',
+          message: 'Request processed successfully',
+          service: 'API',
+          metadata: { userId: 1, requestId: 'abc123' },
+        },
+        {
+          timestamp: '2025-02-12T10:29:45.000Z',
+          level: 'error',
+          message: 'Database connection failed',
+          service: 'API',
+          metadata: { error: 'ECONNREFUSED' },
+          stack: 'Error: Database connection failed\n    at ...',
+        },
+      ],
+    },
+  })
+  async getBackendLogs(
+    @Query('level') level?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string
+  ): Promise<any[]> {
+    const limitNum = limit ? parseInt(limit) : 1000;
+    return this.monitoringService.getBackendLogs({
+      level,
+      from,
+      to,
+      search,
+      limit: limitNum,
+    });
+  }
 }
 

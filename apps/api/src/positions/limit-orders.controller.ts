@@ -43,13 +43,43 @@ export class LimitOrdersController {
   @Get()
   @ApiOperation({
     summary: 'Listar ordens LIMIT',
-    description: 'Retorna todas as ordens LIMIT (compra e venda) do usuário, com filtros opcionais.',
+    description: 'Retorna todas as ordens LIMIT (compra e venda) do usuário autenticado, com filtros opcionais. Por padrão, retorna apenas ordens pendentes (PENDING_LIMIT e EXECUTING). Ordens LIMIT são ordens que aguardam um preço específico antes de serem executadas.',
   })
-  @ApiQuery({ name: 'status', required: false, enum: ['PENDING_LIMIT', 'FILLED', 'CANCELED', 'EXPIRED'], description: 'Filtrar por status' })
-  @ApiQuery({ name: 'side', required: false, enum: ['BUY', 'SELL'], description: 'Filtrar por lado (compra/venda)' })
-  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'], description: 'Filtrar por modo de trading' })
-  @ApiQuery({ name: 'symbol', required: false, type: String, description: 'Filtrar por símbolo' })
-  @ApiQuery({ name: 'exchange_account_id', required: false, type: Number, description: 'Filtrar por conta de exchange' })
+  @ApiQuery({ 
+    name: 'status', 
+    required: false, 
+    enum: ['PENDING_LIMIT', 'FILLED', 'CANCELED', 'EXPIRED', 'EXECUTING'], 
+    description: 'Filtrar por status da ordem. Se não especificado, retorna apenas pendentes.',
+    example: 'PENDING_LIMIT'
+  })
+  @ApiQuery({ 
+    name: 'side', 
+    required: false, 
+    enum: ['BUY', 'SELL'], 
+    description: 'Filtrar por lado da ordem (compra ou venda)',
+    example: 'SELL'
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'], 
+    description: 'Filtrar por modo de trading',
+    example: 'REAL'
+  })
+  @ApiQuery({ 
+    name: 'symbol', 
+    required: false, 
+    type: String, 
+    description: 'Filtrar por símbolo do par de trading',
+    example: 'SOLUSDT'
+  })
+  @ApiQuery({ 
+    name: 'exchange_account_id', 
+    required: false, 
+    type: Number, 
+    description: 'Filtrar por conta de exchange específica',
+    example: 1
+  })
   @ApiResponse({
     status: 200,
     description: 'Lista de ordens LIMIT',
@@ -185,32 +215,80 @@ export class LimitOrdersController {
   @Get(':id')
   @ApiOperation({
     summary: 'Detalhes de ordem LIMIT',
-    description: 'Retorna os detalhes completos de uma ordem LIMIT, incluindo status atual na exchange (se REAL) e histórico.',
+    description: 'Retorna os detalhes completos de uma ordem LIMIT específica. Para ordens em modo REAL, busca o status atual na exchange via API. Inclui histórico de execuções e informações da posição relacionada (se aplicável).',
   })
-  @ApiParam({ name: 'id', type: 'number', description: 'ID do trade job (ordem LIMIT)', example: 1 })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number', 
+    description: 'ID do trade job (ordem LIMIT)',
+    example: 1
+  })
   @ApiResponse({
     status: 200,
-    description: 'Detalhes da ordem LIMIT',
+    description: 'Detalhes da ordem LIMIT retornados com sucesso',
     schema: {
-      example: {
-        id: 1,
-        position_id: 1542,
-        symbol: 'SOL/USDT',
-        side: 'SELL',
-        limit_price: 220.50,
-        base_quantity: 5.0,
-        status: 'PENDING_LIMIT',
-        exchange_order_id: '12345678',
-        exchange_status: 'NEW',
-        position: {
-          id: 1542,
-          status: 'OPEN',
+      type: 'object',
+      properties: {
+        id: { type: 'number', example: 1 },
+        position_id: { type: 'number', nullable: true, example: 1542, description: 'ID da posição relacionada (se ordem de venda)' },
+        symbol: { type: 'string', example: 'SOLUSDT' },
+        side: { type: 'string', enum: ['BUY', 'SELL'], example: 'SELL' },
+        order_type: { type: 'string', example: 'LIMIT' },
+        limit_price: { type: 'number', example: 220.50, description: 'Preço limite da ordem' },
+        base_quantity: { type: 'number', example: 5.0, description: 'Quantidade em base asset' },
+        quote_amount: { type: 'number', nullable: true, example: 1102.50, description: 'Valor total em quote asset' },
+        status: { type: 'string', enum: ['PENDING_LIMIT', 'EXECUTING', 'FILLED', 'CANCELED', 'EXPIRED'], example: 'PENDING_LIMIT' },
+        exchange_order_id: { type: 'string', nullable: true, example: '12345678', description: 'ID da ordem na exchange (modo REAL)' },
+        exchange_status: { type: 'string', nullable: true, example: 'NEW', description: 'Status atual na exchange (modo REAL)' },
+        exchange_account: {
+          type: 'object',
+          properties: {
+            id: { type: 'number', example: 1 },
+            label: { type: 'string', example: 'Binance Spot Real' },
+            exchange: { type: 'string', example: 'BINANCE_SPOT' },
+          },
         },
-        executions: [],
+        position: {
+          type: 'object',
+          nullable: true,
+          properties: {
+            id: { type: 'number', example: 1542 },
+            status: { type: 'string', example: 'OPEN' },
+            qty_total: { type: 'number', example: 5.0 },
+            qty_remaining: { type: 'number', example: 5.0 },
+          },
+        },
+        executions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', example: 1 },
+              exchange_order_id: { type: 'string', example: '12345678' },
+              executed_qty: { type: 'number', example: 2.5 },
+              avg_price: { type: 'number', example: 220.50 },
+              status_exchange: { type: 'string', example: 'FILLED' },
+              created_at: { type: 'string', format: 'date-time', example: '2025-02-12T11:00:00.000Z' },
+            },
+          },
+        },
+        limit_order_expires_at: { type: 'string', nullable: true, format: 'date-time', example: '2025-02-13T10:00:00.000Z' },
+        created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+        updated_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
       },
     },
   })
-  @ApiResponse({ status: 404, description: 'Ordem LIMIT não encontrada' })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Ordem LIMIT não encontrada ou não pertence ao usuário',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: 'Ordem LIMIT não encontrada',
+        error: 'Not Found',
+      },
+    },
+  })
   async getOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any): Promise<any> {
     try {
       const job = await this.prisma.tradeJob.findFirst({
@@ -317,22 +395,41 @@ export class LimitOrdersController {
   @Delete(':id')
   @ApiOperation({
     summary: 'Cancelar ordem LIMIT',
-    description: 'Cancela uma ordem LIMIT pendente. Para modo REAL, cancela na exchange via CCXT. Para modo SIMULATION, apenas marca como cancelada.',
+    description: 'Cancela uma ordem LIMIT pendente. Para modo REAL, cancela a ordem na exchange via API CCXT e atualiza o status. Para modo SIMULATION, apenas marca como cancelada no banco de dados. Apenas ordens com status PENDING_LIMIT ou EXECUTING podem ser canceladas.',
   })
-  @ApiParam({ name: 'id', type: 'number', description: 'ID do trade job (ordem LIMIT)', example: 1 })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number', 
+    description: 'ID do trade job (ordem LIMIT)',
+    example: 1
+  })
   @ApiResponse({
     status: 200,
     description: 'Ordem cancelada com sucesso',
     schema: {
-      example: {
-        message: 'Ordem LIMIT cancelada com sucesso',
-        order_id: 1,
-        exchange_order_id: '12345678',
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Ordem LIMIT cancelada com sucesso' },
+        order_id: { type: 'number', example: 1 },
+        exchange_order_id: { type: 'string', nullable: true, example: '12345678', description: 'ID da ordem na exchange (modo REAL)' },
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Ordem não pode ser cancelada (já executada ou cancelada)' })
-  @ApiResponse({ status: 404, description: 'Ordem LIMIT não encontrada' })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Ordem não pode ser cancelada (já executada, cancelada ou expirada)',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Ordem não pode ser cancelada. Status atual: FILLED',
+        error: 'Bad Request',
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Ordem LIMIT não encontrada ou não pertence ao usuário',
+  })
   async cancel(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
     try {
       const job = await this.prisma.tradeJob.findFirst({
@@ -447,29 +544,71 @@ export class LimitOrdersController {
   @Get('history')
   @ApiOperation({
     summary: 'Histórico de ordens LIMIT',
-    description: 'Retorna o histórico completo de ordens LIMIT (executadas, canceladas e expiradas) do usuário.',
+    description: 'Retorna o histórico completo de ordens LIMIT finalizadas (executadas, canceladas e expiradas) do usuário. Útil para análise de performance e auditoria.',
   })
-  @ApiQuery({ name: 'from', required: false, type: String, description: 'Data inicial (ISO 8601)', example: '2025-02-01T00:00:00Z' })
-  @ApiQuery({ name: 'to', required: false, type: String, description: 'Data final (ISO 8601)', example: '2025-02-12T23:59:59Z' })
-  @ApiQuery({ name: 'symbol', required: false, type: String, description: 'Filtrar por símbolo' })
-  @ApiQuery({ name: 'status', required: false, enum: ['FILLED', 'CANCELED', 'EXPIRED'], description: 'Filtrar por status final' })
-  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'], description: 'Filtrar por modo de trading' })
+  @ApiQuery({ 
+    name: 'from', 
+    required: false, 
+    type: String, 
+    description: 'Data inicial para filtrar histórico (ISO 8601)',
+    example: '2025-02-01T00:00:00.000Z'
+  })
+  @ApiQuery({ 
+    name: 'to', 
+    required: false, 
+    type: String, 
+    description: 'Data final para filtrar histórico (ISO 8601)',
+    example: '2025-02-12T23:59:59.999Z'
+  })
+  @ApiQuery({ 
+    name: 'symbol', 
+    required: false, 
+    type: String, 
+    description: 'Filtrar por símbolo do par de trading',
+    example: 'SOLUSDT'
+  })
+  @ApiQuery({ 
+    name: 'status', 
+    required: false, 
+    enum: ['FILLED', 'CANCELED', 'EXPIRED'], 
+    description: 'Filtrar por status final da ordem',
+    example: 'FILLED'
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'], 
+    description: 'Filtrar por modo de trading',
+    example: 'REAL'
+  })
   @ApiResponse({
     status: 200,
-    description: 'Histórico de ordens LIMIT',
+    description: 'Histórico de ordens LIMIT retornado com sucesso',
     schema: {
-      example: [
-        {
-          id: 1,
-          symbol: 'SOL/USDT',
-          side: 'SELL',
-          limit_price: 220.50,
-          base_quantity: 5.0,
-          status: 'FILLED',
-          filled_at: '2025-02-12T11:00:00.000Z',
-          created_at: '2025-02-12T10:00:00.000Z',
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', example: 1 },
+          symbol: { type: 'string', example: 'SOLUSDT' },
+          side: { type: 'string', enum: ['BUY', 'SELL'], example: 'SELL' },
+          limit_price: { type: 'number', example: 220.50 },
+          base_quantity: { type: 'number', example: 5.0 },
+          status: { type: 'string', enum: ['FILLED', 'CANCELED', 'EXPIRED'], example: 'FILLED' },
+          reason_code: { type: 'string', nullable: true, example: null, description: 'Código do motivo (se cancelada ou expirada)' },
+          exchange_order_id: { type: 'string', nullable: true, example: '12345678' },
+          exchange_account: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', example: 1 },
+              label: { type: 'string', example: 'Binance Spot Real' },
+              exchange: { type: 'string', example: 'BINANCE_SPOT' },
+            },
+          },
+          filled_at: { type: 'string', nullable: true, format: 'date-time', example: '2025-02-12T11:00:00.000Z', description: 'Data de execução (se FILLED)' },
+          created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
         },
-      ],
+      },
     },
   })
   async history(

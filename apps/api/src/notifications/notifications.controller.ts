@@ -37,9 +37,30 @@ export class NotificationsController {
   @Get('config')
   @ApiOperation({ 
     summary: 'Obter configuração de notificações do usuário',
-    description: 'Retorna as preferências de notificação do usuário logado'
+    description: 'Retorna as preferências de notificação WhatsApp do usuário autenticado, incluindo quais eventos deseja receber (posições abertas, fechadas, erros, etc.) e números de telefone configurados.',
   })
-  @ApiResponse({ status: 200, description: 'Configuração do usuário' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Configuração do usuário retornada com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        userId: { type: 'number', example: 1 },
+        enabled: { type: 'boolean', example: true, description: 'Se notificações estão habilitadas' },
+        phone: { type: 'string', nullable: true, example: '5511999999999', description: 'Número de telefone para receber notificações' },
+        events: {
+          type: 'object',
+          properties: {
+            positionOpened: { type: 'boolean', example: true },
+            positionClosed: { type: 'boolean', example: true },
+            positionSLHit: { type: 'boolean', example: true },
+            positionTPHit: { type: 'boolean', example: true },
+            tradeError: { type: 'boolean', example: true },
+          },
+        },
+      },
+    },
+  })
   async getUserConfig(@Request() req: any) {
     return this.notificationsService.getUserConfig(req.user.userId);
   }
@@ -47,9 +68,31 @@ export class NotificationsController {
   @Put('config')
   @ApiOperation({ 
     summary: 'Atualizar configuração de notificações do usuário',
-    description: 'Atualiza as preferências de notificação do usuário logado'
+    description: 'Atualiza as preferências de notificação WhatsApp do usuário autenticado. Permite habilitar/desabilitar tipos específicos de eventos e configurar número de telefone.',
   })
-  @ApiResponse({ status: 200, description: 'Configuração atualizada' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Configuração atualizada com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        userId: { type: 'number', example: 1 },
+        enabled: { type: 'boolean', example: true },
+        phone: { type: 'string', nullable: true, example: '5511999999999' },
+        events: {
+          type: 'object',
+          properties: {
+            positionOpened: { type: 'boolean', example: true },
+            positionClosed: { type: 'boolean', example: true },
+            positionSLHit: { type: 'boolean', example: true },
+            positionTPHit: { type: 'boolean', example: true },
+            tradeError: { type: 'boolean', example: true },
+          },
+        },
+        updated_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
+      },
+    },
+  })
   async updateUserConfig(
     @Request() req: any,
     @Body() data: WhatsAppNotificationsConfigDto
@@ -64,9 +107,21 @@ export class NotificationsController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ 
     summary: 'Obter configuração global do WhatsApp (Admin)',
-    description: 'Retorna a configuração global da Evolution API'
+    description: 'Retorna a configuração global da Evolution API para envio de notificações WhatsApp. Inclui URL da API, nome da instância, chave de API e status de ativação. Apenas administradores podem acessar.',
   })
-  @ApiResponse({ status: 200, description: 'Configuração global' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Configuração global retornada com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        is_active: { type: 'boolean', example: true, description: 'Se WhatsApp está ativo' },
+        api_url: { type: 'string', example: 'http://localhost:8080', description: 'URL da Evolution API' },
+        api_key: { type: 'string', nullable: true, example: 'sua-api-key', description: 'Chave de API (opcional)' },
+        instance_name: { type: 'string', example: 'trading-bot', description: 'Nome da instância WhatsApp' },
+      },
+    },
+  })
   async getGlobalConfig() {
     return this.notificationsService.getGlobalConfig();
   }
@@ -76,9 +131,22 @@ export class NotificationsController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ 
     summary: 'Atualizar configuração global do WhatsApp (Admin)',
-    description: 'Atualiza a configuração da Evolution API'
+    description: 'Atualiza a configuração global da Evolution API. Esta configuração é compartilhada por todos os usuários do sistema. Apenas administradores podem modificar.',
   })
-  @ApiResponse({ status: 200, description: 'Configuração atualizada' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Configuração global atualizada com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        is_active: { type: 'boolean', example: true },
+        api_url: { type: 'string', example: 'http://localhost:8080' },
+        api_key: { type: 'string', nullable: true, example: 'sua-api-key' },
+        instance_name: { type: 'string', example: 'trading-bot' },
+        updated_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
+      },
+    },
+  })
   async updateGlobalConfig(@Body() data: WhatsAppGlobalConfigDto) {
     return this.notificationsService.updateGlobalConfig(data);
   }
@@ -111,9 +179,31 @@ export class NotificationsController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ 
     summary: 'Estatísticas de notificações (Admin)',
-    description: 'Retorna estatísticas gerais de notificações enviadas'
+    description: 'Retorna estatísticas gerais de notificações WhatsApp enviadas pelo sistema, incluindo totais, taxas de sucesso/falha e distribuição por tipo de evento.',
   })
-  @ApiResponse({ status: 200, description: 'Estatísticas' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Estatísticas retornadas com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        totalSent: { type: 'number', example: 1000, description: 'Total de notificações enviadas' },
+        totalSuccess: { type: 'number', example: 980, description: 'Notificações enviadas com sucesso' },
+        totalFailed: { type: 'number', example: 20, description: 'Notificações que falharam' },
+        byType: {
+          type: 'object',
+          properties: {
+            positionOpened: { type: 'number', example: 200 },
+            positionClosed: { type: 'number', example: 150 },
+            positionSLHit: { type: 'number', example: 50 },
+            positionTPHit: { type: 'number', example: 100 },
+            tradeError: { type: 'number', example: 30 },
+          },
+        },
+        last24Hours: { type: 'number', example: 50, description: 'Notificações enviadas nas últimas 24 horas' },
+      },
+    },
+  })
   async getStats() {
     return this.notificationsService.getStats();
   }
@@ -123,14 +213,74 @@ export class NotificationsController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ 
     summary: 'Histórico de alertas enviados (Admin)',
-    description: 'Lista alertas enviados com filtros'
+    description: 'Lista histórico completo de notificações WhatsApp enviadas pelo sistema, com filtros por tipo, período e paginação. Útil para auditoria e análise de envios.',
   })
-  @ApiQuery({ name: 'type', required: false, description: 'Tipo de alerta' })
-  @ApiQuery({ name: 'from', required: false, description: 'Data inicial' })
-  @ApiQuery({ name: 'to', required: false, description: 'Data final' })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiResponse({ status: 200, description: 'Histórico de alertas' })
+  @ApiQuery({ 
+    name: 'type', 
+    required: false, 
+    description: 'Filtrar por tipo de alerta (positionOpened, positionClosed, positionSLHit, positionTPHit, tradeError)',
+    example: 'positionOpened'
+  })
+  @ApiQuery({ 
+    name: 'from', 
+    required: false, 
+    description: 'Data inicial para filtrar histórico (ISO 8601)',
+    example: '2025-02-01T00:00:00.000Z'
+  })
+  @ApiQuery({ 
+    name: 'to', 
+    required: false, 
+    description: 'Data final para filtrar histórico (ISO 8601)',
+    example: '2025-02-12T23:59:59.999Z'
+  })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number,
+    description: 'Número da página para paginação',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number,
+    description: 'Quantidade de itens por página',
+    example: 20
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Histórico de alertas retornado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', example: 1 },
+              user_id: { type: 'number', example: 1 },
+              alert_type: { type: 'string', example: 'positionOpened' },
+              phone: { type: 'string', example: '5511999999999' },
+              message: { type: 'string', example: 'Posição aberta: BTCUSDT' },
+              status: { type: 'string', enum: ['SENT', 'FAILED'], example: 'SENT' },
+              error_message: { type: 'string', nullable: true, example: null },
+              created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+            },
+          },
+        },
+        pagination: {
+          type: 'object',
+          properties: {
+            current_page: { type: 'number', example: 1 },
+            per_page: { type: 'number', example: 20 },
+            total_items: { type: 'number', example: 100 },
+            total_pages: { type: 'number', example: 5 },
+          },
+        },
+      },
+    },
+  })
   async getAlertHistory(
     @Query('type') type?: string,
     @Query('from') from?: string,
@@ -154,17 +304,39 @@ export class NotificationsController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ 
     summary: 'Enviar mensagem de teste (Admin)',
-    description: 'Envia uma mensagem de teste para um número específico'
+    description: `Envia uma mensagem de teste para um número de telefone específico para verificar se a configuração do WhatsApp está funcionando corretamente.
+
+**Uso:**
+- Testar conectividade com Evolution API
+- Verificar se instância WhatsApp está conectada
+- Validar formato de número de telefone
+- Testar templates de mensagem
+
+**Formato do número:**
+- Deve incluir código do país (ex: 55 para Brasil)
+- Exemplo: '5511999999999' (Brasil + DDD + número)`,
   })
   @ApiResponse({ 
     status: 200, 
-    description: 'Resultado do envio',
+    description: 'Resultado do envio da mensagem de teste',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true, description: 'Se a mensagem foi enviada com sucesso' },
+        message: { type: 'string', example: 'Mensagem enviada com sucesso!', description: 'Mensagem descritiva do resultado' },
+        endpoint: { type: 'string', nullable: true, example: 'http://localhost:8080/message/sendText/trading-bot', description: 'Endpoint da Evolution API usado (se sucesso)' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'WhatsApp não configurado, instância não conectada ou número inválido',
     schema: {
       example: {
-        success: true,
-        message: 'Mensagem enviada com sucesso!'
-      }
-    }
+        success: false,
+        message: 'WhatsApp não está configurado ou ativo',
+      },
+    },
   })
   async sendTestMessage(@Body() data: { phone: string; message?: string }) {
     const config = await this.notificationsService.getGlobalConfig();

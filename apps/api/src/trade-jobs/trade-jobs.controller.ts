@@ -34,14 +34,62 @@ export class TradeJobsController {
   @Get()
   @ApiOperation({
     summary: 'Listar trade jobs',
-    description: 'Retorna todos os trade jobs do usuário autenticado, com filtros opcionais por status, trade_mode e exchange_account_id.',
+    description: `Retorna todos os trade jobs do usuário autenticado. Trade jobs representam intenções de trading (comprar/vender) que são processadas assincronamente pelo sistema.
+
+**Estados de um trade job:**
+- \`PENDING\`: Aguardando processamento
+- \`EXECUTING\`: Sendo executado na exchange
+- \`FILLED\`: Completamente executado
+- \`PARTIALLY_FILLED\`: Parcialmente executado
+- \`FAILED\`: Falhou na execução
+- \`CANCELED\`: Cancelado pelo usuário ou sistema
+
+**Tipos de ordem:**
+- \`MARKET\`: Execução imediata ao preço de mercado
+- \`LIMIT\`: Aguarda preço específico antes de executar`,
   })
-  @ApiQuery({ name: 'status', required: false, type: String, description: 'Filtrar por status (PENDING, EXECUTING, FILLED, etc.)' })
-  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'], description: 'Filtrar por modo de trading' })
-  @ApiQuery({ name: 'exchange_account_id', required: false, type: Number, description: 'Filtrar por conta de exchange' })
-  @ApiQuery({ name: 'symbol', required: false, type: String, description: 'Filtrar por símbolo' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número da página', example: 1 })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Itens por página', example: 20 })
+  @ApiQuery({ 
+    name: 'status', 
+    required: false, 
+    type: String, 
+    description: 'Filtrar por status do job (PENDING, EXECUTING, FILLED, FAILED, CANCELED, etc.)',
+    example: 'FILLED'
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'], 
+    description: 'Filtrar por modo de trading',
+    example: 'REAL'
+  })
+  @ApiQuery({ 
+    name: 'exchange_account_id', 
+    required: false, 
+    type: Number, 
+    description: 'Filtrar por conta de exchange específica',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'symbol', 
+    required: false, 
+    type: String, 
+    description: 'Filtrar por símbolo do par de trading',
+    example: 'BTCUSDT'
+  })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number, 
+    description: 'Número da página para paginação',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number, 
+    description: 'Quantidade de itens por página',
+    example: 20
+  })
   @ApiResponse({
     status: 200,
     description: 'Lista de trade jobs',

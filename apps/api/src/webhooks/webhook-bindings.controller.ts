@@ -117,11 +117,40 @@ export class WebhookBindingsController {
 
   @Post()
   @ApiOperation({
-    summary: 'Criar binding',
-    description: 'Vincula uma conta de exchange a um webhook source. Cada binding permite que o webhook dispare trades na conta vinculada.',
+    summary: 'Criar binding (vínculo)',
+    description: `Vincula uma conta de exchange a um webhook source. Cada binding permite que os webhooks recebidos disparem trades na conta de exchange vinculada.
+
+**Como funciona:**
+1. Um webhook source pode ter múltiplos bindings (uma conta por binding)
+2. Quando um webhook é recebido, o sistema cria trades em TODAS as contas vinculadas ativas
+3. O campo \`weight\` permite distribuir o capital entre múltiplas contas (ex: 50% em conta A, 50% em conta B)
+4. Apenas bindings com \`is_active=true\` são processados
+
+**Exemplo:**
+- Webhook source: 'TradingView Alerts'
+- Binding 1: Conta Binance Real (weight: 1.0, is_active: true)
+- Binding 2: Conta Bybit Real (weight: 1.0, is_active: true)
+- Resultado: Cada webhook cria trades em ambas as contas`,
   })
-  @ApiParam({ name: 'sourceId', type: 'number', description: 'ID do webhook source', example: 1 })
-  @ApiBody({ type: CreateBindingDto, description: 'Dados para criação do binding' })
+  @ApiParam({ 
+    name: 'sourceId', 
+    type: 'number', 
+    description: 'ID do webhook source',
+    example: 1
+  })
+  @ApiBody({ 
+    type: CreateBindingDto, 
+    description: 'Dados para criação do binding',
+    schema: {
+      type: 'object',
+      required: ['exchangeAccountId'],
+      properties: {
+        exchangeAccountId: { type: 'number', example: 1, description: 'ID da conta de exchange a vincular' },
+        isActive: { type: 'boolean', example: true, description: 'Se o binding está ativo' },
+        weight: { type: 'number', example: 1.0, description: 'Peso para distribuição de capital (padrão: 1.0)' },
+      },
+    },
+  })
   @ApiResponse({
     status: 201,
     description: 'Binding criado com sucesso',

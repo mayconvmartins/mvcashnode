@@ -33,14 +33,50 @@ export class TradeExecutionsController {
 
   @Get()
   @ApiOperation({
-    summary: 'Listar execuções',
-    description: 'Retorna todas as execuções de trades do usuário autenticado, com filtros opcionais.',
+    summary: 'Listar execuções de trades',
+    description: `Retorna todas as execuções de trades do usuário autenticado. Execuções representam ordens que foram realmente executadas na exchange (ou simuladas).
+
+**Diferença entre Trade Job e Trade Execution:**
+- **Trade Job**: Intenção de trading (ex: "comprar 100 USDT de BTCUSDT")
+- **Trade Execution**: Execução real na exchange (ex: "ordem #12345 executada: 0.002 BTC a $50,000")
+
+Um trade job pode ter múltiplas execuções se a ordem for parcialmente preenchida.`,
   })
-  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'], description: 'Filtrar por modo de trading' })
-  @ApiQuery({ name: 'exchange_account_id', required: false, type: Number, description: 'Filtrar por conta de exchange' })
-  @ApiQuery({ name: 'trade_job_id', required: false, type: Number, description: 'Filtrar por trade job' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número da página', example: 1 })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Itens por página', example: 20 })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'], 
+    description: 'Filtrar por modo de trading',
+    example: 'REAL'
+  })
+  @ApiQuery({ 
+    name: 'exchange_account_id', 
+    required: false, 
+    type: Number, 
+    description: 'Filtrar por conta de exchange específica',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'trade_job_id', 
+    required: false, 
+    type: Number, 
+    description: 'Filtrar por trade job específico (retorna todas as execuções deste job)',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number, 
+    description: 'Número da página para paginação',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number, 
+    description: 'Quantidade de itens por página',
+    example: 20
+  })
   @ApiResponse({
     status: 200,
     description: 'Lista de execuções',
@@ -168,10 +204,15 @@ export class TradeExecutionsController {
 
   @Get(':id')
   @ApiOperation({
-    summary: 'Obter execução por ID',
-    description: 'Retorna os detalhes completos de uma execução específica, incluindo trade job e position fills relacionados.',
+    summary: 'Obter execução de trade por ID',
+    description: 'Retorna os detalhes completos de uma execução específica, incluindo informações do trade job relacionado, position fills (quais posições foram afetadas) e dados da exchange.',
   })
-  @ApiParam({ name: 'id', type: 'number', description: 'ID da execução', example: 1 })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number', 
+    description: 'ID da execução de trade',
+    example: 1
+  })
   @ApiResponse({
     status: 200,
     description: 'Execução encontrada',

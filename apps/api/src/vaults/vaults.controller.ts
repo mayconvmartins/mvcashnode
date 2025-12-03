@@ -35,8 +35,28 @@ export class VaultsController {
   constructor(private vaultsService: VaultsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar cofres' })
-  @ApiResponse({ status: 200, description: 'Lista de cofres' })
+  @ApiOperation({ 
+    summary: 'Listar cofres',
+    description: 'Retorna todos os cofres virtuais do usuário autenticado. Cofres são contêineres de capital que podem ser usados para controlar o tamanho das posições e gerenciar risco.',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Lista de cofres retornada com sucesso',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', example: 1 },
+          user_id: { type: 'number', example: 1 },
+          name: { type: 'string', example: 'Cofre Real' },
+          trade_mode: { type: 'string', enum: ['REAL', 'SIMULATION'], example: 'REAL' },
+          description: { type: 'string', nullable: true, example: 'Cofre para trading real' },
+          created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+        },
+      },
+    },
+  })
   async list(@CurrentUser() user: any) {
     return this.vaultsService
       .getDomainService()
@@ -44,8 +64,36 @@ export class VaultsController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Criar cofre' })
-  @ApiResponse({ status: 201, description: 'Cofre criado' })
+  @ApiOperation({ 
+    summary: 'Criar cofre',
+    description: 'Cria um novo cofre virtual. Cofres permitem controlar o capital disponível para trading e gerenciar risco. Cada cofre pode ter saldos em múltiplos ativos.',
+  })
+  @ApiResponse({ 
+    status: 201, 
+    description: 'Cofre criado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', example: 1 },
+        user_id: { type: 'number', example: 1 },
+        name: { type: 'string', example: 'Cofre Real' },
+        trade_mode: { type: 'string', enum: ['REAL', 'SIMULATION'], example: 'REAL' },
+        description: { type: 'string', nullable: true, example: 'Cofre para trading real' },
+        created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Dados inválidos',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: ['name should not be empty'],
+        error: 'Bad Request',
+      },
+    },
+  })
   async create(
     @CurrentUser() user: any,
     @Body() createDto: CreateVaultDto
@@ -57,9 +105,51 @@ export class VaultsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obter cofre por ID' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 200, description: 'Cofre encontrado' })
+  @ApiOperation({ 
+    summary: 'Obter cofre por ID',
+    description: 'Retorna os detalhes completos de um cofre específico, incluindo saldos em todos os ativos e informações de transações.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID do cofre',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Cofre encontrado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', example: 1 },
+        user_id: { type: 'number', example: 1 },
+        name: { type: 'string', example: 'Cofre Real' },
+        trade_mode: { type: 'string', enum: ['REAL', 'SIMULATION'], example: 'REAL' },
+        description: { type: 'string', nullable: true, example: 'Cofre para trading real' },
+        balances: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              asset: { type: 'string', example: 'USDT' },
+              balance: { type: 'number', example: 1000 },
+              reserved: { type: 'number', example: 100 },
+              available: { type: 'number', example: 900 },
+            },
+          },
+        },
+        created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Cofre não encontrado',
+  })
+  @ApiResponse({ 
+    status: 403, 
+    description: 'Sem permissão para acessar este cofre',
+  })
   async getOne(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any
@@ -84,9 +174,32 @@ export class VaultsController {
   }
 
   @Get(':id/balances')
-  @ApiOperation({ summary: 'Obter saldos do cofre' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 200, description: 'Saldos do cofre' })
+  @ApiOperation({ 
+    summary: 'Obter saldos do cofre',
+    description: 'Retorna os saldos de todos os ativos no cofre, incluindo valores disponíveis e reservados.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID do cofre',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Saldos retornados com sucesso',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          asset: { type: 'string', example: 'USDT' },
+          balance: { type: 'number', example: 1000, description: 'Saldo total' },
+          reserved: { type: 'number', example: 100, description: 'Valor reservado para trades pendentes' },
+          available: { type: 'number', example: 900, description: 'Valor disponível para novos trades' },
+        },
+      },
+    },
+  })
   async getBalances(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any
@@ -98,11 +211,49 @@ export class VaultsController {
   }
 
   @Get(':id/transactions')
-  @ApiOperation({ summary: 'Obter transações do cofre' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiResponse({ status: 200, description: 'Transações do cofre' })
+  @ApiOperation({ 
+    summary: 'Obter transações do cofre',
+    description: 'Retorna o histórico de transações (depósitos e saques) do cofre com paginação.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID do cofre',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number,
+    description: 'Número da página',
+    example: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number,
+    description: 'Itens por página',
+    example: 20
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Transações retornadas com sucesso',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', example: 1 },
+          vault_id: { type: 'number', example: 1 },
+          transaction_type: { type: 'string', enum: ['DEPOSIT', 'WITHDRAW'], example: 'DEPOSIT' },
+          asset: { type: 'string', example: 'USDT' },
+          amount: { type: 'number', example: 100 },
+          balance_after: { type: 'number', example: 1100 },
+          created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+        },
+      },
+    },
+  })
   async getTransactions(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,
@@ -115,9 +266,43 @@ export class VaultsController {
   }
 
   @Post(':id/deposit')
-  @ApiOperation({ summary: 'Depositar no cofre' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 200, description: 'Depósito realizado' })
+  @ApiOperation({ 
+    summary: 'Depositar no cofre',
+    description: 'Adiciona fundos ao cofre. O valor será adicionado ao saldo disponível do ativo especificado.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID do cofre',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Depósito realizado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Depósito realizado com sucesso' },
+        transaction: {
+          type: 'object',
+          properties: {
+            id: { type: 'number', example: 1 },
+            asset: { type: 'string', example: 'USDT' },
+            amount: { type: 'number', example: 100 },
+            balance_after: { type: 'number', example: 1100 },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Valor inválido ou saldo insuficiente',
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Cofre não encontrado',
+  })
   async deposit(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,
@@ -149,9 +334,50 @@ export class VaultsController {
   }
 
   @Post(':id/withdraw')
-  @ApiOperation({ summary: 'Sacar do cofre' })
-  @ApiParam({ name: 'id', type: 'number' })
-  @ApiResponse({ status: 200, description: 'Saque realizado' })
+  @ApiOperation({ 
+    summary: 'Sacar do cofre',
+    description: 'Remove fundos do cofre. Apenas valores disponíveis (não reservados) podem ser sacados. Valores reservados para trades pendentes não podem ser sacados.',
+  })
+  @ApiParam({ 
+    name: 'id', 
+    type: 'number',
+    description: 'ID do cofre',
+    example: 1
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Saque realizado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Saque realizado com sucesso' },
+        transaction: {
+          type: 'object',
+          properties: {
+            id: { type: 'number', example: 2 },
+            asset: { type: 'string', example: 'USDT' },
+            amount: { type: 'number', example: 50 },
+            balance_after: { type: 'number', example: 1050 },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Saldo insuficiente, valor reservado ou valor inválido',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Saldo insuficiente para realizar o saque',
+        error: 'Bad Request',
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Cofre não encontrado',
+  })
   async withdraw(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: any,
