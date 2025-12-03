@@ -107,8 +107,12 @@ export class WebSocketGateway
       this.logger.debug(`[WebSocket] Token extraído: ${token ? 'presente' : 'ausente'}`);
 
       if (!token) {
-        this.logger.warn('[WebSocket] Conexão rejeitada: token não fornecido');
-        client.close(1008, 'Authentication required');
+        this.logger.warn('[WebSocket] Conexão rejeitada: token não fornecido na query string', {
+          url: requestUrl,
+          searchParams: url.search,
+        });
+        // Fechar com código 1008 (Policy Violation) e mensagem clara
+        client.close(1008, 'Authentication required: token missing in query string');
         return;
       }
 

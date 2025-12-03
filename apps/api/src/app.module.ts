@@ -18,6 +18,7 @@ import { MonitoringModule } from './monitoring/monitoring.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { InternalModule } from './internal/internal.module';
 import { WebSocketModule } from './websocket/websocket.module';
+import { CommonModule } from './common/common.module';
 import * as path from 'path';
 
 @Module({
@@ -68,6 +69,7 @@ import * as path from 'path';
     NotificationsModule,
     InternalModule,
     WebSocketModule,
+    CommonModule,
   ],
   controllers: [AppController],
   providers: [

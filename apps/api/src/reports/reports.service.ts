@@ -2,10 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { TradeMode, ExchangeType } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
+import { PriceCacheService } from '../common/services/price-cache.service';
 
 @Injectable()
 export class ReportsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private priceCache: PriceCacheService
+  ) {}
 
   async getPnLSummary(
     userId: number,
@@ -170,18 +174,24 @@ export class ReportsService {
     const winningTrades = winningCount;
     const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
 
-    // Calcular PnL não realizado (posições abertas) - PARALELIZADO
+    // Calcular PnL não realizado (posições abertas) - PARALELIZADO COM CACHE
     let totalUnrealizedPnL = 0;
 
     if (openPositions.length > 0) {
-      // Agrupar posições por exchange para reutilizar adapters
+      // Agrupar posições por exchange e símbolo único para otimizar chamadas de API
       const positionsByExchange = new Map<string, typeof openPositions>();
+      const symbolSetByExchange = new Map<string, Set<string>>();
+      
       for (const position of openPositions) {
-        const exchangeKey = `${position.exchange_account.exchange}_${position.exchange_account.testnet}`;
+        const exchange = position.exchange_account.exchange;
+        const exchangeKey = `${exchange}_${position.exchange_account.testnet}`;
+        
         if (!positionsByExchange.has(exchangeKey)) {
           positionsByExchange.set(exchangeKey, []);
+          symbolSetByExchange.set(exchangeKey, new Set());
         }
         positionsByExchange.get(exchangeKey)!.push(position);
+        symbolSetByExchange.get(exchangeKey)!.add(position.symbol);
       }
 
       // Processar todas as exchanges em paralelo
@@ -193,26 +203,45 @@ export class ReportsService {
           const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
           let exchangeUnrealizedPnL = 0;
 
-          // Buscar todos os tickers em paralelo para esta exchange
-          const tickerPromises = positions.map(async (position) => {
-            try {
-              const ticker = await adapter.fetchTicker(position.symbol);
-              const currentPrice = ticker.last;
+          // Primeiro, buscar preços apenas para símbolos únicos (evitar chamadas duplicadas)
+          const uniqueSymbols = symbolSetByExchange.get(exchangeKey)!;
+          const priceMap = new Map<string, number>();
 
-              if (currentPrice && currentPrice > 0) {
-                const priceOpen = position.price_open.toNumber();
-                const qtyRemaining = position.qty_remaining.toNumber();
-                return (currentPrice - priceOpen) * qtyRemaining;
+          // Buscar preços com cache para símbolos únicos
+          const pricePromises = Array.from(uniqueSymbols).map(async (symbol) => {
+            return this.priceCache.getOrFetchPrice(
+              symbol,
+              exchange,
+              async () => {
+                try {
+                  const ticker = await adapter.fetchTicker(symbol);
+                  return ticker.last || 0;
+                } catch (error: any) {
+                  console.warn(`[ReportsService] Erro ao buscar preço para ${symbol}: ${error.message}`);
+                  return 0;
+                }
               }
-              return 0;
-            } catch (error: any) {
-              console.warn(`[ReportsService] Erro ao buscar preço atual para posição ${position.id}: ${error.message}`);
-              return 0;
+            );
+          });
+
+          const prices = await Promise.all(pricePromises);
+          Array.from(uniqueSymbols).forEach((symbol, index) => {
+            const price = prices[index];
+            if (price && price > 0) {
+              priceMap.set(symbol, price);
             }
           });
 
-          const positionPnLs = await Promise.all(tickerPromises);
-          exchangeUnrealizedPnL = positionPnLs.reduce((sum, pnl) => sum + pnl, 0);
+          // Calcular PnL para cada posição usando preços do cache/map
+          for (const position of positions) {
+            const currentPrice = priceMap.get(position.symbol);
+            if (currentPrice && currentPrice > 0) {
+              const priceOpen = position.price_open.toNumber();
+              const qtyRemaining = position.qty_remaining.toNumber();
+              exchangeUnrealizedPnL += (currentPrice - priceOpen) * qtyRemaining;
+            }
+          }
+
           return exchangeUnrealizedPnL;
         }
       );
@@ -426,16 +455,22 @@ export class ReportsService {
       bySymbol[symbol].invested += invested;
     }
 
-    // Calcular PnL não realizado - PARALELIZADO e agrupado por exchange
+    // Calcular PnL não realizado - PARALELIZADO COM CACHE e agrupado por exchange
     if (positions.length > 0) {
-      // Agrupar posições por exchange para reutilizar adapters
+      // Agrupar posições por exchange e símbolo único para otimizar chamadas de API
       const positionsByExchange = new Map<string, typeof positions>();
+      const symbolSetByExchange = new Map<string, Set<string>>();
+      
       for (const position of positions) {
-        const exchangeKey = `${position.exchange_account.exchange}_${position.exchange_account.testnet}`;
+        const exchange = position.exchange_account.exchange;
+        const exchangeKey = `${exchange}_${position.exchange_account.testnet}`;
+        
         if (!positionsByExchange.has(exchangeKey)) {
           positionsByExchange.set(exchangeKey, []);
+          symbolSetByExchange.set(exchangeKey, new Set());
         }
         positionsByExchange.get(exchangeKey)!.push(position);
+        symbolSetByExchange.get(exchangeKey)!.add(position.symbol);
       }
 
       // Processar todas as exchanges em paralelo
@@ -447,30 +482,55 @@ export class ReportsService {
           const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
           const exchangeResults: Array<{ symbol: string; unrealizedPnL: number }> = [];
 
-          // Buscar todos os tickers em paralelo para esta exchange
-          const tickerPromises = exchangePositions.map(async (position) => {
-            try {
-              const ticker = await adapter.fetchTicker(position.symbol);
-              const currentPrice = ticker.last;
+          // Primeiro, buscar preços apenas para símbolos únicos (evitar chamadas duplicadas)
+          const uniqueSymbols = symbolSetByExchange.get(exchangeKey)!;
+          const priceMap = new Map<string, number>();
 
-              if (currentPrice && currentPrice > 0) {
-                const priceOpen = position.price_open.toNumber();
-                const qtyRemaining = position.qty_remaining.toNumber();
-                const positionUnrealizedPnL = (currentPrice - priceOpen) * qtyRemaining;
-                return {
-                  symbol: position.symbol,
-                  unrealizedPnL: positionUnrealizedPnL,
-                };
+          // Buscar preços com cache para símbolos únicos
+          const pricePromises = Array.from(uniqueSymbols).map(async (symbol) => {
+            return this.priceCache.getOrFetchPrice(
+              symbol,
+              exchange,
+              async () => {
+                try {
+                  const ticker = await adapter.fetchTicker(symbol);
+                  return ticker.last || 0;
+                } catch (error: any) {
+                  console.warn(`[ReportsService] Erro ao buscar preço para ${symbol}: ${error.message}`);
+                  return 0;
+                }
               }
-              return { symbol: position.symbol, unrealizedPnL: 0 };
-            } catch (error: any) {
-              console.warn(`[ReportsService] Erro ao buscar preço atual para posição ${position.id}: ${error.message}`);
-              return { symbol: position.symbol, unrealizedPnL: 0 };
+            );
+          });
+
+          const prices = await Promise.all(pricePromises);
+          Array.from(uniqueSymbols).forEach((symbol, index) => {
+            const price = prices[index];
+            if (price && price > 0) {
+              priceMap.set(symbol, price);
             }
           });
 
-          const results = await Promise.all(tickerPromises);
-          exchangeResults.push(...results);
+          // Calcular PnL para cada posição usando preços do cache/map
+          for (const position of exchangePositions) {
+            const currentPrice = priceMap.get(position.symbol);
+            if (currentPrice && currentPrice > 0) {
+              const priceOpen = position.price_open.toNumber();
+              const qtyRemaining = position.qty_remaining.toNumber();
+              const positionUnrealizedPnL = (currentPrice - priceOpen) * qtyRemaining;
+              
+              exchangeResults.push({
+                symbol: position.symbol,
+                unrealizedPnL: positionUnrealizedPnL,
+              });
+            } else {
+              exchangeResults.push({
+                symbol: position.symbol,
+                unrealizedPnL: 0,
+              });
+            }
+          }
+
           return exchangeResults;
         }
       );

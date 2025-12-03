@@ -169,9 +169,21 @@ export function useWebSocketWithQueryInvalidation({
             return
         }
 
+        // Não conectar se não houver token - aguardar token estar disponível
+        if (!accessToken) {
+            console.log('🔌 WebSocket connection skipped: no access token available')
+            return
+        }
+
         // Não conectar se já existe uma conexão ativa
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             console.log('🔌 WebSocket already connected, skipping')
+            return
+        }
+
+        // Não conectar se já está conectando
+        if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
+            console.log('🔌 WebSocket already connecting, skipping')
             return
         }
 
@@ -192,11 +204,8 @@ export function useWebSocketWithQueryInvalidation({
                 }
             }
             
-            if (accessToken) {
-                wsUrl.searchParams.set('token', accessToken)
-            } else {
-                console.warn('⚠️ WebSocket connection attempted without access token')
-            }
+            // Token já foi verificado acima, então sempre adicionar
+            wsUrl.searchParams.set('token', accessToken)
 
             console.log('🔌 Connecting to WebSocket:', wsUrl.toString().replace(/token=[^&]+/, 'token=***'))
 
@@ -361,10 +370,12 @@ export function useWebSocketWithQueryInvalidation({
         isMountedRef.current = true
         
         if (autoConnect && enabled) {
-            // Pequeno delay para garantir que o componente está totalmente montado
+            // Aguardar token estar disponível antes de conectar
             const timeoutId = setTimeout(() => {
-                if (isMountedRef.current) {
+                if (isMountedRef.current && accessToken) {
                     connect()
+                } else if (isMountedRef.current && !accessToken) {
+                    console.log('🔌 WebSocket: Waiting for access token before connecting...')
                 }
             }, 100)
             
@@ -387,12 +398,13 @@ export function useWebSocketWithQueryInvalidation({
         // Se o token mudou e já estávamos conectados, reconectar
         if (enabled && accessToken && wsRef.current) {
             const currentState = wsRef.current.readyState
-            if (currentState === WebSocket.OPEN || currentState === WebSocket.CONNECTING) {
+            // Apenas reconectar se realmente estiver conectado (não apenas conectando)
+            if (currentState === WebSocket.OPEN) {
                 console.log('🔌 Token changed, reconnecting WebSocket...')
                 disconnect()
                 // Reconectar após um pequeno delay
                 const timeoutId = setTimeout(() => {
-                    if (isMountedRef.current && enabled) {
+                    if (isMountedRef.current && enabled && accessToken) {
                         reconnectAttemptsRef.current = 0
                         setReconnectAttempts(0)
                         connect()
@@ -402,6 +414,20 @@ export function useWebSocketWithQueryInvalidation({
                 return () => {
                     clearTimeout(timeoutId)
                 }
+            }
+        } else if (enabled && accessToken && !wsRef.current) {
+            // Se não há conexão mas temos token, tentar conectar (primeira vez ou após desconexão)
+            const timeoutId = setTimeout(() => {
+                if (isMountedRef.current && enabled && accessToken && !wsRef.current) {
+                    console.log('🔌 Token available, connecting WebSocket...')
+                    reconnectAttemptsRef.current = 0
+                    setReconnectAttempts(0)
+                    connect()
+                }
+            }, 100)
+            
+            return () => {
+                clearTimeout(timeoutId)
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
