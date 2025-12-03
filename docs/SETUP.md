@@ -157,7 +157,17 @@ TIMEZONE=America/Sao_Paulo  # Timezone do sistema
 NTP_SERVER=pool.ntp.org  # Servidor NTP para sincronização
 NTP_SYNC_INTERVAL=3600000  # Intervalo de sincronização NTP em ms (1 hora)
 NTP_ENABLED=true  # Habilitar sincronização NTP
+
+# WhatsApp (Evolution API) - Opcional
+# Configuração pode ser feita via API ou variáveis de ambiente
+WHATSAPP_API_URL=http://localhost:8080  # URL da Evolution API
+WHATSAPP_API_KEY=sua-api-key  # API Key (opcional)
+WHATSAPP_INSTANCE_NAME=trading-bot  # Nome da instância
 ```
+
+**Nota sobre Evolution API:**
+- A configuração do WhatsApp pode ser feita via variáveis de ambiente ou via API (`PUT /notifications/global-config`)
+- Se não configurado, as notificações não serão enviadas, mas o sistema continuará funcionando normalmente
 
 ### 4. Executar Migrations
 
@@ -300,17 +310,112 @@ mvcashnode/
 └── .env              # Variáveis de ambiente
 ```
 
+## Configuração de Serviços Externos
+
+### Evolution API (WhatsApp)
+
+Para habilitar notificações via WhatsApp:
+
+1. **Instalar Evolution API** (se ainda não tiver):
+   - Veja: https://github.com/EvolutionAPI/evolution-api
+   - Ou use um serviço gerenciado
+
+2. **Configurar via API** (recomendado):
+   ```bash
+   # Fazer login como admin primeiro
+   POST /auth/login
+   
+   # Configurar Evolution API
+   PUT /notifications/global-config
+   {
+     "api_url": "http://localhost:8080",
+     "api_key": "sua-api-key",
+     "instance_name": "trading-bot",
+     "is_active": true
+   }
+   
+   # Testar conexão
+   POST /notifications/test-connection
+   ```
+
+3. **Ou configurar via .env**:
+   ```bash
+   WHATSAPP_API_URL=http://localhost:8080
+   WHATSAPP_API_KEY=sua-api-key
+   WHATSAPP_INSTANCE_NAME=trading-bot
+   ```
+
+**Nota**: As notificações são opcionais. O sistema funciona normalmente sem elas.
+
+## Verificação Pós-Instalação
+
+### Checklist
+
+- [ ] MySQL está rodando e acessível
+- [ ] Redis está rodando e acessível
+- [ ] Variáveis de ambiente configuradas corretamente
+- [ ] Migrations executadas com sucesso
+- [ ] Prisma Client gerado
+- [ ] API inicia sem erros (`pnpm dev:api`)
+- [ ] Swagger UI acessível em http://localhost:4010/api-docs
+- [ ] Health check retorna OK (`GET /health`)
+- [ ] Executor inicia sem erros (`pnpm dev:executor`)
+- [ ] Monitors inicia sem erros (`pnpm dev:monitors`)
+
+### Testes Básicos
+
+```bash
+# 1. Health check
+curl http://localhost:4010/health
+
+# 2. Criar usuário (via API ou seed)
+# Ver documentação da API para endpoints de autenticação
+
+# 3. Testar conexão com banco
+pnpm db:studio
+# Deve abrir Prisma Studio em http://localhost:5555
+
+# 4. Verificar logs
+ls -la logs/
+# Deve haver arquivos de log sendo criados
+```
+
 ## Próximos Passos
 
-1. Configurar contas de exchange (via API)
-2. Configurar webhooks (via API)
-3. Configurar cofres (via API)
-4. Consultar documentação da API em `/api-docs` quando a API estiver rodando
+1. **Criar usuário admin** (se ainda não tiver):
+   - Via API: `POST /admin/users` (requer autenticação admin)
+   - Ou via seed: `pnpm db:seed` (se configurado)
+
+2. **Configurar contas de exchange**:
+   - Fazer login: `POST /auth/login`
+   - Criar conta: `POST /exchange-accounts`
+   - Testar conexão: `POST /exchange-accounts/:id/test-connection`
+
+3. **Configurar webhooks**:
+   - Criar webhook source: `POST /webhook-sources`
+   - Vincular conta: `POST /webhook-sources/:id/bindings`
+   - Usar URL retornada no TradingView ou bot
+
+4. **Configurar cofres** (opcional):
+   - Criar cofre: `POST /vaults`
+   - Depositar fundos: `POST /vaults/:id/deposit`
+
+5. **Configurar parâmetros de trading**:
+   - Criar parâmetros: `POST /trade-parameters`
+   - Definir SL/TP padrão, quantidade, etc.
+
+6. **Consultar documentação completa**:
+   - API Docs: http://localhost:4010/api-docs
+   - [docs/API.md](./API.md) - Documentação completa da API
+   - [docs/TRADING.md](./TRADING.md) - Conceitos de trading
 
 ## Suporte
 
 Para mais informações, consulte:
 - [README.md](../README.md) - Visão geral do projeto
-- [docs/](../docs/) - Documentação adicional
+- [docs/README.md](./README.md) - Índice da documentação
+- [docs/API.md](./API.md) - Documentação completa da API
+- [docs/ARCHITECTURE.md](./ARCHITECTURE.md) - Arquitetura do sistema
+- [docs/TRADING.md](./TRADING.md) - Conceitos de trading
 - API Docs: http://localhost:4010/api-docs (quando API estiver rodando)
 
