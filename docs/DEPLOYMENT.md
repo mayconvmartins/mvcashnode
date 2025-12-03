@@ -131,7 +131,7 @@ module.exports = {
   apps: [
     {
       name: 'mvcashnode-api',
-      script: './apps/api/dist/main.js',
+      script: './apps/api/dist/src/main.js',
       instances: 1,
       exec_mode: 'fork',
       env: {
@@ -171,6 +171,25 @@ module.exports = {
       },
       error_file: './logs/monitors-error.log',
       out_file: './logs/monitors-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+    {
+      name: 'mvcashnode-frontend',
+      script: 'pnpm',
+      args: 'exec next start -p 5010',
+      cwd: './apps/frontend',
+      instances: 1,
+      exec_mode: 'fork',
+      env: {
+        NODE_ENV: 'production',
+        PORT: '5010',
+      },
+      error_file: './logs/frontend-error.log',
+      out_file: './logs/frontend-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true,
       autorestart: true,
