@@ -133,7 +133,7 @@ export class TradeParameterService {
     });
 
     console.log(`[TRADE-PARAMETER] Parâmetros encontrados para conta ${accountId}:`, 
-      allParameters.map(p => ({ id: p.id, symbol: p.symbol, side: p.side }))
+      allParameters.map((p: any) => ({ id: p.id, symbol: p.symbol, side: p.side }))
     );
 
     // Procurar parâmetro que corresponda ao símbolo
@@ -146,7 +146,7 @@ export class TradeParameterService {
       
       // Se o símbolo do parâmetro contém vírgulas, verificar se nosso símbolo está na lista
       if (param.symbol && param.symbol.includes(',')) {
-        const symbolList = param.symbol.split(',').map(s => s.trim());
+        const symbolList = param.symbol.split(',').map((s: string) => s.trim());
         console.log(`[TRADE-PARAMETER] Parâmetro tem múltiplos símbolos: [${symbolList.join(', ')}]`);
         
         // Função auxiliar para normalizar símbolo (remove sufixos, espaços, converte para uppercase)
@@ -158,7 +158,7 @@ export class TradeParameterService {
         // Normalizar símbolo buscado
         const searchSymbolNorm = normalizeSymbol(symbol);
         console.log(`[TRADE-PARAMETER] Símbolo buscado: "${symbol}" -> normalizado: "${searchSymbolNorm}"`);
-        console.log(`[TRADE-PARAMETER] Lista de símbolos do parâmetro: [${symbolList.map(s => `"${s}"`).join(', ')}]`);
+        console.log(`[TRADE-PARAMETER] Lista de símbolos do parâmetro: [${symbolList.map((s: string) => `"${s}"`).join(', ')}]`);
         
         // Verificar match direto primeiro (mais rápido e simples)
         let found = false;
@@ -233,7 +233,7 @@ export class TradeParameterService {
         } else {
           console.log(`[TRADE-PARAMETER] ❌❌❌ NENHUM match encontrado para "${symbol}" na lista [${symbolList.join(', ')}]`);
           console.log(`[TRADE-PARAMETER] Símbolo buscado normalizado: "${searchSymbolNorm}"`);
-          console.log(`[TRADE-PARAMETER] Símbolos da lista normalizados: [${symbolList.map(s => normalizeSymbol(s)).join(', ')}]`);
+          console.log(`[TRADE-PARAMETER] Símbolos da lista normalizados: [${symbolList.map((s: string) => normalizeSymbol(s)).join(', ')}]`);
         }
       } else {
         // Comparação direta ou com variações

@@ -260,6 +260,9 @@ export class WebhookEventService {
             console.log(`[WEBHOOK-EVENT] Preço de venda (limitPrice): ${limitPrice}`);
             
             try {
+              if (!limitPrice) {
+                throw new Error('limitPrice não definido para validação de lucro mínimo');
+              }
               const validationResult = await this.positionService.validateMinProfit(
                 openPosition.id,
                 limitPrice // Passar price_reference do webhook para validação
