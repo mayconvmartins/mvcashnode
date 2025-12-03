@@ -187,7 +187,9 @@ export class ReportsService {
       // Processar todas as exchanges em paralelo
       const unrealizedPnLPromises = Array.from(positionsByExchange.entries()).map(
         async ([exchangeKey, positions]) => {
-          const [exchange, testnetStr] = exchangeKey.split('_');
+          const parts = exchangeKey.split('_');
+          const testnetStr = parts[parts.length - 1];
+          const exchange = parts.slice(0, -1).join('_');
           const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
           let exchangeUnrealizedPnL = 0;
 
@@ -439,7 +441,9 @@ export class ReportsService {
       // Processar todas as exchanges em paralelo
       const unrealizedPnLPromises = Array.from(positionsByExchange.entries()).map(
         async ([exchangeKey, exchangePositions]) => {
-          const [exchange] = exchangeKey.split('_');
+          const parts = exchangeKey.split('_');
+          const testnetStr = parts[parts.length - 1];
+          const exchange = parts.slice(0, -1).join('_');
           const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
           const exchangeResults: Array<{ symbol: string; unrealizedPnL: number }> = [];
 
