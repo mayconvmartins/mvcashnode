@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'mvcashnode-api',
-      script: './apps/api/dist/main.js',
+      script: './apps/api/dist/src/main.js',
       instances: 1,
       exec_mode: 'fork',
       env: {

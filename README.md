@@ -72,7 +72,7 @@ pnpm dev:executor
 # Executar apenas Monitors
 pnpm dev:monitors
 ```
-s
+
 ### Scripts Disponíveis
 
 - `pnpm build` - Build de todos os packages
