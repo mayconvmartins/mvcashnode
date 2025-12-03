@@ -70,7 +70,7 @@ export default function UsersAdminPage() {
     }
 
     // Normalizar dados - pode vir como array direto ou paginado
-    const usersList = Array.isArray(users) ? users : (users?.data || users?.items || [])
+    const usersList = Array.isArray(users) ? users : (users?.data || [])
 
     const columns: Column<User>[] = [
         { 

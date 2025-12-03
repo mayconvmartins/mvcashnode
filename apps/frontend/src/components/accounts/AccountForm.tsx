@@ -62,7 +62,7 @@ export function AccountForm({ account, onSuccess }: AccountFormProps) {
                   trade_mode: account.trade_mode,
                   api_key: account.api_key_encrypted ? '••••••••' : '',
                   api_secret: '••••••••',
-                  is_testnet: account.is_testnet,
+                  is_testnet: account.testnet,
                   is_active: account.is_active,
               }
             : {

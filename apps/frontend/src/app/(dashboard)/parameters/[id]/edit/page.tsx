@@ -44,15 +44,15 @@ export default function EditParameterPage() {
     const mappedParameter = {
         ...parameter,
         id: parameter.id,
-        account: parameter.exchange_account || parameter.account,
-        accountId: parameter.exchange_account_id?.toString() || parameter.exchange_account?.id?.toString(),
+        account: (parameter as any).exchange_account || (parameter as any).account,
+        accountId: parameter.exchange_account_id?.toString() || (parameter as any).exchange_account?.id?.toString(),
         symbol: parameter.symbol,
         side: parameter.side,
         orderSizeType: parameter.quote_amount_fixed ? 'FIXED' : 'PERCENT',
         orderSizeValue: parameter.quote_amount_fixed || parameter.quote_amount_pct_balance || 0,
         stopLossPercent: parameter.default_sl_pct,
         takeProfitPercent: parameter.default_tp_pct,
-        minProfitPct: parameter.min_profit_pct || parameter.minProfitPct,
+        minProfitPct: parameter.min_profit_pct,
         trailingStop: parameter.trailing_stop_enabled || false,
         maxDailyTrades: parameter.max_orders_per_hour, // Ajustar se necessário
         maxWeeklyTrades: undefined, // Não existe no schema

@@ -23,8 +23,8 @@ export default function WebhooksReportPage() {
         )
     }
 
-    const conversionRate = report?.totalEvents > 0
-        ? report.successRate.toFixed(1)
+    const conversionRate = (report?.totalEvents ?? 0) > 0
+        ? (report?.successRate ?? 0).toFixed(1)
         : '0.0'
 
     return (
@@ -90,8 +90,8 @@ export default function WebhooksReportPage() {
                         <div className="p-4 border rounded-lg">
                             <p className="text-sm text-muted-foreground mb-1">Taxa de Falha</p>
                             <p className="text-2xl font-bold text-red-500">
-                                {report?.totalEvents > 0 
-                                    ? ((report.failed / report.totalEvents) * 100).toFixed(1)
+                                {(report?.totalEvents ?? 0) > 0 
+                                    ? (((report?.failed ?? 0) / (report?.totalEvents ?? 1)) * 100).toFixed(1)
                                     : '0.0'}%
                             </p>
                         </div>

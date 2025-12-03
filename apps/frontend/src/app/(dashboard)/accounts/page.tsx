@@ -86,7 +86,7 @@ export default function AccountsPage() {
             render: (account) => (
                 <div className="flex items-center gap-2">
                     <Badge variant="outline">{account.exchange}</Badge>
-                    {account.is_testnet && (
+                    {account.testnet && (
                         <Badge variant="warning" className="text-xs">
                             TESTNET
                         </Badge>
@@ -98,8 +98,8 @@ export default function AccountsPage() {
             key: 'trade_mode',
             label: 'Modo',
             render: (account) => (
-                <Badge variant={account.trade_mode === 'REAL' ? 'destructive' : 'secondary'}>
-                    {account.trade_mode}
+                <Badge variant={account.is_simulation ? 'secondary' : 'destructive'}>
+                    {account.is_simulation ? 'SIMULATION' : 'REAL'}
                 </Badge>
             ),
         },

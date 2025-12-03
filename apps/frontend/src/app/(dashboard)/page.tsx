@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { reportsService } from '@/lib/api/reports.service'
 import { positionsService } from '@/lib/api/positions.service'
+import { PositionStatus } from '@/lib/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { Badge } from '@/components/ui/badge'
@@ -36,7 +37,7 @@ export default function DashboardPage() {
     // Buscar posições abertas recentes
     const { data: recentPositions } = useQuery({
         queryKey: ['positions', 'recent', tradeMode],
-        queryFn: () => positionsService.list({ status: 'OPEN', trade_mode: tradeMode, limit: 5 }),
+        queryFn: () => positionsService.list({ status: PositionStatus.OPEN, trade_mode: tradeMode, limit: 5 }),
     })
 
     if (isLoading) {
@@ -54,7 +55,7 @@ export default function DashboardPage() {
         )
     }
 
-    const positions = recentPositions?.data || recentPositions || []
+    const positions = Array.isArray(recentPositions) ? recentPositions : (recentPositions?.data || [])
 
     return (
         <div className="space-y-6">
@@ -76,13 +77,13 @@ export default function DashboardPage() {
                     title="Posições Abertas"
                     value={summary?.openPositions || 0}
                     icon={Target}
-                    trend={summary?.positionsTrend}
+                    trend={summary?.positionsTrend ? (summary.positionsTrend > 0 ? 'up' : summary.positionsTrend < 0 ? 'down' : 'neutral') : undefined}
                 />
                 <StatsCard
                     title="PnL do Dia"
                     value={`$${(summary?.dailyPnL || 0).toFixed(2)}`}
                     icon={summary?.dailyPnL && summary.dailyPnL >= 0 ? TrendingUp : TrendingDown}
-                    trend={summary?.pnlTrend}
+                    trend={summary?.pnlTrend ? (summary.pnlTrend > 0 ? 'up' : summary.pnlTrend < 0 ? 'down' : 'neutral') : undefined}
                     className={summary?.dailyPnL && summary.dailyPnL >= 0 ? 'border-green-500/20' : 'border-red-500/20'}
                 />
                 <StatsCard

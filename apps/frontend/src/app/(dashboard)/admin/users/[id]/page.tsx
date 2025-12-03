@@ -279,7 +279,7 @@ function UserAuditLogs({ userId }: { userId: number }) {
         )
     }
 
-    const items = logs?.data || logs?.items || []
+    const items = logs?.data || []
 
     return (
         <Card>

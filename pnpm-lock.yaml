@@ -504,6 +504,9 @@ importers:
 
   packages/notifications:
     dependencies:
+      '@mvcashnode/db':
+        specifier: workspace:*
+        version: link:../db
       axios:
         specifier: ^1.6.5
         version: 1.13.2

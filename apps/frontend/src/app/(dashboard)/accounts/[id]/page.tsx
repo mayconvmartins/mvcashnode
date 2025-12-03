@@ -114,7 +114,7 @@ export default function AccountDetailPage() {
                         <h1 className="text-3xl font-bold gradient-text">{account.label}</h1>
                         <div className="flex items-center gap-2 mt-1">
                             <Badge variant="outline">{account.exchange}</Badge>
-                            {account.is_testnet && (
+                            {account.testnet && (
                                 <Badge variant="warning">TESTNET</Badge>
                             )}
                         </div>
@@ -129,10 +129,10 @@ export default function AccountDetailPage() {
                         {account.is_active ? 'Ativa' : 'Inativa'}
                     </Badge>
                     <Badge 
-                        variant={account.trade_mode === 'REAL' ? 'destructive' : 'secondary'}
+                        variant={account.is_simulation ? 'secondary' : 'destructive'}
                         className="text-sm px-3 py-1"
                     >
-                        {account.trade_mode}
+                        {account.is_simulation ? 'SIMULATION' : 'REAL'}
                     </Badge>
                 </div>
             </div>
@@ -195,9 +195,9 @@ export default function AccountDetailPage() {
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">{account.trade_mode}</div>
+                                <div className="text-2xl font-bold">{account.is_simulation ? 'SIMULATION' : 'REAL'}</div>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    {account.trade_mode === 'REAL' ? 'Operações reais' : 'Modo simulação'}
+                                    {account.is_simulation ? 'Modo simulação' : 'Operações reais'}
                                 </p>
                             </CardContent>
                         </Card>
@@ -211,7 +211,7 @@ export default function AccountDetailPage() {
                             <CardContent>
                                 <div className="text-2xl font-bold">{account.exchange}</div>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    {account.is_testnet ? 'Ambiente de teste' : 'Ambiente de produção'}
+                                    {account.testnet ? 'Ambiente de teste' : 'Ambiente de produção'}
                                 </p>
                             </CardContent>
                         </Card>
@@ -276,13 +276,13 @@ export default function AccountDetailPage() {
                                 <div className="space-y-3">
                                     <div className="flex justify-between py-2 border-b">
                                         <span className="text-muted-foreground">Modo:</span>
-                                        <Badge variant={account.trade_mode === 'REAL' ? 'destructive' : 'secondary'}>
-                                            {account.trade_mode}
+                                        <Badge variant={account.is_simulation ? 'secondary' : 'destructive'}>
+                                            {account.is_simulation ? 'SIMULATION' : 'REAL'}
                                         </Badge>
                                     </div>
                                     <div className="flex justify-between py-2 border-b">
                                         <span className="text-muted-foreground">Testnet:</span>
-                                        <span className="font-medium">{account.is_testnet ? 'Sim' : 'Não'}</span>
+                                        <span className="font-medium">{account.testnet ? 'Sim' : 'Não'}</span>
                                     </div>
                                     <div className="flex justify-between py-2 border-b">
                                         <span className="text-muted-foreground">Atualizado em:</span>
@@ -369,7 +369,7 @@ export default function AccountDetailPage() {
                                         
                                         // Calcular total de todos os ativos (quantidade)
                                         const totalAssets = Object.entries(balances.balances)
-                                            .filter(([_, balance]) => {
+                                            .filter(([_, balance]: [string, any]) => {
                                                 const total = balance.free + balance.locked
                                                 return total > 0.00000001
                                             })
@@ -417,17 +417,17 @@ export default function AccountDetailPage() {
                                         </TableHeader>
                                         <TableBody>
                                             {Object.entries(balances.balances)
-                                                .filter(([_, balance]) => {
+                                                .filter(([_, balance]: [string, any]) => {
                                                     const total = balance.free + balance.locked
                                                     return total > 0.00000001 // Filtrar apenas valores > 0
                                                 })
-                                                .sort(([assetA, balanceA], [assetB, balanceB]) => {
+                                                .sort(([assetA, balanceA]: [string, any], [assetB, balanceB]: [string, any]) => {
                                                     // Ordenar por quantidade total (maior primeiro)
                                                     const totalA = balanceA.free + balanceA.locked
                                                     const totalB = balanceB.free + balanceB.locked
                                                     return totalB - totalA
                                                 })
-                                                .map(([asset, balance]) => {
+                                                .map(([asset, balance]: [string, any]) => {
                                                     const totalAmount = balance.free + balance.locked
                                                     return (
                                                         <TableRow key={asset}>
@@ -446,7 +446,7 @@ export default function AccountDetailPage() {
                                                 })}
                                         </TableBody>
                                     </Table>
-                                    {Object.entries(balances.balances).filter(([_, balance]) => {
+                                    {Object.entries(balances.balances).filter(([_, balance]: [string, any]) => {
                                         const total = balance.free + balance.locked
                                         return total > 0.00000001
                                     }).length === 0 && (
@@ -490,10 +490,8 @@ export default function AccountDetailPage() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="flex justify-between py-2 border-b">
-                                <span className="text-muted-foreground">API Key (parcial):</span>
-                                <span className="font-mono">
-                                    {account.api_key ? `${account.api_key.substring(0, 8)}...${account.api_key.slice(-4)}` : 'N/A'}
-                                </span>
+                                <span className="text-muted-foreground">API Key:</span>
+                                <span className="font-mono">••••••••••••••••</span>
                             </div>
                             <div className="flex justify-between py-2 border-b">
                                 <span className="text-muted-foreground">Secret Key:</span>

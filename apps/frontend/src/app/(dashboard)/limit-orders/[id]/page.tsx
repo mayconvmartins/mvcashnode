@@ -15,11 +15,12 @@ export default function LimitOrderDetailPage() {
     const params = useParams()
     const router = useRouter()
     const queryClient = useQueryClient()
-    const orderId = params.id as string
+    const orderId = Number(params.id)
 
     const { data: order, isLoading } = useQuery({
         queryKey: ['limit-order', orderId],
-        queryFn: () => limitOrdersService.getById(orderId),
+        queryFn: () => limitOrdersService.getOne(orderId),
+        enabled: !isNaN(orderId),
     })
 
     const cancelMutation = useMutation({
@@ -73,7 +74,7 @@ export default function LimitOrderDetailPage() {
                     <div>
                         <h1 className="text-3xl font-bold">{order.symbol}</h1>
                         <p className="text-muted-foreground">
-                            {order.account?.name} • {order.side}
+                            Conta #{order.exchange_account_id} • {order.side}
                         </p>
                     </div>
                 </div>
@@ -89,7 +90,9 @@ export default function LimitOrderDetailPage() {
                         <CardDescription>Preço</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{formatCurrency(order.price)}</div>
+                        <div className="text-2xl font-bold">
+                            {order.limit_price ? formatCurrency(order.limit_price) : 'N/A'}
+                        </div>
                     </CardContent>
                 </Card>
                 <Card>
@@ -97,12 +100,9 @@ export default function LimitOrderDetailPage() {
                         <CardDescription>Quantidade</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{order.quantity}</div>
-                        {order.filledQuantity > 0 && (
-                            <p className="text-sm text-muted-foreground">
-                                Preenchido: {order.filledQuantity}
-                            </p>
-                        )}
+                        <div className="text-2xl font-bold">
+                            {order.base_quantity || order.quote_amount || 'N/A'}
+                        </div>
                     </CardContent>
                 </Card>
                 <Card>
@@ -111,7 +111,7 @@ export default function LimitOrderDetailPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
-                            {formatCurrency(order.price * order.quantity)}
+                            {order.quote_amount ? formatCurrency(order.quote_amount) : 'N/A'}
                         </div>
                     </CardContent>
                 </Card>
@@ -128,39 +128,27 @@ export default function LimitOrderDetailPage() {
                         <span className="font-mono">{order.id}</span>
                     </div>
                     <div className="flex justify-between">
-                        <span className="text-muted-foreground">Exchange Order ID:</span>
-                        <span className="font-mono">{order.exchangeOrderId || 'N/A'}</span>
+                        <span className="text-muted-foreground">Tipo:</span>
+                        <span>{order.order_type}</span>
                     </div>
                     <div className="flex justify-between">
-                        <span className="text-muted-foreground">Tipo:</span>
-                        <span>{order.type}</span>
+                        <span className="text-muted-foreground">Modo:</span>
+                        <span>{order.trade_mode}</span>
                     </div>
                     <div className="flex justify-between">
                         <span className="text-muted-foreground">Criada em:</span>
-                        <span>{formatDate(order.createdAt)}</span>
+                        <span>{formatDate(order.created_at)}</span>
                     </div>
-                    {order.filledAt && (
+                    {order.limit_order_expires_at && (
                         <div className="flex justify-between">
-                            <span className="text-muted-foreground">Preenchida em:</span>
-                            <span>{formatDate(order.filledAt)}</span>
+                            <span className="text-muted-foreground">Expira em:</span>
+                            <span>{formatDate(order.limit_order_expires_at)}</span>
                         </div>
                     )}
-                    {order.cancelledAt && (
+                    {order.reason_message && (
                         <div className="flex justify-between">
-                            <span className="text-muted-foreground">Cancelada em:</span>
-                            <span>{formatDate(order.cancelledAt)}</span>
-                        </div>
-                    )}
-                    {order.position && (
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Posição:</span>
-                            <Button
-                                variant="link"
-                                className="h-auto p-0"
-                                onClick={() => router.push(`/positions/${order.position.id}`)}
-                            >
-                                Ver Posição
-                            </Button>
+                            <span className="text-muted-foreground">Mensagem:</span>
+                            <span>{order.reason_message}</span>
                         </div>
                     )}
                 </CardContent>

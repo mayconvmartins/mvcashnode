@@ -507,7 +507,7 @@ export default function OperationDetailPage() {
                                             <div>
                                                 <label className="text-sm font-medium text-muted-foreground mb-2 block">Fills</label>
                                                 <div className="space-y-2">
-                                                    {position.fills.map((fill) => (
+                                                    {position.fills.map((fill: any) => (
                                                         <div key={fill.id} className="flex items-center justify-between p-2 bg-muted/50 rounded">
                                                             <div className="flex items-center gap-2">
                                                                 <Badge variant={fill.side === 'BUY' ? 'success' : 'destructive'}>

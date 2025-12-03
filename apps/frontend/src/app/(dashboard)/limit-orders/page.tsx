@@ -23,7 +23,7 @@ export default function LimitOrdersPage() {
     })
 
     const cancelMutation = useMutation({
-        mutationFn: limitOrdersService.delete,
+        mutationFn: (id: number) => limitOrdersService.cancel(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['limit-orders'] })
             toast.success('Ordem cancelada com sucesso!')

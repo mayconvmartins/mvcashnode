@@ -77,8 +77,8 @@ export default function AuditLogsPage() {
         }
     }
 
-    const items = logs?.items || logs?.data || []
-    const totalPages = logs?.totalPages || Math.ceil((logs?.total || 0) / limit)
+    const items = logs?.data || []
+    const totalPages = logs?.pagination?.total_pages || 1
 
     return (
         <div className="space-y-6">
@@ -97,7 +97,7 @@ export default function AuditLogsPage() {
                 <CardHeader>
                     <CardTitle>Timeline de Eventos</CardTitle>
                     <CardDescription>
-                        {logs?.total || 0} evento(s) encontrado(s)
+                        {logs?.pagination?.total_items || 0} evento(s) encontrado(s)
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -164,7 +164,7 @@ export default function AuditLogsPage() {
             {totalPages > 1 && (
                 <div className="flex items-center justify-between">
                     <p className="text-sm text-muted-foreground">
-                        Mostrando {items.length} de {logs?.total || 0} eventos
+                        Mostrando {items.length} de {logs?.pagination?.total_items || 0} eventos
                     </p>
                     <div className="flex items-center gap-2">
                         <Button
