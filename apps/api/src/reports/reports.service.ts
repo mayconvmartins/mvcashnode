@@ -65,6 +65,7 @@ export class ReportsService {
       select: {
         id: true,
         realized_profit_usd: true,
+        closed_at: true,
         exchange_account: {
           select: {
             id: true,
@@ -88,8 +89,8 @@ export class ReportsService {
       select: {
         id: true,
         symbol: true,
-        entry_price: true,
-        qty: true,
+        price_open: true,
+        qty_remaining: true,
         exchange_account: {
           select: {
             id: true,
