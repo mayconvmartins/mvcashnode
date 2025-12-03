@@ -50,6 +50,8 @@ export function useWebSocketWithQueryInvalidation({
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const missedHeartbeatsRef = useRef(0)
+    const isMountedRef = useRef(true)
+    const reconnectAttemptsRef = useRef(0)
 
     // Event handlers para invalidação de queries
     const handleMessage = useCallback(
@@ -162,7 +164,23 @@ export function useWebSocketWithQueryInvalidation({
 
     // Conectar ao WebSocket
     const connect = useCallback(() => {
-        if (!enabled || !url) return
+        if (!enabled || !url) {
+            console.log('🔌 WebSocket connection skipped:', { enabled, url })
+            return
+        }
+
+        // Não conectar se já existe uma conexão ativa
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            console.log('🔌 WebSocket already connected, skipping')
+            return
+        }
+
+        // Fechar conexão anterior se existir
+        if (wsRef.current) {
+            console.log('🔌 Closing existing WebSocket connection before reconnecting')
+            wsRef.current.close()
+            wsRef.current = null
+        }
 
         try {
             let wsUrl = new URL(url)
@@ -176,15 +194,18 @@ export function useWebSocketWithQueryInvalidation({
             
             if (accessToken) {
                 wsUrl.searchParams.set('token', accessToken)
+            } else {
+                console.warn('⚠️ WebSocket connection attempted without access token')
             }
 
-            console.log('🔌 Connecting to WebSocket:', wsUrl.origin)
+            console.log('🔌 Connecting to WebSocket:', wsUrl.toString().replace(/token=[^&]+/, 'token=***'))
 
             const ws = new WebSocket(wsUrl.toString())
 
             ws.onopen = () => {
-                console.log('✅ WebSocket connected')
+                console.log('✅ WebSocket connection opened')
                 setIsConnected(true)
+                reconnectAttemptsRef.current = 0
                 setReconnectAttempts(0)
                 startHeartbeat()
                 toast.success('WebSocket conectado', { duration: 2000 })
@@ -193,6 +214,13 @@ export function useWebSocketWithQueryInvalidation({
             ws.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data)
+
+                    // Tratar mensagem de conexão bem-sucedida
+                    if (message.type === 'connected') {
+                        console.log('✅ WebSocket connection confirmed:', message.message)
+                        missedHeartbeatsRef.current = 0
+                        return
+                    }
 
                     // Reset heartbeat counter on any message
                     if (message.type === 'pong') {
@@ -203,55 +231,102 @@ export function useWebSocketWithQueryInvalidation({
                     // Process event messages
                     if (message.event && message.data) {
                         handleMessage(message as WebSocketMessage)
+                    } else {
+                        console.debug('📨 WebSocket message received:', message)
                     }
                 } catch (error) {
-                    console.error('Error parsing WebSocket message:', error)
+                    console.error('❌ Error parsing WebSocket message:', error, 'Raw data:', event.data)
                 }
             }
 
             ws.onerror = (error) => {
-                // Suprimir erro se for conexão recusada (servidor WebSocket não implementado ainda)
-                console.warn('WebSocket error (servidor pode não estar disponível):', error.type)
+                console.error('❌ WebSocket error:', {
+                    type: error.type,
+                    target: error.target,
+                    readyState: wsRef.current?.readyState,
+                })
+                // Não fechar a conexão aqui, deixar o onclose lidar com isso
             }
 
             ws.onclose = (event) => {
-                console.log('🔌 WebSocket closed:', event.code, event.reason)
+                console.log('🔌 WebSocket closed:', {
+                    code: event.code,
+                    reason: event.reason || 'No reason provided',
+                    wasClean: event.wasClean,
+                })
                 setIsConnected(false)
                 stopHeartbeat()
 
-                // Auto-reconnect
-                if (enabled && reconnectAttempts < maxReconnectAttempts) {
-                    const delay = Math.min(reconnectInterval * (reconnectAttempts + 1), 30000)
-                    console.log(`🔄 Reconnecting in ${delay}ms... (attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`)
+                // Não reconectar se o componente foi desmontado
+                if (!isMountedRef.current) {
+                    console.log('🔌 Component unmounted, skipping reconnection')
+                    return
+                }
+
+                // Auto-reconnect apenas se habilitado e não excedeu tentativas
+                const currentAttempts = reconnectAttemptsRef.current
+                if (enabled && currentAttempts < maxReconnectAttempts) {
+                    const delay = Math.min(reconnectInterval * (currentAttempts + 1), 30000)
+                    console.log(`🔄 Reconnecting in ${delay}ms... (attempt ${currentAttempts + 1}/${maxReconnectAttempts})`)
                     
                     reconnectTimeoutRef.current = setTimeout(() => {
-                        setReconnectAttempts((prev) => prev + 1)
-                        connect()
+                        // Verificar novamente se ainda está montado antes de reconectar
+                        if (isMountedRef.current && enabled) {
+                            reconnectAttemptsRef.current++
+                            setReconnectAttempts(reconnectAttemptsRef.current)
+                            connect()
+                        }
                     }, delay)
-                } else if (reconnectAttempts >= maxReconnectAttempts) {
-                    console.warn('Max WebSocket reconnection attempts reached (servidor WebSocket não disponível)')
-                    // Não mostrar toast pois o WebSocket ainda não está implementado
+                } else if (currentAttempts >= maxReconnectAttempts) {
+                    console.warn(`⚠️ Max WebSocket reconnection attempts reached (${maxReconnectAttempts})`)
+                    toast.error('Falha ao conectar WebSocket após múltiplas tentativas', {
+                        duration: 5000,
+                    })
                 }
             }
 
             wsRef.current = ws
         } catch (error) {
-            console.error('Error creating WebSocket connection:', error)
+            console.error('❌ Error creating WebSocket connection:', error)
+            setIsConnected(false)
+            // Tentar reconectar após um delay
+            if (isMountedRef.current && enabled) {
+                const delay = reconnectInterval
+                reconnectTimeoutRef.current = setTimeout(() => {
+                    if (isMountedRef.current) {
+                        reconnectAttemptsRef.current++
+                        setReconnectAttempts(reconnectAttemptsRef.current)
+                        connect()
+                    }
+                }, delay)
+            }
         }
-    }, [enabled, url, accessToken, reconnectAttempts, maxReconnectAttempts, reconnectInterval, handleMessage, startHeartbeat, stopHeartbeat])
+    }, [enabled, url, accessToken, maxReconnectAttempts, reconnectInterval, handleMessage, startHeartbeat, stopHeartbeat])
 
     // Disconnect
     const disconnect = useCallback(() => {
+        console.log('🔌 Disconnecting WebSocket...')
+        isMountedRef.current = false
+        
         if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current)
             reconnectTimeoutRef.current = null
         }
         stopHeartbeat()
         if (wsRef.current) {
-            wsRef.current.close()
+            // Remover listeners para evitar chamadas após desconexão
+            wsRef.current.onclose = null
+            wsRef.current.onerror = null
+            wsRef.current.onmessage = null
+            wsRef.current.onopen = null
+            
+            if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+                wsRef.current.close(1000, 'Client disconnecting')
+            }
             wsRef.current = null
         }
         setIsConnected(false)
+        reconnectAttemptsRef.current = 0
         setReconnectAttempts(0)
     }, [stopHeartbeat])
 
@@ -281,25 +356,56 @@ export function useWebSocketWithQueryInvalidation({
         [send]
     )
 
-    // Auto-connect on mount
+    // Auto-connect on mount e quando enabled mudar
     useEffect(() => {
+        isMountedRef.current = true
+        
         if (autoConnect && enabled) {
-            connect()
+            // Pequeno delay para garantir que o componente está totalmente montado
+            const timeoutId = setTimeout(() => {
+                if (isMountedRef.current) {
+                    connect()
+                }
+            }, 100)
+            
+            return () => {
+                clearTimeout(timeoutId)
+                disconnect()
+            }
         }
 
         return () => {
             disconnect()
         }
-    }, []) // Only run on mount/unmount
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoConnect, enabled]) // connect e disconnect são estáveis via useCallback
 
-    // Reconnect when enabled changes or token changes
+    // Reconnect when token changes (mas não quando enabled muda, pois já é tratado acima)
     useEffect(() => {
-        if (enabled && !isConnected && wsRef.current === null) {
-            connect()
-        } else if (!enabled && isConnected) {
-            disconnect()
+        if (!isMountedRef.current) return
+        
+        // Se o token mudou e já estávamos conectados, reconectar
+        if (enabled && accessToken && wsRef.current) {
+            const currentState = wsRef.current.readyState
+            if (currentState === WebSocket.OPEN || currentState === WebSocket.CONNECTING) {
+                console.log('🔌 Token changed, reconnecting WebSocket...')
+                disconnect()
+                // Reconectar após um pequeno delay
+                const timeoutId = setTimeout(() => {
+                    if (isMountedRef.current && enabled) {
+                        reconnectAttemptsRef.current = 0
+                        setReconnectAttempts(0)
+                        connect()
+                    }
+                }, 500)
+                
+                return () => {
+                    clearTimeout(timeoutId)
+                }
+            }
         }
-    }, [enabled, accessToken])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accessToken]) // connect e disconnect são estáveis via useCallback, enabled não deve disparar aqui
 
     return {
         isConnected,
