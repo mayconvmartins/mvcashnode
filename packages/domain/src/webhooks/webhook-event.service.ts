@@ -223,7 +223,6 @@ export class WebhookEventService {
             // Buscar preço atual via ticker como fallback
             try {
               const { AdapterFactory } = await import('@mvcashnode/exchange');
-              const { ExchangeType } = await import('@mvcashnode/shared');
               const adapter = AdapterFactory.createAdapter(
                 binding.exchange_account.exchange as ExchangeType
               );

@@ -31,7 +31,7 @@ export class MinProfitValidationService {
     priceOpen: number,
     origin: SellOrigin,
     exchangeType: ExchangeType,
-    tradeMode: 'REAL' | 'SIMULATION'
+    _tradeMode: 'REAL' | 'SIMULATION'
   ): Promise<MinProfitValidationResult> {
     // Stop Loss sempre ignora validação de lucro mínimo
     if (origin === 'STOP_LOSS') {
