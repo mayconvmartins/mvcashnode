@@ -55,15 +55,13 @@ export class WebSocketGateway
     try {
       this.logger.log(`[WebSocket] 🔌 Nova tentativa de conexão. Args recebidos: ${args.length}, Estado: ${client.readyState}`);
       
-      // Log detalhado dos args apenas em debug
-      if (this.logger.isDebugEnabled) {
-        this.logger.debug(`[WebSocket] Args detalhados:`, args.map((arg, idx) => ({
-          index: idx,
-          type: typeof arg,
-          keys: arg && typeof arg === 'object' ? Object.keys(arg) : [],
-          value: arg && typeof arg === 'object' ? JSON.stringify(arg).substring(0, 200) : String(arg).substring(0, 200),
-        })));
-      }
+      // Log detalhado dos args
+      this.logger.debug(`[WebSocket] Args detalhados:`, args.map((arg, idx) => ({
+        index: idx,
+        type: typeof arg,
+        keys: arg && typeof arg === 'object' ? Object.keys(arg) : [],
+        value: arg && typeof arg === 'object' ? JSON.stringify(arg).substring(0, 200) : String(arg).substring(0, 200),
+      })));
 
       // Extrair URL do request - WsAdapter pode passar de diferentes formas
       // Com ws nativo, o request geralmente vem como IncomingMessage
