@@ -1,5 +1,5 @@
 import {
-  WebSocketGateway,
+  WebSocketGateway as WSGateway,
   WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -15,7 +15,7 @@ import { PrismaService } from '@mvcashnode/db';
 import { WebSocketService, WebSocketEvent } from './websocket.service';
 import * as jwt from 'jsonwebtoken';
 
-@WebSocketGateway({
+@WSGateway({
   cors: {
     origin: '*',
     credentials: true,
