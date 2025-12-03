@@ -33,7 +33,30 @@ export function useWebSocket({
 
         const connect = () => {
             try {
-                let wsUrl = new URL(url)
+                // Normalizar a URL para garantir que tenha um path válido
+                let normalizedUrl = url.trim()
+                
+                // Se a URL não começar com ws:// ou wss://, adicionar ws:// como padrão
+                if (!normalizedUrl.startsWith('ws://') && !normalizedUrl.startsWith('wss://')) {
+                    normalizedUrl = `ws://${normalizedUrl}`
+                }
+                
+                // Criar objeto URL - garantir que tenha path válido
+                let wsUrl: URL
+                try {
+                    wsUrl = new URL(normalizedUrl)
+                } catch (urlError) {
+                    // Se falhar, tentar adicionar path explícito
+                    if (!normalizedUrl.includes('/') || normalizedUrl.endsWith('/')) {
+                        normalizedUrl = normalizedUrl.replace(/\/$/, '') + '/'
+                    }
+                    wsUrl = new URL(normalizedUrl)
+                }
+                
+                // Garantir que tenha um path válido (pelo menos /)
+                if (!wsUrl.pathname || wsUrl.pathname === '') {
+                    wsUrl.pathname = '/'
+                }
                 
                 // Se a página estiver em HTTPS, garantir que o WebSocket use wss://
                 if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
@@ -46,7 +69,14 @@ export function useWebSocket({
                     wsUrl.searchParams.set('token', accessToken)
                 }
 
-                const ws = new WebSocket(wsUrl.toString())
+                const finalUrl = wsUrl.toString()
+                
+                // Validar URL final antes de criar WebSocket
+                if (!finalUrl.startsWith('ws://') && !finalUrl.startsWith('wss://')) {
+                    throw new Error(`Invalid WebSocket URL: ${finalUrl}`)
+                }
+
+                const ws = new WebSocket(finalUrl)
 
                 ws.onopen = () => {
                     setIsConnected(true)

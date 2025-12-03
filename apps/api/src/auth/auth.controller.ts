@@ -17,6 +17,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Setup2FAResponseDto } from './dto/setup-2fa.dto';
 import { Verify2FADto } from './dto/verify-2fa.dto';
+import { ChangePasswordRequiredDto } from './dto/change-password-required.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('Auth')
@@ -25,7 +26,6 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('login')
-  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 tentativas por minuto
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
     summary: 'Autenticação de usuário',
@@ -231,6 +231,69 @@ export class AuthController {
       }
       
       throw new BadRequestException('Código 2FA inválido');
+    }
+  }
+
+  @Post('change-password-required')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Alterar senha obrigatória',
+    description: 'Altera a senha quando o usuário é obrigado a alterá-la antes de fazer login. Não requer autenticação, mas valida email e senha atual.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Senha alterada com sucesso',
+    schema: {
+      example: {
+        message: 'Senha alterada com sucesso. Você pode fazer login agora.'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 401, 
+    description: 'Credenciais inválidas ou senha atual incorreta',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: 'Email ou senha atual inválidos',
+        error: 'Unauthorized'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Alteração de senha não é obrigatória para este usuário',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Alteração de senha não é obrigatória para este usuário',
+        error: 'Bad Request'
+      }
+    }
+  })
+  async changePasswordRequired(@Body() dto: ChangePasswordRequiredDto) {
+    try {
+      await this.authService.getDomainAuthService().changePasswordRequired(
+        dto.email,
+        dto.currentPassword,
+        dto.newPassword
+      );
+
+      return { 
+        message: 'Senha alterada com sucesso. Você pode fazer login agora.' 
+      };
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao alterar senha';
+      
+      if (errorMessage.includes('Invalid credentials') || errorMessage.includes('credenciais')) {
+        throw new UnauthorizedException('Email ou senha atual inválidos');
+      }
+      
+      if (errorMessage.includes('not required')) {
+        throw new BadRequestException('Alteração de senha não é obrigatória para este usuário');
+      }
+      
+      throw new BadRequestException('Erro ao alterar senha');
     }
   }
 }

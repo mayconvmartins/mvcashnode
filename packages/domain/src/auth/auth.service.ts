@@ -285,5 +285,38 @@ export class AuthService {
       },
     });
   }
+
+  async changePasswordRequired(
+    email: string,
+    currentPassword: string,
+    newPassword: string
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user || !user.is_active) {
+      throw new Error('Invalid credentials');
+    }
+
+    if (!user.must_change_password) {
+      throw new Error('Password change is not required for this user');
+    }
+
+    const isValidPassword = await this.verifyPassword(currentPassword, user.password_hash);
+    if (!isValidPassword) {
+      throw new Error('Invalid credentials');
+    }
+
+    const newPasswordHash = await this.hashPassword(newPassword);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password_hash: newPasswordHash,
+        must_change_password: false,
+      },
+    });
+  }
 }
 

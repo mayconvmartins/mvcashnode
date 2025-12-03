@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
-import { Shield } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Shield, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -23,6 +24,9 @@ function LoginPageContent() {
     const [error, setError] = useState('')
     const [requires2FA, setRequires2FA] = useState(false)
     const [sessionToken, setSessionToken] = useState<string | null>(null)
+    const [requiresPasswordChange, setRequiresPasswordChange] = useState(false)
+    const [newPassword, setNewPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
 
     // Limpar qualquer token de impersonation ao carregar a página de login
     useEffect(() => {
@@ -88,6 +92,14 @@ function LoginPageContent() {
         },
         onError: (error: any) => {
             const errorMessage = error.message || error.response?.data?.message || 'Falha no login'
+            
+            // Verificar se é erro de senha obrigatória
+            if (errorMessage.includes('É necessário alterar a senha') || errorMessage.includes('alterar a senha antes')) {
+                setRequiresPasswordChange(true)
+                setError('')
+                return
+            }
+            
             setError(errorMessage)
             toast.error(errorMessage)
         },
@@ -118,6 +130,42 @@ function LoginPageContent() {
         setSessionToken(null)
         setTwoFactorCode('')
         setError('')
+    }
+
+    const changePasswordMutation = useMutation({
+        mutationFn: authService.changePasswordRequired,
+        onSuccess: () => {
+            toast.success('Senha alterada com sucesso! Faça login com sua nova senha.')
+            setRequiresPasswordChange(false)
+            setPassword('') // Limpar senha antiga
+            setNewPassword('')
+            setConfirmPassword('')
+            setError('')
+        },
+        onError: (error: any) => {
+            const errorMessage = error.message || error.response?.data?.message || 'Erro ao alterar senha'
+            toast.error(errorMessage)
+        },
+    })
+
+    const handleChangePassword = (e: React.FormEvent) => {
+        e.preventDefault()
+        
+        if (newPassword.length < 8) {
+            toast.error('A senha deve ter pelo menos 8 caracteres')
+            return
+        }
+
+        if (newPassword !== confirmPassword) {
+            toast.error('As senhas não coincidem')
+            return
+        }
+
+        changePasswordMutation.mutate({
+            email,
+            currentPassword: password,
+            newPassword,
+        })
     }
 
     return (
@@ -253,6 +301,73 @@ function LoginPageContent() {
                     </form>
                 </CardContent>
             </Card>
+
+            {/* Modal de alteração de senha obrigatória */}
+            <Dialog open={requiresPasswordChange} onOpenChange={(open) => {
+                if (!open) {
+                    setRequiresPasswordChange(false)
+                    setNewPassword('')
+                    setConfirmPassword('')
+                }
+            }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Lock className="h-5 w-5" />
+                            Alteração de Senha Obrigatória
+                        </DialogTitle>
+                        <DialogDescription>
+                            Você precisa alterar sua senha antes de fazer login. Por favor, defina uma nova senha.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleChangePassword} className="space-y-4">
+                        <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-3">
+                            <p className="text-sm text-yellow-600 dark:text-yellow-500">
+                                ⚠️ Esta alteração é obrigatória para continuar usando o sistema
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="newPassword">Nova Senha</Label>
+                            <Input
+                                id="newPassword"
+                                type="password"
+                                placeholder="Mínimo 8 caracteres"
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                disabled={changePasswordMutation.isPending}
+                                required
+                                minLength={8}
+                                autoFocus
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="confirmPassword">Confirmar Nova Senha</Label>
+                            <Input
+                                id="confirmPassword"
+                                type="password"
+                                placeholder="Digite novamente"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                disabled={changePasswordMutation.isPending}
+                                required
+                                minLength={8}
+                            />
+                        </div>
+
+                        <DialogFooter>
+                            <Button
+                                type="submit"
+                                variant="gradient"
+                                disabled={changePasswordMutation.isPending || !newPassword || !confirmPassword || newPassword !== confirmPassword}
+                            >
+                                {changePasswordMutation.isPending ? 'Alterando...' : 'Alterar Senha'}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

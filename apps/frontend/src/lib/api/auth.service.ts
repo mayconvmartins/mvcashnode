@@ -11,6 +11,12 @@ export interface Verify2FADto {
     token: string
 }
 
+export interface ChangePasswordRequiredDto {
+    email: string
+    currentPassword: string
+    newPassword: string
+}
+
 export const authService = {
     login: async (data: LoginDto): Promise<LoginResponse> => {
         const response = await apiClient.post<LoginResponse>('/auth/login', data)
@@ -46,6 +52,11 @@ export const authService = {
 
     getLoginHistory: async (): Promise<any[]> => {
         const response = await apiClient.get('/users/me/login-history')
+        return response.data
+    },
+
+    changePasswordRequired: async (data: ChangePasswordRequiredDto): Promise<{ message: string }> => {
+        const response = await apiClient.post('/auth/change-password-required', data)
         return response.data
     },
 }
