@@ -372,12 +372,35 @@ export class MonitoringService {
     search?: string;
     limit?: number;
   }): Promise<any[]> {
-    const logsPath = path.resolve(process.cwd(), 'logs');
+    // Tentar diferentes caminhos possíveis para o diretório de logs
+    const possiblePaths = [
+      path.resolve(process.cwd(), 'logs'),
+      path.resolve(process.cwd(), 'apps', 'api', 'logs'),
+      path.resolve(__dirname, '..', '..', '..', 'logs'),
+      path.resolve(__dirname, '..', '..', 'logs'),
+    ];
     
-    // Verificar se o diretório existe
-    if (!fs.existsSync(logsPath)) {
-      return [];
+    let logsPath: string | null = null;
+    for (const possiblePath of possiblePaths) {
+      if (fs.existsSync(possiblePath)) {
+        logsPath = possiblePath;
+        break;
+      }
     }
+    
+    // Se não encontrou, tentar criar no primeiro caminho
+    if (!logsPath) {
+      logsPath = possiblePaths[0];
+      try {
+        fs.mkdirSync(logsPath, { recursive: true });
+        console.log(`[Monitoring] Diretório de logs criado em: ${logsPath}`);
+      } catch (error) {
+        console.error(`[Monitoring] Erro ao criar diretório de logs: ${error}`);
+        return [];
+      }
+    }
+    
+    console.log(`[Monitoring] Buscando logs em: ${logsPath}`);
 
     const { level, from, to, search, limit = 1000 } = options;
     
@@ -385,8 +408,9 @@ export class MonitoringService {
     const logFiles: string[] = [];
     try {
       const files = await readdir(logsPath);
+      console.log(`[Monitoring] Arquivos encontrados no diretório: ${files.length}`);
+      
       // Buscar arquivos application-*.log e error-*.log
-      const today = new Date().toISOString().split('T')[0];
       const pattern = /^(application|error)-\d{4}-\d{2}-\d{2}\.log$/;
       
       for (const file of files) {
@@ -395,10 +419,17 @@ export class MonitoringService {
         }
       }
       
+      console.log(`[Monitoring] Arquivos de log encontrados: ${logFiles.length}`);
+      
       // Ordenar por data (mais recente primeiro)
       logFiles.sort().reverse();
     } catch (error) {
       console.error('[Monitoring] Erro ao ler diretório de logs:', error);
+      return [];
+    }
+    
+    if (logFiles.length === 0) {
+      console.warn(`[Monitoring] Nenhum arquivo de log encontrado no diretório: ${logsPath}`);
       return [];
     }
 
@@ -411,6 +442,7 @@ export class MonitoringService {
       try {
         const content = await readFile(filePath, 'utf-8');
         const lines = content.split('\n').filter(line => line.trim());
+        console.log(`[Monitoring] Lendo arquivo ${path.basename(filePath)}: ${lines.length} linhas`);
         
         for (const line of lines) {
           try {
@@ -464,7 +496,10 @@ export class MonitoringService {
       return dateB - dateA;
     });
 
-    return allLogs.slice(0, limit);
+    const result = allLogs.slice(0, limit);
+    console.log(`[Monitoring] Retornando ${result.length} logs (de ${allLogs.length} encontrados)`);
+    
+    return result;
   }
 }
 

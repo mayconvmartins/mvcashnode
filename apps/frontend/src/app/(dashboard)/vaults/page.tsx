@@ -57,21 +57,16 @@ export default function VaultsPage() {
 
     const columns: Column<Vault>[] = [
         {
-            key: 'label',
+            key: 'name',
             label: 'Nome',
             render: (vault) => (
                 <div>
-                    <span className="font-medium">{vault.label}</span>
+                    <span className="font-medium">{vault.name}</span>
                     {vault.description && (
                         <p className="text-sm text-muted-foreground">{vault.description}</p>
                     )}
                 </div>
             ),
-        },
-        {
-            key: 'exchange_account_id',
-            label: 'Conta',
-            render: (vault) => <span className="text-sm">Conta ID: {vault.exchange_account_id}</span>,
         },
         {
             key: 'trade_mode',

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { formatCurrency } from '@/lib/utils/format'
 import type { Position } from '@/lib/types'
 
 interface UpdateSLTPModalProps {
@@ -18,13 +19,18 @@ interface UpdateSLTPModalProps {
 
 export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProps) {
     const queryClient = useQueryClient()
-    const [stopLoss, setStopLoss] = useState(position.stopLoss?.toString() || '')
-    const [takeProfit, setTakeProfit] = useState(position.takeProfit?.toString() || '')
+    // Usar percentual em vez de preço absoluto
+    const [slPct, setSlPct] = useState(position.sl_pct?.toString() || '')
+    const [tpPct, setTpPct] = useState(position.tp_pct?.toString() || '')
+    const [slEnabled, setSlEnabled] = useState(position.sl_enabled)
+    const [tpEnabled, setTpEnabled] = useState(position.tp_enabled)
 
     const updateMutation = useMutation({
         mutationFn: () => positionsService.updateSLTP(position.id, {
-            stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
-            takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
+            slEnabled: slEnabled,
+            slPct: slEnabled && slPct ? parseFloat(slPct) : undefined,
+            tpEnabled: tpEnabled,
+            tpPct: tpEnabled && tpPct ? parseFloat(tpPct) : undefined,
         }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['position', position.id] })
@@ -42,12 +48,12 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
         updateMutation.mutate()
     }
 
-    const slPercent = stopLoss && position.entryPrice
-        ? ((parseFloat(stopLoss) - position.entryPrice) / position.entryPrice * 100).toFixed(2)
+    const slPrice = slEnabled && slPct && position.price_open
+        ? position.price_open * (1 - parseFloat(slPct) / 100)
         : null
 
-    const tpPercent = takeProfit && position.entryPrice
-        ? ((parseFloat(takeProfit) - position.entryPrice) / position.entryPrice * 100).toFixed(2)
+    const tpPrice = tpEnabled && tpPct && position.price_open
+        ? position.price_open * (1 + parseFloat(tpPct) / 100)
         : null
 
     return (
@@ -56,42 +62,68 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                 <DialogHeader>
                     <DialogTitle>Atualizar Stop Loss / Take Profit</DialogTitle>
                     <DialogDescription>
-                        {position.symbol} • {position.side} • Entrada: ${position.entryPrice}
+                        {position.symbol} • {position.side} • Entrada: {formatCurrency(position.price_open)}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <Label htmlFor="stopLoss">Stop Loss</Label>
-                        <Input
-                            id="stopLoss"
-                            type="number"
-                            step="0.01"
-                            value={stopLoss}
-                            onChange={(e) => setStopLoss(e.target.value)}
-                            placeholder="Ex: 50000"
+                    <div className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            id="slEnabled"
+                            checked={slEnabled}
+                            onChange={(e) => setSlEnabled(e.target.checked)}
+                            className="rounded"
                         />
-                        {slPercent && (
-                            <p className={`text-sm mt-1 ${parseFloat(slPercent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                {parseFloat(slPercent) >= 0 ? '+' : ''}{slPercent}% da entrada
-                            </p>
-                        )}
+                        <Label htmlFor="slEnabled">Habilitar Stop Loss</Label>
                     </div>
-                    <div>
-                        <Label htmlFor="takeProfit">Take Profit</Label>
-                        <Input
-                            id="takeProfit"
-                            type="number"
-                            step="0.01"
-                            value={takeProfit}
-                            onChange={(e) => setTakeProfit(e.target.value)}
-                            placeholder="Ex: 60000"
+                    {slEnabled && (
+                        <div>
+                            <Label htmlFor="slPct">Stop Loss (%)</Label>
+                            <Input
+                                id="slPct"
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={slPct}
+                                onChange={(e) => setSlPct(e.target.value)}
+                                placeholder="Ex: 2.0"
+                            />
+                            {slPrice && (
+                                <p className="text-sm mt-1 text-muted-foreground">
+                                    Preço: {formatCurrency(slPrice)} ({slPct}% abaixo da entrada)
+                                </p>
+                            )}
+                        </div>
+                    )}
+                    <div className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            id="tpEnabled"
+                            checked={tpEnabled}
+                            onChange={(e) => setTpEnabled(e.target.checked)}
+                            className="rounded"
                         />
-                        {tpPercent && (
-                            <p className={`text-sm mt-1 ${parseFloat(tpPercent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                {parseFloat(tpPercent) >= 0 ? '+' : ''}{tpPercent}% da entrada
-                            </p>
-                        )}
+                        <Label htmlFor="tpEnabled">Habilitar Take Profit</Label>
                     </div>
+                    {tpEnabled && (
+                        <div>
+                            <Label htmlFor="tpPct">Take Profit (%)</Label>
+                            <Input
+                                id="tpPct"
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={tpPct}
+                                onChange={(e) => setTpPct(e.target.value)}
+                                placeholder="Ex: 5.0"
+                            />
+                            {tpPrice && (
+                                <p className="text-sm mt-1 text-muted-foreground">
+                                    Preço: {formatCurrency(tpPrice)} ({tpPct}% acima da entrada)
+                                </p>
+                            )}
+                        </div>
+                    )}
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Cancelar

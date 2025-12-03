@@ -251,15 +251,16 @@ export class MonitoringController {
     @Query('to') to?: string,
     @Query('search') search?: string,
     @Query('limit') limit?: string
-  ): Promise<any[]> {
+  ): Promise<{ data: any[] }> {
     const limitNum = limit ? parseInt(limit) : 1000;
-    return this.monitoringService.getBackendLogs({
+    const logs = await this.monitoringService.getBackendLogs({
       level,
       from,
       to,
       search,
       limit: limitNum,
     });
+    return { data: logs };
   }
 }
 

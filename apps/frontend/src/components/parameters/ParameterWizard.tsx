@@ -48,10 +48,17 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
 
     const mutation = useMutation({
         mutationFn: () => {
-            if (parameter) {
-                return tradeParametersService.update(parameter.id, data)
+            // Converter accountId e vaultId para número antes de enviar
+            const payload = {
+                ...data,
+                accountId: data.accountId ? Number(data.accountId) : undefined,
+                vaultId: data.vaultId ? Number(data.vaultId) : undefined,
             }
-            return tradeParametersService.create(data)
+            
+            if (parameter) {
+                return tradeParametersService.update(parameter.id, payload)
+            }
+            return tradeParametersService.create(payload)
         },
         onSuccess: (result) => {
             toast.success(parameter ? 'Parâmetro atualizado!' : 'Parâmetro criado!')

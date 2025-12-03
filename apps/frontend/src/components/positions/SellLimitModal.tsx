@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { formatCurrency } from '@/lib/utils/format'
 import type { Position } from '@/lib/types'
 
 interface SellLimitModalProps {
@@ -19,7 +20,7 @@ interface SellLimitModalProps {
 export function SellLimitModal({ position, open, onClose }: SellLimitModalProps) {
     const queryClient = useQueryClient()
     const [price, setPrice] = useState('')
-    const [quantity, setQuantity] = useState(position.quantity.toString())
+    const [quantity, setQuantity] = useState(position.qty_remaining.toString())
 
     const sellLimitMutation = useMutation({
         mutationFn: () => positionsService.sellLimit(position.id, {
@@ -48,7 +49,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
             return
         }
         
-        if (!qtyVal || qtyVal <= 0 || qtyVal > position.quantity) {
+        if (!qtyVal || qtyVal <= 0 || qtyVal > position.qty_remaining) {
             toast.error('Quantidade inválida')
             return
         }
@@ -56,8 +57,8 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
         sellLimitMutation.mutate()
     }
 
-    const pricePercent = price && position.entryPrice
-        ? ((parseFloat(price) - position.entryPrice) / position.entryPrice * 100).toFixed(2)
+    const pricePercent = price && position.price_open
+        ? ((parseFloat(price) - position.price_open) / position.price_open * 100).toFixed(2)
         : null
 
     return (
@@ -66,7 +67,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                 <DialogHeader>
                     <DialogTitle>Criar Ordem Limite de Venda</DialogTitle>
                     <DialogDescription>
-                        {position.symbol} • Quantidade Disponível: {position.quantity}
+                        {position.symbol} • Quantidade Disponível: {position.qty_remaining.toFixed(8)}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -83,7 +84,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                         />
                         {pricePercent && (
                             <p className={`text-sm mt-1 ${parseFloat(pricePercent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                {parseFloat(pricePercent) >= 0 ? '+' : ''}{pricePercent}% da entrada (${position.entryPrice})
+                                {parseFloat(pricePercent) >= 0 ? '+' : ''}{pricePercent}% da entrada ({formatCurrency(position.price_open)})
                             </p>
                         )}
                     </div>
@@ -92,15 +93,15 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                         <Input
                             id="quantity"
                             type="number"
-                            step="0.001"
+                            step="0.00000001"
                             value={quantity}
                             onChange={(e) => setQuantity(e.target.value)}
-                            placeholder={`Máx: ${position.quantity}`}
-                            max={position.quantity}
+                            placeholder={`Máx: ${position.qty_remaining.toFixed(8)}`}
+                            max={position.qty_remaining}
                             required
                         />
                         <p className="text-sm text-muted-foreground mt-1">
-                            Máximo disponível: {position.quantity}
+                            Máximo disponível: {position.qty_remaining.toFixed(8)}
                         </p>
                     </div>
 
@@ -110,15 +111,15 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                             <div className="flex justify-between">
                                 <span className="text-muted-foreground">Total:</span>
                                 <span className="font-medium">
-                                    ${price && quantity ? (parseFloat(price) * parseFloat(quantity)).toFixed(2) : '0.00'}
+                                    {price && quantity ? formatCurrency(parseFloat(price) * parseFloat(quantity)) : formatCurrency(0)}
                                 </span>
                             </div>
                             <div className="flex justify-between">
                                 <span className="text-muted-foreground">PnL Estimado:</span>
                                 <span className={`font-medium ${pricePercent && parseFloat(pricePercent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                                     {price && quantity 
-                                        ? `$${((parseFloat(price) - position.entryPrice) * parseFloat(quantity) * (position.side === 'BUY' ? 1 : -1)).toFixed(2)}`
-                                        : '$0.00'
+                                        ? formatCurrency((parseFloat(price) - position.price_open) * parseFloat(quantity))
+                                        : formatCurrency(0)
                                     }
                                 </span>
                             </div>

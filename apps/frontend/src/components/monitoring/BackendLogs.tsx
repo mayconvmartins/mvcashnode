@@ -40,9 +40,11 @@ export function BackendLogs({ autoRefresh = false }: BackendLogsProps) {
                 search: search || undefined,
                 limit,
             })
-            setLogs(data)
+            // Garantir que sempre seja um array
+            setLogs(Array.isArray(data) ? data : [])
         } catch (error) {
             console.error('Erro ao buscar logs:', error)
+            setLogs([]) // Em caso de erro, definir como array vazio
         } finally {
             setLoading(false)
         }

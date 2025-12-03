@@ -10,8 +10,14 @@ import type {
 
 export const positionsService = {
     list: async (filters?: PositionFilters): Promise<Position[]> => {
-        const response = await apiClient.get<Position[]>('/positions', { params: filters })
-        return response.data
+        const response = await apiClient.get<PaginatedResponse<Position>>('/positions', { params: filters })
+        // O interceptor já mantém o formato { data: [...], pagination: {...} } quando detecta pagination
+        // Então response.data já é o PaginatedResponse, precisamos extrair o array do campo data
+        if (response.data && 'data' in response.data && Array.isArray(response.data.data)) {
+            return response.data.data
+        }
+        // Fallback: se não tiver o formato esperado, retornar array vazio ou o próprio response.data se for array
+        return Array.isArray(response.data) ? response.data : []
     },
 
     getOne: async (id: number): Promise<Position> => {

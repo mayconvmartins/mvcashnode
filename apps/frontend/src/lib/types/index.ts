@@ -255,6 +255,12 @@ export interface AccountWebhookBinding {
     weight?: number
     created_at: string
     updated_at: string
+    exchange_account?: {
+        id: number
+        label: string
+        exchange: string
+        is_simulation: boolean
+    }
 }
 
 export interface WebhookEvent {
@@ -324,6 +330,12 @@ export interface CreateWebhookSourceDto {
     rateLimitPerMin?: number
     alertGroupEnabled?: boolean
     alertGroupId?: string
+}
+
+export interface CreateBindingDto {
+    exchangeAccountId: number
+    isActive?: boolean
+    weight?: number
 }
 
 // ============================================

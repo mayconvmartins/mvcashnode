@@ -5,6 +5,7 @@ import { PrismaService } from '@mvcashnode/db';
 import {
   PositionService,
   VaultService,
+  TradeParameterService,
 } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
@@ -57,8 +58,119 @@ export class TradeExecutionSimProcessor extends WorkerHost {
       }
 
       // Validar quantidade
-      const baseQty = tradeJob.base_quantity?.toNumber() || 0;
-      const quoteAmount = tradeJob.quote_amount?.toNumber() || 0;
+      let baseQty = tradeJob.base_quantity?.toNumber() || 0;
+      let quoteAmount = tradeJob.quote_amount?.toNumber() || 0;
+
+      // Se não tem quantidade e é BUY, tentar buscar dos parâmetros
+      if (baseQty <= 0 && quoteAmount <= 0 && tradeJob.side === 'BUY') {
+        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} sem quantidade, tentando buscar dos parâmetros...`);
+        try {
+          const tradeParameterService = new TradeParameterService(this.prisma);
+          quoteAmount = await tradeParameterService.computeQuoteAmount(
+            tradeJob.exchange_account_id,
+            tradeJob.symbol,
+            tradeJob.side,
+            tradeJob.trade_mode
+          );
+          
+          // Validar se a quantidade calculada é válida
+          if (!quoteAmount || quoteAmount <= 0) {
+            throw new Error('Quantidade calculada é inválida ou zero');
+          }
+          
+          this.logger.log(`[EXECUTOR-SIM] Quantidade calculada dos parâmetros: ${quoteAmount} USDT`);
+          
+          // Atualizar o job com a quantidade calculada
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: { quote_amount: quoteAmount },
+          });
+        } catch (error: any) {
+          const errorMessage = error?.message || 'Erro desconhecido';
+          this.logger.error(`[EXECUTOR-SIM] Erro ao buscar quantidade dos parâmetros para job ${tradeJobId}: ${errorMessage}`);
+          
+          // Determinar reason_code baseado no tipo de erro
+          let reasonCode = 'MISSING_TRADE_PARAMETER';
+          let reasonMessage = errorMessage;
+          
+          if (errorMessage.includes('not found') || errorMessage.includes('Trade parameter not found')) {
+            reasonCode = 'MISSING_TRADE_PARAMETER';
+            reasonMessage = `Parâmetro de trade não encontrado para conta ${tradeJob.exchange_account_id}, símbolo ${tradeJob.symbol}, lado ${tradeJob.side}`;
+          } else if (errorMessage.includes('Balance not found')) {
+            reasonCode = 'BALANCE_NOT_FOUND';
+            reasonMessage = `Saldo não encontrado para calcular quantidade (conta ${tradeJob.exchange_account_id}, modo ${tradeJob.trade_mode})`;
+          } else if (errorMessage.includes('No quote amount configuration')) {
+            reasonCode = 'INVALID_TRADE_PARAMETER';
+            reasonMessage = `Parâmetro de trade encontrado mas sem configuração de quantidade (quote_amount_fixed ou quote_amount_pct_balance)`;
+          } else if (errorMessage.includes('inválida') || errorMessage.includes('zero')) {
+            reasonCode = 'INVALID_QUANTITY_CALCULATED';
+            reasonMessage = `Quantidade calculada é inválida ou zero`;
+          }
+          
+          // Marcar job como FAILED com reason_code específico
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.FAILED,
+              reason_code: reasonCode,
+              reason_message: reasonMessage,
+            },
+          });
+          
+          throw new Error(`Quantidade inválida para trade job ${tradeJobId}: ${reasonMessage}`);
+        }
+      }
+
+      // Se não tem quantidade e é SELL, tentar buscar da posição aberta
+      if (baseQty <= 0 && quoteAmount <= 0 && tradeJob.side === 'SELL') {
+        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} SELL sem quantidade, tentando buscar da posição aberta...`);
+        try {
+          const openPosition = await this.prisma.tradePosition.findFirst({
+            where: {
+              exchange_account_id: tradeJob.exchange_account_id,
+              symbol: tradeJob.symbol,
+              trade_mode: tradeJob.trade_mode,
+              status: 'OPEN',
+              qty_remaining: { gt: 0 },
+              lock_sell_by_webhook: false, // Não vender se estiver bloqueado
+            },
+            orderBy: {
+              created_at: 'asc', // FIFO - vender a posição mais antiga primeiro
+            },
+          });
+
+          if (openPosition) {
+            baseQty = openPosition.qty_remaining.toNumber();
+            this.logger.log(`[EXECUTOR-SIM] Posição aberta encontrada: ID ${openPosition.id}, quantidade: ${baseQty}`);
+            
+            // Atualizar o job com a quantidade encontrada
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: { base_quantity: baseQty },
+            });
+          } else {
+            // Não há posição aberta - marcar como SKIPPED
+            this.logger.warn(`[EXECUTOR-SIM] Nenhuma posição aberta encontrada para vender ${tradeJob.symbol} na conta ${tradeJob.exchange_account_id}`);
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: {
+                status: TradeJobStatus.SKIPPED,
+                reason_code: 'NO_ELIGIBLE_POSITIONS',
+                reason_message: `Nenhuma posição aberta encontrada para vender ${tradeJob.symbol}`,
+              },
+            });
+            return {
+              success: false,
+              skipped: true,
+              reason: 'NO_ELIGIBLE_POSITIONS',
+              message: 'Nenhuma posição aberta encontrada para vender',
+            };
+          }
+        } catch (error: any) {
+          this.logger.error(`[EXECUTOR-SIM] Erro ao buscar posição aberta: ${error.message}`);
+          throw new Error(`Quantidade inválida para trade job ${tradeJobId} e não foi possível buscar posição aberta: ${error.message}`);
+        }
+      }
 
       if (baseQty <= 0 && quoteAmount <= 0) {
         throw new Error(`Quantidade inválida para trade job ${tradeJobId}`);

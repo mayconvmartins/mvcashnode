@@ -39,15 +39,48 @@ export default function ParametersPage() {
         mutationFn: async (id: number) => {
             const param = parameters?.find(p => p.id === id)
             if (!param) throw new Error('Parâmetro não encontrado')
-            const { id: _id, created_at, updated_at, ...data } = param
-            return tradeParametersService.create({ ...data, label: `${data.label} (Cópia)` })
+            
+            // Função auxiliar para converter valores Decimal para número
+            const toNumber = (value: any): number | undefined => {
+                if (value === null || value === undefined) return undefined
+                if (typeof value === 'number') return value
+                if (typeof value === 'object' && 'toNumber' in value) {
+                    return value.toNumber()
+                }
+                const num = Number(value)
+                return isNaN(num) ? undefined : num
+            }
+            
+            // Mapear campos do TradeParameter para CreateTradeParameterDto
+            // Remover campos que não devem ser enviados (id, created_at, updated_at, exchange_account, vault)
+            const createData = {
+                exchange_account_id: param.exchange_account_id,
+                symbol: param.symbol,
+                side: param.side,
+                quote_amount_fixed: toNumber(param.quote_amount_fixed),
+                quote_amount_pct_balance: toNumber(param.quote_amount_pct_balance),
+                max_orders_per_hour: param.max_orders_per_hour ?? undefined,
+                min_interval_sec: param.min_interval_sec ?? undefined,
+                order_type_default: param.order_type_default,
+                slippage_bps: param.slippage_bps ?? 0,
+                default_sl_enabled: param.default_sl_enabled,
+                default_sl_pct: toNumber(param.default_sl_pct),
+                default_tp_enabled: param.default_tp_enabled,
+                default_tp_pct: toNumber(param.default_tp_pct),
+                trailing_stop_enabled: param.trailing_stop_enabled,
+                trailing_distance_pct: toNumber(param.trailing_distance_pct),
+                vault_id: param.vault_id ?? undefined,
+            }
+            
+            return tradeParametersService.create(createData)
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['trade-parameters'] })
             toast.success('Parâmetro duplicado com sucesso!')
         },
         onError: (error: any) => {
-            toast.error(error.response?.data?.message || 'Falha ao duplicar parâmetro')
+            console.error('Erro ao duplicar parâmetro:', error)
+            toast.error(error.response?.data?.message || error.message || 'Falha ao duplicar parâmetro')
         },
     })
 

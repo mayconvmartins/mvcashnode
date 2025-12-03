@@ -62,14 +62,17 @@ export class TradeParameterService {
     });
 
     // Normalizar símbolo (remover sufixos como .P, .F, etc.)
-    const normalizedSymbol = symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '');
+    const normalizedSymbol = symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '').trim();
     // Tentar formatos comuns: SOLUSDT -> SOL/USDT, SOL/USDT -> SOLUSDT
     const symbolVariations = [
-      symbol, // Original
+      symbol.trim(), // Original
       normalizedSymbol,
       normalizedSymbol.replace('/', ''),
       normalizedSymbol.replace(/([A-Z]+)(USDT|BTC|ETH|BNB)/, '$1/$2'),
     ];
+    
+    console.log(`[TRADE-PARAMETER] Símbolo original: "${symbol}"`);
+    console.log(`[TRADE-PARAMETER] Variações de símbolo a verificar: [${symbolVariations.map(v => `"${v}"`).join(', ')}]`);
 
     // Buscar todos os parâmetros da conta para verificar se algum contém o símbolo
     const allParameters = await this.prisma.tradeParameter.findMany({
@@ -86,28 +89,112 @@ export class TradeParameterService {
     // Procurar parâmetro que corresponda ao símbolo
     let parameter = null;
     
+    console.log(`[TRADE-PARAMETER] Verificando ${allParameters.length} parâmetro(s) encontrado(s)`);
+    
     for (const param of allParameters) {
+      console.log(`[TRADE-PARAMETER] Verificando parâmetro ID ${param.id}: symbol="${param.symbol}", side="${param.side}"`);
+      
       // Se o símbolo do parâmetro contém vírgulas, verificar se nosso símbolo está na lista
-      if (param.symbol.includes(',')) {
+      if (param.symbol && param.symbol.includes(',')) {
         const symbolList = param.symbol.split(',').map(s => s.trim());
-        for (const symbolVar of symbolVariations) {
-          const normalizedVar = symbolVar.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '');
-          if (symbolList.some(s => {
-            const normalizedParam = s.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '');
-            return normalizedParam === normalizedVar || normalizedParam === symbolVar || s === symbolVar;
-          })) {
-            parameter = param;
-            console.log(`[TRADE-PARAMETER] ✅ Parâmetro encontrado com múltiplos símbolos: ${param.symbol}`);
+        console.log(`[TRADE-PARAMETER] Parâmetro tem múltiplos símbolos: [${symbolList.join(', ')}]`);
+        
+        // Função auxiliar para normalizar símbolo (remove sufixos, espaços, converte para uppercase)
+        const normalizeSymbol = (s: string): string => {
+          if (!s) return '';
+          return s.trim().toUpperCase().replace(/\.(P|F|PERP|FUTURES)$/i, '').replace(/\//g, '');
+        };
+        
+        // Normalizar símbolo buscado
+        const searchSymbolNorm = normalizeSymbol(symbol);
+        console.log(`[TRADE-PARAMETER] Símbolo buscado: "${symbol}" -> normalizado: "${searchSymbolNorm}"`);
+        console.log(`[TRADE-PARAMETER] Lista de símbolos do parâmetro: [${symbolList.map(s => `"${s}"`).join(', ')}]`);
+        
+        // Verificar match direto primeiro (mais rápido e simples)
+        let found = false;
+        for (let i = 0; i < symbolList.length; i++) {
+          const listSymbol = symbolList[i];
+          const listSymbolNorm = normalizeSymbol(listSymbol);
+          
+          console.log(`[TRADE-PARAMETER] Comparação ${i + 1}/${symbolList.length}: "${listSymbol}" (normalized: "${listSymbolNorm}") vs "${searchSymbolNorm}"`);
+          
+          // Teste 1: Comparação direta normalizada (mais confiável)
+          if (listSymbolNorm === searchSymbolNorm) {
+            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH 1 ENCONTRADO: "${listSymbolNorm}" === "${searchSymbolNorm}"`);
+            found = true;
+            break;
+          }
+          
+          // Teste 2: Comparação direta uppercase (sem normalização)
+          const listUpper = listSymbol.trim().toUpperCase();
+          const searchUpper = symbol.trim().toUpperCase();
+          if (listUpper === searchUpper) {
+            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH 2 ENCONTRADO: "${listUpper}" === "${searchUpper}"`);
+            found = true;
+            break;
+          }
+          
+          // Teste 3: Comparação normalizada vs original uppercase
+          if (listSymbolNorm === searchUpper || listUpper === searchSymbolNorm) {
+            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH 3 ENCONTRADO: Cross match`);
+            found = true;
+            break;
+          }
+          
+          // Teste 4: Comparação sem espaços e case-insensitive
+          const listNoSpaces = listSymbol.replace(/\s/g, '').toUpperCase();
+          const searchNoSpaces = symbol.replace(/\s/g, '').toUpperCase();
+          if (listNoSpaces === searchNoSpaces) {
+            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH 4 ENCONTRADO: "${listNoSpaces}" === "${searchNoSpaces}"`);
+            found = true;
             break;
           }
         }
+        
+        // Se não encontrou com match direto, tentar com variações do símbolo buscado
+        if (!found) {
+          console.log(`[TRADE-PARAMETER] Match direto não encontrado, tentando ${symbolVariations.length} variações...`);
+          for (let v = 0; v < symbolVariations.length; v++) {
+            const symbolVar = symbolVariations[v];
+            const varNorm = normalizeSymbol(symbolVar);
+            console.log(`[TRADE-PARAMETER] Variação ${v + 1}: "${symbolVar}" -> normalizado: "${varNorm}"`);
+            
+            for (let i = 0; i < symbolList.length; i++) {
+              const listSymbol = symbolList[i];
+              const listSymbolNorm = normalizeSymbol(listSymbol);
+              
+              if (listSymbolNorm === varNorm ||
+                  listSymbol.toUpperCase() === symbolVar.toUpperCase() ||
+                  listSymbolNorm === symbolVar.toUpperCase() ||
+                  listSymbol.toUpperCase() === varNorm) {
+                console.log(`[TRADE-PARAMETER] ✅ MATCH via variação ${v + 1}: "${listSymbol}" (${listSymbolNorm}) === "${symbolVar}" (${varNorm})`);
+                found = true;
+                break;
+              }
+            }
+            
+            if (found) break;
+          }
+        }
+        
+        if (found) {
+          parameter = param;
+          console.log(`[TRADE-PARAMETER] ✅✅✅ Parâmetro ENCONTRADO com múltiplos símbolos: ${param.symbol}`);
+        } else {
+          console.log(`[TRADE-PARAMETER] ❌❌❌ NENHUM match encontrado para "${symbol}" na lista [${symbolList.join(', ')}]`);
+          console.log(`[TRADE-PARAMETER] Símbolo buscado normalizado: "${searchSymbolNorm}"`);
+          console.log(`[TRADE-PARAMETER] Símbolos da lista normalizados: [${symbolList.map(s => normalizeSymbol(s)).join(', ')}]`);
+        }
       } else {
         // Comparação direta ou com variações
+        console.log(`[TRADE-PARAMETER] Parâmetro tem símbolo único: "${param.symbol}"`);
         for (const symbolVar of symbolVariations) {
-          const normalizedVar = symbolVar.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '');
-          const normalizedParam = param.symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '');
+          const normalizedVar = symbolVar.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '').toUpperCase();
+          const normalizedParam = param.symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '').toUpperCase();
           
-          if (param.symbol === symbolVar || normalizedParam === normalizedVar || param.symbol === symbol) {
+          console.log(`[TRADE-PARAMETER] Comparando: param="${param.symbol}" (normalized: "${normalizedParam}") com var="${symbolVar}" (normalized: "${normalizedVar}")`);
+          
+          if (param.symbol.toUpperCase() === symbolVar.toUpperCase() || normalizedParam === normalizedVar || param.symbol.toUpperCase() === symbol.toUpperCase()) {
             parameter = param;
             console.log(`[TRADE-PARAMETER] ✅ Parâmetro encontrado: ${param.symbol}`);
             break;
@@ -115,7 +202,10 @@ export class TradeParameterService {
         }
       }
       
-      if (parameter) break;
+      if (parameter) {
+        console.log(`[TRADE-PARAMETER] ✅ Parâmetro selecionado: ID ${parameter.id}, symbol="${parameter.symbol}"`);
+        break;
+      }
     }
 
     if (!parameter) {

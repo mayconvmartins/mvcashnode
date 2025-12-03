@@ -54,17 +54,17 @@ export default function PositionsPage() {
         {
             key: 'qty_remaining',
             label: 'Quantidade',
-            render: (position) => <span className="font-mono">{position.qty_remaining.toFixed(4)}</span>,
+            render: (position) => <span className="font-mono">{Number(position.qty_remaining || 0).toFixed(4)}</span>,
         },
         {
             key: 'price_open',
             label: 'Preço Entrada',
-            render: (position) => <span className="font-mono">{formatCurrency(position.price_open)}</span>,
+            render: (position) => <span className="font-mono">{formatCurrency(Number(position.price_open || 0))}</span>,
         },
         {
             key: 'realized_profit_usd',
             label: 'PnL',
-            render: (position) => <PnLBadge value={position.realized_profit_usd} />,
+            render: (position) => <PnLBadge value={Number(position.realized_profit_usd || 0)} />,
         },
         {
             key: 'sl_tp',

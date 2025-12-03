@@ -3,53 +3,85 @@
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { positionsService } from '@/lib/api/positions.service'
+import { jobsService } from '@/lib/api/jobs.service'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ArrowLeft, Lock, Unlock, TrendingUp, TrendingDown } from 'lucide-react'
-import { formatCurrency, formatDate } from '@/lib/utils/format'
+import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { DataTable, type Column } from '@/components/shared/DataTable'
+import {
+    ArrowLeft,
+    Lock,
+    Unlock,
+    TrendingUp,
+    TrendingDown,
+    Settings,
+    DollarSign,
+    Package,
+    Target,
+    AlertTriangle,
+    Activity,
+    Link as LinkIcon,
+    Calendar,
+    RefreshCw,
+    Loader2,
+} from 'lucide-react'
+import { formatCurrency, formatDateTime, formatAssetAmount, formatPercentage } from '@/lib/utils/format'
 import { toast } from 'sonner'
 import { useState } from 'react'
 import { UpdateSLTPModal } from '@/components/positions/UpdateSLTPModal'
 import { ClosePositionModal } from '@/components/positions/ClosePositionModal'
 import { SellLimitModal } from '@/components/positions/SellLimitModal'
-import { PriceChart } from '@/components/positions/PriceChart'
+import type { Position, PositionFill, TradeJob, TradeExecution } from '@/lib/types'
+
+// Estender o tipo Position para incluir dados relacionados que podem vir da API
+interface PositionWithRelations extends Position {
+    exchange_account?: {
+        id: number
+        label: string
+        exchange: string
+        is_simulation: boolean
+    }
+    fills?: PositionFill[]
+    open_job?: TradeJob
+}
 
 export default function PositionDetailPage() {
     const params = useParams()
     const router = useRouter()
     const queryClient = useQueryClient()
-    const positionId = params.id as string
+    const positionId = parseInt(params.id as string)
 
     const [showUpdateSLTPModal, setShowUpdateSLTPModal] = useState(false)
     const [showCloseModal, setShowCloseModal] = useState(false)
     const [showSellLimitModal, setShowSellLimitModal] = useState(false)
 
-    const { data: position, isLoading } = useQuery({
+    const { data: position, isLoading, refetch } = useQuery<PositionWithRelations>({
         queryKey: ['position', positionId],
-        queryFn: () => positionsService.getById(positionId),
+        queryFn: () => positionsService.getOne(positionId),
+        enabled: !isNaN(positionId),
+        refetchInterval: 30000, // Atualizar a cada 30 segundos
     })
 
+    // Buscar trade job de abertura
+    const { data: openJob } = useQuery({
+        queryKey: ['trade-job', position?.trade_job_id_open],
+        queryFn: () => jobsService.getJob(position!.trade_job_id_open),
+        enabled: !!position?.trade_job_id_open,
+    })
+
+    // Mutation para lock/unlock webhook
     const lockMutation = useMutation({
-        mutationFn: () => positionsService.lock(positionId),
+        mutationFn: (lock: boolean) => positionsService.lockSellByWebhook(positionId, lock),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['position', positionId] })
-            toast.success('Webhook bloqueado com sucesso!')
+            queryClient.invalidateQueries({ queryKey: ['positions'] })
+            toast.success(position?.lock_sell_by_webhook ? 'Webhook desbloqueado!' : 'Webhook bloqueado!')
         },
-        onError: () => {
-            toast.error('Falha ao bloquear webhook')
-        },
-    })
-
-    const unlockMutation = useMutation({
-        mutationFn: () => positionsService.unlock(positionId),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['position', positionId] })
-            toast.success('Webhook desbloqueado com sucesso!')
-        },
-        onError: () => {
-            toast.error('Falha ao desbloquear webhook')
+        onError: (error: any) => {
+            toast.error(error.response?.data?.message || 'Falha ao atualizar bloqueio de webhook')
         },
     })
 
@@ -57,8 +89,13 @@ export default function PositionDetailPage() {
         return (
             <div className="space-y-6">
                 <Skeleton className="h-8 w-64" />
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <Skeleton className="h-32" />
+                    <Skeleton className="h-32" />
+                    <Skeleton className="h-32" />
+                    <Skeleton className="h-32" />
+                </div>
                 <Skeleton className="h-[400px]" />
-                <Skeleton className="h-[300px]" />
             </div>
         )
     }
@@ -75,12 +112,46 @@ export default function PositionDetailPage() {
         )
     }
 
-    const pnl = position.currentPrice 
-        ? (position.currentPrice - position.entryPrice) * position.quantity * (position.side === 'BUY' ? 1 : -1)
-        : 0
-    const pnlPercent = position.entryPrice 
-        ? ((position.currentPrice - position.entryPrice) / position.entryPrice * 100) * (position.side === 'BUY' ? 1 : -1)
-        : 0
+    // Calcular PnL não realizado (assumindo que temos preço atual - em produção viria da API)
+    // Por enquanto, vamos usar o preço de abertura como referência
+    const qtyClosed = position.qty_total - position.qty_remaining
+    const qtyClosedPct = position.qty_total > 0 ? (qtyClosed / position.qty_total) * 100 : 0
+
+    // Calcular preços de SL/TP
+    const slPrice = position.sl_enabled && position.sl_pct
+        ? position.price_open * (1 - position.sl_pct / 100)
+        : null
+    const tpPrice = position.tp_enabled && position.tp_pct
+        ? position.price_open * (1 + position.tp_pct / 100)
+        : null
+
+    // Colunas para tabela de fills
+    const fillsColumns: Column<PositionFill>[] = [
+        {
+            key: 'side',
+            label: 'Lado',
+            render: (fill) => (
+                <Badge variant={fill.side === 'BUY' ? 'default' : 'destructive'}>
+                    {fill.side}
+                </Badge>
+            ),
+        },
+        {
+            key: 'qty',
+            label: 'Quantidade',
+            render: (fill) => <span className="font-mono">{formatAssetAmount(fill.qty)}</span>,
+        },
+        {
+            key: 'price',
+            label: 'Preço',
+            render: (fill) => formatCurrency(fill.price),
+        },
+        {
+            key: 'created_at',
+            label: 'Data',
+            render: (fill) => formatDateTime(fill.created_at),
+        },
+    ]
 
     return (
         <div className="space-y-6">
@@ -88,20 +159,34 @@ export default function PositionDetailPage() {
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="icon" onClick={() => router.push('/positions')}>
-                        <ArrowLeft className="h-4 w-4" />
+                        <ArrowLeft className="h-5 w-5" />
                     </Button>
                     <div>
                         <h1 className="text-3xl font-bold">{position.symbol}</h1>
                         <p className="text-muted-foreground">
-                            {position.account?.name || 'Conta'} • {position.mode}
+                            {position.exchange_account?.label || `Conta #${position.exchange_account_id}`} •{' '}
+                            {position.trade_mode} • Posição #{position.id}
                         </p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refetch()}
+                        disabled={isLoading}
+                    >
+                        {isLoading ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                        )}
+                        Atualizar
+                    </Button>
                     <Badge variant={position.status === 'OPEN' ? 'default' : 'secondary'}>
-                        {position.status}
+                        {position.status === 'OPEN' ? 'ABERTA' : 'FECHADA'}
                     </Badge>
-                    <Badge variant={position.side === 'BUY' ? 'default' : 'destructive'}>
+                    <Badge variant={position.side === 'LONG' ? 'default' : 'destructive'}>
                         {position.side}
                     </Badge>
                 </div>
@@ -111,155 +196,438 @@ export default function PositionDetailPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
                     <CardHeader className="pb-3">
-                        <CardDescription>PnL</CardDescription>
+                        <CardDescription className="flex items-center gap-2">
+                            <DollarSign className="h-4 w-4" />
+                            PnL Realizado
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="flex items-center gap-2">
-                            {pnl >= 0 ? (
-                                <TrendingUp className="h-4 w-4 text-green-500" />
+                            {position.realized_profit_usd >= 0 ? (
+                                <TrendingUp className="h-5 w-5 text-green-500" />
                             ) : (
-                                <TrendingDown className="h-4 w-4 text-red-500" />
+                                <TrendingDown className="h-5 w-5 text-red-500" />
                             )}
-                            <span className={`text-2xl font-bold ${pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                {formatCurrency(pnl)}
+                            <span
+                                className={`text-2xl font-bold ${
+                                    position.realized_profit_usd >= 0 ? 'text-green-500' : 'text-red-500'
+                                }`}
+                            >
+                                {formatCurrency(position.realized_profit_usd)}
                             </span>
                         </div>
-                        <p className={`text-sm ${pnlPercent >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                            {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                        <p className="text-sm text-muted-foreground mt-1">
+                            {qtyClosed > 0 ? `${formatAssetAmount(qtyClosed)} (${qtyClosedPct.toFixed(1)}%) fechado` : 'Nenhuma venda realizada'}
                         </p>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader className="pb-3">
-                        <CardDescription>Quantidade</CardDescription>
+                        <CardDescription className="flex items-center gap-2">
+                            <Package className="h-4 w-4" />
+                            Quantidade
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{position.quantity}</div>
+                        <div className="text-2xl font-bold">{formatAssetAmount(position.qty_total)}</div>
                         <p className="text-sm text-muted-foreground">
-                            Preço Entrada: {formatCurrency(position.entryPrice)}
+                            {formatAssetAmount(position.qty_remaining)} restante
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            Preço médio: {formatCurrency(position.price_open)}
                         </p>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader className="pb-3">
-                        <CardDescription>Stop Loss</CardDescription>
+                        <CardDescription className="flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4" />
+                            Stop Loss
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">
-                            {position.stopLoss ? formatCurrency(position.stopLoss) : 'N/A'}
-                        </div>
-                        {position.stopLoss && (
-                            <p className="text-sm text-muted-foreground">
-                                {((position.stopLoss - position.entryPrice) / position.entryPrice * 100).toFixed(2)}%
-                            </p>
+                        {position.sl_enabled && position.sl_pct ? (
+                            <>
+                                <div className="text-2xl font-bold">
+                                    {slPrice ? formatCurrency(slPrice) : 'N/A'}
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    {formatPercentage(-position.sl_pct)}
+                                </p>
+                                {position.sl_triggered && (
+                                    <Badge variant="destructive" className="mt-2">
+                                        Triggered
+                                    </Badge>
+                                )}
+                            </>
+                        ) : (
+                            <span className="text-muted-foreground">Não configurado</span>
                         )}
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader className="pb-3">
-                        <CardDescription>Take Profit</CardDescription>
+                        <CardDescription className="flex items-center gap-2">
+                            <Target className="h-4 w-4" />
+                            Take Profit
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">
-                            {position.takeProfit ? formatCurrency(position.takeProfit) : 'N/A'}
-                        </div>
-                        {position.takeProfit && (
-                            <p className="text-sm text-muted-foreground">
-                                {((position.takeProfit - position.entryPrice) / position.entryPrice * 100).toFixed(2)}%
-                            </p>
+                        {position.tp_enabled && position.tp_pct ? (
+                            <>
+                                <div className="text-2xl font-bold">
+                                    {tpPrice ? formatCurrency(tpPrice) : 'N/A'}
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    {formatPercentage(position.tp_pct)}
+                                </p>
+                                {position.tp_triggered && (
+                                    <Badge variant="default" className="mt-2 bg-green-500">
+                                        Triggered
+                                    </Badge>
+                                )}
+                                {position.partial_tp_triggered && (
+                                    <Badge variant="outline" className="mt-2">
+                                        Partial TP
+                                    </Badge>
+                                )}
+                            </>
+                        ) : (
+                            <span className="text-muted-foreground">Não configurado</span>
                         )}
                     </CardContent>
                 </Card>
             </div>
 
-            {/* Chart */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Gráfico de Preço</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <PriceChart 
-                        symbol={position.symbol}
-                        entryPrice={position.entryPrice}
-                        stopLoss={position.stopLoss}
-                        takeProfit={position.takeProfit}
-                    />
-                </CardContent>
-            </Card>
+            {/* Tabs */}
+            <Tabs defaultValue="overview" className="space-y-6">
+                <TabsList>
+                    <TabsTrigger value="overview">
+                        <Settings className="h-4 w-4 mr-2" />
+                        Visão Geral
+                    </TabsTrigger>
+                    <TabsTrigger value="fills">
+                        <Activity className="h-4 w-4 mr-2" />
+                        Fills ({position.fills?.length || 0})
+                    </TabsTrigger>
+                    <TabsTrigger value="job">
+                        <LinkIcon className="h-4 w-4 mr-2" />
+                        Trade Job
+                    </TabsTrigger>
+                </TabsList>
 
-            {/* Actions */}
-            {position.status === 'OPEN' && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Ações</CardTitle>
-                        <CardDescription>Gerencie sua posição</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex flex-wrap gap-2">
-                        <Button onClick={() => setShowUpdateSLTPModal(true)}>
-                            Atualizar SL/TP
-                        </Button>
-                        <Button variant="destructive" onClick={() => setShowCloseModal(true)}>
-                            Fechar Posição
-                        </Button>
-                        <Button variant="outline" onClick={() => setShowSellLimitModal(true)}>
-                            Ordem Limite
-                        </Button>
-                        {position.webhookLocked ? (
-                            <Button
-                                variant="outline"
-                                onClick={() => unlockMutation.mutate()}
-                                disabled={unlockMutation.isPending}
-                            >
-                                <Unlock className="mr-2 h-4 w-4" />
-                                Desbloquear Webhook
-                            </Button>
-                        ) : (
-                            <Button
-                                variant="outline"
-                                onClick={() => lockMutation.mutate()}
-                                disabled={lockMutation.isPending}
-                            >
-                                <Lock className="mr-2 h-4 w-4" />
-                                Bloquear Webhook
-                            </Button>
-                        )}
-                    </CardContent>
-                </Card>
-            )}
-
-            {/* Position Details */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Detalhes</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                    <div className="flex justify-between">
-                        <span className="text-muted-foreground">ID:</span>
-                        <span className="font-mono">{position.id}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span className="text-muted-foreground">Aberta em:</span>
-                        <span>{formatDate(position.openedAt)}</span>
-                    </div>
-                    {position.closedAt && (
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Fechada em:</span>
-                            <span>{formatDate(position.closedAt)}</span>
-                        </div>
+                {/* Overview Tab */}
+                <TabsContent value="overview" className="space-y-6">
+                    {/* Actions */}
+                    {position.status === 'OPEN' && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Ações</CardTitle>
+                                <CardDescription>Gerencie sua posição</CardDescription>
+                            </CardHeader>
+                            <CardContent className="flex flex-wrap gap-2">
+                                <Button onClick={() => setShowUpdateSLTPModal(true)}>
+                                    <Settings className="h-4 w-4 mr-2" />
+                                    Atualizar SL/TP
+                                </Button>
+                                <Button variant="destructive" onClick={() => setShowCloseModal(true)}>
+                                    Fechar Posição
+                                </Button>
+                                <Button variant="outline" onClick={() => setShowSellLimitModal(true)}>
+                                    Ordem Limite
+                                </Button>
+                                {position.lock_sell_by_webhook ? (
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => lockMutation.mutate(false)}
+                                        disabled={lockMutation.isPending}
+                                    >
+                                        <Unlock className="h-4 w-4 mr-2" />
+                                        Desbloquear Webhook
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => lockMutation.mutate(true)}
+                                        disabled={lockMutation.isPending}
+                                    >
+                                        <Lock className="h-4 w-4 mr-2" />
+                                        Bloquear Webhook
+                                    </Button>
+                                )}
+                            </CardContent>
+                        </Card>
                     )}
-                    <div className="flex justify-between">
-                        <span className="text-muted-foreground">Preço Atual:</span>
-                        <span>{position.currentPrice ? formatCurrency(position.currentPrice) : 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span className="text-muted-foreground">Webhook Bloqueado:</span>
-                        <span>{position.webhookLocked ? 'Sim' : 'Não'}</span>
-                    </div>
-                </CardContent>
-            </Card>
+
+                    {/* Position Details */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Informações da Posição</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div>
+                                    <p className="text-sm text-muted-foreground">ID da Posição</p>
+                                    <p className="font-mono font-medium">#{position.id}</p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Status</p>
+                                    <Badge variant={position.status === 'OPEN' ? 'default' : 'secondary'}>
+                                        {position.status}
+                                    </Badge>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Símbolo</p>
+                                    <p className="font-medium">{position.symbol}</p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Lado</p>
+                                    <Badge variant={position.side === 'LONG' ? 'default' : 'destructive'}>
+                                        {position.side}
+                                    </Badge>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Modo de Trade</p>
+                                    <Badge variant={position.trade_mode === 'REAL' ? 'default' : 'secondary'}>
+                                        {position.trade_mode}
+                                    </Badge>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Conta de Exchange</p>
+                                    <p className="font-medium">
+                                        {position.exchange_account?.label || `Conta #${position.exchange_account_id}`}
+                                    </p>
+                                    {position.exchange_account?.exchange && (
+                                        <p className="text-xs text-muted-foreground">
+                                            {position.exchange_account.exchange}
+                                        </p>
+                                    )}
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Quantidade Total</p>
+                                    <p className="font-medium">{formatAssetAmount(position.qty_total)}</p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Quantidade Restante</p>
+                                    <p className="font-medium">{formatAssetAmount(position.qty_remaining)}</p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Preço de Abertura</p>
+                                    <p className="font-medium">{formatCurrency(position.price_open)}</p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">PnL Realizado</p>
+                                    <p
+                                        className={`font-medium ${
+                                            position.realized_profit_usd >= 0 ? 'text-green-500' : 'text-red-500'
+                                        }`}
+                                    >
+                                        {formatCurrency(position.realized_profit_usd)}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Criada em</p>
+                                    <p className="font-medium">{formatDateTime(position.created_at)}</p>
+                                </div>
+                                {position.closed_at && (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Fechada em</p>
+                                        <p className="font-medium">{formatDateTime(position.closed_at)}</p>
+                                    </div>
+                                )}
+                                {position.close_reason && (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Motivo do Fechamento</p>
+                                        <p className="font-medium">{position.close_reason}</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <Separator />
+
+                            {/* SL/TP Configuration */}
+                            <div>
+                                <h3 className="text-lg font-semibold mb-3">Configuração SL/TP</h3>
+                                <div className="grid gap-4 md:grid-cols-3">
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Stop Loss</p>
+                                        {position.sl_enabled ? (
+                                            <div>
+                                                <p className="font-medium">
+                                                    {slPrice ? formatCurrency(slPrice) : 'N/A'}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {position.sl_pct ? formatPercentage(-position.sl_pct) : ''}
+                                                </p>
+                                                {position.sl_triggered && (
+                                                    <Badge variant="destructive" className="mt-1">
+                                                        Triggered
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <p className="text-muted-foreground">Desabilitado</p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Take Profit</p>
+                                        {position.tp_enabled ? (
+                                            <div>
+                                                <p className="font-medium">
+                                                    {tpPrice ? formatCurrency(tpPrice) : 'N/A'}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {position.tp_pct ? formatPercentage(position.tp_pct) : ''}
+                                                </p>
+                                                {position.tp_triggered && (
+                                                    <Badge variant="default" className="mt-1 bg-green-500">
+                                                        Triggered
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <p className="text-muted-foreground">Desabilitado</p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Trailing Stop</p>
+                                        {position.trailing_enabled ? (
+                                            <div>
+                                                <p className="font-medium">
+                                                    {position.trailing_distance_pct
+                                                        ? formatPercentage(position.trailing_distance_pct)
+                                                        : 'N/A'}
+                                                </p>
+                                                {position.trailing_max_price && (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Max: {formatCurrency(position.trailing_max_price)}
+                                                    </p>
+                                                )}
+                                                {position.trailing_triggered && (
+                                                    <Badge variant="outline" className="mt-1">
+                                                        Triggered
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <p className="text-muted-foreground">Desabilitado</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Webhook Lock */}
+                            <div>
+                                <p className="text-sm text-muted-foreground">Bloqueio de Webhook</p>
+                                <Badge variant={position.lock_sell_by_webhook ? 'destructive' : 'secondary'}>
+                                    {position.lock_sell_by_webhook ? 'Bloqueado' : 'Desbloqueado'}
+                                </Badge>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {position.lock_sell_by_webhook
+                                        ? 'Esta posição não pode ser fechada automaticamente por webhooks'
+                                        : 'Esta posição pode ser fechada automaticamente por webhooks'}
+                                </p>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Fills Tab */}
+                <TabsContent value="fills">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Histórico de Fills</CardTitle>
+                            <CardDescription>
+                                Execuções de compra e venda associadas a esta posição
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {position.fills && position.fills.length > 0 ? (
+                                <DataTable data={position.fills} columns={fillsColumns} />
+                            ) : (
+                                <div className="text-center py-8 text-muted-foreground">
+                                    <Activity className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                                    <p>Nenhum fill registrado</p>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Trade Job Tab */}
+                <TabsContent value="job">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Trade Job de Abertura</CardTitle>
+                            <CardDescription>
+                                Job que criou esta posição (ID: {position.trade_job_id_open})
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {openJob ? (
+                                <div className="space-y-4">
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        <div>
+                                            <p className="text-sm text-muted-foreground">ID do Job</p>
+                                            <p className="font-mono font-medium">#{openJob.id}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-muted-foreground">Status</p>
+                                            <Badge variant={openJob.status === 'FILLED' ? 'default' : 'secondary'}>
+                                                {openJob.status}
+                                            </Badge>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-muted-foreground">Lado</p>
+                                            <Badge variant={openJob.side === 'BUY' ? 'default' : 'destructive'}>
+                                                {openJob.side}
+                                            </Badge>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-muted-foreground">Tipo de Ordem</p>
+                                            <p className="font-medium">{openJob.order_type}</p>
+                                        </div>
+                                        {openJob.quote_amount && (
+                                            <div>
+                                                <p className="text-sm text-muted-foreground">Valor em Quote</p>
+                                                <p className="font-medium">{formatCurrency(openJob.quote_amount)}</p>
+                                            </div>
+                                        )}
+                                        {openJob.base_quantity && (
+                                            <div>
+                                                <p className="text-sm text-muted-foreground">Quantidade Base</p>
+                                                <p className="font-medium">{formatAssetAmount(openJob.base_quantity)}</p>
+                                            </div>
+                                        )}
+                                        <div>
+                                            <p className="text-sm text-muted-foreground">Criado em</p>
+                                            <p className="font-medium">{formatDateTime(openJob.created_at)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => router.push(`/jobs/${openJob.id}`)}
+                                        >
+                                            Ver Detalhes do Job
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-8 text-muted-foreground">
+                                    <LinkIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                                    <p>Carregando informações do job...</p>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
 
             {/* Modals */}
             {showUpdateSLTPModal && (
@@ -286,4 +654,3 @@ export default function PositionDetailPage() {
         </div>
     )
 }
-

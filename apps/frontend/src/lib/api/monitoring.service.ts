@@ -128,10 +128,11 @@ class MonitoringService {
         search?: string
         limit?: number
     }): Promise<any[]> {
-        const { data } = await apiClient.get('/monitoring/backend-logs', {
+        const response = await apiClient.get<{ data: any[] }>('/monitoring/backend-logs', {
             params: options,
         })
-        return data
+        // O endpoint retorna { data: logs[] }, então extrair o array
+        return response.data?.data || response.data || []
     }
 }
 

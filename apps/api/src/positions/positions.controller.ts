@@ -140,9 +140,124 @@ export class PositionsController {
     @Query('to') to?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number
-  ) {
-    // Implementation would query positions with filters
-    return [];
+  ): Promise<any> {
+    try {
+      // Buscar IDs das exchange accounts do usuário
+      const userAccounts = await this.prisma.exchangeAccount.findMany({
+        where: { user_id: user.userId },
+        select: { id: true },
+      });
+
+      const accountIds = userAccounts.map((acc) => acc.id);
+
+      if (accountIds.length === 0) {
+        return {
+          data: [],
+          pagination: {
+            current_page: page || 1,
+            per_page: limit || 20,
+            total_items: 0,
+            total_pages: 0,
+          },
+        };
+      }
+
+      // Construir filtros
+      const where: any = {
+        exchange_account_id: { in: accountIds },
+      };
+
+      if (status) {
+        where.status = status.toUpperCase();
+      }
+
+      if (tradeMode) {
+        // Normalizar trade_mode para uppercase para garantir match
+        where.trade_mode = tradeMode.toUpperCase();
+      }
+
+      if (exchangeAccountId) {
+        // Validar que a conta pertence ao usuário
+        if (!accountIds.includes(exchangeAccountId)) {
+          throw new BadRequestException('Conta de exchange não encontrada ou não pertence ao usuário');
+        }
+        where.exchange_account_id = exchangeAccountId;
+      }
+
+      if (symbol) {
+        where.symbol = symbol;
+      }
+
+      // Filtros de data
+      if (from || to) {
+        where.created_at = {};
+        if (from) {
+          where.created_at.gte = new Date(from);
+        }
+        if (to) {
+          where.created_at.lte = new Date(to);
+        }
+      }
+
+      // Paginação
+      const pageNum = page || 1;
+      const limitNum = limit || 20;
+      const skip = (pageNum - 1) * limitNum;
+
+      // Buscar posições
+      const positions = await this.prisma.tradePosition.findMany({
+        where,
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+              is_simulation: true,
+            },
+          },
+          open_job: {
+            select: {
+              id: true,
+              symbol: true,
+              side: true,
+              order_type: true,
+              status: true,
+              created_at: true,
+            },
+          },
+          fills: {
+            orderBy: {
+              created_at: 'desc',
+            },
+            take: 10, // Limitar fills retornados
+          },
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+        skip,
+        take: limitNum,
+      });
+
+      // Contar total
+      const total = await this.prisma.tradePosition.count({ where });
+
+      return {
+        data: positions,
+        pagination: {
+          current_page: pageNum,
+          per_page: limitNum,
+          total_items: total,
+          total_pages: Math.ceil(total / limitNum),
+        },
+      };
+    } catch (error: any) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Erro ao buscar posições: ${error.message}`);
+    }
   }
 
   @Get(':id')

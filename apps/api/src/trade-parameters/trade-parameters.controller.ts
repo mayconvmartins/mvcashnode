@@ -217,10 +217,16 @@ export class TradeParametersController {
   @ApiResponse({ status: 400, description: 'Dados inválidos' })
   async create(@CurrentUser() user: any, @Body() createDto: any) {
     try {
+      // Converter accountId para número (caso venha como string)
+      const accountId = Number(createDto.accountId || createDto.exchangeAccountId);
+      if (isNaN(accountId)) {
+        throw new BadRequestException('ID da conta de exchange inválido');
+      }
+
       // Validar que a exchange account pertence ao usuário
       const account = await this.prisma.exchangeAccount.findFirst({
         where: {
-          id: createDto.accountId || createDto.exchangeAccountId,
+          id: accountId,
           user_id: user.userId,
         },
       });
@@ -231,9 +237,14 @@ export class TradeParametersController {
 
       // Validar vault se fornecido
       if (createDto.vaultId) {
+        const vaultId = Number(createDto.vaultId);
+        if (isNaN(vaultId)) {
+          throw new BadRequestException('ID do cofre inválido');
+        }
+        
         const vault = await this.prisma.vault.findFirst({
           where: {
-            id: createDto.vaultId,
+            id: vaultId,
             user_id: user.userId,
           },
         });
@@ -246,7 +257,7 @@ export class TradeParametersController {
       // Mapear campos do frontend para o formato esperado
       const mappedDto = {
         userId: user.userId,
-        exchangeAccountId: createDto.accountId || createDto.exchangeAccountId,
+        exchangeAccountId: accountId,
         symbol: createDto.symbol,
         side: createDto.side,
         quoteAmountFixed: 
@@ -263,7 +274,7 @@ export class TradeParametersController {
         defaultTpPct: createDto.takeProfitPercent || createDto.takeProfit,
         trailingStopEnabled: createDto.trailingStop || false,
         trailingDistancePct: createDto.trailingDistancePct,
-        vaultId: createDto.vaultId,
+        vaultId: createDto.vaultId ? Number(createDto.vaultId) : undefined,
       };
 
       return this.tradeParametersService.getDomainService().createParameter(mappedDto);
@@ -307,10 +318,15 @@ export class TradeParametersController {
       }
 
       // Validar vault se fornecido
-      if (updateDto.vaultId) {
+      if (updateDto.vaultId || updateDto.vault_id) {
+        const vaultId = Number(updateDto.vaultId || updateDto.vault_id);
+        if (isNaN(vaultId)) {
+          throw new BadRequestException('ID do cofre inválido');
+        }
+        
         const vault = await this.prisma.vault.findFirst({
           where: {
-            id: updateDto.vaultId,
+            id: vaultId,
             user_id: user.userId,
           },
         });
@@ -336,7 +352,10 @@ export class TradeParametersController {
       if (updateDto.default_tp_pct !== undefined) updateData.default_tp_pct = updateDto.default_tp_pct;
       if (updateDto.trailing_stop_enabled !== undefined) updateData.trailing_stop_enabled = updateDto.trailing_stop_enabled;
       if (updateDto.trailing_distance_pct !== undefined) updateData.trailing_distance_pct = updateDto.trailing_distance_pct;
-      if (updateDto.vault_id !== undefined) updateData.vault_id = updateDto.vault_id;
+      if (updateDto.vaultId !== undefined || updateDto.vault_id !== undefined) {
+        const vaultId = Number(updateDto.vaultId || updateDto.vault_id);
+        updateData.vault_id = isNaN(vaultId) ? null : vaultId;
+      }
 
       const updated = await this.prisma.tradeParameter.update({
         where: { id },

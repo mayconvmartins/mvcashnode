@@ -56,9 +56,15 @@ export class ExchangeAccountsController {
     }
   })
   async list(@CurrentUser() user: any) {
-    return this.exchangeAccountsService
+    const accounts = await this.exchangeAccountsService
       .getDomainService()
       .getAccountsByUser(user.userId);
+    
+    // Mapear is_simulation para trade_mode
+    return accounts.map(account => ({
+      ...account,
+      trade_mode: account.is_simulation ? 'SIMULATION' : 'REAL',
+    }));
   }
 
   @Post()

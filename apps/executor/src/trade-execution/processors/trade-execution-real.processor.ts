@@ -6,6 +6,7 @@ import {
   PositionService,
   ExchangeAccountService,
   VaultService,
+  TradeParameterService,
 } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
@@ -57,13 +58,179 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         throw new Error(`Símbolo inválido para trade job ${tradeJobId}`);
       }
 
-      // Validar quantidade
-      const baseQty = tradeJob.base_quantity?.toNumber() || 0;
-      const quoteAmount = tradeJob.quote_amount?.toNumber() || 0;
+      // ============================================
+      // VALIDAÇÃO E BUSCA DE QUANTIDADE
+      // ============================================
+      // Log crítico logo após ler do banco
+      this.logger.log(`[EXECUTOR] Job ${tradeJobId} - DADOS DO BANCO: side="${tradeJob.side}", symbol="${tradeJob.symbol}", base_quantity=${tradeJob.base_quantity?.toNumber() ?? 'null'}, quote_amount=${tradeJob.quote_amount?.toNumber() ?? 'null'}`);
 
-      if (baseQty <= 0 && quoteAmount <= 0) {
-        throw new Error(`Quantidade inválida para trade job ${tradeJobId}`);
+      // Normalizar side ANTES de qualquer processamento
+      const side = (tradeJob.side || '').toUpperCase().trim();
+      this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Side normalizado: "${side}"`);
+
+      // Extrair e validar quantidades do banco
+      let baseQty = 0;
+      let quoteAmount = 0;
+
+      if (tradeJob.base_quantity) {
+        const rawBaseQty = tradeJob.base_quantity.toNumber();
+        baseQty = isNaN(rawBaseQty) ? 0 : Number(rawBaseQty);
       }
+
+      if (tradeJob.quote_amount) {
+        const rawQuoteAmount = tradeJob.quote_amount.toNumber();
+        quoteAmount = isNaN(rawQuoteAmount) ? 0 : Number(rawQuoteAmount);
+      }
+
+      this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Quantidades extraídas: baseQty=${baseQty}, quoteAmount=${quoteAmount}`);
+
+      // Verificar se precisa buscar quantidade
+      const needsQuantity = baseQty <= 0 && quoteAmount <= 0;
+      const isBuy = side === 'BUY';
+      const isSell = side === 'SELL';
+
+      this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Análise: needsQuantity=${needsQuantity}, isBuy=${isBuy}, isSell=${isSell}`);
+
+      // BUSCAR QUANTIDADE PARA BUY
+      if (needsQuantity && isBuy) {
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - BUY sem quantidade, buscando dos parâmetros...`);
+        
+        try {
+          const tradeParameterService = new TradeParameterService(this.prisma);
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Chamando computeQuoteAmount(accountId=${tradeJob.exchange_account_id}, symbol="${tradeJob.symbol}", side="${side}", mode="${tradeJob.trade_mode}")`);
+          
+          quoteAmount = await tradeParameterService.computeQuoteAmount(
+            tradeJob.exchange_account_id,
+            tradeJob.symbol,
+            side as 'BUY' | 'SELL',
+            tradeJob.trade_mode
+          );
+          
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - computeQuoteAmount retornou: ${quoteAmount}`);
+
+          // Validar quantidade calculada
+          if (!quoteAmount || isNaN(quoteAmount) || quoteAmount <= 0) {
+            throw new Error(`Quantidade calculada é inválida: ${quoteAmount}`);
+          }
+
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Quantidade válida calculada: ${quoteAmount} USDT`);
+          
+          // Atualizar job no banco
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: { quote_amount: quoteAmount },
+          });
+          
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Job atualizado com quote_amount=${quoteAmount}`);
+        } catch (error: any) {
+          const errorMessage = error?.message || 'Erro desconhecido';
+          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao buscar quantidade dos parâmetros: ${errorMessage}`);
+          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Stack: ${error?.stack}`);
+          
+          // Determinar reason_code
+          let reasonCode = 'MISSING_TRADE_PARAMETER';
+          let reasonMessage = errorMessage;
+
+          if (errorMessage.includes('not found') || errorMessage.includes('Trade parameter not found')) {
+            reasonCode = 'MISSING_TRADE_PARAMETER';
+            reasonMessage = `Parâmetro de trade não encontrado para conta ${tradeJob.exchange_account_id}, símbolo ${tradeJob.symbol}, lado ${side}`;
+          } else if (errorMessage.includes('Balance not found')) {
+            reasonCode = 'BALANCE_NOT_FOUND';
+            reasonMessage = `Saldo não encontrado para calcular quantidade (conta ${tradeJob.exchange_account_id}, modo ${tradeJob.trade_mode})`;
+          } else if (errorMessage.includes('No quote amount configuration')) {
+            reasonCode = 'INVALID_TRADE_PARAMETER';
+            reasonMessage = `Parâmetro de trade encontrado mas sem configuração de quantidade`;
+          } else if (errorMessage.includes('inválida') || errorMessage.includes('inválido')) {
+            reasonCode = 'INVALID_QUANTITY_CALCULATED';
+            reasonMessage = `Quantidade calculada é inválida: ${errorMessage}`;
+          }
+          
+          // Marcar job como FAILED
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.FAILED,
+              reason_code: reasonCode,
+              reason_message: reasonMessage,
+            },
+          });
+          
+          throw new Error(`Quantidade inválida para trade job ${tradeJobId}: ${reasonMessage}`);
+        }
+      }
+
+      // BUSCAR QUANTIDADE PARA SELL
+      if (needsQuantity && isSell) {
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - SELL sem quantidade, buscando da posição aberta...`);
+        
+        try {
+          const openPosition = await this.prisma.tradePosition.findFirst({
+            where: {
+              exchange_account_id: tradeJob.exchange_account_id,
+              symbol: tradeJob.symbol,
+              trade_mode: tradeJob.trade_mode,
+              status: 'OPEN',
+              qty_remaining: { gt: 0 },
+              lock_sell_by_webhook: false,
+            },
+            orderBy: {
+              created_at: 'asc',
+            },
+          });
+
+          if (openPosition) {
+            baseQty = openPosition.qty_remaining.toNumber();
+            this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Posição encontrada: ID=${openPosition.id}, qty=${baseQty}`);
+            
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: { base_quantity: baseQty },
+            });
+          } else {
+            this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Nenhuma posição aberta encontrada para vender`);
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: {
+                status: TradeJobStatus.SKIPPED,
+                reason_code: 'NO_ELIGIBLE_POSITIONS',
+                reason_message: `Nenhuma posição aberta encontrada para vender ${tradeJob.symbol}`,
+              },
+            });
+            return {
+              success: false,
+              skipped: true,
+              reason: 'NO_ELIGIBLE_POSITIONS',
+              message: 'Nenhuma posição aberta encontrada para vender',
+            };
+          }
+        } catch (error: any) {
+          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao buscar posição: ${error.message}`);
+          throw new Error(`Quantidade inválida para trade job ${tradeJobId} e não foi possível buscar posição aberta: ${error.message}`);
+        }
+      }
+
+      // VALIDAÇÃO FINAL
+      this.logger.log(`[EXECUTOR] Job ${tradeJobId} - VALIDAÇÃO FINAL: side="${side}", baseQty=${baseQty}, quoteAmount=${quoteAmount}`);
+      
+      if (baseQty <= 0 && quoteAmount <= 0) {
+        const errorMsg = `Quantidade inválida para trade job ${tradeJobId}. Side: "${side}", baseQty: ${baseQty}, quoteAmount: ${quoteAmount}`;
+        this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ${errorMsg}`);
+        this.logger.error(`[EXECUTOR] Job ${tradeJobId} - O código não conseguiu obter quantidade válida. Verifique os logs acima.`);
+        
+        // Marcar como FAILED
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.FAILED,
+            reason_code: 'INVALID_QUANTITY',
+            reason_message: errorMsg,
+          },
+        });
+        
+        throw new Error(errorMsg);
+      }
+      
+      this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Quantidade validada com sucesso: baseQty=${baseQty}, quoteAmount=${quoteAmount}`);
 
       // Update status to EXECUTING
       await this.prisma.tradeJob.update({
@@ -94,6 +261,55 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         { testnet: tradeJob.exchange_account.testnet }
       );
 
+      // Converter quoteAmount para baseQty se necessário (para MARKET BUY)
+      // O CCXT espera amount como quantidade base, não valor em quote
+      if (quoteAmount > 0 && baseQty <= 0 && side === 'BUY' && tradeJob.order_type === 'MARKET') {
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Convertendo quoteAmount (${quoteAmount} USDT) para baseQty...`);
+        try {
+          const ticker = await adapter.fetchTicker(tradeJob.symbol);
+          const currentPrice = ticker.last;
+          
+          if (!currentPrice || currentPrice <= 0) {
+            throw new Error(`Preço inválido obtido da exchange: ${currentPrice}`);
+          }
+          
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Preço atual de ${tradeJob.symbol}: ${currentPrice}`);
+          
+          // Calcular baseQty = quoteAmount / currentPrice
+          baseQty = quoteAmount / currentPrice;
+          
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - baseQty calculado: ${baseQty} (${quoteAmount} USDT / ${currentPrice})`);
+          
+          // Validar que baseQty é válido
+          if (!baseQty || isNaN(baseQty) || baseQty <= 0) {
+            throw new Error(`baseQty calculado é inválido: ${baseQty}`);
+          }
+          
+          // Atualizar job com baseQty calculado
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: { base_quantity: baseQty },
+          });
+          
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Job atualizado com base_quantity=${baseQty}`);
+        } catch (error: any) {
+          const errorMessage = error?.message || 'Erro desconhecido';
+          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao converter quoteAmount para baseQty: ${errorMessage}`);
+          
+          // Marcar job como FAILED
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.FAILED,
+              reason_code: 'PRICE_FETCH_ERROR',
+              reason_message: `Erro ao buscar preço para converter quoteAmount: ${errorMessage}`,
+            },
+          });
+          
+          throw new Error(`Erro ao converter quoteAmount para baseQty: ${errorMessage}`);
+        }
+      }
+
       // Verificar saldo antes de executar (apenas para BUY)
       if (tradeJob.side === 'BUY') {
         try {
@@ -116,37 +332,193 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       // Execute order
       const orderType = tradeJob.order_type === 'LIMIT' ? 'limit' : 'market';
-      this.logger.log(`[EXECUTOR] Criando ordem ${orderType} ${tradeJob.side} ${baseQty || quoteAmount} ${tradeJob.symbol}`);
+      const orderAmount = baseQty > 0 ? baseQty : quoteAmount;
+      this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${orderAmount} ${tradeJob.symbol} (baseQty=${baseQty}, quoteAmount=${quoteAmount})`);
 
       let order;
       try {
+        // Para MARKET BUY, sempre usar baseQty (já calculado acima se necessário)
+        // Para LIMIT BUY, usar baseQty se disponível, senão usar quoteAmount com limit_price
+        const amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
+        
+        if (amountToUse <= 0) {
+          throw new Error(`Quantidade inválida para criar ordem: baseQty=${baseQty}, quoteAmount=${quoteAmount}, amountToUse=${amountToUse}`);
+        }
+        
+        // Validação básica de quantidade mínima (0.001 é um valor conservador comum)
+        // A validação real será feita pela exchange, mas isso evita erros óbvios
+        const MIN_AMOUNT = 0.001;
+        if (amountToUse < MIN_AMOUNT) {
+          this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Quantidade muito pequena: ${amountToUse} < ${MIN_AMOUNT}. A exchange pode rejeitar.`);
+        }
+        
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Criando ordem na exchange: ${orderType} ${tradeJob.side} amount=${amountToUse} ${tradeJob.symbol}`);
         order = await adapter.createOrder(
           tradeJob.symbol,
           orderType,
           tradeJob.side.toLowerCase(),
-          baseQty || 0,
+          amountToUse,
           tradeJob.limit_price?.toNumber()
         );
 
-        this.logger.log(`[EXECUTOR] Ordem criada na exchange: ${order.id}, status: ${order.status}`);
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada na exchange: ${order.id}, status: ${order.status}`);
       } catch (error: any) {
         const errorMessage = error?.message || 'Erro desconhecido';
+        const errorCode = error?.code || error?.statusCode || '';
+        const errorBody = error?.body || error?.response || '';
         
-        // Mapear erros comuns da exchange
+        this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao criar ordem na exchange: ${errorMessage}`);
+        this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Error code: ${errorCode}, body: ${JSON.stringify(errorBody)}`);
+        
+        // Mapear erros comuns da Binance e outras exchanges
         let reasonCode = 'EXECUTION_ERROR';
-        if (errorMessage.includes('insufficient balance') || errorMessage.includes('saldo')) {
+        let reasonMessage = errorMessage;
+        
+        // Erros de saldo
+        if (errorMessage.includes('insufficient balance') || 
+            errorMessage.includes('saldo') ||
+            errorMessage.includes('Insufficient balance') ||
+            errorCode === '-2010' ||
+            errorBody?.includes('insufficient balance')) {
           reasonCode = 'INSUFFICIENT_BALANCE';
-        } else if (errorMessage.includes('rate limit') || errorMessage.includes('too many requests')) {
+          reasonMessage = 'Saldo insuficiente na exchange para executar a ordem';
+        }
+        // Erros de rate limit
+        else if (errorMessage.includes('rate limit') || 
+                 errorMessage.includes('too many requests') ||
+                 errorMessage.includes('429') ||
+                 errorCode === '-1003' ||
+                 errorCode === '429') {
           reasonCode = 'RATE_LIMIT_EXCEEDED';
-        } else if (errorMessage.includes('invalid symbol') || errorMessage.includes('símbolo inválido')) {
+          reasonMessage = 'Rate limit da exchange excedido. Aguarde alguns segundos e tente novamente';
+        }
+        // Erros de símbolo inválido
+        else if (errorMessage.includes('invalid symbol') || 
+                 errorMessage.includes('símbolo inválido') ||
+                 errorMessage.includes('Invalid symbol') ||
+                 errorCode === '-1121' ||
+                 errorBody?.includes('invalid symbol')) {
           reasonCode = 'INVALID_SYMBOL';
-        } else if (errorMessage.includes('min notional') || errorMessage.includes('quantidade mínima')) {
+          reasonMessage = `Símbolo inválido ou não suportado: ${tradeJob.symbol}`;
+        }
+        // Erros de quantidade mínima (min notional)
+        else if (errorMessage.includes('min notional') || 
+                 errorMessage.includes('quantidade mínima') ||
+                 errorMessage.includes('MIN_NOTIONAL') ||
+                 errorCode === '-1013' ||
+                 errorBody?.includes('MIN_NOTIONAL')) {
           reasonCode = 'MIN_NOTIONAL_NOT_MET';
-        } else if (errorMessage.includes('timeout') || errorMessage.includes('network')) {
+          reasonMessage = 'Quantidade abaixo do valor mínimo permitido pela exchange (min notional)';
+        }
+        // Erros de quantidade mínima (LOT_SIZE)
+        else if (errorMessage.includes('LOT_SIZE') || 
+                 errorMessage.includes('lot size') ||
+                 errorCode === '-1013' ||
+                 errorBody?.includes('LOT_SIZE')) {
+          reasonCode = 'INVALID_LOT_SIZE';
+          reasonMessage = 'Quantidade não atende aos requisitos de tamanho de lote da exchange';
+        }
+        // Erros de precisão de quantidade ou quantidade mínima
+        else if (errorMessage.includes('PRECISION') || 
+                 errorMessage.includes('precision') ||
+                 errorMessage.includes('minimum amount precision') ||
+                 errorMessage.includes('must be greater than minimum') ||
+                 errorCode === '-1013' ||
+                 errorBody?.includes('PRECISION') ||
+                 errorBody?.includes('minimum amount')) {
+          reasonCode = 'INVALID_PRECISION';
+          reasonMessage = `Quantidade não atende aos requisitos de precisão mínima da exchange. Quantidade calculada: ${amountToUse}, quoteAmount: ${quoteAmount}, baseQty: ${baseQty}`;
+        }
+        // Erros de preço
+        else if (errorMessage.includes('PRICE') || 
+                 errorMessage.includes('price') ||
+                 errorCode === '-1013' ||
+                 errorBody?.includes('PRICE')) {
+          reasonCode = 'INVALID_PRICE';
+          reasonMessage = 'Preço inválido ou fora dos limites permitidos pela exchange';
+        }
+        // Erros de timestamp
+        else if (errorMessage.includes('Timestamp') || 
+                 errorMessage.includes('timestamp') ||
+                 errorMessage.includes('1000ms ahead') ||
+                 errorCode === '-1021' ||
+                 errorBody?.includes('timestamp')) {
+          reasonCode = 'TIMESTAMP_ERROR';
+          reasonMessage = 'Erro de sincronização de tempo com a exchange. Verifique o relógio do sistema';
+        }
+        // Erros de API key
+        else if (errorMessage.includes('API-key') || 
+                 errorMessage.includes('Invalid API-key') ||
+                 errorCode === '-2015' ||
+                 errorBody?.includes('API-key')) {
+          reasonCode = 'INVALID_API_KEYS';
+          reasonMessage = 'API Key inválida ou expirada';
+        }
+        // Erros de permissão
+        else if (errorMessage.includes('Permission') || 
+                 errorMessage.includes('permission') ||
+                 errorCode === '-2010' ||
+                 errorBody?.includes('permission')) {
+          reasonCode = 'INSUFFICIENT_PERMISSIONS';
+          reasonMessage = 'API Key não tem permissão para executar esta operação';
+        }
+        // Erros de rede/timeout
+        else if (errorMessage.includes('timeout') || 
+                 errorMessage.includes('network') ||
+                 errorMessage.includes('ETIMEDOUT') ||
+                 errorMessage.includes('ENOTFOUND') ||
+                 errorCode === 'ETIMEDOUT' ||
+                 errorCode === 'ENOTFOUND') {
           reasonCode = 'NETWORK_ERROR';
+          reasonMessage = 'Erro de rede ou timeout na comunicação com a exchange';
+        }
+        // Erros de IP não autorizado
+        else if (errorMessage.includes('IP') || 
+                 errorMessage.includes('ip') ||
+                 errorCode === '-1022' ||
+                 errorBody?.includes('IP')) {
+          reasonCode = 'IP_NOT_WHITELISTED';
+          reasonMessage = 'IP não está na lista de permissões da API Key';
+        }
+        // Erros de ordem duplicada
+        else if (errorMessage.includes('Duplicate') || 
+                 errorMessage.includes('duplicate') ||
+                 errorCode === '-2010' ||
+                 errorBody?.includes('duplicate')) {
+          reasonCode = 'DUPLICATE_ORDER';
+          reasonMessage = 'Ordem duplicada detectada pela exchange';
+        }
+        // Erros de mercado fechado
+        else if (errorMessage.includes('MARKET_CLOSED') || 
+                 errorMessage.includes('market closed') ||
+                 errorBody?.includes('MARKET_CLOSED')) {
+          reasonCode = 'MARKET_CLOSED';
+          reasonMessage = 'Mercado está fechado no momento';
+        }
+        // Erros genéricos do CCXT
+        else if (errorMessage.includes('ExchangeError') || 
+                 errorMessage.includes('NetworkError') ||
+                 errorMessage.includes('RequestTimeout')) {
+          reasonCode = 'EXCHANGE_ERROR';
+          reasonMessage = `Erro na comunicação com a exchange: ${errorMessage}`;
         }
 
-        throw new Error(`${reasonCode}: ${errorMessage}`);
+        // Marcar job como FAILED antes de lançar erro
+        try {
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.FAILED,
+              reason_code: reasonCode,
+              reason_message: reasonMessage,
+            },
+          });
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para FAILED com reason_code: ${reasonCode}`);
+        } catch (updateError: any) {
+          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao atualizar status: ${updateError?.message}`);
+        }
+
+        throw new Error(`${reasonCode}: ${reasonMessage}`);
       }
 
       // Para ordens LIMIT, verificar se foi preenchida imediatamente
@@ -373,44 +745,74 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const duration = Date.now() - startTime;
       const errorMessage = error?.message || 'Erro desconhecido';
       
-      this.logger.error(`[EXECUTOR] Erro ao processar trade job ${tradeJobId} (${duration}ms): ${errorMessage}`, error.stack);
+      this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao processar (${duration}ms): ${errorMessage}`);
+      if (error?.stack) {
+        this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Stack trace: ${error.stack}`);
+      }
 
       // Determinar reason_code baseado no erro
       let reasonCode = 'EXECUTION_ERROR';
       let reasonMessage = errorMessage;
 
-      if (errorMessage.includes('INSUFFICIENT_BALANCE')) {
+      // Erros de quantidade (já tratados acima, mas pode chegar aqui se houver exceção não tratada)
+      if (errorMessage.includes('Quantidade inválida')) {
+        if (errorMessage.includes('MISSING_TRADE_PARAMETER')) {
+          reasonCode = 'MISSING_TRADE_PARAMETER';
+        } else if (errorMessage.includes('BALANCE_NOT_FOUND')) {
+          reasonCode = 'BALANCE_NOT_FOUND';
+        } else if (errorMessage.includes('INVALID_TRADE_PARAMETER')) {
+          reasonCode = 'INVALID_TRADE_PARAMETER';
+        } else if (errorMessage.includes('INVALID_QUANTITY_CALCULATED')) {
+          reasonCode = 'INVALID_QUANTITY_CALCULATED';
+        } else {
+          reasonCode = 'INVALID_QUANTITY';
+        }
+      } else if (errorMessage.includes('INSUFFICIENT_BALANCE') || errorMessage.includes('Saldo insuficiente')) {
         reasonCode = 'INSUFFICIENT_BALANCE';
         reasonMessage = 'Saldo insuficiente na exchange';
-      } else if (errorMessage.includes('RATE_LIMIT_EXCEEDED')) {
+      } else if (errorMessage.includes('RATE_LIMIT_EXCEEDED') || errorMessage.includes('rate limit')) {
         reasonCode = 'RATE_LIMIT_EXCEEDED';
         reasonMessage = 'Rate limit da exchange excedido';
-      } else if (errorMessage.includes('INVALID_SYMBOL')) {
+      } else if (errorMessage.includes('INVALID_SYMBOL') || errorMessage.includes('Símbolo inválido')) {
         reasonCode = 'INVALID_SYMBOL';
         reasonMessage = 'Símbolo inválido ou não suportado';
-      } else if (errorMessage.includes('MIN_NOTIONAL_NOT_MET')) {
+      } else if (errorMessage.includes('MIN_NOTIONAL_NOT_MET') || errorMessage.includes('quantidade mínima')) {
         reasonCode = 'MIN_NOTIONAL_NOT_MET';
         reasonMessage = 'Quantidade abaixo do mínimo permitido pela exchange';
-      } else if (errorMessage.includes('NETWORK_ERROR')) {
+      } else if (errorMessage.includes('NETWORK_ERROR') || errorMessage.includes('timeout') || errorMessage.includes('network')) {
         reasonCode = 'NETWORK_ERROR';
         reasonMessage = 'Erro de rede ou timeout na comunicação com a exchange';
-      } else if (errorMessage.includes('API keys')) {
+      } else if (errorMessage.includes('API keys') || errorMessage.includes('Credenciais')) {
         reasonCode = 'INVALID_API_KEYS';
         reasonMessage = 'Credenciais de API inválidas ou expiradas';
+      } else if (errorMessage.includes('não encontrado') || errorMessage.includes('not found')) {
+        reasonCode = 'RESOURCE_NOT_FOUND';
+        reasonMessage = errorMessage;
       }
 
-      // Update job status to FAILED
+      // Update job status to FAILED (apenas se ainda não foi atualizado)
       try {
-        await this.prisma.tradeJob.update({
+        const currentJob = await this.prisma.tradeJob.findUnique({
           where: { id: tradeJobId },
-          data: {
-            status: TradeJobStatus.FAILED,
-            reason_code: reasonCode,
-            reason_message: reasonMessage,
-          },
+          select: { status: true },
         });
-      } catch (updateError) {
-        this.logger.error(`[EXECUTOR] Erro ao atualizar status do job para FAILED: ${updateError}`);
+
+        // Só atualizar se ainda não foi marcado como FAILED ou SKIPPED
+        if (currentJob && currentJob.status !== TradeJobStatus.FAILED && currentJob.status !== TradeJobStatus.SKIPPED) {
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.FAILED,
+              reason_code: reasonCode,
+              reason_message: reasonMessage,
+            },
+          });
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para FAILED com reason_code: ${reasonCode}`);
+        } else {
+          this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já atualizado (${currentJob?.status}), não atualizando novamente`);
+        }
+      } catch (updateError: any) {
+        this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao atualizar status do job para FAILED: ${updateError?.message}`);
       }
 
       throw error;
