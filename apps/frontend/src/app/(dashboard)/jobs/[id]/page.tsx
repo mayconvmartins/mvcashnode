@@ -396,6 +396,20 @@ export default function JobDetailPage() {
                                     </div>
                                 )}
 
+                                {job.executions && job.executions.length > 0 && (
+                                    <div>
+                                        <label className="text-sm font-medium text-muted-foreground">Order ID (Exchange)</label>
+                                        <div className="mt-1">
+                                            {job.executions.map((execution: any, idx: number) => (
+                                                <div key={execution.id} className="font-mono text-xs">
+                                                    {execution.exchange_order_id || execution.client_order_id || 'N/A'}
+                                                    {job.executions && job.executions.length > 1 && idx < job.executions.length - 1 && ', '}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div>
                                     <label className="text-sm font-medium text-muted-foreground">Conta de Exchange</label>
                                     <div className="mt-1">

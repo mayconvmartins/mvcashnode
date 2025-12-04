@@ -211,6 +211,22 @@ export default function PositionsPage() {
             ),
         },
         {
+            key: 'exchange_account',
+            label: 'Conta',
+            render: (position) => {
+                const account = (position as any).exchange_account;
+                if (account) {
+                    return (
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium">{account.label}</span>
+                            <span className="text-xs text-muted-foreground">{account.exchange}</span>
+                        </div>
+                    );
+                }
+                return <span className="text-sm text-muted-foreground">-</span>;
+            },
+        },
+        {
             key: 'side',
             label: 'Lado',
             render: (position) => (

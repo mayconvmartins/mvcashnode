@@ -229,9 +229,14 @@ export class PositionsController {
         where.status = status.toUpperCase();
       }
 
+      // Sempre aplicar filtro de trade_mode se fornecido
+      // Garantir normalização correta para evitar problemas de case sensitivity
       if (tradeMode) {
-        // Normalizar trade_mode para uppercase para garantir match
-        where.trade_mode = tradeMode.toUpperCase();
+        // Normalizar trade_mode para uppercase e remover espaços
+        const normalizedTradeMode = String(tradeMode).toUpperCase().trim();
+        if (normalizedTradeMode === 'REAL' || normalizedTradeMode === 'SIMULATION') {
+          where.trade_mode = normalizedTradeMode;
+        }
       }
 
       if (exchangeAccountId) {
@@ -286,6 +291,17 @@ export class PositionsController {
               order_type: true,
               status: true,
               created_at: true,
+              executions: {
+                select: {
+                  id: true,
+                  exchange_order_id: true,
+                  client_order_id: true,
+                },
+                take: 1,
+                orderBy: {
+                  created_at: 'desc',
+                },
+              },
             },
           },
           fills: {
@@ -347,9 +363,37 @@ export class PositionsController {
       const total = await this.prisma.tradePosition.count({ where });
 
       // Separar posições abertas e fechadas
+      // Garantir que apenas posições do trade_mode correto sejam incluídas
       const isOpenStatus = status?.toUpperCase() === 'OPEN';
-      const openPositions = isOpenStatus ? positions : positions.filter(p => p.status === 'OPEN');
-      const closedPositions = !isOpenStatus ? positions : positions.filter(p => p.status === 'CLOSED');
+      const normalizedTradeMode = tradeMode ? String(tradeMode).toUpperCase().trim() : null;
+      
+      const openPositions = isOpenStatus 
+        ? positions.filter(p => {
+            if (normalizedTradeMode) {
+              return p.status === 'OPEN' && p.trade_mode === normalizedTradeMode;
+            }
+            return p.status === 'OPEN';
+          })
+        : positions.filter(p => {
+            if (normalizedTradeMode) {
+              return p.status === 'OPEN' && p.trade_mode === normalizedTradeMode;
+            }
+            return p.status === 'OPEN';
+          });
+      
+      const closedPositions = !isOpenStatus 
+        ? positions.filter(p => {
+            if (normalizedTradeMode) {
+              return p.status === 'CLOSED' && p.trade_mode === normalizedTradeMode;
+            }
+            return p.status === 'CLOSED';
+          })
+        : positions.filter(p => {
+            if (normalizedTradeMode) {
+              return p.status === 'CLOSED' && p.trade_mode === normalizedTradeMode;
+            }
+            return p.status === 'CLOSED';
+          });
 
       // Agrupar símbolos únicos por exchange para buscar preços em batch
       const symbolExchangeMap = new Map<string, { symbols: Set<string>; exchange: string }>();
@@ -905,6 +949,17 @@ export class PositionsController {
               base_quantity: true,
               limit_price: true,
               created_at: true,
+              executions: {
+                select: {
+                  id: true,
+                  exchange_order_id: true,
+                  client_order_id: true,
+                },
+                take: 1,
+                orderBy: {
+                  created_at: 'desc',
+                },
+              },
             },
           },
           fills: {
@@ -932,6 +987,17 @@ export class PositionsController {
                       base_quantity: true,
                       limit_price: true,
                       created_at: true,
+                      executions: {
+                        select: {
+                          id: true,
+                          exchange_order_id: true,
+                          client_order_id: true,
+                        },
+                        take: 1,
+                        orderBy: {
+                          created_at: 'desc',
+                        },
+                      },
                     },
                   },
                 },

@@ -761,6 +761,14 @@ export default function PositionDetailPage() {
                                                     <p className="font-medium">{formatAssetAmount(openJob.base_quantity)}</p>
                                                 </div>
                                             )}
+                                            {openJob.executions && openJob.executions.length > 0 && (
+                                                <div>
+                                                    <p className="text-sm text-muted-foreground">Order ID (Exchange)</p>
+                                                    <p className="font-mono text-xs font-medium">
+                                                        {openJob.executions[0].exchange_order_id || openJob.executions[0].client_order_id || 'N/A'}
+                                                    </p>
+                                                </div>
+                                            )}
                                             <div>
                                                 <p className="text-sm text-muted-foreground">Criado em</p>
                                                 <p className="font-medium">{formatDateTime(openJob.created_at)}</p>
@@ -822,6 +830,14 @@ export default function PositionDetailPage() {
                                                         <div>
                                                             <p className="text-sm text-muted-foreground">Quantidade Base</p>
                                                             <p className="font-medium">{formatAssetAmount(sellJob.base_quantity)}</p>
+                                                        </div>
+                                                    )}
+                                                    {sellJob.executions && sellJob.executions.length > 0 && (
+                                                        <div>
+                                                            <p className="text-sm text-muted-foreground">Order ID (Exchange)</p>
+                                                            <p className="font-mono text-xs font-medium">
+                                                                {sellJob.executions[0].exchange_order_id || sellJob.executions[0].client_order_id || 'N/A'}
+                                                            </p>
                                                         </div>
                                                     )}
                                                     <div>
