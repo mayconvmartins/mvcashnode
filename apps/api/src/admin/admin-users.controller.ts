@@ -455,6 +455,60 @@ export class AdminUsersController {
     }
   }
 
+  @Put(':id/change-password')
+  @ApiOperation({ 
+    summary: 'Alterar senha do usuário (Admin)',
+    description: 'Permite ao admin alterar a senha de um usuário e controlar se ele precisa alterar no próximo login.'
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID do usuário', example: 1 })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Senha alterada com sucesso',
+    schema: {
+      example: {
+        message: 'Senha alterada com sucesso'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: 'Usuário não encontrado',
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Dados inválidos',
+  })
+  async changePassword(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { newPassword: string; mustChangePassword?: boolean }
+  ) {
+    try {
+      const user = await this.adminService.getDomainUserService().getUserById(id);
+      
+      if (!user) {
+        throw new NotFoundException('Usuário não encontrado');
+      }
+
+      if (!body.newPassword || body.newPassword.length < 8) {
+        throw new BadRequestException('A senha deve ter pelo menos 8 caracteres');
+      }
+
+      await this.adminService.getDomainUserService().adminChangePassword(
+        id,
+        body.newPassword,
+        body.mustChangePassword ?? false
+      );
+
+      return { message: 'Senha alterada com sucesso' };
+    } catch (error: any) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new BadRequestException(error.message || 'Erro ao alterar senha');
+    }
+  }
+
   @Get(':id/audit-logs')
   @ApiOperation({ summary: 'Logs de auditoria do usuário' })
   @ApiParam({ name: 'id', type: 'number' })

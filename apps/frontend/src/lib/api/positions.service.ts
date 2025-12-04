@@ -62,4 +62,18 @@ export const positionsService = {
         const response = await apiClient.post('/positions/sync-missing')
         return response.data
     },
+
+    bulkUpdateSLTP: async (data: {
+        positionIds: number[]
+        slEnabled?: boolean
+        slPct?: number
+        tpEnabled?: boolean
+        tpPct?: number
+    }): Promise<{
+        updated: number
+        errors: Array<{ positionId: number; error: string }>
+    }> => {
+        const response = await apiClient.post('/positions/bulk-update-sltp', data)
+        return response.data
+    },
 }

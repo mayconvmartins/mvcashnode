@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw } from 'lucide-react'
+import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -11,8 +11,19 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog'
 import { DataTable, type Column } from '@/components/shared/DataTable'
+import { DataTableAdvanced, type Column as ColumnAdvanced } from '@/components/shared/DataTableAdvanced'
 import { PnLBadge } from '@/components/shared/PnLBadge'
 import { SymbolDisplay } from '@/components/shared/SymbolDisplay'
 import { ModeToggle } from '@/components/shared/ModeToggle'
@@ -35,6 +46,12 @@ export default function PositionsPage() {
     const [closedPage, setClosedPage] = useState(1)
     const [filtersOpen, setFiltersOpen] = useState(false)
     const closedLimit = 20
+    const [selectedPositionIds, setSelectedPositionIds] = useState<(string | number)[]>([])
+    const [bulkSLTPDialogOpen, setBulkSLTPDialogOpen] = useState(false)
+    const [bulkSLEnabled, setBulkSLEnabled] = useState(false)
+    const [bulkSLPct, setBulkSLPct] = useState<string>('')
+    const [bulkTPEnabled, setBulkTPEnabled] = useState(false)
+    const [bulkTPPct, setBulkTPPct] = useState<string>('')
 
     // Buscar contas
     const { data: accounts } = useQuery({
@@ -212,7 +229,7 @@ export default function PositionsPage() {
             } else {
                 toast.info('Nenhuma posição faltante encontrada')
             }
-            if (data.errors.length > 0) {
+            if (data.errors && data.errors.length > 0) {
                 toast.warning(`${data.errors.length} erro(s) durante a sincronização`)
             }
         },
@@ -221,7 +238,56 @@ export default function PositionsPage() {
         },
     })
 
-    const columns: Column<Position>[] = [
+    const bulkUpdateSLTPMutation = useMutation({
+        mutationFn: positionsService.bulkUpdateSLTP,
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['positions'] })
+            setBulkSLTPDialogOpen(false)
+            setSelectedPositionIds([])
+            setBulkSLEnabled(false)
+            setBulkSLPct('')
+            setBulkTPEnabled(false)
+            setBulkTPPct('')
+            if (data.updated > 0) {
+                toast.success(`${data.updated} posição(ões) atualizada(s) com sucesso`)
+            }
+            if (data.errors && data.errors.length > 0) {
+                toast.warning(`${data.errors.length} erro(s) durante a atualização`)
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.message || 'Erro ao atualizar TP/SL em massa')
+        },
+    })
+
+    const handleBulkUpdateSLTP = () => {
+        if (selectedPositionIds.length === 0) {
+            toast.error('Selecione pelo menos uma posição')
+            return
+        }
+
+        const updateData: any = {
+            positionIds: selectedPositionIds.map(id => Number(id)),
+        }
+
+        if (bulkSLEnabled && bulkSLPct) {
+            updateData.slEnabled = true
+            updateData.slPct = parseFloat(bulkSLPct)
+        } else if (bulkSLEnabled === false) {
+            updateData.slEnabled = false
+        }
+
+        if (bulkTPEnabled && bulkTPPct) {
+            updateData.tpEnabled = true
+            updateData.tpPct = parseFloat(bulkTPPct)
+        } else if (bulkTPEnabled === false) {
+            updateData.tpEnabled = false
+        }
+
+        bulkUpdateSLTPMutation.mutate(updateData)
+    }
+
+    const columns: (Column<Position> | ColumnAdvanced<Position>)[] = [
         {
             key: 'symbol',
             label: 'Símbolo',
@@ -270,17 +336,7 @@ export default function PositionsPage() {
         },
         {
             key: 'current_price',
-            label: (data) => {
-                // Verificar se há posições fechadas nos dados
-                const hasClosed = data.some((p: Position) => p.status === 'CLOSED')
-                const hasOpen = data.some((p: Position) => p.status === 'OPEN')
-                // Se houver apenas fechadas, mostrar "Preço de Venda"
-                if (hasClosed && !hasOpen) return 'Preço de Venda'
-                // Se houver apenas abertas, mostrar "Preço Atual"
-                if (hasOpen && !hasClosed) return 'Preço Atual'
-                // Se houver ambos, usar label genérico
-                return 'Preço'
-            },
+            label: 'Preço Atual',
             render: (position) => {
                 // Para posições fechadas, mostrar preço de venda executado
                 if (position.status === 'CLOSED') {
@@ -572,17 +628,47 @@ export default function PositionsPage() {
                 <TabsContent value="open">
                     <Card className="glass">
                         <CardHeader>
-                            <CardTitle>
-                                Posições Abertas - {tradeMode}
-                                {selectedSymbol !== 'all' && ` • ${selectedSymbol}`}
-                                {selectedAccount !== 'all' && accounts && ` • ${accounts.find(a => a.id.toString() === selectedAccount)?.label}`}
-                            </CardTitle>
+                            <div className="flex items-center justify-between">
+                                <CardTitle>
+                                    Posições Abertas - {tradeMode}
+                                    {selectedSymbol !== 'all' && ` • ${selectedSymbol}`}
+                                    {selectedAccount !== 'all' && accounts && ` • ${accounts.find(a => a.id.toString() === selectedAccount)?.label}`}
+                                </CardTitle>
+                                {selectedPositionIds.length > 0 && (
+                                    <Button
+                                        onClick={() => setBulkSLTPDialogOpen(true)}
+                                        variant="default"
+                                        size="sm"
+                                    >
+                                        <Settings className="h-4 w-4 mr-2" />
+                                        Definir TP/SL ({selectedPositionIds.length})
+                                    </Button>
+                                )}
+                            </div>
                         </CardHeader>
                         <CardContent>
-                            <DataTable
+                            <DataTableAdvanced
                                 data={openPositions || []}
                                 columns={columns}
                                 loading={loadingOpen}
+                                enableSelection={true}
+                                selectedIds={selectedPositionIds}
+                                onSelectionChange={setSelectedPositionIds}
+                                bulkActions={(selectedIds) => (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm text-muted-foreground">
+                                            {selectedIds.length} selecionada(s)
+                                        </span>
+                                        <Button
+                                            onClick={() => setBulkSLTPDialogOpen(true)}
+                                            variant="default"
+                                            size="sm"
+                                        >
+                                            <Settings className="h-4 w-4 mr-2" />
+                                            Definir TP/SL
+                                        </Button>
+                                    </div>
+                                )}
                                 emptyState={
                                     <div className="text-center py-12">
                                         <p className="text-muted-foreground">
@@ -655,6 +741,97 @@ export default function PositionsPage() {
                     </Card>
                 </TabsContent>
             </Tabs>
+
+            {/* Dialog para definir TP/SL em massa */}
+            <Dialog open={bulkSLTPDialogOpen} onOpenChange={setBulkSLTPDialogOpen}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>Definir TP/SL em Massa</DialogTitle>
+                        <DialogDescription>
+                            Configure Take Profit e Stop Loss para {selectedPositionIds.length} posição(ões) selecionada(s)
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-6 py-4">
+                        {/* Stop Loss */}
+                        <div className="space-y-4">
+                            <div className="flex items-center space-x-2">
+                                <Checkbox
+                                    id="bulk-sl-enabled"
+                                    checked={bulkSLEnabled}
+                                    onCheckedChange={(checked) => setBulkSLEnabled(checked === true)}
+                                />
+                                <Label htmlFor="bulk-sl-enabled" className="font-medium">
+                                    Habilitar Stop Loss
+                                </Label>
+                            </div>
+                            {bulkSLEnabled && (
+                                <div className="space-y-2 pl-6">
+                                    <Label htmlFor="bulk-sl-pct">Stop Loss (%)</Label>
+                                    <Input
+                                        id="bulk-sl-pct"
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        max="100"
+                                        placeholder="Ex: 2.0"
+                                        value={bulkSLPct}
+                                        onChange={(e) => setBulkSLPct(e.target.value)}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Take Profit */}
+                        <div className="space-y-4">
+                            <div className="flex items-center space-x-2">
+                                <Checkbox
+                                    id="bulk-tp-enabled"
+                                    checked={bulkTPEnabled}
+                                    onCheckedChange={(checked) => setBulkTPEnabled(checked === true)}
+                                />
+                                <Label htmlFor="bulk-tp-enabled" className="font-medium">
+                                    Habilitar Take Profit
+                                </Label>
+                            </div>
+                            {bulkTPEnabled && (
+                                <div className="space-y-2 pl-6">
+                                    <Label htmlFor="bulk-tp-pct">Take Profit (%)</Label>
+                                    <Input
+                                        id="bulk-tp-pct"
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        max="100"
+                                        placeholder="Ex: 5.0"
+                                        value={bulkTPPct}
+                                        onChange={(e) => setBulkTPPct(e.target.value)}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setBulkSLTPDialogOpen(false)
+                                setBulkSLEnabled(false)
+                                setBulkSLPct('')
+                                setBulkTPEnabled(false)
+                                setBulkTPPct('')
+                            }}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            onClick={handleBulkUpdateSLTP}
+                            disabled={bulkUpdateSLTPMutation.isPending || (!bulkSLEnabled && !bulkTPEnabled)}
+                        >
+                            {bulkUpdateSLTPMutation.isPending ? 'Atualizando...' : 'Aplicar'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

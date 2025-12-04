@@ -12,6 +12,7 @@ import { ArrowLeft, Shield, ShieldOff, Key, Smartphone, UserCheck, ExternalLink,
 import { formatDateTime } from '@/lib/utils/format'
 import { toast } from 'sonner'
 import { useState } from 'react'
+import { ResetPasswordModal } from '@/components/admin/ResetPasswordModal'
 
 export default function UserDetailPage() {
     const params = useParams()
@@ -208,10 +209,7 @@ export default function UserDetailPage() {
                                     </>
                                 )}
                             </Button>
-                            <Button variant="outline" onClick={() => adminService.resetPassword(userId).then(() => toast.success('Senha resetada!')).catch(() => toast.error('Erro ao resetar senha'))}>
-                                <Key className="mr-2 h-4 w-4" />
-                                Resetar Senha
-                            </Button>
+                            <ResetPasswordButton userId={userId} />
                             {user.profile?.twofa_enabled && (
                                 <Button variant="outline" onClick={() => toast.info('Funcionalidade em desenvolvimento')}>
                                     <Smartphone className="mr-2 h-4 w-4" />
@@ -317,6 +315,25 @@ function UserAuditLogs({ userId }: { userId: number }) {
                 )}
             </CardContent>
         </Card>
+    )
+}
+
+// Componente para botão de alterar senha
+function ResetPasswordButton({ userId }: { userId: number }) {
+    const [modalOpen, setModalOpen] = useState(false)
+
+    return (
+        <>
+            <Button variant="outline" onClick={() => setModalOpen(true)}>
+                <Key className="mr-2 h-4 w-4" />
+                Alterar Senha
+            </Button>
+            <ResetPasswordModal
+                userId={userId}
+                open={modalOpen}
+                onClose={() => setModalOpen(false)}
+            />
+        </>
     )
 }
 

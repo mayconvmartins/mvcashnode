@@ -1798,5 +1798,70 @@ export class PositionsController {
       throw new BadRequestException('Erro ao criar ordem LIMIT de venda');
     }
   }
+
+  @Post('bulk-update-sltp')
+  @ApiOperation({
+    summary: 'Atualizar TP/SL em massa',
+    description: 'Atualiza TP/SL para múltiplas posições de uma vez',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'TP/SL atualizado com sucesso',
+  })
+  async bulkUpdateSLTP(
+    @CurrentUser() user: any,
+    @Body() bulkUpdateDto: { positionIds: number[]; slEnabled?: boolean; slPct?: number; tpEnabled?: boolean; tpPct?: number }
+  ): Promise<{ updated: number; errors: Array<{ positionId: number; error: string }> }> {
+    const errors: Array<{ positionId: number; error: string }> = [];
+    let updated = 0;
+
+    for (const positionId of bulkUpdateDto.positionIds) {
+      try {
+        // Verificar se a posição pertence ao usuário
+        const position = await this.prisma.tradePosition.findUnique({
+          where: { id: positionId },
+          include: { exchange_account: true },
+        });
+
+        if (!position) {
+          errors.push({ positionId, error: 'Posição não encontrada' });
+          continue;
+        }
+
+        if (position.exchange_account.user_id !== user.userId) {
+          errors.push({ positionId, error: 'Sem permissão para atualizar esta posição' });
+          continue;
+        }
+
+        if (position.status !== 'OPEN') {
+          errors.push({ positionId, error: 'Apenas posições abertas podem ter SL/TP atualizados' });
+          continue;
+        }
+
+        await this.positionsService.getDomainService().updateSLTP(
+          positionId,
+          bulkUpdateDto.slEnabled,
+          bulkUpdateDto.slPct,
+          bulkUpdateDto.tpEnabled,
+          bulkUpdateDto.tpPct
+        );
+
+        // Emitir evento WebSocket
+        this.wsService.emitToUser(user.userId, 'position.updated', {
+          id: position.id,
+          symbol: position.symbol,
+        });
+
+        updated++;
+      } catch (error: any) {
+        errors.push({
+          positionId,
+          error: error.message || 'Erro desconhecido',
+        });
+      }
+    }
+
+    return { updated, errors };
+  }
 }
 

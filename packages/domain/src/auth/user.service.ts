@@ -137,6 +137,30 @@ export class UserService {
     });
   }
 
+  async adminChangePassword(
+    userId: number,
+    newPassword: string,
+    mustChangePassword: boolean = false
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const newPasswordHash = await this.authService.hashPassword(newPassword);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        password_hash: newPasswordHash,
+        must_change_password: mustChangePassword,
+      },
+    });
+  }
+
   async activateUser(userId: number): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },

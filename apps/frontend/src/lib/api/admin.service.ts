@@ -95,6 +95,14 @@ export const adminService = {
         return response.data
     },
 
+    changeUserPassword: async (
+        userId: string | number,
+        data: { newPassword: string; mustChangePassword?: boolean }
+    ): Promise<{ message: string }> => {
+        const response = await apiClient.put(`/admin/users/${userId}/change-password`, data)
+        return response.data
+    },
+
     resetUser2FA: async (userId: string | number): Promise<{ message: string }> => {
         const response = await apiClient.post(`/admin/users/${userId}/reset-2fa`)
         return response.data
