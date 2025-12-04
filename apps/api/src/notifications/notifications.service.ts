@@ -293,6 +293,7 @@ export class NotificationsService {
       totalVaultAlerts,
       todayVaultAlerts,
       usersWithConfig,
+      usersWithWhatsApp,
     ] = await Promise.all([
       this.getGlobalConfig(),
       this.prisma.positionAlertSent.count(),
@@ -304,6 +305,16 @@ export class NotificationsService {
         where: { sent_at: { gte: today } },
       }),
       this.prisma.whatsAppNotificationsConfig.count(),
+      // Contar usuários que têm número WhatsApp configurado
+      this.prisma.user.count({
+        where: {
+          profile: {
+            whatsapp_phone: {
+              not: null,
+            },
+          },
+        },
+      }),
     ]);
 
     return {
@@ -323,6 +334,7 @@ export class NotificationsService {
         },
       },
       usersWithConfig,
+      usersWithWhatsApp, // Usuários que têm número WhatsApp mas podem não ter configurado preferências ainda
     };
   }
 }

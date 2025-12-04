@@ -209,7 +209,10 @@ export default function NotificationsConfigPage() {
                     <CardContent>
                         <div className="text-2xl font-bold">{stats?.usersWithConfig || 0}</div>
                         <p className="text-xs text-muted-foreground">
-                            com preferências salvas
+                            {stats?.usersWithWhatsApp 
+                                ? `${stats.usersWithWhatsApp} com WhatsApp configurado`
+                                : 'com preferências salvas'
+                            }
                         </p>
                     </CardContent>
                 </Card>

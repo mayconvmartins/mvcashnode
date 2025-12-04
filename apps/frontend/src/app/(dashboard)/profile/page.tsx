@@ -1,16 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/lib/stores/authStore'
 import { apiClient } from '@/lib/api/client'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { notificationsService } from '@/lib/api/notifications.service'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
-import { User, Mail, Phone, Bell, Shield } from 'lucide-react'
+import { User, Mail, Phone, Bell, Shield, MessageSquare, AlertCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 export default function ProfilePage() {
@@ -28,6 +29,12 @@ export default function ProfilePage() {
         },
     })
 
+    // Query para buscar configuração de notificações WhatsApp
+    const { data: whatsappConfig, isLoading: loadingWhatsAppConfig } = useQuery({
+        queryKey: ['notifications', 'config'],
+        queryFn: () => notificationsService.getUserConfig(),
+    })
+
     // Mutation para atualizar perfil
     const updateMutation = useMutation({
         mutationFn: async (formData: any) => {
@@ -43,6 +50,28 @@ export default function ProfilePage() {
             toast.error('Erro ao atualizar perfil')
         },
     })
+
+    // Mutation para atualizar configuração de notificações WhatsApp
+    const updateWhatsAppConfigMutation = useMutation({
+        mutationFn: (data: Partial<typeof whatsappConfig>) => notificationsService.updateUserConfig(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['notifications', 'config'] })
+            queryClient.invalidateQueries({ queryKey: ['notifications', 'stats'] })
+            toast.success('Preferências de notificação atualizadas!')
+        },
+        onError: (error: any) => {
+            toast.error(error?.response?.data?.message || 'Erro ao atualizar preferências')
+        },
+    })
+
+    const handleWhatsAppConfigChange = (field: keyof typeof whatsappConfig, value: boolean) => {
+        if (!whatsappConfig) return
+        
+        updateWhatsAppConfigMutation.mutate({
+            ...whatsappConfig,
+            [field]: value,
+        })
+    }
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
@@ -193,12 +222,139 @@ export default function ProfilePage() {
                 </CardContent>
             </Card>
 
-            {/* Notification Preferences */}
+            {/* WhatsApp Notification Preferences */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                        <MessageSquare className="h-5 w-5" />
+                        <span>Notificações WhatsApp</span>
+                    </CardTitle>
+                    <CardDescription>
+                        Configure quais notificações você deseja receber via WhatsApp
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {!profile?.whatsapp_phone ? (
+                        <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                            <div className="flex items-start gap-3">
+                                <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                                        Número do WhatsApp não configurado
+                                    </p>
+                                    <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                                        Configure seu número do WhatsApp acima para receber notificações
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="p-3 bg-muted rounded-lg">
+                                <p className="text-sm font-medium">Número configurado:</p>
+                                <p className="text-sm text-muted-foreground font-mono">{profile.whatsapp_phone}</p>
+                            </div>
+
+                            {loadingWhatsAppConfig ? (
+                                <div className="space-y-3">
+                                    <div className="h-12 bg-muted animate-pulse rounded" />
+                                    <div className="h-12 bg-muted animate-pulse rounded" />
+                                    <div className="h-12 bg-muted animate-pulse rounded" />
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                                        <div className="space-y-0.5">
+                                            <Label>Posição Aberta</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Notificar quando uma nova posição for aberta
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={whatsappConfig?.position_opened_enabled ?? true}
+                                            onCheckedChange={(checked) => 
+                                                handleWhatsAppConfigChange('position_opened_enabled', checked)
+                                            }
+                                            disabled={updateWhatsAppConfigMutation.isPending}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                                        <div className="space-y-0.5">
+                                            <Label>Posição Fechada</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Notificar quando uma posição for fechada
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={whatsappConfig?.position_closed_enabled ?? true}
+                                            onCheckedChange={(checked) => 
+                                                handleWhatsAppConfigChange('position_closed_enabled', checked)
+                                            }
+                                            disabled={updateWhatsAppConfigMutation.isPending}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                                        <div className="space-y-0.5">
+                                            <Label>Stop Loss Atingido</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Notificar quando o stop loss for acionado
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={whatsappConfig?.stop_loss_enabled ?? true}
+                                            onCheckedChange={(checked) => 
+                                                handleWhatsAppConfigChange('stop_loss_enabled', checked)
+                                            }
+                                            disabled={updateWhatsAppConfigMutation.isPending}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                                        <div className="space-y-0.5">
+                                            <Label>Take Profit Atingido</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Notificar quando o take profit for acionado
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={whatsappConfig?.take_profit_enabled ?? true}
+                                            onCheckedChange={(checked) => 
+                                                handleWhatsAppConfigChange('take_profit_enabled', checked)
+                                            }
+                                            disabled={updateWhatsAppConfigMutation.isPending}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                                        <div className="space-y-0.5">
+                                            <Label>Alertas de Cofre</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Notificar sobre eventos relacionados a cofres
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={whatsappConfig?.vault_alerts_enabled ?? false}
+                                            onCheckedChange={(checked) => 
+                                                handleWhatsAppConfigChange('vault_alerts_enabled', checked)
+                                            }
+                                            disabled={updateWhatsAppConfigMutation.isPending}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Legacy Notification Preferences */}
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
                         <Bell className="h-5 w-5" />
-                        <span>Preferências de Notificação</span>
+                        <span>Preferências de Notificação (Legado)</span>
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">

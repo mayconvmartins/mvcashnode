@@ -287,7 +287,9 @@ export default function PositionsPage() {
         bulkUpdateSLTPMutation.mutate(updateData)
     }
 
-    const columns: (Column<Position> | ColumnAdvanced<Position>)[] = [
+    // Colunas para DataTableAdvanced (posições abertas com seleção)
+    // DataTableAdvanced só aceita label como string, não como função
+    const openColumns = [
         {
             key: 'symbol',
             label: 'Símbolo',
@@ -337,6 +339,146 @@ export default function PositionsPage() {
         {
             key: 'current_price',
             label: 'Preço Atual',
+            render: (position) => {
+                // Para posições fechadas, mostrar preço de venda executado
+                if (position.status === 'CLOSED') {
+                    return (
+                        <span className="font-mono">
+                            {position.price_close ? formatCurrency(position.price_close) : '-'}
+                        </span>
+                    )
+                }
+                // Para posições abertas, mostrar preço atual
+                return (
+                    <span className="font-mono">
+                        {position.current_price ? formatCurrency(position.current_price) : '-'}
+                    </span>
+                )
+            },
+        },
+        {
+            key: 'invested_value_usd',
+            label: 'Valor Comprado',
+            render: (position) => (
+                <span className="font-mono">
+                    {position.invested_value_usd ? formatCurrency(position.invested_value_usd) : '-'}
+                </span>
+            ),
+        },
+        {
+            key: 'realized_profit_usd',
+            label: 'PnL Realizado',
+            render: (position) => <PnLBadge value={Number(position.realized_profit_usd || 0)} />,
+        },
+        {
+            key: 'unrealized_pnl',
+            label: 'PnL Não Realizado',
+            render: (position) => <PnLBadge value={position.unrealized_pnl || 0} />,
+        },
+        {
+            key: 'sl_tp',
+            label: 'SL/TP',
+            render: (position) => (
+                <div className="flex gap-1">
+                    {position.sl_enabled && <Badge variant="outline">SL</Badge>}
+                    {position.tp_enabled && <Badge variant="outline">TP</Badge>}
+                </div>
+            ),
+        },
+        {
+            key: 'min_profit_pct',
+            label: 'Lucro Mínimo',
+            render: (position) => (
+                position.min_profit_pct !== null && position.min_profit_pct !== undefined ? (
+                    <Badge variant="outline" className="font-mono">
+                        {Number(position.min_profit_pct).toFixed(2)}%
+                    </Badge>
+                ) : (
+                    <span className="text-muted-foreground text-sm">-</span>
+                )
+            ),
+        },
+        {
+            key: 'created_at',
+            label: 'Abertura',
+            render: (position) => (
+                <span className="text-sm text-muted-foreground">{formatDateTime(position.created_at)}</span>
+            ),
+        },
+        {
+            key: 'actions',
+            label: 'Ações',
+            render: (position) => (
+                <Link href={`/positions/${position.id}`}>
+                    <Button variant="ghost" size="sm">
+                        <Eye className="h-4 w-4" />
+                    </Button>
+                </Link>
+            ),
+        },
+    ]
+
+    // Colunas para DataTable normal (posições fechadas)
+    const closedColumns: Column<Position>[] = [
+        {
+            key: 'symbol',
+            label: 'Símbolo',
+            render: (position) => (
+                <SymbolDisplay
+                    exchange={position.exchange_account_id as any}
+                    symbol={position.symbol}
+                    showExchange={false}
+                />
+            ),
+        },
+        {
+            key: 'exchange_account',
+            label: 'Conta',
+            render: (position) => {
+                const account = (position as any).exchange_account;
+                if (account) {
+                    return (
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium">{account.label}</span>
+                            <span className="text-xs text-muted-foreground">{account.exchange}</span>
+                        </div>
+                    );
+                }
+                return <span className="text-sm text-muted-foreground">-</span>;
+            },
+        },
+        {
+            key: 'side',
+            label: 'Lado',
+            render: (position) => (
+                <Badge variant={position.side === 'LONG' ? 'success' : 'destructive'}>
+                    {position.side === 'LONG' ? 'COMPRA' : position.side}
+                </Badge>
+            ),
+        },
+        {
+            key: 'qty_remaining',
+            label: 'Quantidade',
+            render: (position) => <span className="font-mono">{Number(position.qty_remaining || 0).toFixed(4)}</span>,
+        },
+        {
+            key: 'price_open',
+            label: 'Preço Entrada',
+            render: (position) => <span className="font-mono">{formatCurrency(Number(position.price_open || 0))}</span>,
+        },
+        {
+            key: 'current_price',
+            label: (data) => {
+                // Verificar se há posições fechadas nos dados
+                const hasClosed = data.some((p: Position) => p.status === 'CLOSED')
+                const hasOpen = data.some((p: Position) => p.status === 'OPEN')
+                // Se houver apenas fechadas, mostrar "Preço de Venda"
+                if (hasClosed && !hasOpen) return 'Preço de Venda'
+                // Se houver apenas abertas, mostrar "Preço Atual"
+                if (hasOpen && !hasClosed) return 'Preço Atual'
+                // Se houver ambos, usar label genérico
+                return 'Preço'
+            },
             render: (position) => {
                 // Para posições fechadas, mostrar preço de venda executado
                 if (position.status === 'CLOSED') {
@@ -647,9 +789,9 @@ export default function PositionsPage() {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <DataTableAdvanced
+                            <DataTableAdvanced<Position>
                                 data={openPositions || []}
-                                columns={columns}
+                                columns={openColumns as ColumnAdvanced<Position>[]}
                                 loading={loadingOpen}
                                 enableSelection={true}
                                 selectedIds={selectedPositionIds}
@@ -696,7 +838,7 @@ export default function PositionsPage() {
                         <CardContent>
                             <DataTable
                                 data={closedPositions || []}
-                                columns={columns}
+                                columns={closedColumns}
                                 loading={loadingClosed}
                                 emptyState={
                                     <div className="text-center py-12">

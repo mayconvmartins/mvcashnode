@@ -39,6 +39,22 @@ export interface NotificationStats {
         }
     }
     usersWithConfig: number
+    usersWithWhatsApp?: number: {
+        isActive: boolean
+        apiUrl: string
+        instanceName: string
+    }
+    alerts: {
+        position: {
+            total: number
+            today: number
+        }
+        vault: {
+            total: number
+            today: number
+        }
+    }
+    usersWithConfig: number
 }
 
 export interface AlertHistoryItem {
