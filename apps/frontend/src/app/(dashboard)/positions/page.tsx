@@ -37,7 +37,8 @@ import { UserRole } from '@/lib/types'
 import { formatCurrency, formatDateTime } from '@/lib/utils/format'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CreateManualPositionModal } from '@/components/positions/CreateManualPositionModal'
-import { Plus } from 'lucide-react'
+import { ManualBuyModal } from '@/components/positions/ManualBuyModal'
+import { Plus, ShoppingCart } from 'lucide-react'
 
 export default function PositionsPage() {
     const { tradeMode } = useTradeMode()
@@ -58,6 +59,7 @@ export default function PositionsPage() {
     const [bulkTPEnabled, setBulkTPEnabled] = useState(false)
     const [bulkTPPct, setBulkTPPct] = useState<string>('')
     const [createManualModalOpen, setCreateManualModalOpen] = useState(false)
+    const [manualBuyModalOpen, setManualBuyModalOpen] = useState(false)
     const [bulkMinProfitDialogOpen, setBulkMinProfitDialogOpen] = useState(false)
     const [bulkMinProfitPct, setBulkMinProfitPct] = useState<string>('')
     const [bulkMinProfitRemove, setBulkMinProfitRemove] = useState(false)
@@ -630,6 +632,16 @@ export default function PositionsPage() {
                     <p className="text-muted-foreground mt-1">Gerencie suas posições de trading</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    {!isLoadingUser && (
+                        <Button
+                            variant="default"
+                            onClick={() => setManualBuyModalOpen(true)}
+                            className="bg-primary hover:bg-primary/90"
+                        >
+                            <ShoppingCart className="h-4 w-4 mr-2" />
+                            Compra Manual
+                        </Button>
+                    )}
                     {!isLoadingUser && isAdmin && (
                         <Button
                             variant="default"
@@ -1136,6 +1148,12 @@ export default function PositionsPage() {
             <CreateManualPositionModal
                 open={createManualModalOpen}
                 onClose={() => setCreateManualModalOpen(false)}
+            />
+
+            {/* Modal de Compra Manual */}
+            <ManualBuyModal
+                open={manualBuyModalOpen}
+                onClose={() => setManualBuyModalOpen(false)}
             />
         </div>
     )

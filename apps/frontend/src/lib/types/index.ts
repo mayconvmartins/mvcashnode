@@ -410,6 +410,14 @@ export interface CreateManualPositionDto {
     created_at?: string
 }
 
+export interface CreateManualBuyDto {
+    exchange_account_id: number
+    symbol: string
+    quote_amount?: number
+    order_type: 'MARKET' | 'LIMIT'
+    limit_price?: number
+}
+
 export interface UpdateSLTPDto {
     slEnabled?: boolean
     slPct?: number

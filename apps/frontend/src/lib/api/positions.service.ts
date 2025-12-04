@@ -7,6 +7,7 @@ import type {
     SellLimitDto,
     PaginatedResponse,
     PositionSummary,
+    CreateManualBuyDto,
 } from '@/lib/types'
 
 export const positionsService = {
@@ -101,6 +102,24 @@ export const positionsService = {
         created_at?: string
     }): Promise<Position> => {
         const response = await apiClient.post<Position>('/positions/manual', data)
+        return response.data
+    },
+
+    createManualBuy: async (data: CreateManualBuyDto): Promise<{
+        success: boolean
+        trade_job: {
+            id: number
+            symbol: string
+            side: string
+            order_type: string
+            quote_amount?: number
+            limit_price?: number
+            status: string
+            created_at: string
+        }
+        message: string
+    }> => {
+        const response = await apiClient.post('/positions/manual-buy', data)
         return response.data
     },
 }

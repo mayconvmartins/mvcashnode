@@ -25,6 +25,8 @@ import { UpdateSLTPDto } from './dto/update-sltp.dto';
 import { ClosePositionDto } from './dto/close-position.dto';
 import { SellLimitDto } from './dto/sell-limit.dto';
 import { CreateManualPositionDto, CreateManualPositionMethod } from './dto/create-manual-position.dto';
+import { CreateManualBuyDto } from './dto/create-manual-buy.dto';
+import { TradeJobService } from '@mvcashnode/domain';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -2499,6 +2501,120 @@ export class PositionsController {
         throw error;
       }
       throw new BadRequestException(`Erro ao criar posição manual: ${error.message}`);
+    }
+  }
+
+  @Post('manual-buy')
+  @ApiOperation({
+    summary: 'Criar compra manual',
+    description: 'Cria um trade job BUY que será executado na exchange. Usuários podem criar apenas em suas próprias contas, administradores podem criar em qualquer conta.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Trade job criado e enfileirado com sucesso',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dados inválidos ou erro ao criar job',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Usuário não tem permissão para criar compra nesta conta',
+  })
+  async createManualBuy(
+    @CurrentUser() user: any,
+    @Body() createDto: CreateManualBuyDto
+  ): Promise<any> {
+    try {
+      // Verificar se a conta existe
+      const account = await this.prisma.exchangeAccount.findUnique({
+        where: { id: createDto.exchange_account_id },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      if (!account) {
+        throw new BadRequestException('Conta de exchange não encontrada');
+      }
+
+      // Validar acesso: usuário normal só pode criar em suas próprias contas, admin pode criar em qualquer conta
+      const isAdmin = user.roles?.includes(UserRole.ADMIN);
+      if (!isAdmin && account.user_id !== user.userId) {
+        throw new ForbiddenException('Você não tem permissão para criar compra nesta conta');
+      }
+
+      // Validar que a conta está ativa
+      if (!account.is_active) {
+        throw new BadRequestException('A conta de exchange está inativa');
+      }
+
+      // Validar campos baseado no tipo de ordem
+      if (createDto.order_type === 'MARKET' && (!createDto.quote_amount || createDto.quote_amount <= 0)) {
+        throw new BadRequestException('quote_amount é obrigatório e deve ser maior que zero para ordens MARKET');
+      }
+
+      if (createDto.order_type === 'LIMIT') {
+        if (!createDto.limit_price || createDto.limit_price <= 0) {
+          throw new BadRequestException('limit_price é obrigatório e deve ser maior que zero para ordens LIMIT');
+        }
+        if (!createDto.quote_amount || createDto.quote_amount <= 0) {
+          throw new BadRequestException('quote_amount é obrigatório e deve ser maior que zero para ordens LIMIT');
+        }
+      }
+
+      // Determinar trade mode baseado na conta
+      const tradeMode = account.is_simulation ? 'SIMULATION' : 'REAL';
+
+      // Criar trade job usando TradeJobService
+      const tradeJobService = new TradeJobService(this.prisma);
+      const tradeJob = await tradeJobService.createJob({
+        exchangeAccountId: createDto.exchange_account_id,
+        tradeMode: tradeMode as any,
+        symbol: createDto.symbol.toUpperCase().trim(),
+        side: 'BUY',
+        orderType: createDto.order_type,
+        quoteAmount: createDto.quote_amount,
+        limitPrice: createDto.limit_price,
+        skipParameterValidation: true, // Pular validação de parâmetros pois estamos fornecendo quote_amount diretamente
+      });
+
+      // Enfileirar o job para execução
+      await this.tradeJobQueueService.enqueueTradeJob(tradeJob.id);
+
+      // Emitir evento WebSocket
+      this.wsService.emitToUser(user.userId, 'trade-job.created', {
+        id: tradeJob.id,
+        symbol: tradeJob.symbol,
+        side: tradeJob.side,
+        order_type: tradeJob.order_type,
+        status: tradeJob.status,
+      });
+
+      return {
+        success: true,
+        trade_job: {
+          id: tradeJob.id,
+          symbol: tradeJob.symbol,
+          side: tradeJob.side,
+          order_type: tradeJob.order_type,
+          quote_amount: tradeJob.quote_amount?.toNumber(),
+          limit_price: tradeJob.limit_price?.toNumber(),
+          status: tradeJob.status,
+          created_at: tradeJob.created_at,
+        },
+        message: 'Compra manual criada e enfileirada com sucesso',
+      };
+    } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new BadRequestException(`Erro ao criar compra manual: ${error.message}`);
     }
   }
 }
