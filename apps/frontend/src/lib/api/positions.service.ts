@@ -8,6 +8,7 @@ import type {
     PaginatedResponse,
     PositionSummary,
     CreateManualBuyDto,
+    GroupPreview,
 } from '@/lib/types'
 
 export const positionsService = {
@@ -120,6 +121,16 @@ export const positionsService = {
         message: string
     }> => {
         const response = await apiClient.post('/positions/manual-buy', data)
+        return response.data
+    },
+
+    groupPreview: async (positionIds: number[]): Promise<GroupPreview> => {
+        const response = await apiClient.post<GroupPreview>('/positions/group/preview', { positionIds })
+        return response.data
+    },
+
+    groupPositions: async (positionIds: number[]): Promise<Position> => {
+        const response = await apiClient.post<Position>('/positions/group/confirm', { positionIds })
         return response.data
     },
 }

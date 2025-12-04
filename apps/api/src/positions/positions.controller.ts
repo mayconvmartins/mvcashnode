@@ -2660,5 +2660,210 @@ export class PositionsController {
       throw new BadRequestException(`Erro ao criar compra manual: ${error.message}`);
     }
   }
+
+  @Post('group/preview')
+  @ApiOperation({
+    summary: 'Preview de agrupamento de posições',
+    description: 'Retorna preview do agrupamento de posições sem persistir. Mostra como ficará o agrupamento antes de confirmar.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Preview do agrupamento retornado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        positions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number' },
+              symbol: { type: 'string' },
+              qty_total: { type: 'number' },
+              qty_remaining: { type: 'number' },
+              price_open: { type: 'number' },
+              is_grouped: { type: 'boolean' },
+              created_at: { type: 'string' },
+            },
+          },
+        },
+        base_position_id: { type: 'number' },
+        total_qty: { type: 'number' },
+        total_qty_remaining: { type: 'number' },
+        weighted_avg_price: { type: 'number' },
+        total_invested: { type: 'number' },
+        group_started_at: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dados inválidos ou posições não podem ser agrupadas',
+  })
+  async groupPreview(
+    @CurrentUser() user: any,
+    @Body() body: { positionIds: number[] }
+  ): Promise<any> {
+    try {
+      if (!body.positionIds || !Array.isArray(body.positionIds) || body.positionIds.length < 2) {
+        throw new BadRequestException('É necessário fornecer pelo menos 2 IDs de posições');
+      }
+
+      // Verificar se todas as posições pertencem ao usuário
+      const userAccounts = await this.prisma.exchangeAccount.findMany({
+        where: { user_id: user.userId },
+        select: { id: true },
+      });
+
+      const accountIds = userAccounts.map((acc) => acc.id);
+
+      if (accountIds.length === 0) {
+        throw new BadRequestException('Nenhuma conta de exchange encontrada para o usuário');
+      }
+
+      const positions = await this.prisma.tradePosition.findMany({
+        where: {
+          id: { in: body.positionIds },
+          exchange_account_id: { in: accountIds },
+        },
+        include: {
+          exchange_account: {
+            select: {
+              user_id: true,
+            },
+          },
+        },
+      });
+
+      if (positions.length !== body.positionIds.length) {
+        throw new BadRequestException('Uma ou mais posições não foram encontradas ou não pertencem ao usuário');
+      }
+
+      // Verificar se todas pertencem ao mesmo usuário
+      const userIds = new Set(positions.map(p => p.exchange_account.user_id));
+      if (userIds.size > 1 || !userIds.has(user.userId)) {
+        throw new ForbiddenException('Todas as posições devem pertencer ao usuário autenticado');
+      }
+
+      // Calcular preview usando o service do domain
+      const positionService = new PositionService(this.prisma);
+      const preview = await positionService.calculateGroupPreview(body.positionIds);
+
+      return preview;
+    } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new BadRequestException(`Erro ao calcular preview do agrupamento: ${error.message}`);
+    }
+  }
+
+  @Post('group/confirm')
+  @ApiOperation({
+    summary: 'Confirmar agrupamento de posições',
+    description: 'Executa o agrupamento de posições. Todas as posições selecionadas serão agrupadas em uma única posição base.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Posições agrupadas com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number' },
+        symbol: { type: 'string' },
+        qty_total: { type: 'number' },
+        qty_remaining: { type: 'number' },
+        price_open: { type: 'number' },
+        is_grouped: { type: 'boolean' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dados inválidos ou posições não podem ser agrupadas',
+  })
+  async groupConfirm(
+    @CurrentUser() user: any,
+    @Body() body: { positionIds: number[] }
+  ): Promise<any> {
+    try {
+      if (!body.positionIds || !Array.isArray(body.positionIds) || body.positionIds.length < 2) {
+        throw new BadRequestException('É necessário fornecer pelo menos 2 IDs de posições');
+      }
+
+      // Verificar se todas as posições pertencem ao usuário
+      const userAccounts = await this.prisma.exchangeAccount.findMany({
+        where: { user_id: user.userId },
+        select: { id: true },
+      });
+
+      const accountIds = userAccounts.map((acc) => acc.id);
+
+      if (accountIds.length === 0) {
+        throw new BadRequestException('Nenhuma conta de exchange encontrada para o usuário');
+      }
+
+      const positions = await this.prisma.tradePosition.findMany({
+        where: {
+          id: { in: body.positionIds },
+          exchange_account_id: { in: accountIds },
+        },
+        include: {
+          exchange_account: {
+            select: {
+              user_id: true,
+            },
+          },
+        },
+      });
+
+      if (positions.length !== body.positionIds.length) {
+        throw new BadRequestException('Uma ou mais posições não foram encontradas ou não pertencem ao usuário');
+      }
+
+      // Verificar se todas pertencem ao mesmo usuário
+      const userIds = new Set(positions.map(p => p.exchange_account.user_id));
+      if (userIds.size > 1 || !userIds.has(user.userId)) {
+        throw new ForbiddenException('Todas as posições devem pertencer ao usuário autenticado');
+      }
+
+      // Executar agrupamento usando o service do domain
+      const positionService = new PositionService(this.prisma);
+      const groupedPositionId = await positionService.groupPositions(body.positionIds);
+
+      // Buscar posição agrupada resultante
+      const groupedPosition = await this.prisma.tradePosition.findUnique({
+        where: { id: groupedPositionId },
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+              is_simulation: true,
+            },
+          },
+        },
+      });
+
+      if (!groupedPosition) {
+        throw new BadRequestException('Erro ao buscar posição agrupada resultante');
+      }
+
+      // Emitir evento WebSocket
+      this.wsService.emitToUser(user.userId, 'position.updated', {
+        id: groupedPosition.id,
+        symbol: groupedPosition.symbol,
+        is_grouped: groupedPosition.is_grouped,
+      });
+
+      return groupedPosition;
+    } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new BadRequestException(`Erro ao agrupar posições: ${error.message}`);
+    }
+  }
 }
 

@@ -411,6 +411,24 @@ export interface PositionGroupedJob {
     trade_job?: TradeJob
 }
 
+export interface GroupPreview {
+    positions: Array<{
+        id: number
+        symbol: string
+        qty_total: number
+        qty_remaining: number
+        price_open: number
+        is_grouped: boolean
+        created_at: string
+    }>
+    base_position_id: number
+    total_qty: number
+    total_qty_remaining: number
+    weighted_avg_price: number
+    total_invested: number
+    group_started_at: string
+}
+
 export interface CreateManualPositionDto {
     method: 'EXCHANGE_ORDER' | 'MANUAL'
     exchange_account_id: number

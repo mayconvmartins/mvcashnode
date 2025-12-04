@@ -857,6 +857,287 @@ export class PositionService {
     return { positionId, tradeJobId: tradeJob.id, limitPrice, quantity: qtyToSell };
   }
 
+  /**
+   * Valida se as posições podem ser agrupadas
+   * @param positionIds Array de IDs das posições a agrupar
+   * @returns Resultado da validação com posições válidas e erros
+   */
+  async validatePositionsForGrouping(positionIds: number[]): Promise<{ valid: boolean; errors: string[]; positions: any[] }> {
+    const errors: string[] = [];
+    
+    // Validar mínimo de 2 posições
+    if (positionIds.length < 2) {
+      errors.push('É necessário selecionar pelo menos 2 posições para agrupar');
+      return { valid: false, errors, positions: [] };
+    }
+
+    // Buscar todas as posições com seus exchange_accounts
+    const positions = await this.prisma.tradePosition.findMany({
+      where: {
+        id: { in: positionIds },
+      },
+      include: {
+        exchange_account: {
+          select: {
+            id: true,
+            user_id: true,
+          },
+        },
+      },
+    });
+
+    // Verificar se todas as posições foram encontradas
+    if (positions.length !== positionIds.length) {
+      const foundIds = positions.map(p => p.id);
+      const missingIds = positionIds.filter(id => !foundIds.includes(id));
+      errors.push(`Posições não encontradas: ${missingIds.join(', ')}`);
+      return { valid: false, errors, positions: [] };
+    }
+
+    // Validar que todas pertencem ao mesmo usuário
+    const userIds = new Set(positions.map(p => p.exchange_account.user_id));
+    if (userIds.size > 1) {
+      errors.push('Todas as posições devem pertencer ao mesmo usuário');
+    }
+
+    // Validar mesmo exchange_account_id
+    const accountIds = new Set(positions.map(p => p.exchange_account_id));
+    if (accountIds.size > 1) {
+      errors.push('Todas as posições devem pertencer à mesma conta de exchange');
+    }
+
+    // Validar mesmo trade_mode
+    const tradeModes = new Set(positions.map(p => p.trade_mode));
+    if (tradeModes.size > 1) {
+      errors.push('Todas as posições devem ter o mesmo modo de trading (REAL ou SIMULATION)');
+    }
+
+    // Validar mesmo symbol
+    const symbols = new Set(positions.map(p => p.symbol));
+    if (symbols.size > 1) {
+      errors.push('Todas as posições devem ser do mesmo símbolo');
+    }
+
+    // Validar status OPEN
+    const closedPositions = positions.filter(p => p.status !== PositionStatus.OPEN);
+    if (closedPositions.length > 0) {
+      errors.push(`Posições fechadas não podem ser agrupadas: ${closedPositions.map(p => p.id).join(', ')}`);
+    }
+
+    // Validar qty_remaining > 0
+    const zeroQtyPositions = positions.filter(p => p.qty_remaining.toNumber() <= 0);
+    if (zeroQtyPositions.length > 0) {
+      errors.push(`Posições com quantidade restante zero não podem ser agrupadas: ${zeroQtyPositions.map(p => p.id).join(', ')}`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      positions: positions.map(p => ({
+        ...p,
+        qty_total: p.qty_total.toNumber(),
+        qty_remaining: p.qty_remaining.toNumber(),
+        price_open: p.price_open.toNumber(),
+      })),
+    };
+  }
+
+  /**
+   * Calcula preview do agrupamento sem persistir
+   * @param positionIds Array de IDs das posições a agrupar
+   * @returns Preview do agrupamento
+   */
+  async calculateGroupPreview(positionIds: number[]): Promise<any> {
+    // Validar posições
+    const validation = await this.validatePositionsForGrouping(positionIds);
+    if (!validation.valid) {
+      throw new Error(`Validação falhou: ${validation.errors.join('; ')}`);
+    }
+
+    const positions = validation.positions;
+
+    // Identificar posição base
+    // Prioridade: posição já agrupada > posição mais antiga
+    const groupedPositions = positions.filter(p => p.is_grouped);
+    let basePosition: any;
+    
+    if (groupedPositions.length > 0) {
+      // Se houver posições agrupadas, usar a mais antiga entre elas
+      basePosition = groupedPositions.reduce((oldest, current) => {
+        const oldestDate = oldest.group_started_at || oldest.created_at;
+        const currentDate = current.group_started_at || current.created_at;
+        return new Date(oldestDate) < new Date(currentDate) ? oldest : current;
+      });
+    } else {
+      // Se não houver posições agrupadas, usar a mais antiga
+      basePosition = positions.reduce((oldest, current) => {
+        return new Date(oldest.created_at) < new Date(current.created_at) ? oldest : current;
+      });
+    }
+
+    // Calcular totais
+    let totalQty = 0;
+    let totalQtyRemaining = 0;
+    let totalCost = 0;
+    let oldestDate = new Date(basePosition.created_at);
+
+    positions.forEach(position => {
+      totalQty += position.qty_total;
+      totalQtyRemaining += position.qty_remaining;
+      totalCost += position.qty_total * position.price_open;
+      
+      const posDate = position.group_started_at 
+        ? new Date(position.group_started_at) 
+        : new Date(position.created_at);
+      if (posDate < oldestDate) {
+        oldestDate = posDate;
+      }
+    });
+
+    // Calcular custo médio ponderado
+    const weightedAvgPrice = totalQty > 0 ? totalCost / totalQty : 0;
+
+    return {
+      positions: positions.map(p => ({
+        id: p.id,
+        symbol: p.symbol,
+        qty_total: p.qty_total,
+        qty_remaining: p.qty_remaining,
+        price_open: p.price_open,
+        is_grouped: p.is_grouped,
+        created_at: p.created_at,
+      })),
+      base_position_id: basePosition.id,
+      total_qty: totalQty,
+      total_qty_remaining: totalQtyRemaining,
+      weighted_avg_price: weightedAvgPrice,
+      total_invested: totalCost,
+      group_started_at: oldestDate.toISOString(),
+    };
+  }
+
+  /**
+   * Agrupa múltiplas posições em uma única posição
+   * @param positionIds Array de IDs das posições a agrupar
+   * @returns ID da posição agrupada resultante
+   */
+  async groupPositions(positionIds: number[]): Promise<number> {
+    return await this.prisma.$transaction(async (tx) => {
+      // Validar posições novamente (pode ter mudado desde o preview)
+      const validation = await this.validatePositionsForGrouping(positionIds);
+      if (!validation.valid) {
+        throw new Error(`Validação falhou: ${validation.errors.join('; ')}`);
+      }
+
+      // Buscar posições completas com relacionamentos
+      const positions = await tx.tradePosition.findMany({
+        where: {
+          id: { in: positionIds },
+        },
+        include: {
+          exchange_account: {
+            select: {
+              user_id: true,
+            },
+          },
+        },
+      });
+
+      // Identificar posição base
+      const groupedPositions = positions.filter(p => p.is_grouped);
+      let basePosition: any;
+      
+      if (groupedPositions.length > 0) {
+        basePosition = groupedPositions.reduce((oldest, current) => {
+          const oldestDate = oldest.group_started_at || oldest.created_at;
+          const currentDate = current.group_started_at || current.created_at;
+          return new Date(oldestDate) < new Date(currentDate) ? oldest : current;
+        });
+      } else {
+        basePosition = positions.reduce((oldest, current) => {
+          return new Date(oldest.created_at) < new Date(current.created_at) ? oldest : current;
+        });
+      }
+
+      // Calcular novos valores
+      let totalQty = 0;
+      let totalQtyRemaining = 0;
+      let totalCost = 0;
+      let oldestDate = new Date(basePosition.created_at);
+
+      positions.forEach(position => {
+        const qtyTotal = position.qty_total.toNumber();
+        const qtyRemaining = position.qty_remaining.toNumber();
+        const priceOpen = position.price_open.toNumber();
+        
+        totalQty += qtyTotal;
+        totalQtyRemaining += qtyRemaining;
+        totalCost += qtyTotal * priceOpen;
+        
+        const posDate = position.group_started_at 
+          ? new Date(position.group_started_at) 
+          : new Date(position.created_at);
+        if (posDate < oldestDate) {
+          oldestDate = posDate;
+        }
+      });
+
+      const weightedAvgPrice = totalQty > 0 ? totalCost / totalQty : 0;
+
+      // Identificar posições que serão deletadas (todas exceto base)
+      const positionsToDelete = positions.filter(p => p.id !== basePosition.id);
+      const positionsToDeleteIds = positionsToDelete.map(p => p.id);
+
+      // Mover PositionFill das posições agrupadas para a base
+      if (positionsToDeleteIds.length > 0) {
+        await tx.positionFill.updateMany({
+          where: {
+            position_id: { in: positionsToDeleteIds },
+          },
+          data: {
+            position_id: basePosition.id,
+          },
+        });
+      }
+
+      // Criar PositionGroupedJob para cada posição agrupada (exceto base)
+      for (const position of positionsToDelete) {
+        await tx.positionGroupedJob.create({
+          data: {
+            position_id: basePosition.id,
+            trade_job_id: position.trade_job_id_open,
+          },
+        });
+      }
+
+      // Atualizar posição base
+      const updatedPosition = await tx.tradePosition.update({
+        where: { id: basePosition.id },
+        data: {
+          qty_total: totalQty,
+          qty_remaining: totalQtyRemaining,
+          price_open: weightedAvgPrice,
+          is_grouped: true,
+          group_started_at: oldestDate,
+        },
+      });
+
+      // Deletar posições agrupadas
+      if (positionsToDeleteIds.length > 0) {
+        await tx.tradePosition.deleteMany({
+          where: {
+            id: { in: positionsToDeleteIds },
+          },
+        });
+      }
+
+      console.log(`[POSITION-SERVICE] ✅ Posições agrupadas: ${positionsToDeleteIds.length} posição(ões) agrupada(s) na posição base ${basePosition.id}`);
+      console.log(`[POSITION-SERVICE]   - Qty total: ${totalQty}, Qty restante: ${totalQtyRemaining}, Preço médio: ${weightedAvgPrice.toFixed(8)}`);
+
+      return updatedPosition.id;
+    });
+  }
+
   private getCloseReason(origin: string): CloseReason {
     switch (origin) {
       case 'STOP_LOSS':

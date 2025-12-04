@@ -357,7 +357,7 @@ export class TradeParametersController {
         const finalGroupEnabled = groupPositionsEnabled === true || groupPositionsEnabled === 'true';
         const finalInterval = groupPositionsIntervalMinutes !== undefined 
           ? Number(groupPositionsIntervalMinutes) 
-          : (parameter.group_positions_enabled ? parameter.group_positions_interval_minutes?.toNumber() : null);
+          : (parameter.group_positions_enabled ? parameter.group_positions_interval_minutes : null);
         
         if (finalGroupEnabled && (!finalInterval || finalInterval <= 0)) {
           throw new BadRequestException('Intervalo de agrupamento (group_positions_interval_minutes) é obrigatório e deve ser maior que zero quando agrupamento de posições estiver habilitado');
