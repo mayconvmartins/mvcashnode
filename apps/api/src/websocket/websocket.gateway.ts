@@ -49,131 +49,67 @@ export class WebSocketGateway
       return;
     }
 
-    let requestUrl: string | null = null;
-    let token: string | null = null;
-
     try {
-      this.logger.log(`[WebSocket] 🔌 Nova tentativa de conexão. Args recebidos: ${args.length}, Estado: ${client.readyState}`);
-      
-      // Log detalhado dos args
-      this.logger.debug(`[WebSocket] Args detalhados:`, args.map((arg, idx) => ({
-        index: idx,
-        type: typeof arg,
-        keys: arg && typeof arg === 'object' ? Object.keys(arg) : [],
-        value: arg && typeof arg === 'object' ? JSON.stringify(arg).substring(0, 200) : String(arg).substring(0, 200),
-      })));
+      this.logger.log(`[WebSocket] 🔌 Nova tentativa de conexão. Estado: ${client.readyState}`);
 
-      // Extrair URL do request - WsAdapter pode passar de diferentes formas
-      // Com ws nativo, o request geralmente vem como IncomingMessage
+      // Simplificar extração de URL: usar args[0] diretamente como IncomingMessage
       const request = args[0] as any;
       
       if (!request) {
         this.logger.error('[WebSocket] ❌ Request não encontrado nos args');
-        // Tentar usar a URL diretamente do WebSocket se disponível
-        if ((client as any).url) {
-          requestUrl = (client as any).url;
-          this.logger.log(`[WebSocket] URL encontrada em client.url: ${requestUrl}`);
-        } else {
-          // Não fechar imediatamente - pode ser que o request venha depois
-          setTimeout(() => {
-            if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
-              client.close(1008, 'Invalid connection request');
-            }
-          }, 100);
-          return;
+        if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+          client.close(1008, 'Invalid connection request');
         }
-      }
-
-      // Tentar diferentes formatos de extração da URL
-      // WsAdapter com ws nativo pode passar o request de diferentes formas
-      if (!requestUrl && request) {
-        if (request.url) {
-          requestUrl = request.url;
-          this.logger.debug(`[WebSocket] URL encontrada em request.url: ${requestUrl}`);
-        } else if (request.headers && request.headers.url) {
-          requestUrl = request.headers.url;
-          this.logger.debug(`[WebSocket] URL encontrada em request.headers.url: ${requestUrl}`);
-        } else if (typeof request === 'string') {
-          requestUrl = request;
-          this.logger.debug(`[WebSocket] URL encontrada como string: ${requestUrl}`);
-        } else if (request._req && request._req.url) {
-          requestUrl = request._req.url;
-          this.logger.debug(`[WebSocket] URL encontrada em request._req.url: ${requestUrl}`);
-        } else if (request.socket && request.socket._httpMessage && request.socket._httpMessage.url) {
-          requestUrl = request.socket._httpMessage.url;
-          this.logger.debug(`[WebSocket] URL encontrada em request.socket._httpMessage.url: ${requestUrl}`);
-        } else if (args.length > 1 && typeof args[1] === 'string') {
-          requestUrl = args[1];
-          this.logger.debug(`[WebSocket] URL encontrada em args[1]: ${requestUrl}`);
-        }
-      }
-
-      // Última tentativa: verificar se a URL está no próprio WebSocket
-      if (!requestUrl && (client as any).url) {
-        requestUrl = (client as any).url;
-        this.logger.debug(`[WebSocket] URL encontrada em client.url: ${requestUrl}`);
-      }
-
-      if (!requestUrl) {
-        this.logger.error('[WebSocket] ❌ Não foi possível extrair URL do request', {
-          requestKeys: request ? Object.keys(request) : [],
-          requestType: typeof request,
-          argsLength: args.length,
-          argsTypes: args.map(a => typeof a),
-        });
-        // Tentar aguardar um pouco antes de fechar - pode ser que a URL venha depois
-        setTimeout(() => {
-          if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
-            client.close(1008, 'Invalid connection request - URL not found');
-          }
-        }, 200);
         return;
       }
 
-      this.logger.log(`[WebSocket] 📍 URL extraída: ${requestUrl.substring(0, 200)}`);
+      // Extrair URL diretamente do request.url (forma padrão do WsAdapter)
+      const requestUrl = request.url;
+      
+      if (!requestUrl) {
+        this.logger.error('[WebSocket] ❌ URL não encontrada no request', {
+          requestKeys: request ? Object.keys(request) : [],
+          requestType: typeof request,
+        });
+        if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+          client.close(1008, 'Invalid connection request - URL not found');
+        }
+        return;
+      }
+
+      this.logger.log(`[WebSocket] 📍 URL extraída: ${requestUrl}`);
 
       // Log dos headers se disponíveis
       if (request.headers) {
         this.logger.debug(`[WebSocket] 📋 Headers recebidos:`, {
           origin: request.headers.origin,
           'user-agent': request.headers['user-agent'],
-          'sec-websocket-protocol': request.headers['sec-websocket-protocol'],
-          'sec-websocket-key': request.headers['sec-websocket-key'] ? 'presente' : 'ausente',
         });
       }
 
-      // Extrair token da query string
+      // Extrair token da query string de forma direta usando URLSearchParams
       let url: URL;
       try {
-        // Tentar criar URL com base absoluta ou relativa
-        if (requestUrl.startsWith('http://') || requestUrl.startsWith('https://') || requestUrl.startsWith('ws://') || requestUrl.startsWith('wss://')) {
-          url = new URL(requestUrl);
-        } else {
-          // URL relativa, usar base localhost
-          url = new URL(requestUrl, 'http://localhost');
-        }
+        // URL relativa, usar base localhost para parsing
+        url = new URL(requestUrl, 'http://localhost');
       } catch (urlError) {
         this.logger.error(`[WebSocket] Erro ao parsear URL: ${requestUrl}`, urlError);
-        client.close(1008, 'Invalid URL format');
+        if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+          client.close(1008, 'Invalid URL format');
+        }
         return;
       }
 
-      token = url.searchParams.get('token');
+      const token = url.searchParams.get('token');
       this.logger.log(`[WebSocket] 🔑 Token extraído: ${token ? 'presente (' + token.substring(0, 20) + '...)' : 'ausente'}`);
 
       if (!token) {
         this.logger.warn('[WebSocket] ⚠️ Conexão rejeitada: token não fornecido na query string', {
-          url: requestUrl.substring(0, 200),
+          url: requestUrl,
           searchParams: url.search,
-          pathname: url.pathname,
         });
-        // Fechar com código 1008 (Policy Violation) e mensagem clara
-        try {
-          if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
-            client.close(1008, 'Authentication required: token missing in query string');
-          }
-        } catch (closeError) {
-          this.logger.error('[WebSocket] Erro ao fechar conexão sem token:', closeError);
+        if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+          client.close(1008, 'Authentication required: token missing in query string');
         }
         return;
       }
@@ -182,7 +118,9 @@ export class WebSocketGateway
       const jwtSecret = this.configService.get<string>('JWT_SECRET');
       if (!jwtSecret) {
         this.logger.error('[WebSocket] JWT_SECRET não configurado');
-        client.close(1011, 'Server configuration error');
+        if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+          client.close(1011, 'Server configuration error');
+        }
         return;
       }
 
@@ -193,7 +131,9 @@ export class WebSocketGateway
         this.logger.debug(`[WebSocket] Token válido para userId: ${payload.userId}`);
       } catch (error) {
         this.logger.warn('[WebSocket] Conexão rejeitada: token inválido', error);
-        client.close(1008, 'Invalid token');
+        if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+          client.close(1008, 'Invalid token');
+        }
         return;
       }
 
@@ -217,24 +157,16 @@ export class WebSocketGateway
 
       if (!user) {
         this.logger.warn(`[WebSocket] Conexão rejeitada: usuário ${payload.userId} não encontrado`);
-        try {
-          if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
-            client.close(1008, 'User not found');
-          }
-        } catch (closeError) {
-          this.logger.error('[WebSocket] Erro ao fechar conexão (user not found):', closeError);
+        if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+          client.close(1008, 'User not found');
         }
         return;
       }
 
       if (!user.is_active) {
         this.logger.warn(`[WebSocket] Conexão rejeitada: usuário ${payload.userId} inativo`);
-        try {
-          if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
-            client.close(1008, 'User inactive');
-          }
-        } catch (closeError) {
-          this.logger.error('[WebSocket] Erro ao fechar conexão (user inactive):', closeError);
+        if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+          client.close(1008, 'User inactive');
         }
         return;
       }

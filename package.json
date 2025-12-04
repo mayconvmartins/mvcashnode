@@ -24,7 +24,11 @@
     "build:errors": "node scripts/check-all-errors.js",
     "db:generate": "node scripts/prisma-helper.js pnpm prisma generate",
     "db:migrate": "node scripts/prisma-helper.js pnpm prisma migrate dev",
+    "db:migrate:create": "node scripts/prisma-helper.js pnpm prisma migrate dev --create-only",
     "db:migrate:deploy": "node scripts/prisma-helper.js pnpm prisma migrate deploy",
+    "db:migrate:resolve": "node scripts/prisma-helper.js pnpm prisma migrate resolve",
+    "db:migrate:safe": "node scripts/prisma-helper.js pnpm prisma migrate dev --create-only",
+    "db:migrate:apply-email": "node -e \"const {execSync} = require('child_process'); const fs = require('fs'); const sql = fs.readFileSync('scripts/apply-email-migration.sql', 'utf8'); console.log('Execute este SQL manualmente no seu banco MySQL:'); console.log(sql);\"",
     "db:studio": "node scripts/prisma-helper.js pnpm prisma studio",
     "db:seed": "node scripts/seed-helper.js",
     "clean": "pnpm -r clean && rm -rf node_modules"

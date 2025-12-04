@@ -23,14 +23,28 @@ if (fs.existsSync(envPath)) {
 }
 
 // Get command from args
-const command = process.argv.slice(2).join(' ');
+const args = process.argv.slice(2);
+const command = args.join(' ');
+
+// Check if NODE_ENV is production or if --skip-reset flag is provided
+const isProduction = process.env.NODE_ENV === 'production';
+const skipReset = args.includes('--skip-reset') || args.includes('--create-only');
+
+// For migrate dev commands, warn about potential database reset
+if (command.includes('prisma migrate dev') && !skipReset && !isProduction) {
+  console.log('\n⚠️  ATENÇÃO: Este comando pode resetar o banco se houver drift.');
+  console.log('   Para evitar reset, use: pnpm db:migrate:create --name <nome>');
+  console.log('   Ou em produção: pnpm db:migrate:deploy\n');
+}
+
+let finalCommand = command;
 
 // Change to packages/db directory
 process.chdir(path.resolve(__dirname, '..', 'packages', 'db'));
 
 // Execute command
 try {
-  execSync(command, { stdio: 'inherit', env: process.env });
+  execSync(finalCommand, { stdio: 'inherit', env: process.env });
 } catch (error) {
   process.exit(error.status || 1);
 }
