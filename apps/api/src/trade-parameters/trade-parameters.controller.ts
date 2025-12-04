@@ -275,7 +275,7 @@ export class TradeParametersController {
         defaultTpPct: createDto.takeProfitPercent || createDto.takeProfit,
         trailingStopEnabled: createDto.trailingStop || false,
         trailingDistancePct: createDto.trailingDistancePct,
-        minProfitPct: createDto.minProfitPct,
+        minProfitPct: createDto.minProfitPct ?? createDto.min_profit_pct,
         vaultId: createDto.vaultId ? Number(createDto.vaultId) : undefined,
       };
 

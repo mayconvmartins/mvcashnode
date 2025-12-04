@@ -69,6 +69,7 @@ export default function ParametersPage() {
                 default_tp_pct: toNumber(param.default_tp_pct),
                 trailing_stop_enabled: param.trailing_stop_enabled,
                 trailing_distance_pct: toNumber(param.trailing_distance_pct),
+                min_profit_pct: toNumber(param.min_profit_pct),
                 vault_id: param.vault_id ?? undefined,
             }
             
