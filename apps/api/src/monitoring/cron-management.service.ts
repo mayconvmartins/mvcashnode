@@ -19,6 +19,7 @@ export class CronManagementService implements OnModuleInit {
     @InjectQueue('limit-orders-monitor-sim') private limitOrdersSimQueue: Queue,
     @InjectQueue('balances-sync-real') private balancesSyncQueue: Queue,
     @InjectQueue('system-monitor') private systemMonitorQueue: Queue,
+    @InjectQueue('positions-sync-missing') private positionsSyncMissingQueue: Queue,
   ) {}
 
   /**
@@ -32,6 +33,7 @@ export class CronManagementService implements OnModuleInit {
       'limit-orders-monitor-sim': this.limitOrdersSimQueue,
       'balances-sync-real': this.balancesSyncQueue,
       'system-monitor': this.systemMonitorQueue,
+      'positions-sync-missing': this.positionsSyncMissingQueue,
     };
   }
 
@@ -47,6 +49,7 @@ export class CronManagementService implements OnModuleInit {
       'limit-orders-monitor-sim': 'monitor-limit-orders',
       'balances-sync-real': 'sync-balances',
       'system-monitor': 'monitor-system',
+      'positions-sync-missing': 'sync-missing-positions',
     };
     return nameMap[jobName] || null;
   }
@@ -97,6 +100,13 @@ export class CronManagementService implements OnModuleInit {
         queue_name: 'system-monitor',
         job_id: 'system-monitor-repeat',
         interval_ms: 30000,
+      },
+      {
+        name: 'positions-sync-missing',
+        description: 'Sincronização de posições faltantes',
+        queue_name: 'positions-sync-missing',
+        job_id: 'positions-sync-missing-repeat',
+        interval_ms: 300000,
       },
     ];
 
