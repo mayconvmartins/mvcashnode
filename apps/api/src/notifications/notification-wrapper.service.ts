@@ -78,7 +78,7 @@ export class NotificationWrapperService {
       throw new Error('NotificationService não disponível. Verifique a configuração do WhatsApp.');
     }
     // Não capturar erro aqui - deixar propagar para que o controller saiba que falhou
-    await service.sendWebhookAlert(webhookEvent, source, jobsCreated, jobIds);
+    await service.sendWebhookAlert(webhookEvent, source, jobsCreated);
   }
 
   /**
