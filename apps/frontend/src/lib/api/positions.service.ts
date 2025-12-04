@@ -77,6 +77,17 @@ export const positionsService = {
         return response.data
     },
 
+    bulkUpdateMinProfit: async (data: {
+        positionIds: number[]
+        minProfitPct?: number | null
+    }): Promise<{
+        updated: number
+        errors: Array<{ positionId: number; error: string }>
+    }> => {
+        const response = await apiClient.post('/positions/bulk-update-min-profit', data)
+        return response.data
+    },
+
     createManual: async (data: {
         method: 'EXCHANGE_ORDER' | 'MANUAL'
         exchange_account_id: number

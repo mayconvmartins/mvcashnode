@@ -21,26 +21,97 @@ export class PositionService {
       throw new Error('Invalid buy job');
     }
 
-    // Buscar parâmetro de trading para copiar min_profit_pct
+    // Buscar parâmetros de trading para copiar configurações
     let minProfitPct: number | null = null;
+    let slEnabled: boolean = false;
+    let slPct: number | null = null;
+    let tpEnabled: boolean = false;
+    let tpPct: number | null = null;
+
     try {
-      const parameter = await this.prisma.tradeParameter.findFirst({
+      // Buscar primeiro parâmetro BOTH (tem todas as configurações)
+      let parameter = await this.prisma.tradeParameter.findFirst({
         where: {
           exchange_account_id: job.exchange_account_id,
           symbol: job.symbol,
-          side: { in: ['SELL', 'BOTH'] },
+          side: 'BOTH',
         },
       });
 
-      if (parameter && parameter.min_profit_pct) {
-        minProfitPct = parameter.min_profit_pct.toNumber();
-        console.log(`[POSITION-SERVICE] Copiando min_profit_pct=${minProfitPct}% dos parâmetros para posição`);
+      // Se não encontrou BOTH, buscar separadamente
+      if (!parameter) {
+        // Buscar parâmetro para SELL (para min_profit_pct)
+        const sellParameter = await this.prisma.tradeParameter.findFirst({
+          where: {
+            exchange_account_id: job.exchange_account_id,
+            symbol: job.symbol,
+            side: 'SELL',
+          },
+        });
+
+        // Buscar parâmetro para BUY (para TP/SL)
+        const buyParameter = await this.prisma.tradeParameter.findFirst({
+          where: {
+            exchange_account_id: job.exchange_account_id,
+            symbol: job.symbol,
+            side: 'BUY',
+          },
+        });
+
+        // Usar buyParameter como base (ou sellParameter se buyParameter não existir)
+        parameter = buyParameter || sellParameter;
+
+        // Copiar min_profit_pct do parâmetro de SELL se existir
+        if (sellParameter && sellParameter.min_profit_pct) {
+          minProfitPct = sellParameter.min_profit_pct.toNumber();
+          console.log(`[POSITION-SERVICE] Copiando min_profit_pct=${minProfitPct}% do parâmetro SELL para posição`);
+        }
+
+        // Copiar TP/SL do parâmetro de BUY se existir
+        if (buyParameter) {
+          if (buyParameter.default_sl_enabled !== undefined) {
+            slEnabled = buyParameter.default_sl_enabled;
+          }
+          if (buyParameter.default_sl_pct) {
+            slPct = buyParameter.default_sl_pct.toNumber();
+          }
+          if (buyParameter.default_tp_enabled !== undefined) {
+            tpEnabled = buyParameter.default_tp_enabled;
+          }
+          if (buyParameter.default_tp_pct) {
+            tpPct = buyParameter.default_tp_pct.toNumber();
+          }
+        }
       } else {
-        console.log(`[POSITION-SERVICE] Parâmetro não encontrado ou sem min_profit_pct, deixando como null`);
+        // Parâmetro BOTH encontrado - copiar todas as configurações
+        if (parameter.min_profit_pct) {
+          minProfitPct = parameter.min_profit_pct.toNumber();
+          console.log(`[POSITION-SERVICE] Copiando min_profit_pct=${minProfitPct}% do parâmetro BOTH para posição`);
+        }
+        if (parameter.default_sl_enabled !== undefined) {
+          slEnabled = parameter.default_sl_enabled;
+        }
+        if (parameter.default_sl_pct) {
+          slPct = parameter.default_sl_pct.toNumber();
+        }
+        if (parameter.default_tp_enabled !== undefined) {
+          tpEnabled = parameter.default_tp_enabled;
+        }
+        if (parameter.default_tp_pct) {
+          tpPct = parameter.default_tp_pct.toNumber();
+        }
+      }
+
+      if (parameter) {
+        if (slEnabled || tpEnabled) {
+          console.log(`[POSITION-SERVICE] Copiando TP/SL dos parâmetros: SL=${slEnabled ? `${slPct}%` : 'desabilitado'}, TP=${tpEnabled ? `${tpPct}%` : 'desabilitado'}`);
+        }
+      } else {
+        console.log(`[POSITION-SERVICE] Parâmetro não encontrado, deixando valores padrão`);
       }
     } catch (error: any) {
-      console.warn(`[POSITION-SERVICE] Erro ao buscar parâmetro para copiar min_profit_pct: ${error.message}`);
-      // Continuar sem min_profit_pct se houver erro
+      console.warn(`[POSITION-SERVICE] Erro ao buscar parâmetro para copiar configurações: ${error.message}`);
+      // Continuar com valores padrão se houver erro
     }
 
     // Create new position
@@ -56,6 +127,10 @@ export class PositionService {
         price_open: avgPrice,
         status: PositionStatus.OPEN,
         min_profit_pct: minProfitPct,
+        sl_enabled: slEnabled,
+        sl_pct: slPct,
+        tp_enabled: tpEnabled,
+        tp_pct: tpPct,
       },
     });
 

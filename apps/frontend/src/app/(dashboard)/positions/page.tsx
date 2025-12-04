@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw, Settings } from 'lucide-react'
+import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw, Settings, Target } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -58,19 +58,15 @@ export default function PositionsPage() {
     const [bulkTPEnabled, setBulkTPEnabled] = useState(false)
     const [bulkTPPct, setBulkTPPct] = useState<string>('')
     const [createManualModalOpen, setCreateManualModalOpen] = useState(false)
+    const [bulkMinProfitDialogOpen, setBulkMinProfitDialogOpen] = useState(false)
+    const [bulkMinProfitPct, setBulkMinProfitPct] = useState<string>('')
+    const [bulkMinProfitRemove, setBulkMinProfitRemove] = useState(false)
 
     // Verificar se o usuário é admin (usando a mesma lógica dos outros componentes)
     const isAdmin = user?.roles?.some((role: any) => {
         const roleValue = typeof role === 'object' && role !== null ? role.role : role
         return roleValue === 'admin' || roleValue === 'ADMIN' || roleValue === UserRole.ADMIN || roleValue?.toLowerCase?.() === 'admin'
     }) || false
-
-    // Debug temporário - remover depois
-    if (typeof window !== 'undefined') {
-        console.log('[PositionsPage] User:', user)
-        console.log('[PositionsPage] IsAdmin:', isAdmin)
-        console.log('[PositionsPage] User roles:', user?.roles)
-    }
 
     // Buscar contas
     const { data: accounts } = useQuery({
@@ -304,6 +300,53 @@ export default function PositionsPage() {
         }
 
         bulkUpdateSLTPMutation.mutate(updateData)
+    }
+
+    const bulkUpdateMinProfitMutation = useMutation({
+        mutationFn: positionsService.bulkUpdateMinProfit,
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['positions'] })
+            setBulkMinProfitDialogOpen(false)
+            setSelectedPositionIds([])
+            setBulkMinProfitPct('')
+            setBulkMinProfitRemove(false)
+            if (data.updated > 0) {
+                toast.success(`${data.updated} posição(ões) atualizada(s) com sucesso`)
+            }
+            if (data.errors && data.errors.length > 0) {
+                toast.warning(`${data.errors.length} erro(s) durante a atualização`)
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.message || 'Erro ao atualizar lucro mínimo em massa')
+        },
+    })
+
+    const handleBulkUpdateMinProfit = () => {
+        if (selectedPositionIds.length === 0) {
+            toast.error('Selecione pelo menos uma posição')
+            return
+        }
+
+        const updateData: any = {
+            positionIds: selectedPositionIds.map(id => Number(id)),
+        }
+
+        if (bulkMinProfitRemove) {
+            updateData.minProfitPct = null
+        } else if (bulkMinProfitPct) {
+            const pct = parseFloat(bulkMinProfitPct)
+            if (isNaN(pct) || pct <= 0) {
+                toast.error('Lucro mínimo deve ser maior que zero')
+                return
+            }
+            updateData.minProfitPct = pct
+        } else {
+            toast.error('Defina um valor de lucro mínimo ou marque para remover')
+            return
+        }
+
+        bulkUpdateMinProfitMutation.mutate(updateData)
     }
 
     // Colunas para DataTableAdvanced (posições abertas com seleção)
@@ -806,14 +849,24 @@ export default function PositionsPage() {
                                     {selectedAccount !== 'all' && accounts && ` • ${accounts.find(a => a.id.toString() === selectedAccount)?.label}`}
                                 </CardTitle>
                                 {selectedPositionIds.length > 0 && (
-                                    <Button
-                                        onClick={() => setBulkSLTPDialogOpen(true)}
-                                        variant="default"
-                                        size="sm"
-                                    >
-                                        <Settings className="h-4 w-4 mr-2" />
-                                        Definir TP/SL ({selectedPositionIds.length})
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            onClick={() => setBulkSLTPDialogOpen(true)}
+                                            variant="default"
+                                            size="sm"
+                                        >
+                                            <Settings className="h-4 w-4 mr-2" />
+                                            Definir TP/SL ({selectedPositionIds.length})
+                                        </Button>
+                                        <Button
+                                            onClick={() => setBulkMinProfitDialogOpen(true)}
+                                            variant="default"
+                                            size="sm"
+                                        >
+                                            <Target className="h-4 w-4 mr-2" />
+                                            Definir Lucro Mínimo ({selectedPositionIds.length})
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
                         </CardHeader>
@@ -837,6 +890,14 @@ export default function PositionsPage() {
                                         >
                                             <Settings className="h-4 w-4 mr-2" />
                                             Definir TP/SL
+                                        </Button>
+                                        <Button
+                                            onClick={() => setBulkMinProfitDialogOpen(true)}
+                                            variant="default"
+                                            size="sm"
+                                        >
+                                            <Target className="h-4 w-4 mr-2" />
+                                            Definir Lucro Mínimo
                                         </Button>
                                     </div>
                                 )}
@@ -999,6 +1060,73 @@ export default function PositionsPage() {
                             disabled={bulkUpdateSLTPMutation.isPending || (!bulkSLEnabled && !bulkTPEnabled)}
                         >
                             {bulkUpdateSLTPMutation.isPending ? 'Atualizando...' : 'Aplicar'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Dialog para definir Lucro Mínimo em massa */}
+            <Dialog open={bulkMinProfitDialogOpen} onOpenChange={setBulkMinProfitDialogOpen}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>Definir Lucro Mínimo em Massa</DialogTitle>
+                        <DialogDescription>
+                            Configure o lucro mínimo para {selectedPositionIds.length} posição(ões) selecionada(s)
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-6 py-4">
+                        <div className="space-y-4">
+                            <div className="flex items-center space-x-2">
+                                <Checkbox
+                                    id="bulk-min-profit-remove"
+                                    checked={bulkMinProfitRemove}
+                                    onCheckedChange={(checked) => {
+                                        setBulkMinProfitRemove(checked === true)
+                                        if (checked) {
+                                            setBulkMinProfitPct('')
+                                        }
+                                    }}
+                                />
+                                <Label htmlFor="bulk-min-profit-remove" className="font-medium">
+                                    Remover lucro mínimo (definir como null)
+                                </Label>
+                            </div>
+                            {!bulkMinProfitRemove && (
+                                <div className="space-y-2 pl-6">
+                                    <Label htmlFor="bulk-min-profit-pct">Lucro Mínimo (%) *</Label>
+                                    <Input
+                                        id="bulk-min-profit-pct"
+                                        type="number"
+                                        step="0.1"
+                                        min="0.01"
+                                        max="100"
+                                        placeholder="Ex: 2.5"
+                                        value={bulkMinProfitPct}
+                                        onChange={(e) => setBulkMinProfitPct(e.target.value)}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        O lucro mínimo impede vendas abaixo deste percentual de lucro
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setBulkMinProfitDialogOpen(false)
+                                setBulkMinProfitPct('')
+                                setBulkMinProfitRemove(false)
+                            }}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            onClick={handleBulkUpdateMinProfit}
+                            disabled={bulkUpdateMinProfitMutation.isPending || (!bulkMinProfitRemove && !bulkMinProfitPct)}
+                        >
+                            {bulkUpdateMinProfitMutation.isPending ? 'Atualizando...' : 'Aplicar'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

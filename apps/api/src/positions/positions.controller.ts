@@ -1545,9 +1545,7 @@ export class PositionsController {
             },
           },
           fills: {
-            where: {
-              side: 'SELL', // Apenas fills de venda para obter preço de fechamento
-            },
+            // Buscar todos os fills (BUY e SELL) para exibir na página de detalhes
             orderBy: {
               created_at: 'desc',
             },
@@ -1668,8 +1666,20 @@ export class PositionsController {
         }
       }
 
+      // Mapear fills para o formato esperado pelo frontend
+      const fills = position.fills ? position.fills.map((fill: any) => ({
+        id: fill.id,
+        position_id: fill.position_id,
+        trade_execution_id: fill.trade_execution_id,
+        side: fill.side,
+        qty: fill.qty.toNumber(),
+        price: fill.price.toNumber(),
+        created_at: fill.created_at,
+      })) : [];
+
       return {
         ...position,
+        fills: fills,
         current_price: currentPrice,
         price_close: priceClose,
         invested_value_usd: investedValueUsd,
@@ -2129,6 +2139,80 @@ export class PositionsController {
           bulkUpdateDto.tpEnabled,
           bulkUpdateDto.tpPct
         );
+
+        // Emitir evento WebSocket
+        this.wsService.emitToUser(user.userId, 'position.updated', {
+          id: position.id,
+          symbol: position.symbol,
+        });
+
+        updated++;
+      } catch (error: any) {
+        errors.push({
+          positionId,
+          error: error.message || 'Erro desconhecido',
+        });
+      }
+    }
+
+    return { updated, errors };
+  }
+
+  @Post('bulk-update-min-profit')
+  @ApiOperation({
+    summary: 'Atualizar lucro mínimo em massa',
+    description: 'Atualiza min_profit_pct para múltiplas posições de uma vez',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lucro mínimo atualizado com sucesso',
+  })
+  async bulkUpdateMinProfit(
+    @CurrentUser() user: any,
+    @Body() bulkUpdateDto: { positionIds: number[]; minProfitPct?: number | null }
+  ): Promise<{ updated: number; errors: Array<{ positionId: number; error: string }> }> {
+    const errors: Array<{ positionId: number; error: string }> = [];
+    let updated = 0;
+
+    // Validar minProfitPct se fornecido
+    if (bulkUpdateDto.minProfitPct !== undefined && bulkUpdateDto.minProfitPct !== null) {
+      if (bulkUpdateDto.minProfitPct <= 0) {
+        throw new BadRequestException('min_profit_pct deve ser maior que zero');
+      }
+    }
+
+    for (const positionId of bulkUpdateDto.positionIds) {
+      try {
+        // Verificar se a posição pertence ao usuário
+        const position = await this.prisma.tradePosition.findUnique({
+          where: { id: positionId },
+          include: { exchange_account: true },
+        });
+
+        if (!position) {
+          errors.push({ positionId, error: 'Posição não encontrada' });
+          continue;
+        }
+
+        if (position.exchange_account.user_id !== user.userId) {
+          errors.push({ positionId, error: 'Sem permissão para atualizar esta posição' });
+          continue;
+        }
+
+        if (position.status !== 'OPEN') {
+          errors.push({ positionId, error: 'Apenas posições abertas podem ter lucro mínimo atualizado' });
+          continue;
+        }
+
+        // Atualizar min_profit_pct
+        await this.prisma.tradePosition.update({
+          where: { id: positionId },
+          data: {
+            min_profit_pct: bulkUpdateDto.minProfitPct !== undefined 
+              ? (bulkUpdateDto.minProfitPct === null ? null : bulkUpdateDto.minProfitPct)
+              : undefined,
+          },
+        });
 
         // Emitir evento WebSocket
         this.wsService.emitToUser(user.userId, 'position.updated', {
