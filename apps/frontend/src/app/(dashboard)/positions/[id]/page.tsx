@@ -54,6 +54,13 @@ interface PositionWithRelations extends Position {
     fills?: PositionFill[]
     open_job?: TradeJob
     sell_jobs?: TradeJob[]
+    grouped_jobs?: Array<{
+        id: number
+        position_id: number
+        trade_job_id: number
+        created_at: string
+        trade_job?: TradeJob
+    }>
 }
 
 export default function PositionDetailPage() {
@@ -432,6 +439,12 @@ export default function PositionDetailPage() {
                         <LinkIcon className="h-4 w-4 mr-2" />
                         Trade Job
                     </TabsTrigger>
+                    {position.is_grouped && position.grouped_jobs && position.grouped_jobs.length > 0 && (
+                        <TabsTrigger value="grouped">
+                            <Package className="h-4 w-4 mr-2" />
+                            Jobs Agrupados ({position.grouped_jobs.length})
+                        </TabsTrigger>
+                    )}
                 </TabsList>
 
                 {/* Overview Tab */}
@@ -490,9 +503,16 @@ export default function PositionDetailPage() {
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Status</p>
-                                    <Badge variant={position.status === 'OPEN' ? 'default' : 'secondary'}>
-                                        {position.status}
-                                    </Badge>
+                                    <div className="flex items-center gap-2">
+                                        <Badge variant={position.status === 'OPEN' ? 'default' : 'secondary'}>
+                                            {position.status}
+                                        </Badge>
+                                        {position.is_grouped && (
+                                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                                Agrupada
+                                            </Badge>
+                                        )}
+                                    </div>
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Símbolo</p>
@@ -862,6 +882,78 @@ export default function PositionDetailPage() {
                         )}
                     </div>
                 </TabsContent>
+
+                {/* Grouped Jobs Tab */}
+                {position.is_grouped && position.grouped_jobs && position.grouped_jobs.length > 0 && (
+                    <TabsContent value="grouped">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Posição Agrupada</CardTitle>
+                                <CardDescription>
+                                    Esta posição foi criada agrupando {position.grouped_jobs.length} operação(ões) de compra
+                                    {position.group_started_at && (
+                                        <span className="ml-2">
+                                            iniciada em {formatDateTime(position.group_started_at)}
+                                        </span>
+                                    )}
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-4">
+                                    {position.grouped_jobs.map((groupedJob: any) => (
+                                        <div key={groupedJob.id} className="border rounded-lg p-4 space-y-3">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h4 className="font-medium">Job #{groupedJob.trade_job_id}</h4>
+                                                <Badge variant="outline">Agrupado</Badge>
+                                            </div>
+                                            {groupedJob.trade_job && (
+                                                <div className="grid gap-4 md:grid-cols-2">
+                                                    <div>
+                                                        <p className="text-sm text-muted-foreground">Status</p>
+                                                        <Badge variant={groupedJob.trade_job.status === 'FILLED' ? 'default' : 'secondary'}>
+                                                            {groupedJob.trade_job.status}
+                                                        </Badge>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm text-muted-foreground">Tipo de Ordem</p>
+                                                        <p className="font-medium">{groupedJob.trade_job.order_type}</p>
+                                                    </div>
+                                                    {groupedJob.trade_job.base_quantity && (
+                                                        <div>
+                                                            <p className="text-sm text-muted-foreground">Quantidade</p>
+                                                            <p className="font-medium">{formatAssetAmount(groupedJob.trade_job.base_quantity)}</p>
+                                                        </div>
+                                                    )}
+                                                    {groupedJob.trade_job.executions && groupedJob.trade_job.executions.length > 0 && (
+                                                        <div>
+                                                            <p className="text-sm text-muted-foreground">Preço Médio</p>
+                                                            <p className="font-medium">
+                                                                {formatCurrency(groupedJob.trade_job.executions[0].avg_price)}
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <p className="text-sm text-muted-foreground">Criado em</p>
+                                                        <p className="font-medium">{formatDateTime(groupedJob.trade_job.created_at)}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => router.push(`/operations/${groupedJob.trade_job_id}`)}
+                                                >
+                                                    Ver Detalhes do Job
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                )}
             </Tabs>
 
             {/* Modals */}

@@ -213,6 +213,8 @@ export interface TradeParameter {
     trailing_stop_enabled: boolean
     trailing_distance_pct?: number
     min_profit_pct?: number
+    group_positions_enabled: boolean
+    group_positions_interval_minutes?: number
     vault_id?: number
     created_at: string
     updated_at: string
@@ -374,6 +376,8 @@ export interface Position {
     trailing_triggered: boolean
     partial_tp_triggered: boolean
     lock_sell_by_webhook: boolean
+    is_grouped: boolean
+    group_started_at?: string
     close_reason?: string
     closed_at?: string
     created_at: string
@@ -385,6 +389,8 @@ export interface Position {
     current_value_usd?: number | null
     unrealized_pnl?: number | null
     unrealized_pnl_pct?: number | null
+    // Relacionamentos
+    grouped_jobs?: PositionGroupedJob[]
 }
 
 export interface PositionFill {
@@ -395,6 +401,14 @@ export interface PositionFill {
     qty: number
     price: number
     created_at: string
+}
+
+export interface PositionGroupedJob {
+    id: number
+    position_id: number
+    trade_job_id: number
+    created_at: string
+    trade_job?: TradeJob
 }
 
 export interface CreateManualPositionDto {

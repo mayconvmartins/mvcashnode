@@ -28,6 +28,8 @@ type WizardData = {
     trailingStop?: boolean
     maxDailyTrades?: number
     maxWeeklyTrades?: number
+    groupPositionsEnabled?: boolean
+    groupPositionsIntervalMinutes?: number
     vaultId?: string
 }
 
@@ -45,6 +47,8 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
         trailingStop: parameter?.trailingStop || false,
         maxDailyTrades: parameter?.maxDailyTrades,
         maxWeeklyTrades: parameter?.maxWeeklyTrades,
+        groupPositionsEnabled: parameter?.group_positions_enabled || parameter?.groupPositionsEnabled || false,
+        groupPositionsIntervalMinutes: parameter?.group_positions_interval_minutes || parameter?.groupPositionsIntervalMinutes,
         vaultId: parameter?.vault?.id,
     })
 
@@ -64,6 +68,8 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
                 trailingStop: data.trailingStop,
                 maxDailyTrades: data.maxDailyTrades,
                 maxWeeklyTrades: data.maxWeeklyTrades,
+                groupPositionsEnabled: data.groupPositionsEnabled,
+                groupPositionsIntervalMinutes: data.groupPositionsIntervalMinutes,
                 vaultId: data.vaultId ? Number(data.vaultId) : undefined,
             }
             
@@ -102,6 +108,12 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
         if (currentStep === 3) {
             if (!data.minProfitPct || data.minProfitPct <= 0) {
                 toast.error('Lucro mínimo é obrigatório e deve ser maior que zero')
+                return
+            }
+        }
+        if (currentStep === 4) {
+            if (data.groupPositionsEnabled && (!data.groupPositionsIntervalMinutes || data.groupPositionsIntervalMinutes <= 0)) {
+                toast.error('Intervalo de agrupamento é obrigatório e deve ser maior que zero quando agrupamento estiver habilitado')
                 return
             }
         }

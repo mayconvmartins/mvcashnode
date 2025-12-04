@@ -358,11 +358,18 @@ export default function PositionsPage() {
             key: 'symbol',
             label: 'Símbolo',
             render: (position: Position) => (
-                <SymbolDisplay
-                    exchange={position.exchange_account_id as any}
-                    symbol={position.symbol}
-                    showExchange={false}
-                />
+                <div className="flex items-center gap-2">
+                    <SymbolDisplay
+                        exchange={position.exchange_account_id as any}
+                        symbol={position.symbol}
+                        showExchange={false}
+                    />
+                    {position.is_grouped && (
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                            Agrupada
+                        </Badge>
+                    )}
+                </div>
             ),
         },
         {
@@ -488,11 +495,18 @@ export default function PositionsPage() {
             key: 'symbol',
             label: 'Símbolo',
             render: (position) => (
-                <SymbolDisplay
-                    exchange={position.exchange_account_id as any}
-                    symbol={position.symbol}
-                    showExchange={false}
-                />
+                <div className="flex items-center gap-2">
+                    <SymbolDisplay
+                        exchange={position.exchange_account_id as any}
+                        symbol={position.symbol}
+                        showExchange={false}
+                    />
+                    {position.is_grouped && (
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                            Agrupada
+                        </Badge>
+                    )}
+                </div>
             ),
         },
         {

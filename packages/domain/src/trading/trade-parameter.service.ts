@@ -19,6 +19,8 @@ export interface CreateTradeParameterDto {
   trailingStopEnabled?: boolean;
   trailingDistancePct?: number;
   minProfitPct?: number;
+  groupPositionsEnabled?: boolean;
+  groupPositionsIntervalMinutes?: number;
   vaultId?: number;
 }
 
@@ -50,6 +52,8 @@ export class TradeParameterService {
         trailing_stop_enabled: dto.trailingStopEnabled || false,
         trailing_distance_pct: dto.trailingDistancePct || null,
         min_profit_pct: dto.minProfitPct || null,
+        group_positions_enabled: dto.groupPositionsEnabled || false,
+        group_positions_interval_minutes: dto.groupPositionsIntervalMinutes || null,
         vault_id: dto.vaultId || null,
       },
     });
@@ -93,6 +97,8 @@ export class TradeParameterService {
         ...(dto.trailingStopEnabled !== undefined && { trailing_stop_enabled: dto.trailingStopEnabled }),
         ...(dto.trailingDistancePct !== undefined && { trailing_distance_pct: dto.trailingDistancePct || null }),
         ...(dto.minProfitPct !== undefined && { min_profit_pct: dto.minProfitPct }),
+        ...(dto.groupPositionsEnabled !== undefined && { group_positions_enabled: dto.groupPositionsEnabled }),
+        ...(dto.groupPositionsIntervalMinutes !== undefined && { group_positions_interval_minutes: dto.groupPositionsIntervalMinutes || null }),
         ...(dto.vaultId !== undefined && { vault_id: dto.vaultId || null }),
       },
     });

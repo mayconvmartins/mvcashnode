@@ -255,6 +255,14 @@ export class TradeParametersController {
         }
       }
 
+      // Validar agrupamento de posições
+      const groupPositionsEnabled = createDto.groupPositionsEnabled ?? createDto.group_positions_enabled ?? false;
+      const groupPositionsIntervalMinutes = createDto.groupPositionsIntervalMinutes ?? createDto.group_positions_interval_minutes;
+      
+      if (groupPositionsEnabled && (!groupPositionsIntervalMinutes || groupPositionsIntervalMinutes <= 0)) {
+        throw new BadRequestException('Intervalo de agrupamento (group_positions_interval_minutes) é obrigatório e deve ser maior que zero quando agrupamento de posições estiver habilitado');
+      }
+
       // Mapear campos do frontend para o formato esperado
       const mappedDto = {
         userId: user.userId,
@@ -276,6 +284,8 @@ export class TradeParametersController {
         trailingStopEnabled: createDto.trailingStop || false,
         trailingDistancePct: createDto.trailingDistancePct,
         minProfitPct: createDto.minProfitPct ?? createDto.min_profit_pct,
+        groupPositionsEnabled: groupPositionsEnabled,
+        groupPositionsIntervalMinutes: groupPositionsIntervalMinutes ? Number(groupPositionsIntervalMinutes) : undefined,
         vaultId: createDto.vaultId ? Number(createDto.vaultId) : undefined,
       };
 
@@ -338,6 +348,22 @@ export class TradeParametersController {
         }
       }
 
+      // Validar agrupamento de posições
+      const groupPositionsEnabled = updateDto.groupPositionsEnabled ?? updateDto.group_positions_enabled;
+      const groupPositionsIntervalMinutes = updateDto.groupPositionsIntervalMinutes ?? updateDto.group_positions_interval_minutes;
+      
+      // Se estiver habilitando agrupamento, validar intervalo
+      if (groupPositionsEnabled !== undefined) {
+        const finalGroupEnabled = groupPositionsEnabled === true || groupPositionsEnabled === 'true';
+        const finalInterval = groupPositionsIntervalMinutes !== undefined 
+          ? Number(groupPositionsIntervalMinutes) 
+          : (parameter.group_positions_enabled ? parameter.group_positions_interval_minutes?.toNumber() : null);
+        
+        if (finalGroupEnabled && (!finalInterval || finalInterval <= 0)) {
+          throw new BadRequestException('Intervalo de agrupamento (group_positions_interval_minutes) é obrigatório e deve ser maior que zero quando agrupamento de posições estiver habilitado');
+        }
+      }
+
       // Preparar dados de atualização
       const updateData: any = {};
       if (updateDto.symbol !== undefined) updateData.symbol = updateDto.symbol;
@@ -361,6 +387,13 @@ export class TradeParametersController {
           throw new BadRequestException('Lucro mínimo (min_profit_pct) é obrigatório e deve ser maior que zero. Não é permitido remover ou definir como zero.');
         }
         updateData.min_profit_pct = minProfitPct;
+      }
+      if (groupPositionsEnabled !== undefined) {
+        updateData.group_positions_enabled = groupPositionsEnabled === true || groupPositionsEnabled === 'true';
+      }
+      if (groupPositionsIntervalMinutes !== undefined) {
+        const interval = Number(groupPositionsIntervalMinutes);
+        updateData.group_positions_interval_minutes = isNaN(interval) ? null : interval;
       }
       if (updateDto.vaultId !== undefined || updateDto.vault_id !== undefined) {
         const vaultId = Number(updateDto.vaultId || updateDto.vault_id);

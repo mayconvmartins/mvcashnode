@@ -27,6 +27,8 @@ export class PositionService {
     let slPct: number | null = null;
     let tpEnabled: boolean = false;
     let tpPct: number | null = null;
+    let groupPositionsEnabled: boolean = false;
+    let groupPositionsIntervalMinutes: number | null = null;
 
     try {
       console.log(`[POSITION-SERVICE] Buscando parâmetros para posição: account=${job.exchange_account_id}, symbol=${job.symbol}`);
@@ -59,6 +61,15 @@ export class PositionService {
 
       // Priorizar BOTH, mas usar BUY e SELL se necessário
       const parameter = bothParameter || buyParameter || sellParameter;
+
+      // Buscar configurações de agrupamento
+      if (bothParameter) {
+        groupPositionsEnabled = bothParameter.group_positions_enabled || false;
+        groupPositionsIntervalMinutes = bothParameter.group_positions_interval_minutes?.toNumber() || null;
+      } else if (buyParameter) {
+        groupPositionsEnabled = buyParameter.group_positions_enabled || false;
+        groupPositionsIntervalMinutes = buyParameter.group_positions_interval_minutes?.toNumber() || null;
+      }
 
       if (bothParameter) {
         // Parâmetro BOTH encontrado - copiar todas as configurações
@@ -144,8 +155,161 @@ export class PositionService {
       // Continuar com valores padrão se houver erro
     }
 
+    // Verificar se agrupamento está habilitado e buscar posição elegível
+    let eligiblePosition: any = null;
+    
+    if (groupPositionsEnabled && groupPositionsIntervalMinutes && groupPositionsIntervalMinutes > 0) {
+      console.log(`[POSITION-SERVICE] 🔄 Agrupamento habilitado (intervalo: ${groupPositionsIntervalMinutes} minutos)`);
+      
+      try {
+        // Calcular data limite para agrupamento
+        const intervalStart = new Date();
+        intervalStart.setMinutes(intervalStart.getMinutes() - groupPositionsIntervalMinutes);
+        
+        // Buscar posições elegíveis para agrupamento
+        // Deve ser: mesma conta, mesmo modo, mesmo símbolo, aberta, e:
+        // - Já é uma posição agrupada OU
+        // - Foi criada dentro do intervalo de tempo
+        eligiblePosition = await this.prisma.tradePosition.findFirst({
+          where: {
+            exchange_account_id: job.exchange_account_id,
+            trade_mode: job.trade_mode,
+            symbol: job.symbol,
+            side: 'LONG',
+            status: PositionStatus.OPEN,
+            qty_remaining: { gt: 0 },
+            OR: [
+              { is_grouped: true },
+              {
+                AND: [
+                  { is_grouped: false },
+                  { created_at: { gte: intervalStart } },
+                ],
+              },
+            ],
+          },
+          orderBy: { created_at: 'asc' },
+        });
+
+        if (eligiblePosition) {
+          console.log(`[POSITION-SERVICE] ✅ Posição elegível encontrada para agrupamento: ID=${eligiblePosition.id}`);
+        } else {
+          console.log(`[POSITION-SERVICE] ℹ️ Nenhuma posição elegível encontrada para agrupamento`);
+        }
+      } catch (error: any) {
+        console.error(`[POSITION-SERVICE] ❌ Erro ao buscar posição elegível para agrupamento: ${error.message}`);
+        // Continuar criando nova posição em caso de erro
+      }
+    }
+
+    // Se encontrou posição elegível, agrupar
+    if (eligiblePosition) {
+      return await this.prisma.$transaction(async (tx) => {
+        // Re-buscar posição com lock para evitar race conditions
+        const positionToUpdate = await tx.tradePosition.findUnique({
+          where: { id: eligiblePosition.id },
+        });
+
+        if (!positionToUpdate || positionToUpdate.status !== PositionStatus.OPEN) {
+          // Posição não existe mais ou foi fechada, criar nova
+          console.log(`[POSITION-SERVICE] ⚠️ Posição elegível não está mais disponível, criando nova posição`);
+          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, false, null);
+        }
+
+        // Calcular novo custo médio ponderado
+        const existingQty = positionToUpdate.qty_total.toNumber();
+        const existingPrice = positionToUpdate.price_open.toNumber();
+        const newQty = executedQty;
+        const newPrice = avgPrice;
+
+        // Custo médio ponderado: (qty_existente * price_existente + qty_nova * price_nova) / (qty_existente + qty_nova)
+        const totalCost = existingQty * existingPrice + newQty * newPrice;
+        const totalQty = existingQty + newQty;
+        const weightedAvgPrice = totalCost / totalQty;
+
+        console.log(`[POSITION-SERVICE] 📊 Calculando custo médio ponderado:`);
+        console.log(`[POSITION-SERVICE]   - Qty existente: ${existingQty}, Preço: ${existingPrice}`);
+        console.log(`[POSITION-SERVICE]   - Qty nova: ${newQty}, Preço: ${newPrice}`);
+        console.log(`[POSITION-SERVICE]   - Custo médio ponderado: ${weightedAvgPrice.toFixed(8)}`);
+
+        // Determinar group_started_at (usar o mais antigo)
+        const groupStartedAt = positionToUpdate.group_started_at || positionToUpdate.created_at;
+
+        // Atualizar posição existente
+        const updatedPosition = await tx.tradePosition.update({
+          where: { id: positionToUpdate.id },
+          data: {
+            qty_total: totalQty,
+            qty_remaining: totalQty,
+            price_open: weightedAvgPrice,
+            is_grouped: true,
+            group_started_at: groupStartedAt,
+          },
+        });
+
+        // Criar position fill
+        await tx.positionFill.create({
+          data: {
+            position_id: updatedPosition.id,
+            trade_execution_id: executionId,
+            side: 'BUY',
+            qty: executedQty,
+            price: avgPrice,
+          },
+        });
+
+        // Criar registro de agrupamento para rastrear o job original
+        await tx.positionGroupedJob.create({
+          data: {
+            position_id: updatedPosition.id,
+            trade_job_id: jobId,
+          },
+        });
+
+        console.log(`[POSITION-SERVICE] ✅ Posição ${updatedPosition.id} atualizada com agrupamento (total qty: ${totalQty}, avg price: ${weightedAvgPrice.toFixed(8)})`);
+
+        return updatedPosition.id;
+      });
+    }
+
+    // Se não encontrou posição elegível ou agrupamento desabilitado, criar nova posição
+    return await this.createNewPosition(
+      this.prisma,
+      job,
+      jobId,
+      executionId,
+      executedQty,
+      avgPrice,
+      minProfitPct,
+      slEnabled,
+      slPct,
+      tpEnabled,
+      tpPct,
+      false,
+      null
+    );
+  }
+
+  /**
+   * Método auxiliar para criar nova posição
+   */
+  private async createNewPosition(
+    prisma: any,
+    job: any,
+    jobId: number,
+    executionId: number,
+    executedQty: number,
+    avgPrice: number,
+    minProfitPct: number | null,
+    slEnabled: boolean,
+    slPct: number | null,
+    tpEnabled: boolean,
+    tpPct: number | null,
+    isGrouped: boolean,
+    groupStartedAt: Date | null
+  ): Promise<number> {
     // Create new position
-    const position = await this.prisma.tradePosition.create({
+    const position = await prisma.tradePosition.create({
       data: {
         exchange_account_id: job.exchange_account_id,
         trade_mode: job.trade_mode,
@@ -161,11 +325,13 @@ export class PositionService {
         sl_pct: slPct,
         tp_enabled: tpEnabled,
         tp_pct: tpPct,
+        is_grouped: isGrouped,
+        group_started_at: groupStartedAt,
       },
     });
 
     // Create position fill
-    await this.prisma.positionFill.create({
+    await prisma.positionFill.create({
       data: {
         position_id: position.id,
         trade_execution_id: executionId,

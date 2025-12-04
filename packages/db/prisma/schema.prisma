@@ -249,6 +249,8 @@ model TradeParameter {
   trailing_stop_enabled    Boolean  @default(false)
   trailing_distance_pct    Decimal? @db.Decimal(5, 2)
   min_profit_pct           Decimal? @db.Decimal(5, 2)
+  group_positions_enabled  Boolean  @default(false)
+  group_positions_interval_minutes Int?
   vault_id                 Int?
   created_at               DateTime @default(now())
   updated_at               DateTime @updatedAt
@@ -378,6 +380,7 @@ model TradeJob {
   exchange_account ExchangeAccount  @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
   executions       TradeExecution[]
   position_open    TradePosition?   @relation("PositionOpenJob")
+  grouped_in       PositionGroupedJob[]
 
   @@index([exchange_account_id, status])
   @@index([status])
@@ -442,6 +445,8 @@ model TradePosition {
   trailing_triggered    Boolean   @default(false)
   partial_tp_triggered  Boolean   @default(false)
   lock_sell_by_webhook  Boolean   @default(false)
+  is_grouped            Boolean   @default(false)
+  group_started_at      DateTime?
   close_reason          String?   @db.VarChar(50)
   closed_at             DateTime?
   created_at            DateTime  @default(now())
@@ -450,9 +455,11 @@ model TradePosition {
   exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
   open_job         TradeJob        @relation("PositionOpenJob", fields: [trade_job_id_open], references: [id])
   fills            PositionFill[]
+  grouped_jobs     PositionGroupedJob[]
 
   @@unique([trade_job_id_open])
   @@index([exchange_account_id, symbol, status])
+  @@index([exchange_account_id, trade_mode, symbol, status, is_grouped, created_at])
   @@index([status])
   @@index([trade_mode])
   @@index([created_at])
@@ -474,6 +481,21 @@ model PositionFill {
   @@index([position_id])
   @@index([trade_execution_id])
   @@map("position_fills")
+}
+
+model PositionGroupedJob {
+  id           Int      @id @default(autoincrement())
+  position_id  Int
+  trade_job_id Int
+  created_at   DateTime @default(now())
+
+  position TradePosition @relation(fields: [position_id], references: [id], onDelete: Cascade)
+  trade_job TradeJob     @relation(fields: [trade_job_id], references: [id], onDelete: Cascade)
+
+  @@unique([position_id, trade_job_id])
+  @@index([position_id])
+  @@index([trade_job_id])
+  @@map("position_grouped_jobs")
 }
 
 // ============================================

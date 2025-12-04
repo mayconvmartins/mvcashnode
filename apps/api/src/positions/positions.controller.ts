@@ -1586,6 +1586,38 @@ export class PositionsController {
               },
             },
           },
+          grouped_jobs: {
+            include: {
+              trade_job: {
+                select: {
+                  id: true,
+                  symbol: true,
+                  side: true,
+                  order_type: true,
+                  status: true,
+                  quote_amount: true,
+                  base_quantity: true,
+                  limit_price: true,
+                  created_at: true,
+                  executions: {
+                    select: {
+                      id: true,
+                      avg_price: true,
+                      executed_qty: true,
+                      created_at: true,
+                    },
+                    orderBy: {
+                      created_at: 'desc',
+                    },
+                    take: 1,
+                  },
+                },
+              },
+            },
+            orderBy: {
+              created_at: 'asc',
+            },
+          },
         },
       });
 
@@ -1679,9 +1711,29 @@ export class PositionsController {
         created_at: fill.created_at,
       })) : [];
 
+      // Mapear grouped_jobs para o formato esperado pelo frontend
+      const groupedJobs = position.grouped_jobs ? position.grouped_jobs.map((groupedJob: any) => ({
+        id: groupedJob.id,
+        position_id: groupedJob.position_id,
+        trade_job_id: groupedJob.trade_job_id,
+        created_at: groupedJob.created_at,
+        trade_job: groupedJob.trade_job ? {
+          ...groupedJob.trade_job,
+          quote_amount: groupedJob.trade_job.quote_amount?.toNumber() || null,
+          base_quantity: groupedJob.trade_job.base_quantity?.toNumber() || null,
+          limit_price: groupedJob.trade_job.limit_price?.toNumber() || null,
+          executions: groupedJob.trade_job.executions?.map((exec: any) => ({
+            ...exec,
+            avg_price: exec.avg_price?.toNumber() || null,
+            executed_qty: exec.executed_qty?.toNumber() || null,
+          })) || [],
+        } : null,
+      })) : [];
+
       return {
         ...position,
         fills: fills,
+        grouped_jobs: groupedJobs,
         current_price: currentPrice,
         price_close: priceClose,
         invested_value_usd: investedValueUsd,
