@@ -262,5 +262,30 @@ export class MonitoringController {
     });
     return { data: logs };
   }
+
+  @Post('cleanup-orphaned-positions')
+  @ApiOperation({
+    summary: 'Limpar posições órfãs de agrupamento',
+    description: 'Remove posições que foram agrupadas mas não foram deletadas corretamente. Busca posições que têm PositionGroupedJob mas não deveriam existir mais.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Limpeza executada com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        checked: { type: 'number', description: 'Quantidade de posições agrupadas verificadas' },
+        deleted: { type: 'number', description: 'Quantidade de posições órfãs deletadas' },
+        errors: { type: 'array', items: { type: 'string' }, description: 'Lista de erros encontrados' },
+      },
+    },
+  })
+  async cleanupOrphanedPositions(): Promise<{
+    checked: number;
+    deleted: number;
+    errors: string[];
+  }> {
+    return this.monitoringService.cleanupOrphanedGroupedPositions();
+  }
 }
 

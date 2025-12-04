@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import * as fs from 'fs';
 import * as path from 'path';
 import { readdir, readFile } from 'fs/promises';
+import { PositionService } from '@mvcashnode/domain';
 
 export interface JobMetrics {
   name: string;
@@ -687,6 +688,18 @@ export class MonitoringService {
     console.log(`[Monitoring] Retornando ${result.length} logs (de ${allLogs.length} encontrados)`);
     
     return result;
+  }
+
+  /**
+   * Limpa posições órfãs de agrupamento
+   */
+  async cleanupOrphanedGroupedPositions(): Promise<{
+    checked: number;
+    deleted: number;
+    errors: string[];
+  }> {
+    const positionService = new PositionService(this.prisma);
+    return positionService.cleanupOrphanedGroupedPositions();
   }
 }
 

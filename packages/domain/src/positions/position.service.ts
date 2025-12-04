@@ -1102,12 +1102,22 @@ export class PositionService {
 
       // Criar PositionGroupedJob para cada posição agrupada (exceto base)
       for (const position of positionsToDelete) {
-        await tx.positionGroupedJob.create({
-          data: {
+        // Verificar se já existe para evitar duplicatas
+        const existing = await tx.positionGroupedJob.findFirst({
+          where: {
             position_id: basePosition.id,
             trade_job_id: position.trade_job_id_open,
           },
         });
+        
+        if (!existing) {
+          await tx.positionGroupedJob.create({
+            data: {
+              position_id: basePosition.id,
+              trade_job_id: position.trade_job_id_open,
+            },
+          });
+        }
       }
 
       // Atualizar posição base
@@ -1124,11 +1134,18 @@ export class PositionService {
 
       // Deletar posições agrupadas
       if (positionsToDeleteIds.length > 0) {
-        await tx.tradePosition.deleteMany({
+        const deleteResult = await tx.tradePosition.deleteMany({
           where: {
             id: { in: positionsToDeleteIds },
           },
         });
+        
+        console.log(`[POSITION-SERVICE] 🗑️ Deletando ${positionsToDeleteIds.length} posição(ões) agrupada(s): IDs ${positionsToDeleteIds.join(', ')}`);
+        console.log(`[POSITION-SERVICE]   - Resultado: ${deleteResult.count} posição(ões) deletada(s)`);
+        
+        if (deleteResult.count !== positionsToDeleteIds.length) {
+          console.warn(`[POSITION-SERVICE] ⚠️ Aviso: Esperado deletar ${positionsToDeleteIds.length} posições, mas apenas ${deleteResult.count} foram deletadas`);
+        }
       }
 
       console.log(`[POSITION-SERVICE] ✅ Posições agrupadas: ${positionsToDeleteIds.length} posição(ões) agrupada(s) na posição base ${basePosition.id}`);
@@ -1136,6 +1153,100 @@ export class PositionService {
 
       return updatedPosition.id;
     });
+  }
+
+  /**
+   * Limpa posições órfãs de agrupamento
+   * Busca posições que têm PositionGroupedJob mas não deveriam existir mais
+   * ou posições que foram agrupadas mas não foram deletadas corretamente
+   * @returns Estatísticas da limpeza
+   */
+  async cleanupOrphanedGroupedPositions(): Promise<{
+    checked: number;
+    deleted: number;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    let checked = 0;
+    let deleted = 0;
+
+    try {
+      // Buscar todas as posições agrupadas que têm PositionGroupedJob
+      const groupedPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          is_grouped: true,
+          status: PositionStatus.OPEN,
+        },
+        include: {
+          grouped_jobs: {
+            select: {
+              trade_job_id: true,
+            },
+          },
+        },
+      });
+
+      checked = groupedPositions.length;
+
+      for (const groupedPosition of groupedPositions) {
+        try {
+          // Buscar posições que têm trade_job_id_open que está em grouped_jobs desta posição
+          const groupedJobIds = groupedPosition.grouped_jobs.map(gj => gj.trade_job_id);
+          
+          if (groupedJobIds.length > 0) {
+            // Buscar posições que têm esses trade_job_id_open e não são a posição agrupada
+            const orphanedPositions = await this.prisma.tradePosition.findMany({
+              where: {
+                trade_job_id_open: { in: groupedJobIds },
+                id: { not: groupedPosition.id },
+                status: PositionStatus.OPEN,
+              },
+            });
+
+            // Deletar posições órfãs encontradas
+            if (orphanedPositions.length > 0) {
+              const orphanedIds = orphanedPositions.map(p => p.id);
+              
+              // Mover PositionFill para a posição agrupada
+              await this.prisma.positionFill.updateMany({
+                where: {
+                  position_id: { in: orphanedIds },
+                },
+                data: {
+                  position_id: groupedPosition.id,
+                },
+              });
+
+              // Deletar posições órfãs
+              await this.prisma.tradePosition.deleteMany({
+                where: {
+                  id: { in: orphanedIds },
+                },
+              });
+
+              deleted += orphanedPositions.length;
+              console.log(
+                `[POSITION-SERVICE] ✅ Limpeza: ${orphanedPositions.length} posição(ões) órfã(s) deletada(s) relacionada(s) à posição agrupada ${groupedPosition.id}`
+              );
+            }
+          }
+        } catch (error: any) {
+          const errorMsg = `Erro ao limpar posições órfãs da posição ${groupedPosition.id}: ${error.message}`;
+          errors.push(errorMsg);
+          console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+        }
+      }
+
+      console.log(
+        `[POSITION-SERVICE] ✅ Limpeza concluída: ${checked} posição(ões) agrupada(s) verificada(s), ${deleted} posição(ões) órfã(s) deletada(s)`
+      );
+    } catch (error: any) {
+      const errorMsg = `Erro geral na limpeza de posições órfãs: ${error.message}`;
+      errors.push(errorMsg);
+      console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+    }
+
+    return { checked, deleted, errors };
   }
 
   private getCloseReason(origin: string): CloseReason {
