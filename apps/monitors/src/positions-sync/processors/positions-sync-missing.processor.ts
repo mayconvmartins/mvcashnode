@@ -7,19 +7,12 @@ import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-exe
 export class PositionsSyncMissingProcessor extends WorkerHost {
   private readonly logger = new Logger(PositionsSyncMissingProcessor.name);
   private apiUrl: string;
-  private adminToken: string | null = null;
 
   constructor(
     private cronExecutionService: CronExecutionService
   ) {
     super();
     this.apiUrl = process.env.API_URL || 'http://localhost:4010';
-    // Token de admin para autenticação (pode ser gerado ou configurado via env)
-    this.adminToken = process.env.ADMIN_SYSTEM_TOKEN || null;
-    
-    if (!this.adminToken) {
-      this.logger.warn('[POSITIONS-SYNC-MISSING] ADMIN_SYSTEM_TOKEN não configurado. O cron pode falhar se o endpoint exigir autenticação.');
-    }
   }
 
   async process(_job: Job<any>): Promise<any> {
@@ -34,16 +27,11 @@ export class PositionsSyncMissingProcessor extends WorkerHost {
       // Registrar início da execução
       await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
 
-      // Chamar endpoint HTTP usando fetch nativo
-      const url = `${this.apiUrl}/positions/sync-missing-all`;
+      // Chamar endpoint interno (não requer autenticação)
+      const url = `${this.apiUrl}/internal/positions/sync-missing-all`;
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
-
-      // Adicionar token de admin se disponível
-      if (this.adminToken) {
-        headers['Authorization'] = `Bearer ${this.adminToken}`;
-      }
 
       controller = new AbortController();
       timeoutId = setTimeout(() => controller!.abort(), 300000); // 5 minutos de timeout
