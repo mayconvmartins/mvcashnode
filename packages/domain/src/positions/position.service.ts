@@ -65,10 +65,10 @@ export class PositionService {
       // Buscar configurações de agrupamento
       if (bothParameter) {
         groupPositionsEnabled = bothParameter.group_positions_enabled || false;
-        groupPositionsIntervalMinutes = bothParameter.group_positions_interval_minutes?.toNumber() || null;
+        groupPositionsIntervalMinutes = bothParameter.group_positions_interval_minutes || null;
       } else if (buyParameter) {
         groupPositionsEnabled = buyParameter.group_positions_enabled || false;
-        groupPositionsIntervalMinutes = buyParameter.group_positions_interval_minutes?.toNumber() || null;
+        groupPositionsIntervalMinutes = buyParameter.group_positions_interval_minutes || null;
       }
 
       if (bothParameter) {
