@@ -459,7 +459,7 @@ model TradePosition {
 
   @@unique([trade_job_id_open])
   @@index([exchange_account_id, symbol, status])
-  @@index([exchange_account_id, trade_mode, symbol, status, is_grouped, created_at])
+  @@index([exchange_account_id, trade_mode, symbol, status, is_grouped, created_at], name: "trade_positions_grouping_idx")
   @@index([status])
   @@index([trade_mode])
   @@index([created_at])

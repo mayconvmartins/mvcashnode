@@ -20,7 +20,7 @@ CREATE TABLE `position_grouped_jobs` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateIndex
-CREATE INDEX `trade_positions_exchange_account_id_trade_mode_symbol_status_is_grouped_created_at_idx` ON `trade_positions`(`exchange_account_id`, `trade_mode`, `symbol`, `status`, `is_grouped`, `created_at`);
+CREATE INDEX `trade_positions_grouping_idx` ON `trade_positions`(`exchange_account_id`, `trade_mode`, `symbol`, `status`, `is_grouped`, `created_at`);
 
 -- AddForeignKey
 ALTER TABLE `position_grouped_jobs` ADD CONSTRAINT `position_grouped_jobs_position_id_fkey` FOREIGN KEY (`position_id`) REFERENCES `trade_positions`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
