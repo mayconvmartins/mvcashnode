@@ -413,37 +413,72 @@ export class NotificationService {
       'datetime': position.created_at,
     };
 
-    await this.sendWithTemplate('POSITION_OPENED', variables, recipients, {
-      position_id: positionId,
-    });
+    try {
+      await this.sendWithTemplate('POSITION_OPENED', variables, recipients, {
+        position_id: positionId,
+      });
+      console.log(`[NOTIFICATIONS] ✅ Notificação WhatsApp de posição aberta enviada para ${recipients.length} destinatário(s)`);
+    } catch (error: any) {
+      console.error(`[NOTIFICATIONS] ❌ Erro ao enviar notificação WhatsApp de posição aberta:`, error.message);
+      console.error(`[NOTIFICATIONS] Stack trace:`, error.stack);
+      // Continuar para tentar enviar email mesmo se WhatsApp falhar
+    }
 
     // Enviar email se configurado
     if (this.emailService) {
       try {
         const emailRecipients = await this.getEmailRecipients(position.exchange_account.user_id, 'position_opened_enabled');
-        for (const email of emailRecipients) {
-          await this.emailService.sendPositionOpenedEmail(email, {
-            accountLabel: position.exchange_account.label || 'Conta',
-            symbol: position.symbol,
-            positionId: position.id.toString(),
-            qty,
-            avgPrice,
-            total,
-            datetime: position.created_at,
-          });
+        console.log(`[NOTIFICATIONS] Enviando email de posição aberta para ${emailRecipients.length} destinatário(s)`);
+        
+        if (emailRecipients.length === 0) {
+          console.log(`[NOTIFICATIONS] Nenhum destinatário de email configurado para posição aberta`);
+        } else {
+          for (const email of emailRecipients) {
+            try {
+              await this.emailService.sendPositionOpenedEmail(email, {
+                accountLabel: position.exchange_account.label || 'Conta',
+                symbol: position.symbol,
+                positionId: position.id.toString(),
+                qty,
+                avgPrice,
+                total,
+                datetime: position.created_at,
+              });
+              console.log(`[NOTIFICATIONS] ✅ Email de posição aberta enviado com sucesso para ${email}`);
+            } catch (emailError: any) {
+              console.error(`[NOTIFICATIONS] ❌ Erro ao enviar email de posição aberta para ${email}:`, emailError.message);
+              console.error(`[NOTIFICATIONS] Erro completo:`, {
+                message: emailError.message,
+                stack: emailError.stack,
+                code: emailError.code,
+                response: emailError.response,
+              });
+              // Continuar para outros destinatários
+            }
+          }
         }
-      } catch (error) {
-        console.error('[NOTIFICATIONS] Erro ao enviar email de posição aberta:', error);
+      } catch (error: any) {
+        console.error('[NOTIFICATIONS] ❌ Erro geral ao processar envio de email de posição aberta:', error.message);
+        console.error('[NOTIFICATIONS] Stack trace:', error.stack);
+        // Não lançar erro para não interromper o fluxo
       }
+    } else {
+      console.log('[NOTIFICATIONS] EmailService não está configurado. Pulando envio de email.');
     }
 
-    // Registrar envio
-    await this.prisma.positionAlertSent.create({
-      data: {
-        position_id: positionId,
-        alert_type: 'POSITION_OPENED',
-      },
-    });
+    // Registrar envio (sempre registrar, mesmo se houver erros parciais)
+    try {
+      await this.prisma.positionAlertSent.create({
+        data: {
+          position_id: positionId,
+          alert_type: 'POSITION_OPENED',
+        },
+      });
+      console.log(`[NOTIFICATIONS] ✅ Alerta de posição aberta registrado no banco de dados`);
+    } catch (dbError: any) {
+      console.error('[NOTIFICATIONS] ❌ Erro ao registrar alerta de posição aberta no banco:', dbError.message);
+      // Não lançar erro para não interromper o fluxo
+    }
   }
 
   /**

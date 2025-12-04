@@ -43,6 +43,13 @@ export class EmailService {
    */
   async sendEmail(to: string, subject: string, html: string, text?: string): Promise<void> {
     try {
+      // Verificar se o transporter está configurado
+      if (!this.transporter) {
+        const errorMsg = 'Transporter de email não está configurado. Verifique as variáveis de ambiente SMTP.';
+        console.error(`[EMAIL] ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+
       const mailOptions = {
         from: this.config.from,
         to,
@@ -51,13 +58,28 @@ export class EmailService {
         text: text || this.htmlToText(html),
       };
 
+      console.log(`[EMAIL] Enviando email para ${to} com assunto: ${subject}`);
       await this.transporter.sendMail(mailOptions);
+      console.log(`[EMAIL] ✅ Email enviado com sucesso para ${to}`);
 
       // Registrar no log
       await this.logEmail('GENERIC', to, subject, 'sent');
     } catch (error: any) {
+      const errorMsg = error.message || 'Erro desconhecido ao enviar email';
+      console.error(`[EMAIL] ❌ Erro ao enviar email para ${to}:`, errorMsg);
+      console.error(`[EMAIL] Detalhes do erro:`, {
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        responseCode: error.responseCode,
+        errno: error.errno,
+        syscall: error.syscall,
+        hostname: error.hostname,
+        port: error.port,
+      });
+      
       // Registrar erro no log
-      await this.logEmail('GENERIC', to, subject, 'failed', error.message);
+      await this.logEmail('GENERIC', to, subject, 'failed', errorMsg);
       throw error;
     }
   }
@@ -156,25 +178,67 @@ export class EmailService {
     total: number;
     datetime: Date;
   }): Promise<void> {
-    const template = await this.loadTemplate('position-opened');
-    const variables: TemplateVariables = {
-      'account.label': positionData.accountLabel,
-      'symbol': positionData.symbol,
-      'position.id': positionData.positionId,
-      'qty': positionData.qty,
-      'avgPrice': positionData.avgPrice,
-      'total': positionData.total,
-      'datetime': positionData.datetime,
-    };
-
-    const html = this.templateService.renderTemplate(template, variables);
     const subject = `Posição Aberta - ${positionData.symbol}`;
-
+    
     try {
+      // Verificar se o transporter está configurado
+      if (!this.transporter) {
+        const errorMsg = 'Transporter de email não está configurado';
+        console.error(`[EMAIL] ${errorMsg}`);
+        await this.logEmail('POSITION_OPENED', email, subject, 'failed', errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      // Carregar template
+      let template: string;
+      try {
+        template = await this.loadTemplate('position-opened');
+        console.log(`[EMAIL] Template 'position-opened' carregado com sucesso`);
+      } catch (templateError: any) {
+        console.error(`[EMAIL] Erro ao carregar template 'position-opened':`, templateError.message);
+        // Usar template básico como fallback
+        template = this.getBasicTemplate('position-opened');
+        console.log(`[EMAIL] Usando template básico como fallback`);
+      }
+
+      // Preparar variáveis
+      const variables: TemplateVariables = {
+        'account.label': positionData.accountLabel,
+        'symbol': positionData.symbol,
+        'position.id': positionData.positionId,
+        'qty': positionData.qty,
+        'avgPrice': positionData.avgPrice,
+        'total': positionData.total,
+        'datetime': positionData.datetime,
+      };
+
+      // Renderizar template
+      let html: string;
+      try {
+        html = this.templateService.renderTemplate(template, variables);
+        console.log(`[EMAIL] Template renderizado com sucesso`);
+      } catch (renderError: any) {
+        const errorMsg = `Erro ao renderizar template: ${renderError.message}`;
+        console.error(`[EMAIL] ${errorMsg}`);
+        await this.logEmail('POSITION_OPENED', email, subject, 'failed', errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      // Enviar email
       await this.sendEmail(email, subject, html);
       await this.logEmail('POSITION_OPENED', email, subject, 'sent');
+      console.log(`[EMAIL] ✅ Email de posição aberta enviado com sucesso para ${email}`);
     } catch (error: any) {
-      await this.logEmail('POSITION_OPENED', email, subject, 'failed', error.message);
+      const errorMsg = error.message || 'Erro desconhecido ao enviar email';
+      console.error(`[EMAIL] ❌ Erro ao enviar email de posição aberta para ${email}:`, errorMsg);
+      console.error(`[EMAIL] Stack trace:`, error.stack);
+      console.error(`[EMAIL] Detalhes do erro:`, {
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        responseCode: error.responseCode,
+      });
+      await this.logEmail('POSITION_OPENED', email, subject, 'failed', errorMsg);
       throw error;
     }
   }

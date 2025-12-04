@@ -2315,9 +2315,10 @@ export class PositionsController {
           order = await adapter.fetchOrder(createDto.exchange_order_id, createDto.symbol);
         }
 
-        // Validar que é uma ordem BUY
-        if (order.side !== 'BUY') {
-          throw new BadRequestException('A ordem deve ser do tipo BUY');
+        // Validar que é uma ordem BUY (normalizar para case-insensitive)
+        const normalizedSide = order.side?.toUpperCase();
+        if (normalizedSide !== 'BUY') {
+          throw new BadRequestException(`A ordem deve ser do tipo BUY. Tipo recebido: ${order.side}`);
         }
 
         // Validar que está FILLED
