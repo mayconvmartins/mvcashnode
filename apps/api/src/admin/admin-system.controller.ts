@@ -9,7 +9,7 @@ import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '@mvcashnode/shared';
+import { UserRole, CacheService } from '@mvcashnode/shared';
 import { PrismaService } from '@mvcashnode/db';
 
 @ApiTags('Admin')
@@ -18,10 +18,22 @@ import { PrismaService } from '@mvcashnode/db';
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth()
 export class AdminSystemController {
+  private cacheService: CacheService;
+
   constructor(
     private adminService: AdminService,
     private prisma: PrismaService
-  ) {}
+  ) {
+    // Inicializar cache service Redis
+    this.cacheService = new CacheService(
+      process.env.REDIS_HOST || 'localhost',
+      parseInt(process.env.REDIS_PORT || '6379'),
+      process.env.REDIS_PASSWORD
+    );
+    this.cacheService.connect().catch((err) => {
+      console.error('[AdminSystemController] Erro ao conectar ao Redis:', err);
+    });
+  }
 
   @Get('health')
   @ApiOperation({ 
@@ -114,6 +126,15 @@ export class AdminSystemController {
     }
   })
   async getStats() {
+    const startTime = Date.now();
+    
+    // Verificar cache primeiro (TTL: 1 minuto)
+    const cacheKey = 'admin:stats';
+    const cachedStats = await this.cacheService.get<any>(cacheKey);
+    if (cachedStats) {
+      return cachedStats;
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
@@ -190,7 +211,7 @@ export class AdminSystemController {
       timestamp: alert.created_at
     }));
 
-    return {
+    const stats = {
       totalUsers,
       activeUsers,
       activeSessions,
@@ -202,6 +223,18 @@ export class AdminSystemController {
       alerts,
       timestamp: new Date().toISOString()
     };
+
+    // Cachear resultado por 1 minuto
+    await this.cacheService.set(cacheKey, stats, { ttl: 60 });
+
+    const duration = Date.now() - startTime;
+    
+    // Log de performance para queries lentas (>1s)
+    if (duration > 1000) {
+      console.warn(`[AdminSystemController] GET /admin/stats executou em ${duration}ms (LENTO!)`);
+    }
+
+    return stats;
   }
 }
 

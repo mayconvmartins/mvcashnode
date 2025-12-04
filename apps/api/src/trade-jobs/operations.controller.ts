@@ -134,7 +134,8 @@ export class OperationsController {
     @Query('limit') limit?: string
   ) {
     try {
-      // Buscar IDs das exchange accounts do usuário
+      // Buscar IDs das exchange accounts do usuário (com cache)
+      // Nota: Cache será implementado quando CacheService estiver disponível no controller
       const userAccounts = await this.prisma.exchangeAccount.findMany({
         where: { user_id: user.userId },
         select: { id: true },
@@ -192,39 +193,68 @@ export class OperationsController {
       const skip = pageNum && limitNum ? (pageNum - 1) * limitNum : undefined;
       const take = limitNum;
 
-      const jobs = await this.prisma.tradeJob.findMany({
-        where,
-        include: {
-          exchange_account: {
-            select: {
-              id: true,
-              label: true,
-              exchange: true,
+      // Executar count e findMany em paralelo
+      const [jobs, total] = await Promise.all([
+        this.prisma.tradeJob.findMany({
+          where,
+          select: {
+            id: true,
+            exchange_account_id: true,
+            trade_mode: true,
+            symbol: true,
+            side: true,
+            order_type: true,
+            quote_amount: true,
+            base_quantity: true,
+            limit_price: true,
+            status: true,
+            reason_code: true,
+            reason_message: true,
+            vault_id: true,
+            limit_order_expires_at: true,
+            webhook_event_id: true,
+            created_at: true,
+            updated_at: true,
+            exchange_account: {
+              select: {
+                id: true,
+                label: true,
+                exchange: true,
+              },
+            },
+            executions: {
+              select: {
+                id: true,
+                exchange_order_id: true,
+                client_order_id: true,
+                status_exchange: true,
+                executed_qty: true,
+                cumm_quote_qty: true,
+                avg_price: true,
+                created_at: true,
+              },
+              orderBy: {
+                created_at: 'desc',
+              },
+            },
+            position_open: {
+              select: {
+                id: true,
+                status: true,
+                qty_total: true,
+                qty_remaining: true,
+                price_open: true,
+              },
             },
           },
-          executions: {
-            orderBy: {
-              created_at: 'desc',
-            },
+          orderBy: {
+            created_at: 'desc',
           },
-          position_open: {
-            select: {
-              id: true,
-              status: true,
-              qty_total: true,
-              qty_remaining: true,
-              price_open: true,
-            },
-          },
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-        skip,
-        take,
-      });
-
-      const total = await this.prisma.tradeJob.count({ where });
+          skip,
+          take,
+        }),
+        this.prisma.tradeJob.count({ where }),
+      ]);
 
       // Formatar resposta combinando job, executions e position
       const operations = jobs.map((job) => ({
@@ -269,6 +299,13 @@ export class OperationsController {
           : null,
       }));
 
+      const duration = Date.now() - startTime;
+      
+      // Log de performance para queries lentas (>1s)
+      if (duration > 1000) {
+        console.warn(`[OperationsController] GET /operations executou em ${duration}ms (LENTO!) - userId: ${user.userId}, status: ${status}, tradeMode: ${tradeMode}`);
+      }
+
       return {
         data: operations,
         pagination: {
@@ -279,6 +316,10 @@ export class OperationsController {
         },
       };
     } catch (error: any) {
+      const duration = Date.now() - startTime;
+      if (duration > 1000) {
+        console.error(`[OperationsController] GET /operations ERRO após ${duration}ms - userId: ${user.userId}`);
+      }
       if (error instanceof BadRequestException) {
         throw error;
       }

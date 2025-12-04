@@ -164,6 +164,22 @@ async function bootstrap() {
   );
   console.log('✅ System Monitor configurado (a cada 30s)');
 
+  // Configurar Price Sync - executa a cada 22 segundos (garante TTL de 25s)
+  const priceSyncQueue = app.get<Queue>(getQueueToken('price-sync'));
+  await priceSyncQueue.add(
+    'sync-prices',
+    {},
+    {
+      repeat: {
+        every: 22000, // 22 segundos (garante que o cache de 25s seja atualizado antes de expirar)
+      },
+      jobId: 'price-sync-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Price Sync configurado (a cada 22s, TTL cache: 25s)');
+
   console.log('🎉 Todos os monitores configurados e rodando!');
 }
 

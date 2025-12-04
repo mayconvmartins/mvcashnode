@@ -147,6 +147,7 @@ model ExchangeAccount {
   positions        TradePosition[]
 
   @@index([user_id])
+  @@index([user_id, exchange_account_id])
   @@index([is_simulation])
   @@map("exchange_accounts")
 }

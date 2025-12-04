@@ -49,6 +49,24 @@ CREATE INDEX IF NOT EXISTS idx_trade_positions_closed_at_date
 ON trade_positions(exchange_account_id, status, trade_mode, closed_at);
 
 -- ============================================
+-- ÍNDICES PARA exchange_accounts
+-- ============================================
+
+-- Índice composto para validação de permissões
+-- Usado em: WHERE user_id = ? AND id = ? (validação de que conta pertence ao usuário)
+CREATE INDEX IF NOT EXISTS idx_exchange_accounts_user_id_account_id 
+ON exchange_accounts(user_id, id);
+
+-- ============================================
+-- ÍNDICES PARA trade_jobs
+-- ============================================
+
+-- Índice composto para queries de jobs por status
+-- Usado em: WHERE exchange_account_id IN (...) AND status = ?
+CREATE INDEX IF NOT EXISTS idx_trade_jobs_account_status 
+ON trade_jobs(exchange_account_id, status);
+
+-- ============================================
 -- VERIFICAR ÍNDICES CRIADOS
 -- ============================================
 

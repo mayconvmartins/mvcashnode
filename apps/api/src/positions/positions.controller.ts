@@ -28,7 +28,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { PrismaService } from '@mvcashnode/db';
-import { OrderType, ExchangeType } from '@mvcashnode/shared';
+import { OrderType, ExchangeType, CacheService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { WebSocketService } from '../websocket/websocket.service';
 import { PositionService } from '@mvcashnode/domain';
@@ -40,9 +40,7 @@ import { EncryptionService } from '@mvcashnode/shared';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class PositionsController {
-  // Cache simples em memória para preços (TTL: 30 segundos)
-  private priceCache: Map<string, { price: number; timestamp: number }> = new Map();
-  private readonly PRICE_CACHE_TTL = 30000; // 30 segundos
+  private cacheService: CacheService;
 
   constructor(
     private positionsService: PositionsService,
@@ -50,20 +48,16 @@ export class PositionsController {
     private prisma: PrismaService,
     private wsService: WebSocketService,
     private encryptionService: EncryptionService
-  ) {}
-
-  private getCachedPrice(symbol: string, exchange: string): number | null {
-    const key = `${exchange}:${symbol}`;
-    const cached = this.priceCache.get(key);
-    if (cached && Date.now() - cached.timestamp < this.PRICE_CACHE_TTL) {
-      return cached.price;
-    }
-    return null;
-  }
-
-  private setCachedPrice(symbol: string, exchange: string, price: number): void {
-    const key = `${exchange}:${symbol}`;
-    this.priceCache.set(key, { price, timestamp: Date.now() });
+  ) {
+    // Inicializar cache service Redis
+    this.cacheService = new CacheService(
+      process.env.REDIS_HOST || 'localhost',
+      parseInt(process.env.REDIS_PORT || '6379'),
+      process.env.REDIS_PASSWORD
+    );
+    this.cacheService.connect().catch((err) => {
+      console.error('[PositionsController] Erro ao conectar ao Redis:', err);
+    });
   }
 
   @Get()
@@ -203,14 +197,24 @@ export class PositionsController {
     @Query('limit') limit?: number,
     @Query('include_fills') includeFills?: boolean
   ): Promise<any> {
+    const startTime = Date.now();
     try {
-      // Buscar IDs das exchange accounts do usuário
-      const userAccounts = await this.prisma.exchangeAccount.findMany({
-        where: { user_id: user.userId },
-        select: { id: true },
-      });
-
-      const accountIds = userAccounts.map((acc) => acc.id);
+      // Buscar IDs das exchange accounts do usuário (com cache)
+      const cacheKey = `user:${user.userId}:accounts`;
+      let accountIds: number[] = [];
+      
+      const cachedAccounts = await this.cacheService.get<number[]>(cacheKey);
+      if (cachedAccounts) {
+        accountIds = cachedAccounts;
+      } else {
+        const userAccounts = await this.prisma.exchangeAccount.findMany({
+          where: { user_id: user.userId },
+          select: { id: true },
+        });
+        accountIds = userAccounts.map((acc) => acc.id);
+        // Cachear por 5 minutos
+        await this.cacheService.set(cacheKey, accountIds, { ttl: 300 });
+      }
 
       if (accountIds.length === 0) {
         return {
@@ -221,10 +225,17 @@ export class PositionsController {
             total_items: 0,
             total_pages: 0,
           },
+          summary: {
+            total_invested: 0,
+            total_current_value: 0,
+            total_unrealized_pnl: 0,
+            total_unrealized_pnl_pct: 0,
+            total_realized_pnl: 0,
+          },
         };
       }
 
-      // Construir filtros
+      // Construir filtros (todos aplicados na WHERE clause)
       const where: any = {
         exchange_account_id: { in: accountIds },
       };
@@ -234,9 +245,7 @@ export class PositionsController {
       }
 
       // Sempre aplicar filtro de trade_mode se fornecido
-      // Garantir normalização correta para evitar problemas de case sensitivity
       if (tradeMode) {
-        // Normalizar trade_mode para uppercase e remover espaços
         const normalizedTradeMode = String(tradeMode).toUpperCase().trim();
         if (normalizedTradeMode === 'REAL' || normalizedTradeMode === 'SIMULATION') {
           where.trade_mode = normalizedTradeMode;
@@ -274,132 +283,108 @@ export class PositionsController {
       // Determinar se deve incluir fills (apenas se solicitado explicitamente)
       const shouldIncludeFills = includeFills === true;
 
-      // Buscar posições
-      // Sempre incluir fills para calcular price_close em posições fechadas
-      const positions = await this.prisma.tradePosition.findMany({
-        where,
-        include: {
-          exchange_account: {
-            select: {
-              id: true,
-              label: true,
-              exchange: true,
-              is_simulation: true,
-            },
-          },
-          open_job: {
-            select: {
-              id: true,
-              symbol: true,
-              side: true,
-              order_type: true,
-              status: true,
-              created_at: true,
-              executions: {
-                select: {
-                  id: true,
-                  exchange_order_id: true,
-                  client_order_id: true,
-                },
-                take: 1,
-                orderBy: {
-                  created_at: 'desc',
-                },
+      // Executar count e findMany em paralelo
+      const [positions, total] = await Promise.all([
+        this.prisma.tradePosition.findMany({
+          where,
+          select: {
+            id: true,
+            exchange_account_id: true,
+            trade_mode: true,
+            symbol: true,
+            side: true,
+            qty_total: true,
+            qty_remaining: true,
+            price_open: true,
+            status: true,
+            realized_profit_usd: true,
+            sl_enabled: true,
+            sl_pct: true,
+            tp_enabled: true,
+            tp_pct: true,
+            min_profit_pct: true,
+            created_at: true,
+            exchange_account: {
+              select: {
+                id: true,
+                label: true,
+                exchange: true,
+                is_simulation: true,
               },
             },
-          },
-          fills: {
-            where: {
-              side: 'SELL', // Apenas fills de venda para obter preço de fechamento
+            open_job: {
+              select: {
+                id: true,
+                symbol: true,
+                side: true,
+                order_type: true,
+                status: true,
+                created_at: true,
+              },
             },
-            select: shouldIncludeFills ? {
-              id: true,
-              price: true,
-              qty: true,
-              created_at: true,
-              execution: {
-                select: {
-                  id: true,
-                  avg_price: true,
-                  executed_qty: true,
-                  created_at: true,
-                  trade_job: {
-                    select: {
-                      id: true,
-                      symbol: true,
-                      side: true,
-                      order_type: true,
-                      status: true,
-                      created_at: true,
-                      limit_price: true,
-                      base_quantity: true,
-                      quote_amount: true,
+            fills: {
+              where: {
+                side: 'SELL',
+              },
+              select: shouldIncludeFills ? {
+                id: true,
+                price: true,
+                qty: true,
+                created_at: true,
+                execution: {
+                  select: {
+                    id: true,
+                    avg_price: true,
+                    executed_qty: true,
+                    created_at: true,
+                    trade_job: {
+                      select: {
+                        id: true,
+                        symbol: true,
+                        side: true,
+                        order_type: true,
+                        status: true,
+                        created_at: true,
+                        limit_price: true,
+                        base_quantity: true,
+                        quote_amount: true,
+                      },
                     },
                   },
                 },
-              },
-            } : {
-              id: true,
-              price: true,
-              qty: true,
-              created_at: true,
-              execution: {
-                select: {
-                  id: true,
-                  avg_price: true,
-                  created_at: true,
+              } : {
+                id: true,
+                price: true,
+                qty: true,
+                created_at: true,
+                execution: {
+                  select: {
+                    id: true,
+                    avg_price: true,
+                    created_at: true,
+                  },
                 },
               },
-            },
-            orderBy: {
-              created_at: 'desc',
+              orderBy: {
+                created_at: 'desc',
+              },
+              take: 1, // Apenas o fill mais recente para price_close
             },
           },
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-        skip,
-        take: limitNum,
-      });
+          orderBy: {
+            created_at: 'desc',
+          },
+          skip,
+          take: limitNum,
+        }),
+        this.prisma.tradePosition.count({ where }),
+      ]);
 
-      // Contar total
-      const total = await this.prisma.tradePosition.count({ where });
+      // Separar posições abertas e fechadas (já filtradas pela WHERE clause)
+      const openPositions = positions.filter(p => p.status === 'OPEN');
+      const closedPositions = positions.filter(p => p.status === 'CLOSED');
 
-      // Separar posições abertas e fechadas
-      // Garantir que apenas posições do trade_mode correto sejam incluídas
-      const isOpenStatus = status?.toUpperCase() === 'OPEN';
-      const normalizedTradeMode = tradeMode ? String(tradeMode).toUpperCase().trim() : null;
-      
-      const openPositions = isOpenStatus 
-        ? positions.filter(p => {
-            if (normalizedTradeMode) {
-              return p.status === 'OPEN' && p.trade_mode === normalizedTradeMode;
-            }
-            return p.status === 'OPEN';
-          })
-        : positions.filter(p => {
-            if (normalizedTradeMode) {
-              return p.status === 'OPEN' && p.trade_mode === normalizedTradeMode;
-            }
-            return p.status === 'OPEN';
-          });
-      
-      const closedPositions = !isOpenStatus 
-        ? positions.filter(p => {
-            if (normalizedTradeMode) {
-              return p.status === 'CLOSED' && p.trade_mode === normalizedTradeMode;
-            }
-            return p.status === 'CLOSED';
-          })
-        : positions.filter(p => {
-            if (normalizedTradeMode) {
-              return p.status === 'CLOSED' && p.trade_mode === normalizedTradeMode;
-            }
-            return p.status === 'CLOSED';
-          });
-
-      // Agrupar símbolos únicos por exchange para buscar preços em batch
+      // Agrupar símbolos únicos por exchange para buscar preços do cache
       const symbolExchangeMap = new Map<string, { symbols: Set<string>; exchange: string }>();
       
       openPositions.forEach((position) => {
@@ -411,43 +396,53 @@ export class PositionsController {
         symbolExchangeMap.get(key)!.symbols.add(position.symbol);
       });
 
-      // Buscar preços em batch (agrupados por exchange)
+      // Buscar preços do cache Redis (agrupados por exchange)
       const priceMap = new Map<string, number>();
       
       for (const [exchangeKey, { symbols, exchange }] of symbolExchangeMap.entries()) {
-        try {
-          const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
-          
-          // Buscar preços para todos os símbolos desta exchange
-          const pricePromises = Array.from(symbols).map(async (symbol) => {
-            const cacheKey = `${exchange}:${symbol}`;
-            const cachedPrice = this.getCachedPrice(symbol, exchange);
-            
-            if (cachedPrice !== null) {
-              return { symbol, price: cachedPrice };
-            }
-            
-            try {
-              const ticker = await adapter.fetchTicker(symbol);
-              const price = ticker.last;
-              if (price && price > 0) {
-                this.setCachedPrice(symbol, exchange, price);
-                return { symbol, price };
+        // Buscar preços do cache Redis para todos os símbolos desta exchange
+        const cacheKeys = Array.from(symbols).map(symbol => `price:${exchange}:${symbol}`);
+        const cachedPrices = await this.cacheService.mget<number>(cacheKeys);
+        
+        // Mapear preços encontrados
+        let index = 0;
+        for (const symbol of symbols) {
+          const price = cachedPrices[index];
+          if (price !== null && price > 0) {
+            priceMap.set(`${exchange}:${symbol}`, price);
+          }
+          index++;
+        }
+        
+        // Se algum preço não estiver no cache, tentar buscar da exchange como fallback
+        const missingSymbols = Array.from(symbols).filter((symbol, idx) => cachedPrices[idx] === null);
+        if (missingSymbols.length > 0) {
+          try {
+            const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
+            const fallbackPromises = missingSymbols.map(async (symbol) => {
+              try {
+                const ticker = await adapter.fetchTicker(symbol);
+                const price = ticker.last;
+                if (price && price > 0) {
+                  // Armazenar no cache com TTL de 25s
+                  await this.cacheService.set(`price:${exchange}:${symbol}`, price, { ttl: 25 });
+                  return { symbol, price };
+                }
+              } catch (error: any) {
+                console.warn(`[PositionsController] Erro ao buscar preço para ${symbol} na ${exchange}: ${error.message}`);
               }
-            } catch (error: any) {
-              console.warn(`[PositionsController] Erro ao buscar preço para ${symbol} na ${exchange}: ${error.message}`);
-            }
-            return { symbol, price: null };
-          });
-          
-          const prices = await Promise.all(pricePromises);
-          prices.forEach(({ symbol, price }) => {
-            if (price !== null) {
-              priceMap.set(`${exchange}:${symbol}`, price);
-            }
-          });
-        } catch (error: any) {
-          console.warn(`[PositionsController] Erro ao criar adapter para ${exchange}: ${error.message}`);
+              return { symbol, price: null };
+            });
+            
+            const fallbackPrices = await Promise.all(fallbackPromises);
+            fallbackPrices.forEach(({ symbol, price }) => {
+              if (price !== null) {
+                priceMap.set(`${exchange}:${symbol}`, price);
+              }
+            });
+          } catch (error: any) {
+            console.warn(`[PositionsController] Erro ao criar adapter para ${exchange}: ${error.message}`);
+          }
         }
       }
 
@@ -553,6 +548,13 @@ export class PositionsController {
         ? ((totalCurrentValue - totalInvested) / totalInvested) * 100 
         : 0;
 
+      const duration = Date.now() - startTime;
+      
+      // Log de performance para queries lentas (>1s)
+      if (duration > 1000) {
+        console.warn(`[PositionsController] GET /positions executou em ${duration}ms (LENTO!) - userId: ${user.userId}, status: ${status}, tradeMode: ${tradeMode}`);
+      }
+
       return {
         data: positionsWithMetrics,
         pagination: {
@@ -570,6 +572,10 @@ export class PositionsController {
         },
       };
     } catch (error: any) {
+      const duration = Date.now() - startTime;
+      if (duration > 1000) {
+        console.error(`[PositionsController] GET /positions ERRO após ${duration}ms - userId: ${user.userId}`);
+      }
       if (error instanceof BadRequestException) {
         throw error;
       }

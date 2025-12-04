@@ -3,6 +3,7 @@ export * from './types';
 export * from './utils';
 export * from './crypto';
 export * from './validation';
+export * from './cache';
 
 // Exportações de classes e tipos
 export { NtpService } from './time/ntp.service';
