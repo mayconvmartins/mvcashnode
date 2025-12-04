@@ -715,7 +715,14 @@ export class PositionsController {
               );
 
               // Buscar ordem na exchange
-              const order = await adapter.fetchOrder(exchangeOrderId, job.symbol);
+              // Para Bybit, usar fetchClosedOrder (ordens antigas não estão nas últimas 500)
+              let order;
+              if (job.exchange_account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
+                console.log(`[SYNC-MISSING] Job ${job.id} - Usando fetchClosedOrder para ordem antiga da Bybit`);
+                order = await adapter.fetchClosedOrder(exchangeOrderId, job.symbol);
+              } else {
+                order = await adapter.fetchOrder(exchangeOrderId, job.symbol);
+              }
               console.log(`[SYNC-MISSING] Job ${job.id} - Dados da exchange:`, {
                 status: order.status,
                 filled: order.filled,

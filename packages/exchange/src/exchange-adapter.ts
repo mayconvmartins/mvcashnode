@@ -164,8 +164,8 @@ export abstract class ExchangeAdapter {
     };
   }
 
-  async fetchOrder(orderId: string, symbol: string): Promise<OrderResult> {
-    const order = await this.exchange.fetchOrder(orderId, symbol);
+  async fetchOrder(orderId: string, symbol: string, params?: any): Promise<OrderResult> {
+    const order = await this.exchange.fetchOrder(orderId, symbol, params);
     return {
       id: String(order.id || ''),
       symbol: String(order.symbol || ''),
@@ -180,6 +180,35 @@ export abstract class ExchangeAdapter {
       average: order.average ? Number(order.average) : undefined,
       fills: (order as any).fills || undefined,
     };
+  }
+
+  async fetchClosedOrder(orderId: string, symbol: string): Promise<OrderResult> {
+    // Por padrão, tenta usar fetchOrder com parâmetros especiais
+    // Adaptadores específicos podem sobrescrever este método
+    try {
+      // Tentar fetchOrder primeiro com parâmetros
+      return await this.fetchOrder(orderId, symbol, { acknowledged: true });
+    } catch (error: any) {
+      // Se falhar, tentar fetchClosedOrder se disponível
+      if (this.exchange.has['fetchClosedOrder']) {
+        const order = await (this.exchange as any).fetchClosedOrder(orderId, symbol);
+        return {
+          id: String(order.id || ''),
+          symbol: String(order.symbol || ''),
+          type: String(order.type || ''),
+          side: String(order.side || ''),
+          amount: Number(order.amount || 0),
+          price: order.price ? Number(order.price) : undefined,
+          status: String(order.status || ''),
+          filled: order.filled ? Number(order.filled) : undefined,
+          remaining: order.remaining ? Number(order.remaining) : undefined,
+          cost: order.cost ? Number(order.cost) : undefined,
+          average: order.average ? Number(order.average) : undefined,
+          fills: (order as any).fills || undefined,
+        };
+      }
+      throw error;
+    }
   }
 
   async cancelOrder(orderId: string, symbol: string): Promise<void> {

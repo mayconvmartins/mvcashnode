@@ -1,5 +1,5 @@
 import { bybit, Exchange } from 'ccxt';
-import { ExchangeAdapter } from '../exchange-adapter';
+import { ExchangeAdapter, OrderResult } from '../exchange-adapter';
 import { ExchangeType } from '@mvcashnode/shared';
 
 // Instância global do NTP service para obter timestamp correto
@@ -72,6 +72,38 @@ export class BybitSpotAdapter extends ExchangeAdapter {
       }
     
     return exchange;
+  }
+
+  async fetchClosedOrder(orderId: string, symbol: string): Promise<OrderResult> {
+    // Bybit tem limitação: só pode acessar últimas 500 ordens
+    // A mensagem de erro sugere usar params["acknowledged"] = true
+    // ou fetchClosedOrder/fetchOpenOrder
+    try {
+      // Tentar fetchClosedOrder primeiro (se disponível no CCXT)
+      if (this.exchange.has && this.exchange.has['fetchClosedOrder']) {
+        const order = await (this.exchange as any).fetchClosedOrder(orderId, symbol);
+        return {
+          id: String(order.id || ''),
+          symbol: String(order.symbol || ''),
+          type: String(order.type || ''),
+          side: String(order.side || ''),
+          amount: Number(order.amount || 0),
+          price: order.price ? Number(order.price) : undefined,
+          status: String(order.status || ''),
+          filled: order.filled ? Number(order.filled) : undefined,
+          remaining: order.remaining ? Number(order.remaining) : undefined,
+          cost: order.cost ? Number(order.cost) : undefined,
+          average: order.average ? Number(order.average) : undefined,
+          fills: (order as any).fills || undefined,
+        };
+      }
+    } catch (error: any) {
+      // Se fetchClosedOrder não funcionar, continuar para usar fetchOrder com acknowledged
+      console.log(`[Bybit] fetchClosedOrder não disponível ou falhou, usando fetchOrder com acknowledged: true`);
+    }
+
+    // Usar fetchOrder com acknowledged: true (sugerido pela mensagem de erro)
+    return await this.fetchOrder(orderId, symbol, { acknowledged: true });
   }
 }
 

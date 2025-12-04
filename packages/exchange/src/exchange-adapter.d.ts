@@ -35,7 +35,8 @@ export declare abstract class ExchangeAdapter {
     testConnection(): Promise<boolean>;
     fetchBalance(): Promise<Balance>;
     createOrder(symbol: string, type: string, side: string, amount: number, price?: number): Promise<OrderResult>;
-    fetchOrder(orderId: string, symbol: string): Promise<OrderResult>;
+    fetchOrder(orderId: string, symbol: string, params?: any): Promise<OrderResult>;
+    fetchClosedOrder?(orderId: string, symbol: string): Promise<OrderResult>;
     cancelOrder(orderId: string, symbol: string): Promise<void>;
     fetchTicker(symbol: string): Promise<Ticker>;
 }
