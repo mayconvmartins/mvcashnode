@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw, Settings, Target } from 'lucide-react'
+import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw, Settings, Target, Layers } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -32,12 +32,13 @@ import { positionsService } from '@/lib/api/positions.service'
 import { accountsService } from '@/lib/api/accounts.service'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
 import { useAuth } from '@/lib/hooks/useAuth'
-import type { Position, PaginatedResponse } from '@/lib/types'
+import type { Position, PaginatedResponse, GroupPreview } from '@/lib/types'
 import { UserRole } from '@/lib/types'
 import { formatCurrency, formatDateTime } from '@/lib/utils/format'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CreateManualPositionModal } from '@/components/positions/CreateManualPositionModal'
 import { ManualBuyModal } from '@/components/positions/ManualBuyModal'
+import { GroupPositionsModal } from '@/components/positions/GroupPositionsModal'
 import { Plus, ShoppingCart } from 'lucide-react'
 
 export default function PositionsPage() {
@@ -63,6 +64,8 @@ export default function PositionsPage() {
     const [bulkMinProfitDialogOpen, setBulkMinProfitDialogOpen] = useState(false)
     const [bulkMinProfitPct, setBulkMinProfitPct] = useState<string>('')
     const [bulkMinProfitRemove, setBulkMinProfitRemove] = useState(false)
+    const [groupModalOpen, setGroupModalOpen] = useState(false)
+    const [groupPreview, setGroupPreview] = useState<GroupPreview | null>(null)
 
     // Verificar se o usuário é admin (usando a mesma lógica dos outros componentes)
     const isAdmin = user?.roles?.some((role: any) => {
@@ -349,6 +352,61 @@ export default function PositionsPage() {
         }
 
         bulkUpdateMinProfitMutation.mutate(updateData)
+    }
+
+    // Verificar se posições selecionadas são elegíveis para agrupamento
+    const canGroupPositions = useMemo(() => {
+        if (selectedPositionIds.length < 2) return false
+        
+        const selected = openPositions.filter((p: Position) => 
+            selectedPositionIds.includes(p.id)
+        )
+        
+        if (selected.length !== selectedPositionIds.length) return false
+        if (selected.some((p: Position) => p.status !== 'OPEN')) return false
+        if (selected.some((p: Position) => p.qty_remaining <= 0)) return false
+        
+        // Todas devem ter mesmo símbolo
+        const symbols = new Set(selected.map((p: Position) => p.symbol))
+        if (symbols.size > 1) return false
+        
+        // Todas devem ter mesma conta
+        const accounts = new Set(selected.map((p: Position) => p.exchange_account_id))
+        if (accounts.size > 1) return false
+        
+        // Todas devem ter mesmo trade_mode
+        const modes = new Set(selected.map((p: Position) => p.trade_mode))
+        if (modes.size > 1) return false
+        
+        return true
+    }, [selectedPositionIds, openPositions])
+
+    const handleGroupPreview = async () => {
+        try {
+            const preview = await positionsService.groupPreview(
+                selectedPositionIds.map(id => Number(id))
+            )
+            setGroupPreview(preview)
+            setGroupModalOpen(true)
+        } catch (error: any) {
+            toast.error(error.response?.data?.message || 'Erro ao obter preview do agrupamento')
+        }
+    }
+    
+    const handleGroupConfirm = async () => {
+        try {
+            await positionsService.groupPositions(
+                selectedPositionIds.map(id => Number(id))
+            )
+            queryClient.invalidateQueries({ queryKey: ['positions'] })
+            setGroupModalOpen(false)
+            setSelectedPositionIds([])
+            setGroupPreview(null)
+            toast.success('Posições agrupadas com sucesso')
+        } catch (error: any) {
+            toast.error(error.response?.data?.message || 'Erro ao agrupar posições')
+            throw error
+        }
     }
 
     // Colunas para DataTableAdvanced (posições abertas com seleção)
@@ -876,6 +934,17 @@ export default function PositionsPage() {
                                 </CardTitle>
                                 {selectedPositionIds.length > 0 && (
                                     <div className="flex items-center gap-2">
+                                        {canGroupPositions && (
+                                            <Button
+                                                onClick={handleGroupPreview}
+                                                variant="default"
+                                                size="sm"
+                                                className="bg-blue-600 hover:bg-blue-700"
+                                            >
+                                                <Layers className="h-4 w-4 mr-2" />
+                                                Agrupar ({selectedPositionIds.length})
+                                            </Button>
+                                        )}
                                         <Button
                                             onClick={() => setBulkSLTPDialogOpen(true)}
                                             variant="default"
@@ -904,29 +973,52 @@ export default function PositionsPage() {
                                 enableSelection={true}
                                 selectedIds={selectedPositionIds}
                                 onSelectionChange={setSelectedPositionIds}
-                                bulkActions={(selectedIds) => (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-sm text-muted-foreground">
-                                            {selectedIds.length} selecionada(s)
-                                        </span>
-                                        <Button
-                                            onClick={() => setBulkSLTPDialogOpen(true)}
-                                            variant="default"
-                                            size="sm"
-                                        >
-                                            <Settings className="h-4 w-4 mr-2" />
-                                            Definir TP/SL
-                                        </Button>
-                                        <Button
-                                            onClick={() => setBulkMinProfitDialogOpen(true)}
-                                            variant="default"
-                                            size="sm"
-                                        >
-                                            <Target className="h-4 w-4 mr-2" />
-                                            Definir Lucro Mínimo
-                                        </Button>
-                                    </div>
-                                )}
+                                bulkActions={(selectedIds) => {
+                                    const selected = openPositions.filter((p: Position) => 
+                                        selectedIds.includes(p.id)
+                                    )
+                                    const canGroup = selectedIds.length >= 2 &&
+                                        selected.length === selectedIds.length &&
+                                        selected.every((p: Position) => p.status === 'OPEN' && p.qty_remaining > 0) &&
+                                        new Set(selected.map((p: Position) => p.symbol)).size === 1 &&
+                                        new Set(selected.map((p: Position) => p.exchange_account_id)).size === 1 &&
+                                        new Set(selected.map((p: Position) => p.trade_mode)).size === 1
+                                    
+                                    return (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm text-muted-foreground">
+                                                {selectedIds.length} selecionada(s)
+                                            </span>
+                                            {canGroup && (
+                                                <Button
+                                                    onClick={handleGroupPreview}
+                                                    variant="default"
+                                                    size="sm"
+                                                    className="bg-blue-600 hover:bg-blue-700"
+                                                >
+                                                    <Layers className="h-4 w-4 mr-2" />
+                                                    Agrupar
+                                                </Button>
+                                            )}
+                                            <Button
+                                                onClick={() => setBulkSLTPDialogOpen(true)}
+                                                variant="default"
+                                                size="sm"
+                                            >
+                                                <Settings className="h-4 w-4 mr-2" />
+                                                Definir TP/SL
+                                            </Button>
+                                            <Button
+                                                onClick={() => setBulkMinProfitDialogOpen(true)}
+                                                variant="default"
+                                                size="sm"
+                                            >
+                                                <Target className="h-4 w-4 mr-2" />
+                                                Definir Lucro Mínimo
+                                            </Button>
+                                        </div>
+                                    )
+                                }}
                                 emptyState={
                                     <div className="text-center py-12">
                                         <p className="text-muted-foreground">
@@ -1168,6 +1260,17 @@ export default function PositionsPage() {
             <ManualBuyModal
                 open={manualBuyModalOpen}
                 onClose={() => setManualBuyModalOpen(false)}
+            />
+
+            {/* Modal de Agrupamento de Posições */}
+            <GroupPositionsModal
+                open={groupModalOpen}
+                preview={groupPreview}
+                onClose={() => {
+                    setGroupModalOpen(false)
+                    setGroupPreview(null)
+                }}
+                onConfirm={handleGroupConfirm}
             />
         </div>
     )
