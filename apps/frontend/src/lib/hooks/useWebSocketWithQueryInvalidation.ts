@@ -195,30 +195,19 @@ export function useWebSocketWithQueryInvalidation({
         }
 
         try {
-            // Normalizar a URL para garantir que tenha um path válido
-            let normalizedUrl = url.trim()
+            // Simplificar construção de URL
+            let baseUrl = url.trim()
             
             // Se a URL não começar com ws:// ou wss://, adicionar ws:// como padrão
-            if (!normalizedUrl.startsWith('ws://') && !normalizedUrl.startsWith('wss://')) {
-                normalizedUrl = `ws://${normalizedUrl}`
+            if (!baseUrl.startsWith('ws://') && !baseUrl.startsWith('wss://')) {
+                baseUrl = `ws://${baseUrl}`
             }
             
-            // Criar objeto URL - garantir que tenha path válido
-            let wsUrl: URL
-            try {
-                wsUrl = new URL(normalizedUrl)
-            } catch (urlError) {
-                // Se falhar, tentar adicionar path explícito
-                if (!normalizedUrl.includes('/') || normalizedUrl.endsWith('/')) {
-                    normalizedUrl = normalizedUrl.replace(/\/$/, '') + '/'
-                }
-                wsUrl = new URL(normalizedUrl)
-            }
+            // Criar objeto URL
+            const wsUrl = new URL(baseUrl)
             
-            // Garantir que tenha um path válido (pelo menos /)
-            if (!wsUrl.pathname || wsUrl.pathname === '') {
-                wsUrl.pathname = '/'
-            }
+            // Garantir que o path seja sempre / quando conectar na raiz
+            wsUrl.pathname = '/'
             
             // Se a página estiver em HTTPS, garantir que o WebSocket use wss://
             if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
@@ -227,7 +216,7 @@ export function useWebSocketWithQueryInvalidation({
                 }
             }
             
-            // Token já foi verificado acima, então sempre adicionar
+            // Adicionar token na query string
             wsUrl.searchParams.set('token', accessToken)
 
             const finalUrl = wsUrl.toString()
@@ -240,8 +229,17 @@ export function useWebSocketWithQueryInvalidation({
             console.log('🔌 Connecting to WebSocket:', finalUrl.replace(/token=[^&]+/, 'token=***'))
 
             const ws = new WebSocket(finalUrl)
+            
+            // Timeout de conexão (10 segundos)
+            const connectionTimeout = setTimeout(() => {
+                if (ws.readyState === WebSocket.CONNECTING) {
+                    console.warn('⚠️ WebSocket connection timeout')
+                    ws.close(1006, 'Connection timeout')
+                }
+            }, 10000)
 
             ws.onopen = () => {
+                clearTimeout(connectionTimeout)
                 console.log('✅ WebSocket connection opened')
                 setIsConnected(true)
                 reconnectAttemptsRef.current = 0
@@ -279,6 +277,7 @@ export function useWebSocketWithQueryInvalidation({
             }
 
             ws.onerror = (error) => {
+                clearTimeout(connectionTimeout)
                 console.error('❌ WebSocket error:', {
                     type: error.type,
                     target: error.target,
@@ -288,17 +287,32 @@ export function useWebSocketWithQueryInvalidation({
             }
 
             ws.onclose = (event) => {
+                clearTimeout(connectionTimeout)
+                const closeCode = event.code
+                const closeReason = event.reason || 'No reason provided'
+                const wasClean = event.wasClean
+                
                 console.log('🔌 WebSocket closed:', {
-                    code: event.code,
-                    reason: event.reason || 'No reason provided',
-                    wasClean: event.wasClean,
+                    code: closeCode,
+                    reason: closeReason,
+                    wasClean,
                 })
+                
                 setIsConnected(false)
                 stopHeartbeat()
 
                 // Não reconectar se o componente foi desmontado
                 if (!isMountedRef.current) {
                     console.log('🔌 Component unmounted, skipping reconnection')
+                    return
+                }
+
+                // Não reconectar se foi fechado por erro de autenticação ou configuração
+                if (closeCode === 1008 || closeCode === 1011) {
+                    console.warn(`⚠️ WebSocket fechado por erro (código ${closeCode}): ${closeReason}`)
+                    toast.error(`Erro de conexão: ${closeReason}`, {
+                        duration: 5000,
+                    })
                     return
                 }
 
@@ -326,10 +340,23 @@ export function useWebSocketWithQueryInvalidation({
 
             wsRef.current = ws
         } catch (error) {
-            console.error('❌ Error creating WebSocket connection:', error)
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            console.error('❌ Error creating WebSocket connection:', errorMessage)
             setIsConnected(false)
-            // Tentar reconectar após um delay
-            if (isMountedRef.current && enabled) {
+            
+            // Mostrar mensagem de erro mais clara para o usuário
+            if (errorMessage.includes('Invalid WebSocket URL')) {
+                toast.error('URL do WebSocket inválida. Verifique a configuração.', {
+                    duration: 5000,
+                })
+            } else {
+                toast.error(`Erro ao conectar WebSocket: ${errorMessage}`, {
+                    duration: 5000,
+                })
+            }
+            
+            // Tentar reconectar após um delay apenas se não for erro de URL
+            if (isMountedRef.current && enabled && !errorMessage.includes('Invalid WebSocket URL')) {
                 const delay = reconnectInterval
                 reconnectTimeoutRef.current = setTimeout(() => {
                     if (isMountedRef.current) {

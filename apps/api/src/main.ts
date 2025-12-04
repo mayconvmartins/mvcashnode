@@ -74,6 +74,7 @@ async function bootstrap() {
   const wsAdapter = new WsAdapter(app);
   app.useWebSocketAdapter(wsAdapter);
   console.log('[WebSocket] ✅ WebSocket adapter configurado (ws nativo)');
+  console.log('[WebSocket] ✅ WebSocket Gateway escutando em path: /');
   
   // Compressão HTTP (gzip/brotli)
   const compression = require('compression');
@@ -293,6 +294,7 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`API running on http://localhost:${port}`);
   console.log(`Swagger UI: http://localhost:${port}/api-docs`);
+  console.log(`[WebSocket] ✅ WebSocket server escutando em ws://localhost:${port}/`);
 }
 
 bootstrap();
