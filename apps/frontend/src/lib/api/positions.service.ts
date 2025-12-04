@@ -76,4 +76,20 @@ export const positionsService = {
         const response = await apiClient.post('/positions/bulk-update-sltp', data)
         return response.data
     },
+
+    createManual: async (data: {
+        method: 'EXCHANGE_ORDER' | 'MANUAL'
+        exchange_account_id: number
+        exchange_order_id?: string
+        symbol?: string
+        manual_symbol?: string
+        qty_total?: number
+        price_open?: number
+        trade_mode?: 'REAL' | 'SIMULATION'
+        manual_exchange_order_id?: string
+        created_at?: string
+    }): Promise<Position> => {
+        const response = await apiClient.post<Position>('/positions/manual', data)
+        return response.data
+    },
 }

@@ -31,12 +31,16 @@ import { DateRangeFilter, type DatePreset } from '@/components/positions/DateRan
 import { positionsService } from '@/lib/api/positions.service'
 import { accountsService } from '@/lib/api/accounts.service'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
-import type { Position, PaginatedResponse } from '@/lib/types'
+import { useAuth } from '@/lib/hooks/useAuth'
+import type { Position, PaginatedResponse, UserRole } from '@/lib/types'
 import { formatCurrency, formatDateTime } from '@/lib/utils/format'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CreateManualPositionModal } from '@/components/positions/CreateManualPositionModal'
+import { Plus } from 'lucide-react'
 
 export default function PositionsPage() {
     const { tradeMode } = useTradeMode()
+    const { user } = useAuth()
     const queryClient = useQueryClient()
     const [selectedSymbol, setSelectedSymbol] = useState<string>('all')
     const [selectedAccount, setSelectedAccount] = useState<string>('all')
@@ -52,6 +56,9 @@ export default function PositionsPage() {
     const [bulkSLPct, setBulkSLPct] = useState<string>('')
     const [bulkTPEnabled, setBulkTPEnabled] = useState(false)
     const [bulkTPPct, setBulkTPPct] = useState<string>('')
+    const [createManualModalOpen, setCreateManualModalOpen] = useState(false)
+
+    const isAdmin = user?.roles?.includes(UserRole.ADMIN) || false
 
     // Buscar contas
     const { data: accounts } = useQuery({
@@ -568,6 +575,15 @@ export default function PositionsPage() {
                     <p className="text-muted-foreground mt-1">Gerencie suas posições de trading</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    {isAdmin && (
+                        <Button
+                            variant="default"
+                            onClick={() => setCreateManualModalOpen(true)}
+                        >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Adicionar Posição Manual
+                        </Button>
+                    )}
                     <Button
                         variant="outline"
                         onClick={() => syncMissingMutation.mutate()}
@@ -974,6 +990,12 @@ export default function PositionsPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Modal de Adicionar Posição Manual */}
+            <CreateManualPositionModal
+                open={createManualModalOpen}
+                onClose={() => setCreateManualModalOpen(false)}
+            />
         </div>
     )
 }

@@ -24,6 +24,7 @@ import { PositionsService } from './positions.service';
 import { UpdateSLTPDto } from './dto/update-sltp.dto';
 import { ClosePositionDto } from './dto/close-position.dto';
 import { SellLimitDto } from './dto/sell-limit.dto';
+import { CreateManualPositionDto, CreateManualPositionMethod } from './dto/create-manual-position.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -2145,6 +2146,225 @@ export class PositionsController {
     }
 
     return { updated, errors };
+  }
+
+  @Post('manual')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Criar posição manualmente (Admin)',
+    description: 'Permite que administradores criem posições manualmente, seja buscando dados de uma ordem na exchange ou inserindo todos os dados manualmente.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Posição criada com sucesso',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dados inválidos ou erro ao buscar ordem na exchange',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Apenas administradores podem criar posições manualmente',
+  })
+  async createManualPosition(
+    @CurrentUser() user: any,
+    @Body() createDto: CreateManualPositionDto
+  ): Promise<any> {
+    try {
+      // Verificar se a conta existe (pode ser de qualquer usuário)
+      const account = await this.prisma.exchangeAccount.findUnique({
+        where: { id: createDto.exchange_account_id },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      if (!account) {
+        throw new BadRequestException('Conta de exchange não encontrada');
+      }
+
+      let executedQty: number;
+      let avgPrice: number;
+      let cummQuoteQty: number;
+      let symbol: string;
+      let tradeMode: 'REAL' | 'SIMULATION';
+      let exchangeOrderId: string | undefined;
+      let createdAt: Date | undefined;
+
+      if (createDto.method === CreateManualPositionMethod.EXCHANGE_ORDER) {
+        // Buscar dados da ordem na exchange
+        if (!createDto.exchange_order_id || !createDto.symbol) {
+          throw new BadRequestException('exchange_order_id e symbol são obrigatórios para EXCHANGE_ORDER');
+        }
+
+        if (account.is_simulation) {
+          throw new BadRequestException('Não é possível buscar ordens de contas de simulação na exchange');
+        }
+
+        // Obter chaves da API
+        const accountService = new ExchangeAccountService(this.prisma, this.encryptionService);
+        const keys = await accountService.decryptApiKeys(createDto.exchange_account_id);
+
+        if (!keys || !keys.apiKey || !keys.apiSecret) {
+          throw new BadRequestException('API keys não encontradas para esta conta');
+        }
+
+        // Criar adapter
+        const adapter = AdapterFactory.createAdapter(
+          account.exchange as ExchangeType,
+          keys.apiKey,
+          keys.apiSecret,
+          { testnet: account.testnet }
+        );
+
+        // Buscar ordem na exchange
+        let order;
+        if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
+          order = await adapter.fetchClosedOrder(createDto.exchange_order_id, createDto.symbol);
+        } else {
+          order = await adapter.fetchOrder(createDto.exchange_order_id, createDto.symbol);
+        }
+
+        // Validar que é uma ordem BUY
+        if (order.side !== 'BUY') {
+          throw new BadRequestException('A ordem deve ser do tipo BUY');
+        }
+
+        // Validar que está FILLED
+        if (order.status !== 'closed' && order.status !== 'filled') {
+          throw new BadRequestException(`A ordem deve estar FILLED. Status atual: ${order.status}`);
+        }
+
+        // Extrair dados da ordem
+        let filled = order.filled || 0;
+        let average = order.average || order.price || 0;
+        let cost = order.cost || 0;
+
+        // Se não encontrou dados diretos, tentar extrair dos fills
+        if ((filled === 0 || average === 0) && order.fills && order.fills.length > 0) {
+          let totalFilled = 0;
+          let totalCost = 0;
+
+          for (const fill of order.fills) {
+            const fillQty = fill.amount || fill.quantity || 0;
+            const fillPrice = fill.price || 0;
+            totalFilled += fillQty;
+            totalCost += fillQty * fillPrice;
+          }
+
+          if (totalFilled > 0) {
+            filled = totalFilled;
+            average = totalCost / totalFilled;
+            cost = totalCost;
+          }
+        }
+
+        if (filled === 0 || average === 0) {
+          throw new BadRequestException('Não foi possível extrair dados válidos da ordem na exchange');
+        }
+
+        executedQty = filled;
+        avgPrice = average;
+        cummQuoteQty = cost > 0 ? cost : filled * average;
+        symbol = createDto.symbol;
+        tradeMode = account.is_simulation ? 'SIMULATION' : 'REAL';
+        exchangeOrderId = createDto.exchange_order_id;
+      } else {
+        // Usar dados manuais
+        if (!createDto.manual_symbol || !createDto.qty_total || !createDto.price_open || !createDto.trade_mode) {
+          throw new BadRequestException('Todos os campos obrigatórios devem ser preenchidos para MANUAL');
+        }
+
+        executedQty = createDto.qty_total;
+        avgPrice = createDto.price_open;
+        cummQuoteQty = executedQty * avgPrice;
+        symbol = createDto.manual_symbol;
+        tradeMode = createDto.trade_mode;
+        exchangeOrderId = createDto.manual_exchange_order_id || `MANUAL-${Date.now()}`;
+
+        if (createDto.created_at) {
+          createdAt = new Date(createDto.created_at);
+        }
+      }
+
+      // Criar TradeJob BUY com status FILLED
+      const tradeJob = await this.prisma.tradeJob.create({
+        data: {
+          exchange_account_id: createDto.exchange_account_id,
+          trade_mode: tradeMode,
+          symbol: symbol,
+          side: 'BUY',
+          order_type: 'MARKET',
+          status: 'FILLED',
+          base_quantity: executedQty,
+          created_at: createdAt,
+        },
+      });
+
+      // Criar TradeExecution
+      const tradeExecution = await this.prisma.tradeExecution.create({
+        data: {
+          trade_job_id: tradeJob.id,
+          exchange_account_id: createDto.exchange_account_id,
+          trade_mode: tradeMode,
+          exchange: account.exchange,
+          exchange_order_id: exchangeOrderId,
+          client_order_id: `manual-${tradeJob.id}-${Date.now()}`,
+          status_exchange: 'FILLED',
+          executed_qty: executedQty,
+          cumm_quote_qty: cummQuoteQty,
+          avg_price: avgPrice,
+          created_at: createdAt,
+        },
+      });
+
+      // Criar Position usando PositionService
+      const positionService = new PositionService(this.prisma);
+      const positionId = await positionService.onBuyExecuted(
+        tradeJob.id,
+        tradeExecution.id,
+        executedQty,
+        avgPrice
+      );
+
+      // Buscar posição criada com todos os relacionamentos
+      const position = await this.prisma.tradePosition.findUnique({
+        where: { id: positionId },
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+              is_simulation: true,
+            },
+          },
+          open_job: {
+            select: {
+              id: true,
+              symbol: true,
+              side: true,
+              order_type: true,
+              status: true,
+              created_at: true,
+            },
+          },
+        },
+      });
+
+      return position;
+    } catch (error: any) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Erro ao criar posição manual: ${error.message}`);
+    }
   }
 }
 

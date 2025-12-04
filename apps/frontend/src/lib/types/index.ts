@@ -397,6 +397,19 @@ export interface PositionFill {
     created_at: string
 }
 
+export interface CreateManualPositionDto {
+    method: 'EXCHANGE_ORDER' | 'MANUAL'
+    exchange_account_id: number
+    exchange_order_id?: string
+    symbol?: string
+    manual_symbol?: string
+    qty_total?: number
+    price_open?: number
+    trade_mode?: 'REAL' | 'SIMULATION'
+    manual_exchange_order_id?: string
+    created_at?: string
+}
+
 export interface UpdateSLTPDto {
     slEnabled?: boolean
     slPct?: number
