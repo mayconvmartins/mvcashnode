@@ -24,14 +24,21 @@ import { ExchangeAccountsService } from './exchange-accounts.service';
 import { CreateExchangeAccountDto } from './dto/create-exchange-account.dto';
 import { UpdateExchangeAccountDto } from './dto/update-exchange-account.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '@mvcashnode/shared';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { PrismaService } from '@mvcashnode/db';
 
 @ApiTags('Exchange Accounts')
 @Controller('exchange-accounts')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class ExchangeAccountsController {
-  constructor(private exchangeAccountsService: ExchangeAccountsService) {}
+  constructor(
+    private exchangeAccountsService: ExchangeAccountsService,
+    private prisma: PrismaService
+  ) {}
 
   @Get()
   @ApiOperation({ 
@@ -65,6 +72,49 @@ export class ExchangeAccountsController {
       ...account,
       trade_mode: account.is_simulation ? 'SIMULATION' : 'REAL',
     }));
+  }
+
+  @Get('all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ 
+    summary: 'Listar todas as contas de exchange (Admin)',
+    description: 'Retorna todas as contas de exchange de todos os usuários. Apenas para administradores.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Lista de todas as contas de exchange',
+  })
+  async listAll(@CurrentUser() user: any): Promise<any[]> {
+    const isAdmin = user.roles?.includes(UserRole.ADMIN);
+    if (!isAdmin) {
+      throw new ForbiddenException('Apenas administradores podem acessar este endpoint');
+    }
+
+    const accounts = await this.prisma.exchangeAccount.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    });
+    
+    // Mapear is_simulation para trade_mode e incluir informações do usuário
+    return accounts.map(account => {
+      const { user, ...accountData } = account;
+      return {
+        ...accountData,
+        trade_mode: account.is_simulation ? 'SIMULATION' : 'REAL',
+        user_email: user.email,
+        user_id: user.id,
+      };
+    });
   }
 
   @Post()

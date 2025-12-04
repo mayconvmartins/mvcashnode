@@ -8,10 +8,12 @@ import { AlertTriangle, X, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
 
 export function ImpersonationBanner() {
     const { accessToken, logout, setTokens, setUser } = useAuthStore()
     const router = useRouter()
+    const queryClient = useQueryClient()
     const [isImpersonating, setIsImpersonating] = useState(false)
     const [impersonatedBy, setImpersonatedBy] = useState<string | null>(null)
     const [isRestoring, setIsRestoring] = useState(false)
@@ -88,10 +90,21 @@ export function ImpersonationBanner() {
             localStorage.removeItem('originalAdminToken')
             localStorage.removeItem('originalAdminRefreshToken')
             
+            // Invalidar todas as queries para forçar atualização
+            queryClient.clear()
+            // Invalidar especificamente a query do useAuth
+            queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+            // Forçar atualização do cache com os dados do admin
+            queryClient.setQueryData(['auth', 'me'], adminData)
+            
             toast.success('Voltou ao modo admin')
             
-            // Redirecionar para página admin
-            router.push('/admin')
+            // Aguardar um pouco para garantir que o estado foi atualizado
+            setTimeout(() => {
+                router.push('/admin')
+                // Forçar reload da página para garantir que tudo seja atualizado
+                window.location.href = '/admin'
+            }, 200)
         } catch (error: any) {
             console.error('Erro ao restaurar token do admin:', error)
             toast.error('Erro ao restaurar modo admin. Fazendo logout...')

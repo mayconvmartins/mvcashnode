@@ -49,16 +49,17 @@ export default function NewBindingPage() {
         enabled: !isNaN(webhookId),
     })
 
-    // Buscar todas as contas
-    const { data: accounts, isLoading: isLoadingAccounts } = useQuery({
-        queryKey: ['accounts'],
-        queryFn: accountsService.list,
-    })
-    
     // Se webhook é compartilhado E usuário é admin E é dono: pode vincular contas de outros usuários
     const canBindOtherAccounts = webhook?.is_shared && isAdmin && webhook?.is_owner !== false
     
-    // Usar apenas contas próprias (o backend valida se pode vincular contas de outros usuários)
+    // Buscar contas próprias ou todas as contas (se admin e webhook compartilhado)
+    const { data: accounts, isLoading: isLoadingAccounts } = useQuery({
+        queryKey: ['accounts', canBindOtherAccounts ? 'all' : 'own', webhookId],
+        queryFn: () => canBindOtherAccounts ? accountsService.listAll() : accountsService.list(),
+        enabled: !!webhook && !isLoadingWebhook,
+    })
+    
+    // Usar contas buscadas
     const accountsToUse = accounts
     
     // Filtrar contas já vinculadas e que correspondem ao trade_mode do webhook
@@ -185,6 +186,11 @@ export default function NewBindingPage() {
                                                     <div className="flex flex-col">
                                                         <span className="font-medium">
                                                             {account.label}
+                                                            {(account as any).user_email && (
+                                                                <span className="text-xs text-muted-foreground ml-2">
+                                                                    ({(account as any).user_email})
+                                                                </span>
+                                                            )}
                                                         </span>
                                                         <span className="text-xs text-muted-foreground">
                                                             {account.exchange} •{' '}
@@ -205,7 +211,7 @@ export default function NewBindingPage() {
                             )}
                             <p className="text-sm text-muted-foreground">
                                 {canBindOtherAccounts
-                                    ? `Como admin e dono deste webhook compartilhado, você pode vincular contas de outros usuários. Apenas suas contas são exibidas aqui, mas você pode vincular qualquer conta pelo ID através da API.`
+                                    ? `Como admin e dono deste webhook compartilhado, você pode vincular contas de todos os usuários. Contas de outros usuários aparecem com o email do dono entre parênteses.`
                                     : `Apenas suas contas com o mesmo modo de trade (${webhook.trade_mode}) e que ainda não estão vinculadas serão exibidas`}
                             </p>
                         </div>

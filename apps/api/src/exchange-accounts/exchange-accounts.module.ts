@@ -5,6 +5,7 @@ import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 
 @Module({
   controllers: [ExchangeAccountsController],
@@ -23,6 +24,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
       inject: [ConfigService],
     },
     JwtAuthGuard,
+    RolesGuard,
   ],
   exports: [ExchangeAccountsService],
 })
