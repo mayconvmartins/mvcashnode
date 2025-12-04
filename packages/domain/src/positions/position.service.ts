@@ -176,7 +176,7 @@ export class PositionService {
     });
 
     // VALIDAÇÃO DE SEGURANÇA: Verificar se os parâmetros foram copiados corretamente e atualizar se necessário
-    const needsUpdate = await this.validateAndUpdatePositionParams(
+    const needsUpdate = await this.validateAndUpdatePositionParamsPublic(
       position.id,
       job.exchange_account_id,
       job.symbol
@@ -197,7 +197,7 @@ export class PositionService {
    * @param symbol Símbolo do par de trading
    * @returns true se a posição foi atualizada, false caso contrário
    */
-  private async validateAndUpdatePositionParams(
+  async validateAndUpdatePositionParamsPublic(
     positionId: number,
     exchangeAccountId: number,
     symbol: string

@@ -196,6 +196,22 @@ async function bootstrap() {
   );
   console.log('✅ Positions Sync Missing configurado (a cada 5min)');
 
+  // Configurar Positions Params Fix - executa a cada 60 segundos (1 minuto)
+  const positionsParamsFixQueue = app.get<Queue>(getQueueToken('positions-params-fix'));
+  await positionsParamsFixQueue.add(
+    'fix-positions-params',
+    {},
+    {
+      repeat: {
+        every: 60000, // 60 segundos (1 minuto)
+      },
+      jobId: 'positions-params-fix-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Positions Params Fix configurado (a cada 1min)');
+
   console.log('🎉 Todos os monitores configurados e rodando!');
 }
 

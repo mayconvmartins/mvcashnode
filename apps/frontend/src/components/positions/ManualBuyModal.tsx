@@ -82,29 +82,53 @@ export function ManualBuyModal({ open, onClose }: ManualBuyModalProps) {
             return
         }
 
-        const amount = parseFloat(quoteAmount)
+        // Normalizar vírgula para ponto no valor em USDT
+        const normalizedQuoteAmount = quoteAmount.replace(',', '.')
+        const amount = parseFloat(normalizedQuoteAmount)
         if (isNaN(amount) || amount <= 0) {
             toast.error('Valor em USDT deve ser maior que zero')
             return
         }
 
+        // Validar valor mínimo de 10 USD
+        if (amount < 10) {
+            toast.error('O valor investido deve ser de pelo menos 10 USD')
+            return
+        }
+
         if (orderType === 'LIMIT') {
-            const price = parseFloat(limitPrice)
-            if (isNaN(price) || price <= 0) {
-                toast.error('Preço limite é obrigatório e deve ser maior que zero para ordens LIMIT')
+            if (!limitPrice) {
+                toast.error('Preço limite é obrigatório para ordens LIMIT')
                 return
             }
-        }
+            
+            // Normalizar vírgula para ponto no preço limite
+            const normalizedLimitPrice = limitPrice.replace(',', '.')
+            const price = parseFloat(normalizedLimitPrice)
+            if (isNaN(price) || price <= 0) {
+                toast.error('Preço limite deve ser um número válido maior que zero')
+                return
+            }
 
-        const data: CreateManualBuyDto = {
-            exchange_account_id: parseInt(exchangeAccountId),
-            symbol: symbol.toUpperCase().trim(),
-            quote_amount: amount,
-            order_type: orderType,
-            limit_price: orderType === 'LIMIT' ? parseFloat(limitPrice) : undefined,
-        }
+            const data: CreateManualBuyDto = {
+                exchange_account_id: parseInt(exchangeAccountId),
+                symbol: symbol.toUpperCase().trim(),
+                quote_amount: amount,
+                order_type: orderType,
+                limit_price: price,
+            }
 
-        createMutation.mutate(data)
+            createMutation.mutate(data)
+        } else {
+            const data: CreateManualBuyDto = {
+                exchange_account_id: parseInt(exchangeAccountId),
+                symbol: symbol.toUpperCase().trim(),
+                quote_amount: amount,
+                order_type: orderType,
+            }
+
+            createMutation.mutate(data)
+        }
     }
 
     const selectedAccount = accounts?.find((acc) => acc.id.toString() === exchangeAccountId)
@@ -154,14 +178,14 @@ export function ManualBuyModal({ open, onClose }: ManualBuyModalProps) {
                             id="quote-amount"
                             type="number"
                             step="0.01"
-                            min="0.01"
+                            min="10"
                             value={quoteAmount}
                             onChange={(e) => setQuoteAmount(e.target.value)}
                             placeholder="Ex: 100.00"
                             required
                         />
                         <p className="text-xs text-muted-foreground">
-                            Valor total em USDT a ser investido na compra
+                            Valor total em USDT a ser investido na compra (mínimo: 10 USD)
                         </p>
                     </div>
 
@@ -183,11 +207,14 @@ export function ManualBuyModal({ open, onClose }: ManualBuyModalProps) {
                             <Label htmlFor="limit-price">Preço Limite *</Label>
                             <Input
                                 id="limit-price"
-                                type="number"
-                                step="0.01"
-                                min="0.00000001"
+                                type="text"
+                                inputMode="decimal"
                                 value={limitPrice}
-                                onChange={(e) => setLimitPrice(e.target.value)}
+                                onChange={(e) => {
+                                    // Permitir apenas números, ponto e vírgula
+                                    const value = e.target.value.replace(/[^0-9.,]/g, '')
+                                    setLimitPrice(value)
+                                }}
                                 placeholder="Ex: 50000.00"
                                 required
                             />
