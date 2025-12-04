@@ -11,6 +11,7 @@
     "@mvcashnode/db": "workspace:*",
     "@mvcashnode/domain": "workspace:*",
     "@mvcashnode/exchange": "workspace:*",
+    "@mvcashnode/notifications": "workspace:*",
     "@mvcashnode/shared": "workspace:*",
     "@nestjs/common": "^10.3.0",
     "@nestjs/core": "^10.3.0",
