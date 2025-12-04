@@ -447,11 +447,11 @@ export default function PositionsPage() {
             },
         },
         {
-            key: 'side',
-            label: 'Lado',
+            key: 'type',
+            label: 'Tipo',
             render: (position: Position) => (
-                <Badge variant={position.side === 'LONG' ? 'success' : 'destructive'}>
-                    {position.side === 'LONG' ? 'COMPRA' : position.side}
+                <Badge variant={position.is_grouped ? 'default' : 'outline'}>
+                    {position.is_grouped ? 'Agrupada' : 'Única'}
                 </Badge>
             ),
         },
@@ -584,11 +584,11 @@ export default function PositionsPage() {
             },
         },
         {
-            key: 'side',
-            label: 'Lado',
+            key: 'type',
+            label: 'Tipo',
             render: (position) => (
-                <Badge variant={position.side === 'LONG' ? 'success' : 'destructive'}>
-                    {position.side === 'LONG' ? 'COMPRA' : position.side}
+                <Badge variant={position.is_grouped ? 'default' : 'outline'}>
+                    {position.is_grouped ? 'Agrupada' : 'Única'}
                 </Badge>
             ),
         },
