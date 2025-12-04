@@ -241,7 +241,31 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
-    # Proxy para API
+    # Configuração específica para WebSocket (path /ws)
+    location /ws {
+        proxy_pass http://localhost:4010;
+        proxy_http_version 1.1;
+        
+        # Headers obrigatórios para WebSocket
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Headers padrão do proxy
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Timeouts aumentados para WebSocket (conexões longas)
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        
+        # Desabilitar cache para WebSocket
+        proxy_cache_bypass $http_upgrade;
+        proxy_buffering off;
+    }
+
+    # Proxy para API (rotas HTTP normais)
     location / {
         proxy_pass http://localhost:4010;
         proxy_http_version 1.1;
@@ -255,6 +279,12 @@ server {
     }
 }
 ```
+
+**Importante para WebSocket:**
+- O path `/ws` é obrigatório e deve estar configurado separadamente
+- Os headers `Upgrade` e `Connection` são essenciais para o upgrade HTTP → WebSocket
+- Timeouts aumentados (`proxy_read_timeout` e `proxy_send_timeout`) são necessários para conexões WebSocket longas
+- `proxy_buffering off` garante que mensagens WebSocket sejam enviadas imediatamente
 
 Ativar configuração:
 

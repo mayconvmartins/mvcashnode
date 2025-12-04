@@ -16,7 +16,7 @@ import { WebSocketService, WebSocketEvent } from './websocket.service';
 import * as jwt from 'jsonwebtoken';
 
 @WSGateway({
-  path: '/',
+  path: '/ws',
   cors: {
     origin: '*',
     credentials: true,
@@ -44,7 +44,7 @@ export class WebSocketGateway
     if (server) {
       this.logger.log(`[WebSocket] Server listeners: ${server.listenerCount('connection')} listener(s) de conexão`);
       this.logger.log(`[WebSocket] Server options:`, {
-        path: '/',
+        path: '/ws',
         perMessageDeflate: false,
       });
     }

@@ -220,9 +220,9 @@ export function useWebSocketWithQueryInvalidation({
                 throw new Error(`URL inválida: ${baseUrl}. Erro: ${urlError instanceof Error ? urlError.message : String(urlError)}`)
             }
             
-            // Garantir que o path seja sempre / quando conectar na raiz (conforme gateway configurado)
-            if (!wsUrl.pathname || wsUrl.pathname === '') {
-                wsUrl.pathname = '/'
+            // Garantir que o path seja sempre /ws (conforme gateway configurado)
+            if (!wsUrl.pathname || wsUrl.pathname === '' || wsUrl.pathname === '/') {
+                wsUrl.pathname = '/ws'
             }
             
             // Se a página estiver em HTTPS, garantir que o WebSocket use wss://
@@ -238,13 +238,13 @@ export function useWebSocketWithQueryInvalidation({
                 throw new Error(`URL inválida: hostname não encontrado em ${baseUrl}`)
             }
             
-            // Validar que temos uma porta (ou usar padrão)
-            if (!wsUrl.port) {
-                if (wsUrl.protocol === 'ws:') {
-                    wsUrl.port = '80'
-                } else if (wsUrl.protocol === 'wss:') {
-                    wsUrl.port = '443'
-                }
+            // Não adicionar porta automaticamente - deixar o navegador usar a porta padrão
+            // Em produção com proxy reverso, a URL não deve ter porta (usa 443 para wss://)
+            // Em desenvolvimento, a porta deve estar na URL original
+            if (wsUrl.port) {
+                console.log('🔌 [WebSocket] Porta especificada na URL:', wsUrl.port)
+            } else {
+                console.log('🔌 [WebSocket] Sem porta na URL - usando porta padrão do protocolo')
             }
             
             // Adicionar token na query string
