@@ -4,7 +4,7 @@ import { Job, Queue } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { TradeJobService, PositionService } from '@mvcashnode/domain';
-import { EncryptionService } from '@mvcashnode/shared';
+import { EncryptionService, CacheService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
@@ -17,7 +17,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
     private prisma: PrismaService,
     private encryptionService: EncryptionService,
     @InjectQueue('trade-execution-real') private readonly tradeExecutionQueue: Queue,
-    private cronExecutionService: CronExecutionService
+    private cronExecutionService: CronExecutionService,
+    private cacheService: CacheService
   ) {
     super();
   }
@@ -70,9 +71,37 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           { testnet: position.exchange_account.testnet }
         );
 
-        // Get current price
-        const ticker = await adapter.fetchTicker(position.symbol);
-        const currentPrice = ticker.last;
+        // Get current price - verificar cache primeiro
+        const exchange = position.exchange_account.exchange;
+        const cacheKey = `price:${exchange}:${position.symbol}`;
+        let currentPrice: number | null = null;
+
+        // Tentar buscar do cache primeiro
+        const cachedPrice = await this.cacheService.get<number>(cacheKey);
+        if (cachedPrice !== null && cachedPrice > 0) {
+          currentPrice = cachedPrice;
+          this.logger.debug(`[SL-TP-MONITOR-REAL] Preço de ${position.symbol} obtido do cache: ${currentPrice}`);
+        } else {
+          // Se não estiver no cache, buscar da exchange e adicionar ao cache
+          try {
+            const ticker = await adapter.fetchTicker(position.symbol);
+            currentPrice = ticker.last;
+            if (currentPrice && currentPrice > 0) {
+              // Armazenar no cache com TTL de 25 segundos
+              await this.cacheService.set(cacheKey, currentPrice, { ttl: 25 });
+              this.logger.debug(`[SL-TP-MONITOR-REAL] Preço de ${position.symbol} obtido da exchange e armazenado no cache: ${currentPrice}`);
+            }
+          } catch (error: any) {
+            this.logger.warn(`[SL-TP-MONITOR-REAL] Erro ao buscar preço para ${position.symbol} na ${exchange}: ${error.message}`);
+            // Continuar para próxima posição se não conseguir buscar preço
+            continue;
+          }
+        }
+
+        if (!currentPrice || currentPrice <= 0) {
+          this.logger.warn(`[SL-TP-MONITOR-REAL] Preço inválido para posição ${position.id}: ${currentPrice}`);
+          continue;
+        }
         const priceOpen = position.price_open.toNumber();
         const pnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
 
