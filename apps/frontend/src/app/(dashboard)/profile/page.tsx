@@ -20,6 +20,11 @@ export default function ProfilePage() {
     const queryClient = useQueryClient()
     const { user } = useAuthStore()
     const [isEditing, setIsEditing] = useState(false)
+    const [formData, setFormData] = useState({
+        full_name: '',
+        phone: '',
+        whatsapp_phone: '',
+    })
 
     // Query para buscar perfil
     const { data: profile, isLoading } = useQuery({
@@ -29,6 +34,17 @@ export default function ProfilePage() {
             return data
         },
     })
+
+    // Atualizar formData quando profile carregar
+    useEffect(() => {
+        if (profile) {
+            setFormData({
+                full_name: profile.full_name || '',
+                phone: profile.phone || '',
+                whatsapp_phone: profile.whatsapp_phone || '',
+            })
+        }
+    }, [profile])
 
     // Query para buscar configuração de notificações WhatsApp
     const { data: whatsappConfig, isLoading: loadingWhatsAppConfig } = useQuery({
@@ -76,13 +92,19 @@ export default function ProfilePage() {
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
-        const formData = new FormData(e.currentTarget)
-        const data = {
-            full_name: formData.get('full_name'),
-            phone: formData.get('phone'),
-            whatsapp_phone: formData.get('whatsapp_phone'),
+        updateMutation.mutate(formData)
+    }
+
+    const handleCancel = () => {
+        // Restaurar valores originais do perfil
+        if (profile) {
+            setFormData({
+                full_name: profile.full_name || '',
+                phone: profile.phone || '',
+                whatsapp_phone: profile.whatsapp_phone || '',
+            })
         }
-        updateMutation.mutate(data)
+        setIsEditing(false)
     }
 
     const handleToggle2FA = () => {
@@ -141,7 +163,8 @@ export default function ProfilePage() {
                             <Input
                                 id="full_name"
                                 name="full_name"
-                                defaultValue={profile?.full_name || ''}
+                                value={formData.full_name}
+                                onChange={(e) => setFormData(prev => ({ ...prev, full_name: e.target.value }))}
                                 disabled={!isEditing}
                             />
                         </div>
@@ -155,7 +178,8 @@ export default function ProfilePage() {
                                 id="phone"
                                 name="phone"
                                 type="tel"
-                                defaultValue={profile?.phone || ''}
+                                value={formData.phone}
+                                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                                 disabled={!isEditing}
                             />
                         </div>
@@ -166,7 +190,8 @@ export default function ProfilePage() {
                                 id="whatsapp_phone"
                                 name="whatsapp_phone"
                                 type="tel"
-                                defaultValue={profile?.whatsapp_phone || ''}
+                                value={formData.whatsapp_phone}
+                                onChange={(e) => setFormData(prev => ({ ...prev, whatsapp_phone: e.target.value }))}
                                 disabled={!isEditing}
                             />
                         </div>
@@ -184,7 +209,7 @@ export default function ProfilePage() {
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        onClick={() => setIsEditing(false)}
+                                        onClick={handleCancel}
                                     >
                                         Cancelar
                                     </Button>
