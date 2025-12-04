@@ -20,12 +20,13 @@ interface SellLimitModalProps {
 export function SellLimitModal({ position, open, onClose }: SellLimitModalProps) {
     const queryClient = useQueryClient()
     const [price, setPrice] = useState('')
-    const [quantity, setQuantity] = useState(Number(position.qty_remaining || 0).toString())
+    // Quantidade sempre será a quantidade completa da posição (travada)
+    const quantity = Number(position.qty_remaining || 0).toString()
 
     const sellLimitMutation = useMutation({
         mutationFn: () => positionsService.sellLimit(position.id, {
             limitPrice: parseFloat(price),
-            quantity: parseFloat(quantity),
+            quantity: Number(position.qty_remaining || 0), // Sempre usa a quantidade completa
         }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['positions'] })
@@ -42,15 +43,16 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
         e.preventDefault()
         
         const priceVal = parseFloat(price)
-        const qtyVal = parseFloat(quantity)
         
         if (!priceVal || priceVal <= 0) {
             toast.error('Preço inválido')
             return
         }
         
-        if (!qtyVal || qtyVal <= 0 || qtyVal > Number(position.qty_remaining || 0)) {
-            toast.error('Quantidade inválida')
+        // Quantidade sempre será a quantidade completa da posição
+        const qtyVal = Number(position.qty_remaining || 0)
+        if (!qtyVal || qtyVal <= 0) {
+            toast.error('Posição não possui quantidade disponível')
             return
         }
         
@@ -67,7 +69,7 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                 <DialogHeader>
                     <DialogTitle>Criar Ordem Limite de Venda</DialogTitle>
                     <DialogDescription>
-                        {position.symbol} • Quantidade Disponível: {Number(position.qty_remaining || 0).toFixed(8)}
+                        {position.symbol} • A ordem limit encerrará a posição completa ({Number(position.qty_remaining || 0).toFixed(8)})
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -89,19 +91,18 @@ export function SellLimitModal({ position, open, onClose }: SellLimitModalProps)
                         )}
                     </div>
                     <div>
-                        <Label htmlFor="quantity">Quantidade</Label>
+                        <Label htmlFor="quantity">Quantidade (Travada)</Label>
                         <Input
                             id="quantity"
                             type="number"
                             step="0.00000001"
                             value={quantity}
-                            onChange={(e) => setQuantity(e.target.value)}
-                            placeholder={`Máx: ${Number(position.qty_remaining || 0).toFixed(8)}`}
-                            max={Number(position.qty_remaining || 0)}
-                            required
+                            readOnly
+                            disabled
+                            className="bg-muted cursor-not-allowed"
                         />
                         <p className="text-sm text-muted-foreground mt-1">
-                            Máximo disponível: {Number(position.qty_remaining || 0).toFixed(8)}
+                            A ordem limit encerrará toda a posição quando executada
                         </p>
                     </div>
 
