@@ -52,4 +52,14 @@ export const positionsService = {
         const response = await apiClient.get('/positions/monitoring-tp-sl', { params: filters })
         return response.data
     },
+
+    syncMissing: async (): Promise<{
+        total_checked: number
+        positions_created: number
+        executions_updated: number
+        errors: Array<{ jobId: number; error: string }>
+    }> => {
+        const response = await apiClient.post('/positions/sync-missing')
+        return response.data
+    },
 }

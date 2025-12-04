@@ -9,7 +9,7 @@ import { DataTable, type Column } from '@/components/shared/DataTable'
 import { ModeToggle } from '@/components/shared/ModeToggle'
 import { operationsService } from '@/lib/api/operations.service'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
-import { formatDateTime } from '@/lib/utils/format'
+import { formatDateTime, formatCurrency } from '@/lib/utils/format'
 import { Eye } from 'lucide-react'
 
 export default function OperationsPage() {
@@ -33,6 +33,36 @@ export default function OperationsPage() {
             key: 'symbol',
             label: 'Símbolo',
             render: (op) => <span className="font-mono">{op.job.symbol}</span>
+        },
+        {
+            key: 'account',
+            label: 'Conta',
+            render: (op) => {
+                const account = op.job.exchange_account;
+                if (account) {
+                    return (
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium">{account.label}</span>
+                            <span className="text-xs text-muted-foreground">{account.exchange}</span>
+                        </div>
+                    );
+                }
+                return <span className="text-sm text-muted-foreground">-</span>;
+            },
+        },
+        {
+            key: 'value',
+            label: 'Valor',
+            render: (op) => {
+                const totalValue = op.executions.reduce((sum: number, exec: any) => {
+                    return sum + (exec.cumm_quote_qty || 0);
+                }, 0);
+                return (
+                    <span className="font-mono text-sm">
+                        {totalValue > 0 ? formatCurrency(totalValue) : '-'}
+                    </span>
+                );
+            },
         },
         {
             key: 'side',

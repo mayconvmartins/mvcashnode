@@ -31,6 +31,10 @@ import { PrismaService } from '@mvcashnode/db';
 import { OrderType, ExchangeType } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { WebSocketService } from '../websocket/websocket.service';
+import { PositionService } from '@mvcashnode/domain';
+import { ExchangeAccountService } from '@mvcashnode/domain';
+import { EncryptionService } from '@mvcashnode/shared';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Positions')
 @Controller('positions')
@@ -45,7 +49,8 @@ export class PositionsController {
     private positionsService: PositionsService,
     private tradeJobQueueService: TradeJobQueueService,
     private prisma: PrismaService,
-    private wsService: WebSocketService
+    private wsService: WebSocketService,
+    private encryptionService: EncryptionService
   ) {}
 
   private getCachedPrice(symbol: string, exchange: string): number | null {
@@ -1498,6 +1503,241 @@ export class PositionsController {
       }
       
       throw new BadRequestException('Erro ao criar ordem LIMIT de venda');
+    }
+  }
+
+  @Post('sync-missing')
+  @ApiOperation({
+    summary: 'Sincronizar posições faltantes',
+    description: 'Busca jobs BUY FILLED sem posição e cria as posições faltantes, verificando na exchange se necessário',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Sincronização concluída',
+    schema: {
+      example: {
+        total_checked: 10,
+        positions_created: 2,
+        executions_updated: 1,
+        errors: [],
+      },
+    },
+  })
+  async syncMissingPositions(@CurrentUser() user: any): Promise<any> {
+    try {
+      // Buscar IDs das exchange accounts do usuário
+      const userAccounts = await this.prisma.exchangeAccount.findMany({
+        where: { user_id: user.userId },
+        select: { id: true },
+      });
+
+      const accountIds = userAccounts.map((acc) => acc.id);
+
+      if (accountIds.length === 0) {
+        return {
+          total_checked: 0,
+          positions_created: 0,
+          executions_updated: 0,
+          errors: [],
+        };
+      }
+
+      // Buscar jobs BUY FILLED sem posição associada
+      const jobsWithoutPosition = await this.prisma.tradeJob.findMany({
+        where: {
+          exchange_account_id: { in: accountIds },
+          side: 'BUY',
+          status: 'FILLED',
+          position_open: null,
+        },
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              exchange: true,
+              is_simulation: true,
+              testnet: true,
+            },
+          },
+          executions: {
+            orderBy: {
+              created_at: 'desc',
+            },
+            take: 1, // Pegar a execução mais recente
+          },
+        },
+      });
+
+      let positionsCreated = 0;
+      let executionsUpdated = 0;
+      const errors: Array<{ jobId: number; error: string }> = [];
+
+      for (const job of jobsWithoutPosition) {
+        try {
+          let execution = job.executions[0];
+          let shouldUpdateExecution = false;
+          let finalExecutedQty = execution?.executed_qty?.toNumber() || 0;
+          let finalAvgPrice = execution?.avg_price?.toNumber() || 0;
+          let finalCummQuoteQty = execution?.cumm_quote_qty?.toNumber() || 0;
+
+          // Se não há execução ou a execução tem quantidade 0, verificar na exchange
+          if (!execution || (finalExecutedQty === 0 && execution.exchange_order_id)) {
+            if (job.exchange_account.is_simulation) {
+              // Para simulação, não podemos verificar na exchange
+              errors.push({
+                jobId: job.id,
+                error: 'Job de simulação sem execução válida',
+              });
+              continue;
+            }
+
+            try {
+              // Obter chaves da API
+              const accountService = new ExchangeAccountService(this.prisma, this.encryptionService);
+              const keys = await accountService.decryptApiKeys(job.exchange_account_id);
+
+              if (!keys || !keys.apiKey || !keys.apiSecret) {
+                errors.push({
+                  jobId: job.id,
+                  error: 'API keys não encontradas',
+                });
+                continue;
+              }
+
+              // Criar adapter
+              const adapter = AdapterFactory.createAdapter(
+                job.exchange_account.exchange as ExchangeType,
+                keys.apiKey,
+                keys.apiSecret,
+                { testnet: job.exchange_account.testnet }
+              );
+
+              // Buscar ordem na exchange
+              if (execution?.exchange_order_id) {
+                const order = await adapter.fetchOrder(execution.exchange_order_id, job.symbol);
+
+                // Extrair dados da ordem
+                let updatedFilled = order.filled || 0;
+                let updatedAverage = order.average || order.price || 0;
+                let updatedCost = order.cost || 0;
+
+                // Se não encontrou dados diretos, tentar extrair dos fills
+                if ((updatedFilled === 0 || updatedAverage === 0) && order.fills && order.fills.length > 0) {
+                  let totalFilled = 0;
+                  let totalCost = 0;
+
+                  for (const fill of order.fills) {
+                    const fillQty = fill.amount || fill.quantity || 0;
+                    const fillPrice = fill.price || 0;
+                    totalFilled += fillQty;
+                    totalCost += fillQty * fillPrice;
+                  }
+
+                  if (totalFilled > 0) {
+                    updatedFilled = totalFilled;
+                    updatedAverage = totalCost / totalFilled;
+                    updatedCost = totalCost;
+                  }
+                }
+
+                if (updatedFilled > 0 && updatedAverage > 0) {
+                  finalExecutedQty = updatedFilled;
+                  finalAvgPrice = updatedAverage;
+                  finalCummQuoteQty = updatedCost > 0 ? updatedCost : (updatedFilled * updatedAverage);
+                  shouldUpdateExecution = true;
+                }
+              } else {
+                // Se não há execução, não podemos verificar na exchange sem order_id
+                errors.push({
+                  jobId: job.id,
+                  error: 'Job sem execução e sem exchange_order_id',
+                });
+                continue;
+              }
+            } catch (exchangeError: any) {
+              errors.push({
+                jobId: job.id,
+                error: `Erro ao verificar na exchange: ${exchangeError.message}`,
+              });
+              continue;
+            }
+          }
+
+          // Se ainda não temos execução válida, pular
+          if (finalExecutedQty === 0 || finalAvgPrice === 0) {
+            errors.push({
+              jobId: job.id,
+              error: 'Execução sem quantidade ou preço válido',
+            });
+            continue;
+          }
+
+          // Atualizar execução se necessário
+          if (shouldUpdateExecution && execution) {
+            await this.prisma.tradeExecution.update({
+              where: { id: execution.id },
+              data: {
+                executed_qty: finalExecutedQty,
+                avg_price: finalAvgPrice,
+                cumm_quote_qty: finalCummQuoteQty,
+              },
+            });
+            executionsUpdated++;
+          }
+
+          // Criar posição
+          const positionService = new PositionService(this.prisma);
+          const executionId = execution?.id;
+          
+          if (!executionId) {
+            // Se não há execução, criar uma nova
+            const newExecution = await this.prisma.tradeExecution.create({
+              data: {
+                trade_job_id: job.id,
+                exchange_account_id: job.exchange_account_id,
+                trade_mode: job.trade_mode,
+                exchange: job.exchange_account.exchange,
+                exchange_order_id: execution?.exchange_order_id || `SYNC-${job.id}`,
+                client_order_id: `sync-${job.id}-${Date.now()}`,
+                status_exchange: 'FILLED',
+                executed_qty: finalExecutedQty,
+                cumm_quote_qty: finalCummQuoteQty,
+                avg_price: finalAvgPrice,
+              },
+            });
+            
+            await positionService.onBuyExecuted(
+              job.id,
+              newExecution.id,
+              finalExecutedQty,
+              finalAvgPrice
+            );
+          } else {
+            await positionService.onBuyExecuted(
+              job.id,
+              executionId,
+              finalExecutedQty,
+              finalAvgPrice
+            );
+          }
+
+          positionsCreated++;
+        } catch (error: any) {
+          errors.push({
+            jobId: job.id,
+            error: error.message || 'Erro desconhecido',
+          });
+        }
+      }
+
+      return {
+        total_checked: jobsWithoutPosition.length,
+        positions_created: positionsCreated,
+        executions_updated: executionsUpdated,
+        errors,
+      };
+    } catch (error: any) {
+      throw new BadRequestException(`Erro ao sincronizar posições: ${error.message}`);
     }
   }
 }

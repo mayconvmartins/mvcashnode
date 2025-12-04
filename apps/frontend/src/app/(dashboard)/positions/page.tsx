@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 export default function PositionsPage() {
     const { tradeMode } = useTradeMode()
+    const queryClient = useQueryClient()
     const [selectedSymbol, setSelectedSymbol] = useState<string>('all')
     const [selectedAccount, setSelectedAccount] = useState<string>('all')
     const [dateFrom, setDateFrom] = useState<string | undefined>()
@@ -198,6 +200,27 @@ export default function PositionsPage() {
         setClosedPage(1)
     }, [])
 
+    const syncMissingMutation = useMutation({
+        mutationFn: positionsService.syncMissing,
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['positions'] })
+            queryClient.invalidateQueries({ queryKey: ['operations'] })
+            if (data.positions_created > 0 || data.executions_updated > 0) {
+                toast.success(
+                    `Sincronização concluída: ${data.positions_created} posição(ões) criada(s), ${data.executions_updated} execução(ões) atualizada(s)`
+                )
+            } else {
+                toast.info('Nenhuma posição faltante encontrada')
+            }
+            if (data.errors.length > 0) {
+                toast.warning(`${data.errors.length} erro(s) durante a sincronização`)
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.message || 'Erro ao sincronizar posições')
+        },
+    })
+
     const columns: Column<Position>[] = [
         {
             key: 'symbol',
@@ -346,7 +369,17 @@ export default function PositionsPage() {
                     <h1 className="text-3xl font-bold gradient-text">Posições</h1>
                     <p className="text-muted-foreground mt-1">Gerencie suas posições de trading</p>
                 </div>
-                <ModeToggle />
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        onClick={() => syncMissingMutation.mutate()}
+                        disabled={syncMissingMutation.isPending}
+                    >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${syncMissingMutation.isPending ? 'animate-spin' : ''}`} />
+                        Sincronizar Posições Faltantes
+                    </Button>
+                    <ModeToggle />
+                </div>
             </div>
 
             {/* Cards de Resumo Consolidado */}

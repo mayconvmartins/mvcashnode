@@ -644,16 +644,101 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       this.logger.log(`[EXECUTOR] Execution criado: ${execution.id}, qty: ${executedQty}, price: ${avgPrice}`);
 
+      // Sempre verificar na exchange se a ordem foi preenchida, especialmente para MARKET orders
+      // Isso garante que temos os dados corretos mesmo se a resposta inicial não tiver todos os dados
+      let finalExecutedQty = executedQty;
+      let finalAvgPrice = avgPrice;
+      let finalCummQuoteQty = cummQuoteQty;
+      
+      // Verificar na exchange se:
+      // 1. A ordem está FILLED mas temos quantidade 0 (dados faltando)
+      // 2. É uma ordem MARKET FILLED (sempre verificar para garantir dados corretos)
+      const shouldVerifyOnExchange = (executedQty === 0 && (isOrderFilled || orderStatus === 'FILLED' || orderStatus === 'CLOSED')) ||
+                                     (tradeJob.order_type === 'MARKET' && isOrderFilled && order.id);
+      
+      if (shouldVerifyOnExchange) {
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Verificando dados da ordem ${order.id} na exchange...`);
+        
+        try {
+          // Buscar dados atualizados da exchange
+          const updatedOrder = await adapter.fetchOrder(order.id, tradeJob.symbol);
+          this.logger.log(`[EXECUTOR] Dados atualizados da exchange para ordem ${order.id}:`, {
+            status: updatedOrder.status,
+            filled: updatedOrder.filled,
+            amount: updatedOrder.amount,
+            cost: updatedOrder.cost,
+            average: updatedOrder.average,
+            price: updatedOrder.price,
+            fills: updatedOrder.fills?.length || 0,
+          });
+          
+          // Extrair dados corretos da ordem atualizada
+          // Para Bybit, pode ser que os dados estejam em campos diferentes ou nos fills
+          let updatedFilled = updatedOrder.filled || 0;
+          let updatedAverage = updatedOrder.average || updatedOrder.price || 0;
+          let updatedCost = updatedOrder.cost || 0;
+          
+          // Se não encontrou dados diretos, tentar extrair dos fills
+          if ((updatedFilled === 0 || updatedAverage === 0) && updatedOrder.fills && updatedOrder.fills.length > 0) {
+            this.logger.log(`[EXECUTOR] Extraindo dados dos fills da ordem ${order.id}...`);
+            let totalFilled = 0;
+            let totalCost = 0;
+            
+            for (const fill of updatedOrder.fills) {
+              const fillQty = fill.amount || fill.quantity || 0;
+              const fillPrice = fill.price || 0;
+              totalFilled += fillQty;
+              totalCost += fillQty * fillPrice;
+            }
+            
+            if (totalFilled > 0) {
+              updatedFilled = totalFilled;
+              updatedAverage = totalCost / totalFilled;
+              updatedCost = totalCost;
+              this.logger.log(`[EXECUTOR] Dados extraídos dos fills: qty=${updatedFilled}, avgPrice=${updatedAverage}, cost=${updatedCost}`);
+            }
+          }
+          
+          // Se encontrou dados válidos, atualizar
+          if (updatedFilled > 0 && updatedAverage > 0) {
+            finalExecutedQty = updatedFilled;
+            finalAvgPrice = updatedAverage;
+            finalCummQuoteQty = updatedCost > 0 ? updatedCost : (updatedFilled * updatedAverage);
+            
+            this.logger.log(`[EXECUTOR] ✅ Dados corrigidos da exchange: qty=${finalExecutedQty}, price=${finalAvgPrice}, cost=${finalCummQuoteQty}`);
+            
+            // Atualizar a execução com os dados corretos
+            await this.prisma.tradeExecution.update({
+              where: { id: execution.id },
+              data: {
+                executed_qty: finalExecutedQty,
+                avg_price: finalAvgPrice,
+                cumm_quote_qty: finalCummQuoteQty,
+                status_exchange: updatedOrder.status || order.status,
+                raw_response_json: JSON.parse(JSON.stringify(updatedOrder)),
+              },
+            });
+            
+            this.logger.log(`[EXECUTOR] ✅ Execution ${execution.id} atualizado com dados corretos da exchange`);
+          } else {
+            this.logger.warn(`[EXECUTOR] ⚠️ Ordem ${order.id} na exchange também tem quantidade 0 ou preço 0. Status: ${updatedOrder.status}`);
+          }
+        } catch (fetchError: any) {
+          this.logger.error(`[EXECUTOR] ❌ Erro ao buscar dados atualizados da exchange para ordem ${order.id}: ${fetchError.message}`);
+          // Continuar com os dados originais se não conseguir buscar
+        }
+      }
+
       // Update position apenas se quantidade executada > 0
-      if (executedQty > 0) {
+      if (finalExecutedQty > 0) {
         const positionService = new PositionService(this.prisma);
         try {
           if (tradeJob.side === 'BUY') {
             const positionId = await positionService.onBuyExecuted(
               tradeJobId,
               execution.id,
-              executedQty,
-              avgPrice
+              finalExecutedQty,
+              finalAvgPrice
             );
             this.logger.log(`[EXECUTOR] Posição de compra atualizada para job ${tradeJobId}, positionId: ${positionId}`);
             
@@ -679,8 +764,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             await positionService.onSellExecuted(
               tradeJobId,
               execution.id,
-              executedQty,
-              avgPrice,
+              finalExecutedQty,
+              finalAvgPrice,
               'WEBHOOK'
             );
             this.logger.log(`[EXECUTOR] Posição de venda atualizada para job ${tradeJobId}`);
