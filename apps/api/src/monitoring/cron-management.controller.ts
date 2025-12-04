@@ -50,7 +50,10 @@ export class CronManagementController {
 - \`limit-orders-monitor-real\`: Monitor de ordens LIMIT modo REAL (a cada 60s)
 - \`limit-orders-monitor-sim\`: Monitor de ordens LIMIT modo SIMULAÇÃO (a cada 60s)
 - \`balances-sync-real\`: Sincronização de saldos (a cada 5min)
-- \`system-monitor\`: Monitor de sistema e alertas (a cada 30s)`,
+- \`system-monitor\`: Monitor de sistema e alertas (a cada 30s)
+- \`positions-sync-missing\`: Sincronização de posições faltantes (a cada 5min)
+- \`price-sync\`: Sincronização de preços das exchanges para cache (a cada 22s)
+- \`positions-params-fix\`: Correção de parâmetros faltantes em posições recentes (a cada 1min)`,
   })
   @ApiResponse({
     status: 200,

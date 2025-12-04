@@ -108,6 +108,20 @@ export class CronManagementService implements OnModuleInit {
         job_id: 'positions-sync-missing-repeat',
         interval_ms: 300000,
       },
+      {
+        name: 'price-sync',
+        description: 'Sincronização de preços das exchanges (cache)',
+        queue_name: 'price-sync',
+        job_id: 'price-sync-repeat',
+        interval_ms: 22000,
+      },
+      {
+        name: 'positions-params-fix',
+        description: 'Correção de parâmetros faltantes em posições recentes (min_profit_pct, SL, TP)',
+        queue_name: 'positions-params-fix',
+        job_id: 'positions-params-fix-repeat',
+        interval_ms: 60000,
+      },
     ];
 
     for (const job of defaultJobs) {
