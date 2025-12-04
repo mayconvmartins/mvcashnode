@@ -2587,15 +2587,6 @@ export class PositionsController {
       // Enfileirar o job para execução
       await this.tradeJobQueueService.enqueueTradeJob(tradeJob.id);
 
-      // Emitir evento WebSocket
-      this.wsService.emitToUser(user.userId, 'trade-job.created', {
-        id: tradeJob.id,
-        symbol: tradeJob.symbol,
-        side: tradeJob.side,
-        order_type: tradeJob.order_type,
-        status: tradeJob.status,
-      });
-
       return {
         success: true,
         trade_job: {
