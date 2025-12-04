@@ -29,7 +29,7 @@ build/
 .DS_Store
 
 # Prisma
-packages/db/prisma/migrations/
+#packages/db/prisma/migrations/
 
 # Logs
 logs/
