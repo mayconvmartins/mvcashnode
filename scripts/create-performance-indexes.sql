@@ -54,7 +54,7 @@ ON trade_positions(exchange_account_id, status, trade_mode, closed_at);
 
 -- Índice composto para validação de permissões
 -- Usado em: WHERE user_id = ? AND id = ? (validação de que conta pertence ao usuário)
-CREATE INDEX IF NOT EXISTS idx_exchange_accounts_user_id_account_id 
+CREATE INDEX IF NOT EXISTS idx_exchange_accounts_user_id_id 
 ON exchange_accounts(user_id, id);
 
 -- ============================================
