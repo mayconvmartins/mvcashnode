@@ -39,7 +39,6 @@ export class BinanceSpotAdapter extends ExchangeAdapter {
       if (ntpServiceInstance) {
         const ntpService = ntpServiceInstance; // Capturar no closure
         const originalSign = exchange.sign.bind(exchange);
-        const ntpOffset = ntpService.getOffset();
         
         // nonce() usado para gerar IDs únicos
         exchange.nonce = function() {
