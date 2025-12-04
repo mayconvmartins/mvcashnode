@@ -2326,6 +2326,30 @@ export class PositionsController {
           throw new BadRequestException(`A ordem deve estar FILLED. Status atual: ${order.status}`);
         }
 
+        // Verificar se já existe uma execução com este exchange_order_id para evitar duplicação
+        const existingExecution = await this.prisma.tradeExecution.findFirst({
+          where: {
+            exchange_order_id: createDto.exchange_order_id,
+            exchange_account_id: createDto.exchange_account_id,
+          },
+          include: {
+            trade_job: {
+              include: {
+                position_open: true,
+              },
+            },
+          },
+        });
+
+        if (existingExecution) {
+          const positionInfo = existingExecution.trade_job?.position_open
+            ? ` (já associada à posição #${existingExecution.trade_job.position_open.id})`
+            : '';
+          throw new BadRequestException(
+            `Já existe uma execução com o ID de ordem ${createDto.exchange_order_id} nesta conta${positionInfo}. Não é possível criar posição duplicada.`
+          );
+        }
+
         // Extrair dados da ordem
         let filled = order.filled || 0;
         let average = order.average || order.price || 0;
@@ -2364,6 +2388,32 @@ export class PositionsController {
         // Usar dados manuais
         if (!createDto.manual_symbol || !createDto.qty_total || !createDto.price_open || !createDto.trade_mode) {
           throw new BadRequestException('Todos os campos obrigatórios devem ser preenchidos para MANUAL');
+        }
+
+        // Se foi fornecido manual_exchange_order_id, verificar se já existe para evitar duplicação
+        if (createDto.manual_exchange_order_id) {
+          const existingExecution = await this.prisma.tradeExecution.findFirst({
+            where: {
+              exchange_order_id: createDto.manual_exchange_order_id,
+              exchange_account_id: createDto.exchange_account_id,
+            },
+            include: {
+              trade_job: {
+                include: {
+                  position_open: true,
+                },
+              },
+            },
+          });
+
+          if (existingExecution) {
+            const positionInfo = existingExecution.trade_job?.position_open
+              ? ` (já associada à posição #${existingExecution.trade_job.position_open.id})`
+              : '';
+            throw new BadRequestException(
+              `Já existe uma execução com o ID de ordem ${createDto.manual_exchange_order_id} nesta conta${positionInfo}. Não é possível criar posição duplicada.`
+            );
+          }
         }
 
         executedQty = createDto.qty_total;
