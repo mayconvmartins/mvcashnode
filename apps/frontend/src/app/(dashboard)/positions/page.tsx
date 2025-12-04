@@ -41,7 +41,7 @@ import { Plus } from 'lucide-react'
 
 export default function PositionsPage() {
     const { tradeMode } = useTradeMode()
-    const { user } = useAuth()
+    const { user, isLoading: isLoadingUser } = useAuth()
     const queryClient = useQueryClient()
     const [selectedSymbol, setSelectedSymbol] = useState<string>('all')
     const [selectedAccount, setSelectedAccount] = useState<string>('all')
@@ -59,7 +59,18 @@ export default function PositionsPage() {
     const [bulkTPPct, setBulkTPPct] = useState<string>('')
     const [createManualModalOpen, setCreateManualModalOpen] = useState(false)
 
-    const isAdmin = user?.roles?.includes(UserRole.ADMIN) || false
+    // Verificar se o usuário é admin (usando a mesma lógica dos outros componentes)
+    const isAdmin = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === 'admin' || roleValue === 'ADMIN' || roleValue === UserRole.ADMIN || roleValue?.toLowerCase?.() === 'admin'
+    }) || false
+
+    // Debug temporário - remover depois
+    if (typeof window !== 'undefined') {
+        console.log('[PositionsPage] User:', user)
+        console.log('[PositionsPage] IsAdmin:', isAdmin)
+        console.log('[PositionsPage] User roles:', user?.roles)
+    }
 
     // Buscar contas
     const { data: accounts } = useQuery({
@@ -576,10 +587,11 @@ export default function PositionsPage() {
                     <p className="text-muted-foreground mt-1">Gerencie suas posições de trading</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    {isAdmin && (
+                    {!isLoadingUser && isAdmin && (
                         <Button
                             variant="default"
                             onClick={() => setCreateManualModalOpen(true)}
+                            className="bg-primary hover:bg-primary/90"
                         >
                             <Plus className="h-4 w-4 mr-2" />
                             Adicionar Posição Manual
