@@ -277,7 +277,7 @@ export default function ProfilePage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {!profile?.whatsapp_phone ? (
+                    {!(profile?.profile?.whatsapp_phone || profile?.whatsapp_phone) ? (
                         <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
                             <div className="flex items-start gap-3">
                                 <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
@@ -295,7 +295,9 @@ export default function ProfilePage() {
                         <>
                             <div className="p-3 bg-muted rounded-lg">
                                 <p className="text-sm font-medium">Número configurado:</p>
-                                <p className="text-sm text-muted-foreground font-mono">{profile.whatsapp_phone}</p>
+                                <p className="text-sm text-muted-foreground font-mono">
+                                    {profile?.profile?.whatsapp_phone || profile?.whatsapp_phone}
+                                </p>
                             </div>
 
                             {loadingWhatsAppConfig ? (
