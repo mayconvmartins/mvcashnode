@@ -1012,18 +1012,21 @@ export class PositionsController {
           
           // Buscar preços para todos os símbolos desta exchange
           const pricePromises = Array.from(symbols).map(async (symbol) => {
-            const cacheKey = `${exchange}:${symbol}`;
-            const cachedPrice = this.getCachedPrice(symbol, exchange);
+            const cacheKey = `price:${exchange}:${symbol}`;
             
-            if (cachedPrice !== null) {
+            // Tentar buscar do cache primeiro
+            const cachedPrice = await this.cacheService.get<number>(cacheKey);
+            if (cachedPrice !== null && cachedPrice > 0) {
               return { symbol, price: cachedPrice };
             }
             
+            // Se não estiver no cache, buscar da exchange e adicionar ao cache
             try {
               const ticker = await adapter.fetchTicker(symbol);
               const price = ticker.last;
               if (price && price > 0) {
-                this.setCachedPrice(symbol, exchange, price);
+                // Armazenar no cache com TTL de 25 segundos (máximo)
+                await this.cacheService.set(cacheKey, price, { ttl: 25 });
                 return { symbol, price };
               }
             } catch (error: any) {

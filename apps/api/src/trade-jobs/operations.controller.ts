@@ -133,6 +133,7 @@ export class OperationsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ) {
+    const startTime = Date.now();
     try {
       // Buscar IDs das exchange accounts do usuário (com cache)
       // Nota: Cache será implementado quando CacheService estiver disponível no controller
