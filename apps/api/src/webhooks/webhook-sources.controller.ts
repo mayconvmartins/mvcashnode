@@ -113,13 +113,19 @@ export class WebhookSourcesController {
       return sources.map(source => {
         const isOwner = source.owner_user_id === user.userId;
         
-        // Se não for dono, retornar apenas informações básicas
+        // Se não for dono, retornar informações básicas necessárias para exibição
         if (!isOwner) {
           return {
             id: source.id,
             label: source.label,
+            webhook_code: source.webhook_code, // Mostrar código mesmo para não-donos
+            trade_mode: source.trade_mode,
+            is_active: source.is_active,
             is_shared: source.is_shared,
             is_owner: false,
+            rate_limit_per_min: source.rate_limit_per_min,
+            created_at: source.created_at,
+            // Não incluir dados sensíveis como webhook_url completo, allowed_ips, etc.
           };
         }
 
