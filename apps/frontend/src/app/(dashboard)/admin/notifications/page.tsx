@@ -452,6 +452,11 @@ export default function NotificationsConfigPage() {
                                                             </span>
                                                         )}
                                                     </p>
+                                                    {alert.status === 'failed' && alert.error_message && (
+                                                        <p className="text-xs text-red-500 mt-1 font-medium">
+                                                            Erro: {alert.error_message}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-2">

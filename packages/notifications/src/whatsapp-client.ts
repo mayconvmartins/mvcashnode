@@ -20,23 +20,91 @@ export class WhatsAppClient {
   }
 
   async sendMessage(phone: string, message: string): Promise<void> {
-    try {
-      const response = await this.client.post('/send-text', {
-        number: phone,
-        text: message,
-      });
-      console.log(`[WHATSAPP-CLIENT] Mensagem enviada com sucesso para ${phone}`);
-      return response.data;
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.message || error.message;
-      const statusCode = error.response?.status;
-      console.error(`[WHATSAPP-CLIENT] Erro ao enviar mensagem para ${phone}:`, {
-        status: statusCode,
-        message: errorMessage,
-        data: error.response?.data,
-      });
-      throw new Error(`Failed to send WhatsApp message: ${errorMessage} (Status: ${statusCode || 'N/A'})`);
+    // Obter a baseURL atual do cliente
+    const currentBaseURL = this.client.defaults.baseURL || '';
+    const apiUrl = currentBaseURL.replace(/\/instance\/[^/]+$/, ''); // Remover /instance/instanceName
+    const instanceName = currentBaseURL.match(/\/instance\/([^/]+)$/)?.[1] || '';
+    
+    if (!instanceName) {
+      throw new Error('Instance name not found in baseURL. Verifique a configuração da Evolution API.');
     }
+
+    if (!apiUrl) {
+      throw new Error('API URL not found. Verifique a configuração da Evolution API.');
+    }
+
+    // Normalizar número de telefone (remover + e espaços, garantir formato correto)
+    const normalizedPhone = phone.replace(/[+\s-]/g, '');
+    const phoneWithSuffix = `${normalizedPhone}@s.whatsapp.net`;
+
+    console.log(`[WHATSAPP-CLIENT] Enviando mensagem para ${normalizedPhone} via Evolution API`);
+
+    const apiClient = axios.create({
+      baseURL: apiUrl,
+      headers: this.client.defaults.headers,
+    });
+
+    // Lista de formatos para tentar (diferentes versões da Evolution API)
+    const formatsToTry = [
+      // Evolution API v2 - formato mais comum (número simples)
+      {
+        endpoint: `/message/sendText/${instanceName}`,
+        body: { number: normalizedPhone, text: message },
+        description: 'v2 (número simples)',
+      },
+      // Evolution API v2 - formato com sufixo @s.whatsapp.net
+      {
+        endpoint: `/message/sendText/${instanceName}`,
+        body: { number: phoneWithSuffix, text: message },
+        description: 'v2 (com @s.whatsapp.net)',
+      },
+      // Evolution API v2 - formato alternativo com textMessage
+      {
+        endpoint: `/message/sendText/${instanceName}`,
+        body: { number: normalizedPhone, textMessage: { text: message } },
+        description: 'v2 (textMessage object)',
+      },
+      // Evolution API v1 - formato antigo
+      {
+        endpoint: `/instance/${instanceName}/send-text`,
+        body: { number: normalizedPhone, text: message },
+        description: 'v1 (legacy)',
+      },
+    ];
+
+    let lastError: any = null;
+
+    for (const format of formatsToTry) {
+      try {
+        console.log(`[WHATSAPP-CLIENT] Tentando formato ${format.description}...`);
+        const response = await apiClient.post(format.endpoint, format.body);
+        console.log(`[WHATSAPP-CLIENT] ✅ Mensagem enviada com sucesso para ${normalizedPhone} (${format.description})`);
+        return response.data;
+      } catch (error: any) {
+        lastError = error;
+        const statusCode = error.response?.status;
+        const errorMessage = error.response?.data?.message || error.message;
+        console.warn(`[WHATSAPP-CLIENT] Formato ${format.description} falhou (${statusCode}): ${errorMessage}`);
+        // Continuar para próximo formato
+      }
+    }
+
+    // Se todos os formatos falharam, lançar erro detalhado
+    const errorMessage = lastError?.response?.data?.message || 
+                        lastError?.response?.data?.error || 
+                        lastError?.message || 
+                        'Erro desconhecido';
+    const statusCode = lastError?.response?.status;
+    const errorData = lastError?.response?.data;
+    
+    console.error(`[WHATSAPP-CLIENT] ❌ Todos os formatos falharam para ${normalizedPhone}:`, {
+      status: statusCode,
+      message: errorMessage,
+      data: errorData,
+      attemptedFormats: formatsToTry.length,
+    });
+    
+    throw new Error(`Failed to send WhatsApp message: ${errorMessage} (Status: ${statusCode || 'N/A'})`);
   }
 
   async sendToGroup(groupId: string, message: string): Promise<void> {

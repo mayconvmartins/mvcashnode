@@ -102,13 +102,20 @@ export class NotificationService {
       } catch (error: any) {
         errorCount++;
         status = 'failed';
-        errorMessage = error.message;
-        console.error(`[NOTIFICATIONS] ❌ Erro ao enviar para ${recipient}:`, error.message);
+        // Extrair mensagem de erro mais detalhada
+        const detailedError = error.response?.data?.message || 
+                             error.response?.data?.error || 
+                             error.message || 
+                             'Erro desconhecido ao enviar mensagem';
+        errorMessage = detailedError;
+        console.error(`[NOTIFICATIONS] ❌ Erro ao enviar para ${recipient}:`, detailedError);
         console.error(`[NOTIFICATIONS] Erro completo:`, {
           message: error.message,
+          detailedError,
           stack: error.stack,
           response: error.response?.data,
           status: error.response?.status,
+          url: error.config?.url,
         });
         // Continuar para outros destinatários, mas registrar o erro
       } finally {
