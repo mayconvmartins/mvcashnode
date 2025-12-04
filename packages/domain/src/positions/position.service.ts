@@ -64,11 +64,13 @@ export class PositionService {
         // Parâmetro BOTH encontrado - copiar todas as configurações
         console.log(`[POSITION-SERVICE] Parâmetro BOTH encontrado (ID: ${bothParameter.id})`);
         
+        // Copiar min_profit_pct (sempre copiar se existir, mesmo que seja 0)
         if (bothParameter.min_profit_pct !== null && bothParameter.min_profit_pct !== undefined) {
           minProfitPct = bothParameter.min_profit_pct.toNumber();
           console.log(`[POSITION-SERVICE] ✓ min_profit_pct=${minProfitPct}% copiado do parâmetro BOTH`);
         }
         
+        // Copiar SL/TP (sempre copiar se existir)
         if (bothParameter.default_sl_enabled !== undefined && bothParameter.default_sl_enabled !== null) {
           slEnabled = bothParameter.default_sl_enabled;
           console.log(`[POSITION-SERVICE] ✓ sl_enabled=${slEnabled} copiado do parâmetro BOTH`);
@@ -173,7 +175,182 @@ export class PositionService {
       },
     });
 
+    // VALIDAÇÃO DE SEGURANÇA: Verificar se os parâmetros foram copiados corretamente e atualizar se necessário
+    const needsUpdate = await this.validateAndUpdatePositionParams(
+      position.id,
+      job.exchange_account_id,
+      job.symbol
+    );
+    
+    if (needsUpdate) {
+      console.log(`[POSITION-SERVICE] ✅ Posição ${position.id} atualizada com parâmetros faltantes após validação`);
+    }
+
     return position.id;
+  }
+
+  /**
+   * Valida e atualiza parâmetros da posição se faltarem
+   * Busca novamente dos parâmetros de trading e atualiza a posição
+   * @param positionId ID da posição
+   * @param exchangeAccountId ID da conta de exchange
+   * @param symbol Símbolo do par de trading
+   * @returns true se a posição foi atualizada, false caso contrário
+   */
+  private async validateAndUpdatePositionParams(
+    positionId: number,
+    exchangeAccountId: number,
+    symbol: string
+  ): Promise<boolean> {
+    try {
+      // Buscar posição atual
+      const position = await this.prisma.tradePosition.findUnique({
+        where: { id: positionId },
+      });
+
+      if (!position) {
+        console.warn(`[POSITION-SERVICE] Posição ${positionId} não encontrada para validação`);
+        return false;
+      }
+
+      // Buscar parâmetros primeiro para verificar se há fonte disponível
+      const bothParameter = await this.prisma.tradeParameter.findFirst({
+        where: {
+          exchange_account_id: exchangeAccountId,
+          symbol: symbol,
+          side: 'BOTH',
+        },
+      });
+
+      const buyParameter = await this.prisma.tradeParameter.findFirst({
+        where: {
+          exchange_account_id: exchangeAccountId,
+          symbol: symbol,
+          side: 'BUY',
+        },
+      });
+
+      const sellParameter = await this.prisma.tradeParameter.findFirst({
+        where: {
+          exchange_account_id: exchangeAccountId,
+          symbol: symbol,
+          side: 'SELL',
+        },
+      });
+
+      // Verificar se há parâmetros disponíveis
+      const hasParameterSource = bothParameter || buyParameter || sellParameter;
+
+      // Verificar se faltam parâmetros críticos
+      // min_profit_pct é sempre crítico se não estiver definido
+      const missingMinProfit = position.min_profit_pct === null;
+      
+      // SL/TP são considerados faltando apenas se enabled=false e pct=null (não foram configurados)
+      const missingSL = position.sl_enabled === false && position.sl_pct === null;
+      const missingTP = position.tp_enabled === false && position.tp_pct === null;
+
+      // Se não faltar nada crítico, não precisa atualizar
+      if (!missingMinProfit && !missingSL && !missingTP) {
+        console.log(`[POSITION-SERVICE] ✅ Posição ${positionId} já possui todos os parâmetros necessários`);
+        return false;
+      }
+      
+      // Se faltar min_profit_pct e não houver fonte de parâmetros, logar aviso mas não atualizar
+      if (missingMinProfit && !hasParameterSource) {
+        console.warn(`[POSITION-SERVICE] ⚠️ Posição ${positionId} sem min_profit_pct e sem parâmetros disponíveis`);
+        return false;
+      }
+
+      console.log(`[POSITION-SERVICE] 🔍 Validando parâmetros da posição ${positionId}...`);
+      console.log(`[POSITION-SERVICE]   - min_profit_pct faltando: ${missingMinProfit}`);
+      console.log(`[POSITION-SERVICE]   - SL faltando: ${missingSL}`);
+      console.log(`[POSITION-SERVICE]   - TP faltando: ${missingTP}`);
+
+      // Preparar dados para atualização
+      const updateData: any = {};
+      let hasUpdates = false;
+
+      // Atualizar min_profit_pct (prioridade máxima)
+      if (missingMinProfit) {
+        if (bothParameter && bothParameter.min_profit_pct !== null && bothParameter.min_profit_pct !== undefined) {
+          updateData.min_profit_pct = bothParameter.min_profit_pct.toNumber();
+          hasUpdates = true;
+          console.log(`[POSITION-SERVICE] ✓ min_profit_pct=${updateData.min_profit_pct}% encontrado no parâmetro BOTH`);
+        } else if (sellParameter && sellParameter.min_profit_pct !== null && sellParameter.min_profit_pct !== undefined) {
+          updateData.min_profit_pct = sellParameter.min_profit_pct.toNumber();
+          hasUpdates = true;
+          console.log(`[POSITION-SERVICE] ✓ min_profit_pct=${updateData.min_profit_pct}% encontrado no parâmetro SELL`);
+        } else if (buyParameter && buyParameter.min_profit_pct !== null && buyParameter.min_profit_pct !== undefined) {
+          updateData.min_profit_pct = buyParameter.min_profit_pct.toNumber();
+          hasUpdates = true;
+          console.log(`[POSITION-SERVICE] ✓ min_profit_pct=${updateData.min_profit_pct}% encontrado no parâmetro BUY`);
+        } else {
+          console.warn(`[POSITION-SERVICE] ⚠️ min_profit_pct não encontrado em nenhum parâmetro para posição ${positionId}`);
+        }
+      }
+
+      // Atualizar SL/TP se faltarem
+      if (missingSL || missingTP) {
+        const sourceParam = bothParameter || buyParameter;
+        
+        if (sourceParam) {
+          let slUpdated = false;
+          let tpUpdated = false;
+          
+          if (missingSL) {
+            if (sourceParam.default_sl_enabled !== undefined && sourceParam.default_sl_enabled !== null) {
+              updateData.sl_enabled = sourceParam.default_sl_enabled;
+              hasUpdates = true;
+              slUpdated = true;
+            }
+            if (sourceParam.default_sl_pct !== null && sourceParam.default_sl_pct !== undefined) {
+              updateData.sl_pct = sourceParam.default_sl_pct.toNumber();
+              hasUpdates = true;
+              slUpdated = true;
+            }
+            if (slUpdated) {
+              console.log(`[POSITION-SERVICE] ✓ SL atualizado: enabled=${updateData.sl_enabled || false}, pct=${updateData.sl_pct || 'null'}`);
+            }
+          }
+
+          if (missingTP) {
+            if (sourceParam.default_tp_enabled !== undefined && sourceParam.default_tp_enabled !== null) {
+              updateData.tp_enabled = sourceParam.default_tp_enabled;
+              hasUpdates = true;
+              tpUpdated = true;
+            }
+            if (sourceParam.default_tp_pct !== null && sourceParam.default_tp_pct !== undefined) {
+              updateData.tp_pct = sourceParam.default_tp_pct.toNumber();
+              hasUpdates = true;
+              tpUpdated = true;
+            }
+            if (tpUpdated) {
+              console.log(`[POSITION-SERVICE] ✓ TP atualizado: enabled=${updateData.tp_enabled || false}, pct=${updateData.tp_pct || 'null'}`);
+            }
+          }
+        } else {
+          console.warn(`[POSITION-SERVICE] ⚠️ SL/TP faltando mas nenhum parâmetro encontrado para posição ${positionId}`);
+        }
+      }
+
+      // Atualizar posição se houver mudanças
+      if (hasUpdates) {
+        await this.prisma.tradePosition.update({
+          where: { id: positionId },
+          data: updateData,
+        });
+        
+        console.log(`[POSITION-SERVICE] ✅ Posição ${positionId} atualizada com sucesso:`, updateData);
+        return true;
+      } else {
+        console.log(`[POSITION-SERVICE] ℹ️ Nenhum parâmetro encontrado para atualizar posição ${positionId}`);
+        return false;
+      }
+    } catch (error: any) {
+      console.error(`[POSITION-SERVICE] ❌ Erro ao validar/atualizar parâmetros da posição ${positionId}: ${error.message}`);
+      console.error(`[POSITION-SERVICE] Stack: ${error.stack}`);
+      return false;
+    }
   }
 
   /**
