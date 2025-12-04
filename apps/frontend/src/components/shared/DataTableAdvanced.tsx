@@ -331,50 +331,71 @@ export function DataTableAdvanced<T extends Record<string, any>>({
             </div>
 
             {/* Pagination */}
-            {pagination && totalPages > 1 && (
+            {pagination && (
                 <div className="flex items-center justify-between">
-                    <div className="text-sm text-muted-foreground">
-                        Mostrando {(currentPage - 1) * pageSize + 1} a{' '}
-                        {Math.min(currentPage * pageSize, sortedData.length)} de {sortedData.length}{' '}
-                        resultado(s)
-                    </div>
                     <div className="flex items-center gap-2">
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setCurrentPage(1)}
-                            disabled={currentPage === 1}
+                        <span className="text-sm text-muted-foreground">Itens por página:</span>
+                        <Select
+                            value={pageSize.toString()}
+                            onValueChange={(value) => {
+                                setPageSize(Number(value))
+                                setCurrentPage(1) // Resetar para primeira página ao mudar tamanho
+                            }}
                         >
-                            <ChevronsLeft className="h-4 w-4" />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                            disabled={currentPage === 1}
-                        >
-                            <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        <div className="text-sm">
-                            Página {currentPage} de {totalPages}
-                        </div>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                            disabled={currentPage === totalPages}
-                        >
-                            <ChevronRight className="h-4 w-4" />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setCurrentPage(totalPages)}
-                            disabled={currentPage === totalPages}
-                        >
-                            <ChevronsRight className="h-4 w-4" />
-                        </Button>
+                            <SelectTrigger className="w-[100px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="10">10</SelectItem>
+                                <SelectItem value="50">50</SelectItem>
+                                <SelectItem value="100">100</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <span className="text-sm text-muted-foreground">
+                            Mostrando {(currentPage - 1) * pageSize + 1} a{' '}
+                            {Math.min(currentPage * pageSize, sortedData.length)} de {sortedData.length}{' '}
+                            resultado(s)
+                        </span>
                     </div>
+                    {totalPages > 1 && (
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setCurrentPage(1)}
+                                disabled={currentPage === 1}
+                            >
+                                <ChevronsLeft className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                                disabled={currentPage === 1}
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                            <div className="text-sm">
+                                Página {currentPage} de {totalPages}
+                            </div>
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                                disabled={currentPage === totalPages}
+                            >
+                                <ChevronRight className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setCurrentPage(totalPages)}
+                                disabled={currentPage === totalPages}
+                            >
+                                <ChevronsRight className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

@@ -364,7 +364,7 @@ export default function PositionsPage() {
         
         if (selected.length !== selectedPositionIds.length) return false
         if (selected.some((p: Position) => p.status !== 'OPEN')) return false
-        if (selected.some((p: Position) => p.qty_remaining <= 0)) return false
+        if (selected.some((p: Position) => Number(p.qty_remaining || 0) <= 0)) return false
         
         // Todas devem ter mesmo símbolo
         const symbols = new Set(selected.map((p: Position) => p.symbol))
@@ -979,7 +979,7 @@ export default function PositionsPage() {
                                     )
                                     const canGroup = selectedIds.length >= 2 &&
                                         selected.length === selectedIds.length &&
-                                        selected.every((p: Position) => p.status === 'OPEN' && p.qty_remaining > 0) &&
+                                        selected.every((p: Position) => p.status === 'OPEN' && Number(p.qty_remaining || 0) > 0) &&
                                         new Set(selected.map((p: Position) => p.symbol)).size === 1 &&
                                         new Set(selected.map((p: Position) => p.exchange_account_id)).size === 1 &&
                                         new Set(selected.map((p: Position) => p.trade_mode)).size === 1

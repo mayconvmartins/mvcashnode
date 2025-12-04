@@ -56,6 +56,8 @@ export default function EditParameterPage() {
         trailingStop: parameter.trailing_stop_enabled || false,
         maxDailyTrades: parameter.max_orders_per_hour, // Ajustar se necessário
         maxWeeklyTrades: undefined, // Não existe no schema
+        groupPositionsEnabled: parameter.group_positions_enabled || false,
+        groupPositionsIntervalMinutes: parameter.group_positions_interval_minutes || undefined,
         vaultId: parameter.vault_id?.toString() || parameter.vault?.id?.toString(),
     }
 
