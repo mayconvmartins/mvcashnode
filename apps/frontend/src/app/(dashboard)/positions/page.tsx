@@ -293,7 +293,7 @@ export default function PositionsPage() {
         {
             key: 'symbol',
             label: 'Símbolo',
-            render: (position) => (
+            render: (position: Position) => (
                 <SymbolDisplay
                     exchange={position.exchange_account_id as any}
                     symbol={position.symbol}
@@ -304,7 +304,7 @@ export default function PositionsPage() {
         {
             key: 'exchange_account',
             label: 'Conta',
-            render: (position) => {
+            render: (position: Position) => {
                 const account = (position as any).exchange_account;
                 if (account) {
                     return (
@@ -320,7 +320,7 @@ export default function PositionsPage() {
         {
             key: 'side',
             label: 'Lado',
-            render: (position) => (
+            render: (position: Position) => (
                 <Badge variant={position.side === 'LONG' ? 'success' : 'destructive'}>
                     {position.side === 'LONG' ? 'COMPRA' : position.side}
                 </Badge>
@@ -329,17 +329,17 @@ export default function PositionsPage() {
         {
             key: 'qty_remaining',
             label: 'Quantidade',
-            render: (position) => <span className="font-mono">{Number(position.qty_remaining || 0).toFixed(4)}</span>,
+            render: (position: Position) => <span className="font-mono">{Number(position.qty_remaining || 0).toFixed(4)}</span>,
         },
         {
             key: 'price_open',
             label: 'Preço Entrada',
-            render: (position) => <span className="font-mono">{formatCurrency(Number(position.price_open || 0))}</span>,
+            render: (position: Position) => <span className="font-mono">{formatCurrency(Number(position.price_open || 0))}</span>,
         },
         {
             key: 'current_price',
             label: 'Preço Atual',
-            render: (position) => {
+            render: (position: Position) => {
                 // Para posições fechadas, mostrar preço de venda executado
                 if (position.status === 'CLOSED') {
                     return (
@@ -359,7 +359,7 @@ export default function PositionsPage() {
         {
             key: 'invested_value_usd',
             label: 'Valor Comprado',
-            render: (position) => (
+            render: (position: Position) => (
                 <span className="font-mono">
                     {position.invested_value_usd ? formatCurrency(position.invested_value_usd) : '-'}
                 </span>
@@ -368,17 +368,17 @@ export default function PositionsPage() {
         {
             key: 'realized_profit_usd',
             label: 'PnL Realizado',
-            render: (position) => <PnLBadge value={Number(position.realized_profit_usd || 0)} />,
+            render: (position: Position) => <PnLBadge value={Number(position.realized_profit_usd || 0)} />,
         },
         {
             key: 'unrealized_pnl',
             label: 'PnL Não Realizado',
-            render: (position) => <PnLBadge value={position.unrealized_pnl || 0} />,
+            render: (position: Position) => <PnLBadge value={position.unrealized_pnl || 0} />,
         },
         {
             key: 'sl_tp',
             label: 'SL/TP',
-            render: (position) => (
+            render: (position: Position) => (
                 <div className="flex gap-1">
                     {position.sl_enabled && <Badge variant="outline">SL</Badge>}
                     {position.tp_enabled && <Badge variant="outline">TP</Badge>}
@@ -388,7 +388,7 @@ export default function PositionsPage() {
         {
             key: 'min_profit_pct',
             label: 'Lucro Mínimo',
-            render: (position) => (
+            render: (position: Position) => (
                 position.min_profit_pct !== null && position.min_profit_pct !== undefined ? (
                     <Badge variant="outline" className="font-mono">
                         {Number(position.min_profit_pct).toFixed(2)}%
@@ -401,14 +401,14 @@ export default function PositionsPage() {
         {
             key: 'created_at',
             label: 'Abertura',
-            render: (position) => (
+            render: (position: Position) => (
                 <span className="text-sm text-muted-foreground">{formatDateTime(position.created_at)}</span>
             ),
         },
         {
             key: 'actions',
             label: 'Ações',
-            render: (position) => (
+            render: (position: Position) => (
                 <Link href={`/positions/${position.id}`}>
                     <Button variant="ghost" size="sm">
                         <Eye className="h-4 w-4" />

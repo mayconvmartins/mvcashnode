@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 import { User, Mail, Phone, Bell, Shield, MessageSquare, AlertCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import type { WhatsAppUserConfig } from '@/lib/api/notifications.service'
 
 export default function ProfilePage() {
     const router = useRouter()
@@ -53,7 +54,7 @@ export default function ProfilePage() {
 
     // Mutation para atualizar configuração de notificações WhatsApp
     const updateWhatsAppConfigMutation = useMutation({
-        mutationFn: (data: Partial<typeof whatsappConfig>) => notificationsService.updateUserConfig(data),
+        mutationFn: (data: Partial<WhatsAppUserConfig>) => notificationsService.updateUserConfig(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['notifications', 'config'] })
             queryClient.invalidateQueries({ queryKey: ['notifications', 'stats'] })
@@ -64,7 +65,7 @@ export default function ProfilePage() {
         },
     })
 
-    const handleWhatsAppConfigChange = (field: keyof typeof whatsappConfig, value: boolean) => {
+    const handleWhatsAppConfigChange = (field: keyof WhatsAppUserConfig, value: boolean) => {
         if (!whatsappConfig) return
         
         updateWhatsAppConfigMutation.mutate({
