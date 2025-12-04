@@ -65,7 +65,13 @@ export class PositionsSyncMissingProcessor extends WorkerHost {
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as {
+        total_users?: number;
+        total_checked?: number;
+        positions_created?: number;
+        executions_updated?: number;
+        errors?: Array<any>;
+      };
       const durationMs = Date.now() - startTime;
 
       // Log resumido para economizar memória
@@ -75,10 +81,10 @@ export class PositionsSyncMissingProcessor extends WorkerHost {
 
       // Registrar sucesso (sem armazenar resultado completo para economizar memória)
       const summaryResult = {
-        total_users: result.total_users,
-        total_checked: result.total_checked,
-        positions_created: result.positions_created,
-        executions_updated: result.executions_updated,
+        total_users: result.total_users || 0,
+        total_checked: result.total_checked || 0,
+        positions_created: result.positions_created || 0,
+        executions_updated: result.executions_updated || 0,
         errors_count: result.errors?.length || 0,
       };
 
