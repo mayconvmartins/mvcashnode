@@ -308,6 +308,8 @@ export class PositionsController {
             tp_enabled: true,
             tp_pct: true,
             min_profit_pct: true,
+            is_grouped: true,
+            group_started_at: true,
             created_at: true,
             exchange_account: {
               select: {
