@@ -29,6 +29,7 @@ import {
     AlertTriangle,
     TrendingUp,
 } from 'lucide-react'
+import { CleanupOrphanedPositions } from './CleanupOrphanedPositions'
 
 export function CronJobsManager() {
     const queryClient = useQueryClient()
@@ -344,6 +345,9 @@ export function CronJobsManager() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Ações Manuais */}
+            <CleanupOrphanedPositions />
         </div>
     )
 }

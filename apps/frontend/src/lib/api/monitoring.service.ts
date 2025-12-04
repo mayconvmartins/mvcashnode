@@ -134,6 +134,15 @@ class MonitoringService {
         // O endpoint retorna { data: logs[] }, então extrair o array
         return response.data?.data || response.data || []
     }
+
+    async cleanupOrphanedPositions(): Promise<{
+        checked: number
+        deleted: number
+        errors: string[]
+    }> {
+        const { data } = await apiClient.post('/monitoring/cleanup-orphaned-positions')
+        return data
+    }
 }
 
 export const monitoringService = new MonitoringService()
