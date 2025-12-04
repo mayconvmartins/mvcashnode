@@ -12,7 +12,6 @@ export class BybitSpotAdapter extends ExchangeAdapter {
    */
   static setNtpService(ntpService: any): void {
     ntpServiceInstance = ntpService;
-    console.log('[Bybit] NTP Service configurado');
   }
 
   createExchange(
@@ -21,8 +20,6 @@ export class BybitSpotAdapter extends ExchangeAdapter {
     apiSecret?: string,
     options?: any
   ): Exchange {
-    console.log(`[Bybit] Criando exchange, NTP disponível: ${!!ntpServiceInstance}`);
-    
     const exchange = new bybit({
       apiKey,
       secret: apiSecret,
@@ -65,8 +62,6 @@ export class BybitSpotAdapter extends ExchangeAdapter {
           }
           return originalSign(path, api, method, params, headers, body);
         };
-        
-        console.log(`[Bybit] ✅ NTP configurado - Offset: ${ntpOffset}ms (nonce + milliseconds + sign customizados)`);
       } else {
         console.error('[Bybit] ❌ NTP Service NÃO configurado! Timestamps estarão incorretos!');
       }

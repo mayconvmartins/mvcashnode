@@ -18,6 +18,8 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Setup2FAResponseDto } from './dto/setup-2fa.dto';
 import { Verify2FADto } from './dto/verify-2fa.dto';
 import { ChangePasswordRequiredDto } from './dto/change-password-required.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('Auth')
@@ -294,6 +296,107 @@ export class AuthController {
       }
       
       throw new BadRequestException('Erro ao alterar senha');
+    }
+  }
+
+  @Post('forgot-password')
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 tentativas por minuto
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Solicitar reset de senha',
+    description: 'Envia um email com link para redefinir a senha. O link expira em 1 hora.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Email de recuperação enviado com sucesso',
+    schema: {
+      example: {
+        message: 'Se o email existir, um link de recuperação foi enviado'
+      }
+    }
+  })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    try {
+      const token = await this.authService.getDomainAuthService().generatePasswordResetToken(dto.email);
+      
+      // Sempre retornar sucesso para não revelar se o email existe
+      if (token) {
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+        
+        await this.authService.getEmailService().sendPasswordResetEmail(
+          dto.email,
+          token,
+          resetUrl
+        );
+      }
+
+      return { 
+        message: 'Se o email existir, um link de recuperação foi enviado' 
+      };
+    } catch (error: any) {
+      // Sempre retornar sucesso para não revelar se o email existe
+      return { 
+        message: 'Se o email existir, um link de recuperação foi enviado' 
+      };
+    }
+  }
+
+  @Post('reset-password')
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 tentativas por minuto
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Redefinir senha com token',
+    description: 'Redefine a senha usando o token recebido por email. O token expira em 1 hora.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Senha redefinida com sucesso',
+    schema: {
+      example: {
+        message: 'Senha redefinida com sucesso'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: 'Token inválido ou expirado',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Token inválido ou expirado',
+        error: 'Bad Request'
+      }
+    }
+  })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    try {
+      const userEmail = await this.authService.getDomainAuthService().resetPassword(
+        dto.token,
+        dto.newPassword
+      );
+
+      // Enviar email de confirmação
+      if (userEmail) {
+        try {
+          await this.authService.getEmailService().sendPasswordResetConfirmationEmail(userEmail);
+        } catch (emailError) {
+          // Não falhar se o email falhar, apenas logar
+          console.error('[AUTH] Erro ao enviar email de confirmação:', emailError);
+        }
+      }
+
+      return { 
+        message: 'Senha redefinida com sucesso' 
+      };
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao redefinir senha';
+      
+      if (errorMessage.includes('Invalid') || errorMessage.includes('expired') || errorMessage.includes('token')) {
+        throw new BadRequestException('Token inválido ou expirado');
+      }
+      
+      throw new BadRequestException('Erro ao redefinir senha');
     }
   }
 }

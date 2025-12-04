@@ -3,12 +3,14 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { MonitorService } from '@mvcashnode/shared';
+import { EmailService } from '@mvcashnode/notifications';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
 @Processor('system-monitor')
 export class SystemMonitorProcessor extends WorkerHost {
   private readonly logger = new Logger(SystemMonitorProcessor.name);
   private monitorService: MonitorService;
+  private emailService: EmailService | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -16,6 +18,21 @@ export class SystemMonitorProcessor extends WorkerHost {
   ) {
     super();
     this.monitorService = new MonitorService();
+    
+    // Inicializar EmailService se configurado
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS;
+    
+    if (smtpHost && smtpUser && smtpPass) {
+      this.emailService = new EmailService(this.prisma, {
+        host: smtpHost,
+        port: parseInt(process.env.SMTP_PORT || '2525'),
+        user: smtpUser,
+        password: smtpPass,
+        from: process.env.SMTP_FROM || 'noreply.mvcash@mvmdev.com',
+      });
+    }
   }
 
   async process(_job: Job<any>): Promise<any> {
@@ -205,7 +222,7 @@ export class SystemMonitorProcessor extends WorkerHost {
     });
 
     if (!existingAlert) {
-      await this.prisma.systemAlert.create({
+      const alert = await this.prisma.systemAlert.create({
         data: {
           alert_type: alertType,
           severity,
@@ -216,7 +233,66 @@ export class SystemMonitorProcessor extends WorkerHost {
       });
 
       this.logger.warn(`[ALERT] ${severity.toUpperCase()}: ${message}`);
+
+      // Enviar email para alertas críticos ou de alta severidade
+      if ((severity === 'critical' || severity === 'high') && this.emailService) {
+        try {
+          const emailRecipients = await this.getAdminEmails();
+          for (const email of emailRecipients) {
+            await this.emailService.sendSystemHealthAlert(email, {
+              alertType,
+              severity,
+              message,
+              serviceName,
+              metadata,
+            });
+          }
+        } catch (error) {
+          this.logger.error(`[ALERT] Erro ao enviar email de alerta: ${error}`);
+        }
+      }
     }
+  }
+
+  /**
+   * Busca emails de administradores com notificações de sistema habilitadas
+   */
+  private async getAdminEmails(): Promise<string[]> {
+    const emails: string[] = [];
+
+    const admins = await this.prisma.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: 'admin',
+          },
+        },
+        is_active: true,
+      },
+    });
+
+    for (const admin of admins) {
+      const config = await this.prisma.emailNotificationsConfig.findUnique({
+        where: { user_id: admin.id },
+      });
+
+      if (config?.system_alerts_enabled && admin.email) {
+        emails.push(admin.email);
+      } else if (!config && admin.email) {
+        // Se não tiver config, criar com padrões e adicionar
+        await this.prisma.emailNotificationsConfig.upsert({
+          where: { user_id: admin.id },
+          create: {
+            user_id: admin.id,
+            system_alerts_enabled: true, // Padrão true para admins
+          },
+          update: {},
+        });
+        emails.push(admin.email);
+      }
+    }
+
+    return emails;
   }
 }
 

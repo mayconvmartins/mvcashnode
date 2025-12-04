@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@mvcashnode/db": "workspace:*",
-    "axios": "^1.6.5"
+    "axios": "^1.6.5",
+    "nodemailer": "^6.9.8"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/nodemailer": "^6.4.14",
     "typescript": "^5.3.3"
   }
 }

@@ -318,5 +318,112 @@ export class AuthService {
       },
     });
   }
+
+  /**
+   * Gera token de reset de senha
+   */
+  async generatePasswordResetToken(email: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user || !user.is_active) {
+      // Não revelar se o usuário existe ou não por segurança
+      return '';
+    }
+
+    // Gerar token único
+    const crypto = await import('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+
+    // Expira em 1 hora
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1);
+
+    // Invalidar tokens anteriores não usados
+    await this.prisma.passwordResetToken.updateMany({
+      where: {
+        user_id: user.id,
+        used_at: null,
+      },
+      data: {
+        used_at: new Date(),
+      },
+    });
+
+    // Criar novo token
+    await this.prisma.passwordResetToken.create({
+      data: {
+        user_id: user.id,
+        token,
+        expires_at: expiresAt,
+      },
+    });
+
+    return token;
+  }
+
+  /**
+   * Valida token de reset de senha
+   */
+  async validatePasswordResetToken(token: string): Promise<number | null> {
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { token },
+    });
+
+    if (!resetToken) {
+      return null;
+    }
+
+    // Verificar se já foi usado
+    if (resetToken.used_at) {
+      return null;
+    }
+
+    // Verificar se expirou
+    if (new Date() > resetToken.expires_at) {
+      return null;
+    }
+
+    return resetToken.user_id;
+  }
+
+  /**
+   * Reseta senha usando token
+   * Retorna o email do usuário para envio de confirmação
+   */
+  async resetPassword(token: string, newPassword: string): Promise<string | null> {
+    const userId = await this.validatePasswordResetToken(token);
+
+    if (!userId) {
+      throw new Error('Invalid or expired token');
+    }
+
+    // Buscar email antes de atualizar
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+
+    const newPasswordHash = await this.hashPassword(newPassword);
+
+    // Atualizar senha
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        password_hash: newPasswordHash,
+      },
+    });
+
+    // Marcar token como usado
+    await this.prisma.passwordResetToken.update({
+      where: { token },
+      data: {
+        used_at: new Date(),
+      },
+    });
+
+    return user?.email || null;
+  }
 }
 

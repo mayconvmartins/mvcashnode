@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { notificationsService, type NotificationTemplateType, type WhatsAppNotificationTemplate, type CreateTemplateDto, type UpdateTemplateDto } from '@/lib/api/notifications.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -236,6 +236,10 @@ export default function NotificationsConfigPage() {
                     <TabsTrigger value="history" className="flex items-center gap-2">
                         <History className="h-4 w-4" />
                         Histórico
+                    </TabsTrigger>
+                    <TabsTrigger value="email" className="flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4" />
+                        Email
                     </TabsTrigger>
                 </TabsList>
 
@@ -473,8 +477,166 @@ export default function NotificationsConfigPage() {
                         </CardContent>
                     </Card>
                 </TabsContent>
+
+                {/* Email Config Tab */}
+                <TabsContent value="email">
+                    <EmailConfigTab />
+                </TabsContent>
             </Tabs>
         </div>
+    )
+}
+
+// Componente separado para configurações de email
+function EmailConfigTab() {
+    const queryClient = useQueryClient()
+    const [emailConfig, setEmailConfig] = useState({
+        password_reset_enabled: true,
+        system_alerts_enabled: true,
+        position_opened_enabled: true,
+        position_closed_enabled: true,
+        operations_enabled: true,
+    })
+
+    const { data: config, isLoading } = useQuery({
+        queryKey: ['notifications', 'email-config'],
+        queryFn: () => notificationsService.getEmailConfig(),
+    })
+
+    useEffect(() => {
+        if (config) {
+            setEmailConfig({
+                password_reset_enabled: config.password_reset_enabled ?? true,
+                system_alerts_enabled: config.system_alerts_enabled ?? true,
+                position_opened_enabled: config.position_opened_enabled ?? true,
+                position_closed_enabled: config.position_closed_enabled ?? true,
+                operations_enabled: config.operations_enabled ?? true,
+            })
+        }
+    }, [config])
+
+    const updateEmailConfigMutation = useMutation({
+        mutationFn: (data: typeof emailConfig) => notificationsService.updateEmailConfig(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['notifications', 'email-config'] })
+            toast.success('Configurações de email salvas com sucesso!')
+        },
+        onError: (error: any) => {
+            toast.error(error?.message || 'Erro ao salvar configurações')
+        },
+    })
+
+    const handleSave = () => {
+        updateEmailConfigMutation.mutate(emailConfig)
+    }
+
+    if (isLoading) {
+        return (
+            <Card className="glass">
+                <CardContent className="py-12">
+                    <Skeleton className="h-8 w-64 mb-4" />
+                    <Skeleton className="h-32" />
+                </CardContent>
+            </Card>
+        )
+    }
+
+    return (
+        <Card className="glass">
+            <CardHeader>
+                <CardTitle>Configurações de Notificações por Email</CardTitle>
+                <CardDescription>
+                    Configure quais tipos de notificações você deseja receber por email
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="space-y-0.5">
+                            <Label>Recuperação de Senha</Label>
+                            <p className="text-sm text-muted-foreground">
+                                Receber emails de recuperação de senha
+                            </p>
+                        </div>
+                        <Switch
+                            checked={emailConfig.password_reset_enabled}
+                            onCheckedChange={(checked) => 
+                                setEmailConfig(prev => ({ ...prev, password_reset_enabled: checked }))
+                            }
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="space-y-0.5">
+                            <Label>Alertas de Sistema</Label>
+                            <p className="text-sm text-muted-foreground">
+                                Receber emails sobre alertas críticos do sistema
+                            </p>
+                        </div>
+                        <Switch
+                            checked={emailConfig.system_alerts_enabled}
+                            onCheckedChange={(checked) => 
+                                setEmailConfig(prev => ({ ...prev, system_alerts_enabled: checked }))
+                            }
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="space-y-0.5">
+                            <Label>Posições Abertas</Label>
+                            <p className="text-sm text-muted-foreground">
+                                Receber emails quando uma posição for aberta
+                            </p>
+                        </div>
+                        <Switch
+                            checked={emailConfig.position_opened_enabled}
+                            onCheckedChange={(checked) => 
+                                setEmailConfig(prev => ({ ...prev, position_opened_enabled: checked }))
+                            }
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="space-y-0.5">
+                            <Label>Posições Fechadas</Label>
+                            <p className="text-sm text-muted-foreground">
+                                Receber emails quando uma posição for fechada
+                            </p>
+                        </div>
+                        <Switch
+                            checked={emailConfig.position_closed_enabled}
+                            onCheckedChange={(checked) => 
+                                setEmailConfig(prev => ({ ...prev, position_closed_enabled: checked }))
+                            }
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="space-y-0.5">
+                            <Label>Operações (Stop Loss, Take Profit)</Label>
+                            <p className="text-sm text-muted-foreground">
+                                Receber emails sobre operações de trading (SL, TP parcial)
+                            </p>
+                        </div>
+                        <Switch
+                            checked={emailConfig.operations_enabled}
+                            onCheckedChange={(checked) => 
+                                setEmailConfig(prev => ({ ...prev, operations_enabled: checked }))
+                            }
+                        />
+                    </div>
+                </div>
+
+                <Button 
+                    onClick={handleSave}
+                    disabled={updateEmailConfigMutation.isPending}
+                    className="w-full"
+                >
+                    {updateEmailConfigMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Salvar Configurações
+                </Button>
+            </CardContent>
+        </Card>
     )
 }
 

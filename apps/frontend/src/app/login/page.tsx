@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Shield, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { Spinner } from '@/components/ui/spinner'
+import Link from 'next/link'
 
 function LoginPageContent() {
     const router = useRouter()
@@ -243,6 +244,15 @@ function LoginPageContent() {
                                 >
                                     {loginMutation.isPending ? 'Verificando...' : 'Entrar'}
                                 </Button>
+
+                                <div className="text-center">
+                                    <Link
+                                        href="/forgot-password"
+                                        className="text-sm text-muted-foreground hover:text-primary"
+                                    >
+                                        Esqueci minha senha
+                                    </Link>
+                                </div>
                             </>
                         ) : (
                             <>

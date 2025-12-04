@@ -14,11 +14,14 @@ export class AdapterFactory {
    * Deve ser chamado ANTES de criar qualquer adapter
    */
   static setNtpService(ntpService: NtpService): void {
-    AdapterFactory.ntpService = ntpService;
-    // Configurar diretamente nos adapters também (para compatibilidade)
-    BinanceSpotAdapter.setNtpService(ntpService);
-    BybitSpotAdapter.setNtpService(ntpService);
-    console.log('[AdapterFactory] NTP Service configurado para todos os adapters');
+    // Só configurar se ainda não foi configurado ou se é uma nova instância
+    if (AdapterFactory.ntpService !== ntpService) {
+      AdapterFactory.ntpService = ntpService;
+      // Configurar diretamente nos adapters também (para compatibilidade)
+      BinanceSpotAdapter.setNtpService(ntpService);
+      BybitSpotAdapter.setNtpService(ntpService);
+      console.log('[AdapterFactory] NTP Service configurado para todos os adapters');
+    }
   }
 
   /**
@@ -45,12 +48,6 @@ export class AdapterFactory {
 
       default:
         throw new Error(`Exchange type ${exchangeType} is not supported`);
-    }
-
-    // Garantir que o NTP está configurado (caso não tenha sido configurado antes)
-    if (AdapterFactory.ntpService) {
-      BinanceSpotAdapter.setNtpService(AdapterFactory.ntpService);
-      BybitSpotAdapter.setNtpService(AdapterFactory.ntpService);
     }
 
     return adapter;

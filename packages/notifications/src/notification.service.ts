@@ -1,6 +1,7 @@
 import { PrismaClient } from '@mvcashnode/db';
 import { WhatsAppClient } from './whatsapp-client';
 import { TemplateService, TemplateVariables } from './template.service';
+import { EmailService } from './email.service';
 
 export type NotificationTemplateType = 
   | 'WEBHOOK_RECEIVED'
@@ -15,7 +16,8 @@ export class NotificationService {
 
   constructor(
     private prisma: PrismaClient,
-    private whatsappClient: WhatsAppClient
+    private whatsappClient: WhatsAppClient,
+    private emailService?: EmailService
   ) {
     this.templateService = new TemplateService();
   }
@@ -144,6 +146,59 @@ export class NotificationService {
     } else {
       console.log(`[NOTIFICATIONS] ✅ Todas as mensagens enviadas com sucesso`);
     }
+  }
+
+  /**
+   * Busca destinatários de email para notificações
+   */
+  private async getEmailRecipients(
+    accountUserId: number,
+    configFlag: 'password_reset_enabled' | 'system_alerts_enabled' | 'position_opened_enabled' | 'position_closed_enabled' | 'operations_enabled'
+  ): Promise<string[]> {
+    const recipients: string[] = [];
+
+    // Buscar todos os admins com notificações habilitadas
+    const admins = await this.prisma.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: 'admin',
+          },
+        },
+      },
+      include: {
+        profile: true,
+      },
+    });
+
+    for (const admin of admins) {
+      const config = await this.prisma.emailNotificationsConfig.findUnique({
+        where: { user_id: admin.id },
+      });
+
+      if (config?.[configFlag] && admin.email) {
+        recipients.push(admin.email);
+      }
+    }
+
+    // Buscar dono da conta
+    const accountOwner = await this.prisma.user.findUnique({
+      where: { id: accountUserId },
+    });
+
+    if (accountOwner?.email) {
+      const ownerConfig = await this.prisma.emailNotificationsConfig.findUnique({
+        where: { user_id: accountOwner.id },
+      });
+
+      if (ownerConfig?.[configFlag]) {
+        if (!recipients.includes(accountOwner.email)) {
+          recipients.push(accountOwner.email);
+        }
+      }
+    }
+
+    return recipients;
   }
 
   /**
@@ -362,6 +417,26 @@ export class NotificationService {
       position_id: positionId,
     });
 
+    // Enviar email se configurado
+    if (this.emailService) {
+      try {
+        const emailRecipients = await this.getEmailRecipients(position.exchange_account.user_id, 'position_opened_enabled');
+        for (const email of emailRecipients) {
+          await this.emailService.sendPositionOpenedEmail(email, {
+            accountLabel: position.exchange_account.label || 'Conta',
+            symbol: position.symbol,
+            positionId: position.id.toString(),
+            qty,
+            avgPrice,
+            total,
+            datetime: position.created_at,
+          });
+        }
+      } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao enviar email de posição aberta:', error);
+      }
+    }
+
     // Registrar envio
     await this.prisma.positionAlertSent.create({
       data: {
@@ -505,6 +580,33 @@ export class NotificationService {
       position_id: positionId,
     });
 
+    // Enviar email se configurado
+    if (this.emailService) {
+      try {
+        const emailRecipients = await this.getEmailRecipients(position.exchange_account.user_id, 'position_closed_enabled');
+        for (const email of emailRecipients) {
+          await this.emailService.sendPositionClosedEmail(email, {
+            accountLabel: position.exchange_account.label || 'Conta',
+            symbol: position.symbol,
+            positionId: position.id.toString(),
+            buyQty,
+            buyAvgPrice,
+            buyTotal,
+            sellQty,
+            sellAvgPrice,
+            sellTotal,
+            profit,
+            profitPct,
+            duration,
+            closeReason: closeReasonText,
+            datetime: position.closed_at || position.updated_at,
+          });
+        }
+      } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao enviar email de posição fechada:', error);
+      }
+    }
+
     // Registrar envio
     await this.prisma.positionAlertSent.create({
       data: {
@@ -562,6 +664,30 @@ export class NotificationService {
     await this.sendWithTemplate('STOP_LOSS_TRIGGERED', variables, recipients, {
       position_id: positionId,
     });
+
+    // Enviar email se configurado (usando operation-alert para stop loss)
+    if (this.emailService) {
+      try {
+        const emailRecipients = await this.getEmailRecipients(position.exchange_account.user_id, 'operations_enabled');
+        for (const email of emailRecipients) {
+          await this.emailService.sendOperationAlert(email, {
+            type: 'STOP_LOSS',
+            message: `Stop Loss acionado para ${position.symbol}`,
+            details: {
+              positionId: position.id,
+              symbol: position.symbol,
+              qty,
+              sellPrice,
+              profitPct,
+              limitPct,
+            },
+            datetime: new Date(),
+          });
+        }
+      } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao enviar email de stop loss:', error);
+      }
+    }
   }
 
   /**
@@ -612,6 +738,30 @@ export class NotificationService {
     await this.sendWithTemplate('PARTIAL_TP_TRIGGERED', variables, recipients, {
       position_id: positionId,
     });
+
+    // Enviar email se configurado (usando operation-alert para partial TP)
+    if (this.emailService) {
+      try {
+        const emailRecipients = await this.getEmailRecipients(position.exchange_account.user_id, 'operations_enabled');
+        for (const email of emailRecipients) {
+          await this.emailService.sendOperationAlert(email, {
+            type: 'PARTIAL_TP',
+            message: `Take Profit parcial acionado para ${position.symbol}`,
+            details: {
+              positionId: position.id,
+              symbol: position.symbol,
+              qtySold,
+              qtyRemaining,
+              sellPrice,
+              profitPct,
+            },
+            datetime: new Date(),
+          });
+        }
+      } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao enviar email de partial TP:', error);
+      }
+    }
   }
 
   /**

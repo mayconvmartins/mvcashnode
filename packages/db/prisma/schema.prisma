@@ -33,6 +33,7 @@ model User {
   vaults            Vault[]
   webhook_sources   WebhookSource[]
   trade_parameters  TradeParameter[]
+  password_reset_tokens PasswordResetToken[]
 
   @@index([email])
   @@index([is_active])
@@ -562,6 +563,56 @@ model WhatsAppNotificationLog {
   @@index([webhook_event_id])
   @@index([position_id])
   @@map("whatsapp_notification_logs")
+}
+
+// ============================================
+// EMAIL NOTIFICATIONS
+// ============================================
+
+model PasswordResetToken {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  token      String    @unique @db.VarChar(255)
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([token])
+  @@index([expires_at])
+  @@map("password_reset_tokens")
+}
+
+model EmailNotificationLog {
+  id            Int       @id @default(autoincrement())
+  template_type String    @db.VarChar(50) // 'PASSWORD_RESET', 'SYSTEM_ALERT', 'POSITION_OPENED', etc
+  recipient     String    @db.VarChar(255)
+  subject       String    @db.VarChar(255)
+  status        String    @db.VarChar(20) // 'sent' | 'failed'
+  error_message String?   @db.Text
+  sent_at       DateTime?
+
+  @@index([template_type])
+  @@index([recipient])
+  @@index([sent_at])
+  @@index([status])
+  @@map("email_notification_logs")
+}
+
+model EmailNotificationsConfig {
+  id                      Int      @id @default(autoincrement())
+  user_id                 Int      @unique
+  password_reset_enabled  Boolean  @default(true)
+  system_alerts_enabled   Boolean  @default(true)
+  position_opened_enabled  Boolean  @default(true)
+  position_closed_enabled Boolean  @default(true)
+  operations_enabled       Boolean  @default(true)
+  created_at              DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  @@map("email_notifications_config")
 }
 
 // ============================================

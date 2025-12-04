@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@mvcashnode/db';
-import { NotificationService, WhatsAppClient } from '@mvcashnode/notifications';
+import { NotificationService, WhatsAppClient, EmailService } from '@mvcashnode/notifications';
 
 @Injectable()
 export class NotificationWrapperService {
   private notificationService: NotificationService | null = null;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService
+  ) {}
 
   /**
    * Obtém instância do NotificationService, criando se necessário
@@ -33,10 +37,27 @@ export class NotificationWrapperService {
       instanceName: config.instance_name,
     });
 
+    // Criar EmailService se configurado
+    let emailService: EmailService | undefined;
+    const smtpHost = this.configService.get<string>('SMTP_HOST');
+    const smtpUser = this.configService.get<string>('SMTP_USER');
+    const smtpPass = this.configService.get<string>('SMTP_PASS');
+    
+    if (smtpHost && smtpUser && smtpPass) {
+      emailService = new EmailService(this.prisma as any, {
+        host: smtpHost,
+        port: parseInt(this.configService.get<string>('SMTP_PORT') || '2525'),
+        user: smtpUser,
+        password: smtpPass,
+        from: this.configService.get<string>('SMTP_FROM') || 'noreply.mvcash@mvmdev.com',
+      });
+    }
+
     // Criar NotificationService
     this.notificationService = new NotificationService(
       this.prisma as any, // PrismaClient
-      whatsappClient
+      whatsappClient,
+      emailService
     );
 
     return this.notificationService;

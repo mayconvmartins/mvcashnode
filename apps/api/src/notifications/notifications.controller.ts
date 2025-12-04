@@ -100,6 +100,43 @@ export class NotificationsController {
     return this.notificationsService.updateUserConfig(req.user.userId, data);
   }
 
+  // ==================== Email Config ====================
+
+  @Get('email-config')
+  @ApiOperation({ 
+    summary: 'Obter configuração de notificações por email do usuário',
+    description: 'Retorna as preferências de notificação por email do usuário autenticado.',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Configuração de email retornada com sucesso',
+  })
+  async getEmailConfig(@Request() req: any) {
+    return this.notificationsService.getEmailConfig(req.user.userId);
+  }
+
+  @Put('email-config')
+  @ApiOperation({ 
+    summary: 'Atualizar configuração de notificações por email do usuário',
+    description: 'Atualiza as preferências de notificação por email do usuário autenticado.',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Configuração de email atualizada com sucesso',
+  })
+  async updateEmailConfig(
+    @Request() req: any,
+    @Body() data: {
+      password_reset_enabled?: boolean;
+      system_alerts_enabled?: boolean;
+      position_opened_enabled?: boolean;
+      position_closed_enabled?: boolean;
+      operations_enabled?: boolean;
+    }
+  ) {
+    return this.notificationsService.updateEmailConfig(req.user.userId, data);
+  }
+
   // ==================== Admin: Global Config ====================
 
   @Get('global-config')

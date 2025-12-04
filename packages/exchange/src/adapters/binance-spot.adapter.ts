@@ -12,7 +12,6 @@ export class BinanceSpotAdapter extends ExchangeAdapter {
    */
   static setNtpService(ntpService: any): void {
     ntpServiceInstance = ntpService;
-    console.log('[Binance] NTP Service configurado');
   }
 
   createExchange(
@@ -21,8 +20,6 @@ export class BinanceSpotAdapter extends ExchangeAdapter {
     apiSecret?: string,
     options?: any
   ): Exchange {
-    console.log(`[Binance] Criando exchange, NTP disponível: ${!!ntpServiceInstance}`);
-    
     const exchange = new binance({
       apiKey,
       secret: apiSecret,
@@ -65,8 +62,6 @@ export class BinanceSpotAdapter extends ExchangeAdapter {
           }
           return originalSign(path, api, method, params, headers, body);
         };
-        
-        console.log(`[Binance] ✅ NTP configurado - Offset: ${ntpOffset}ms (nonce + milliseconds + sign customizados)`);
       } else {
         console.error('[Binance] ❌ NTP Service NÃO configurado! Timestamps estarão incorretos!');
       }

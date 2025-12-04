@@ -203,6 +203,62 @@ export class NotificationsService {
     });
   }
 
+  // ==================== Email Config ====================
+
+  async getEmailConfig(userId: number) {
+    const config = await this.prisma.emailNotificationsConfig.findUnique({
+      where: { user_id: userId },
+    });
+
+    return config || {
+      id: null,
+      user_id: userId,
+      password_reset_enabled: true,
+      system_alerts_enabled: true,
+      position_opened_enabled: true,
+      position_closed_enabled: true,
+      operations_enabled: true,
+      created_at: null,
+      updated_at: null,
+    };
+  }
+
+  async updateEmailConfig(userId: number, data: {
+    password_reset_enabled?: boolean;
+    system_alerts_enabled?: boolean;
+    position_opened_enabled?: boolean;
+    position_closed_enabled?: boolean;
+    operations_enabled?: boolean;
+  }) {
+    const existing = await this.prisma.emailNotificationsConfig.findUnique({
+      where: { user_id: userId },
+    });
+
+    if (existing) {
+      return this.prisma.emailNotificationsConfig.update({
+        where: { user_id: userId },
+        data: {
+          password_reset_enabled: data.password_reset_enabled ?? existing.password_reset_enabled,
+          system_alerts_enabled: data.system_alerts_enabled ?? existing.system_alerts_enabled,
+          position_opened_enabled: data.position_opened_enabled ?? existing.position_opened_enabled,
+          position_closed_enabled: data.position_closed_enabled ?? existing.position_closed_enabled,
+          operations_enabled: data.operations_enabled ?? existing.operations_enabled,
+        },
+      });
+    }
+
+    return this.prisma.emailNotificationsConfig.create({
+      data: {
+        user_id: userId,
+        password_reset_enabled: data.password_reset_enabled ?? true,
+        system_alerts_enabled: data.system_alerts_enabled ?? true,
+        position_opened_enabled: data.position_opened_enabled ?? true,
+        position_closed_enabled: data.position_closed_enabled ?? true,
+        operations_enabled: data.operations_enabled ?? true,
+      },
+    });
+  }
+
   // ==================== Alert History ====================
 
   async getAlertHistory(filters?: {

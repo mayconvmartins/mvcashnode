@@ -7,12 +7,14 @@ import {
   AuditService as DomainAuditService,
 } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
+import { EmailService } from '@mvcashnode/notifications';
 
 @Injectable()
 export class AuthService {
   private domainAuthService: DomainAuthService;
   private domainUserService: DomainUserService;
   private domainAuditService: DomainAuditService;
+  private emailService: EmailService;
 
   constructor(
     private prisma: PrismaService,
@@ -30,6 +32,15 @@ export class AuthService {
 
     this.domainUserService = new DomainUserService(prisma, this.domainAuthService);
     this.domainAuditService = new DomainAuditService(prisma);
+
+    // Configurar EmailService
+    this.emailService = new EmailService(prisma, {
+      host: configService.get<string>('SMTP_HOST') || 'mail.smtp2go.com',
+      port: parseInt(configService.get<string>('SMTP_PORT') || '2525'),
+      user: configService.get<string>('SMTP_USER') || '',
+      password: configService.get<string>('SMTP_PASS') || '',
+      from: configService.get<string>('SMTP_FROM') || 'noreply.mvcash@mvmdev.com',
+    });
   }
 
   getDomainAuthService(): DomainAuthService {
@@ -42,6 +53,10 @@ export class AuthService {
 
   getDomainAuditService(): DomainAuditService {
     return this.domainAuditService;
+  }
+
+  getEmailService(): EmailService {
+    return this.emailService;
   }
 }
 

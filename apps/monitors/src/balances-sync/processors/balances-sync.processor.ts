@@ -53,9 +53,6 @@ export class BalancesSyncProcessor extends WorkerHost {
         await this.ntpService.sync();
         const ntpInfo = this.ntpService.getInfo();
         this.logger.log(`[BALANCES-SYNC-REAL] NTP sincronizado - Offset: ${ntpInfo.offset}ms`);
-        
-        // Garantir que AdapterFactory está usando o NTP service atualizado
-        AdapterFactory.setNtpService(this.ntpService);
       }
 
     // Get all active real accounts
@@ -77,11 +74,6 @@ export class BalancesSyncProcessor extends WorkerHost {
         // Get API keys
         const keys = await accountService.decryptApiKeys(account.id);
         if (!keys) continue;
-
-        // Garantir que NTP está configurado antes de criar adapter
-        if (this.ntpService) {
-          AdapterFactory.setNtpService(this.ntpService);
-        }
 
         // Create adapter
         const adapter = AdapterFactory.createAdapter(

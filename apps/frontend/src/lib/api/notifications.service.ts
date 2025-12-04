@@ -111,6 +111,31 @@ export const notificationsService = {
         return response.data
     },
 
+    // Email Config
+    getEmailConfig: async (): Promise<{
+        id: number | null
+        user_id: number
+        password_reset_enabled: boolean
+        system_alerts_enabled: boolean
+        position_opened_enabled: boolean
+        position_closed_enabled: boolean
+        operations_enabled: boolean
+    }> => {
+        const response = await apiClient.get('/notifications/email-config')
+        return response.data
+    },
+
+    updateEmailConfig: async (data: {
+        password_reset_enabled?: boolean
+        system_alerts_enabled?: boolean
+        position_opened_enabled?: boolean
+        position_closed_enabled?: boolean
+        operations_enabled?: boolean
+    }): Promise<any> => {
+        const response = await apiClient.put('/notifications/email-config', data)
+        return response.data
+    },
+
     sendTestMessage: async (phone: string, message?: string): Promise<{ success: boolean; message: string }> => {
         const response = await apiClient.post('/notifications/send-test', { phone, message })
         return response.data
