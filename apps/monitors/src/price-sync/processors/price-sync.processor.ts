@@ -10,22 +10,13 @@ import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-exe
 @Processor('price-sync')
 export class PriceSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(PriceSyncProcessor.name);
-  private cacheService: CacheService;
 
   constructor(
     private prisma: PrismaService,
-    private cronExecutionService: CronExecutionService
+    private cronExecutionService: CronExecutionService,
+    private cacheService: CacheService
   ) {
     super();
-    // Inicializar cache service
-    this.cacheService = new CacheService(
-      process.env.REDIS_HOST || 'localhost',
-      parseInt(process.env.REDIS_PORT || '6379'),
-      process.env.REDIS_PASSWORD
-    );
-    this.cacheService.connect().catch((err) => {
-      this.logger.error('[PRICE-SYNC] Erro ao conectar ao Redis:', err);
-    });
   }
 
   async process(_job: Job<any>): Promise<any> {
@@ -90,7 +81,7 @@ export class PriceSyncProcessor extends WorkerHost {
       let totalErrors = 0;
 
       // Buscar preços para cada exchange
-      for (const [exchangeKey, { symbols, exchange }] of symbolExchangeMap.entries()) {
+      for (const { symbols, exchange } of symbolExchangeMap.values()) {
         try {
           this.logger.log(
             `[PRICE-SYNC] Sincronizando ${symbols.size} símbolo(s) para ${exchange}`
