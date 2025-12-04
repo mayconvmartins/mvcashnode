@@ -20,6 +20,8 @@ export class CronManagementService implements OnModuleInit {
     @InjectQueue('balances-sync-real') private balancesSyncQueue: Queue,
     @InjectQueue('system-monitor') private systemMonitorQueue: Queue,
     @InjectQueue('positions-sync-missing') private positionsSyncMissingQueue: Queue,
+    @InjectQueue('price-sync') private priceSyncQueue: Queue,
+    @InjectQueue('positions-params-fix') private positionsParamsFixQueue: Queue,
   ) {}
 
   /**
@@ -34,6 +36,8 @@ export class CronManagementService implements OnModuleInit {
       'balances-sync-real': this.balancesSyncQueue,
       'system-monitor': this.systemMonitorQueue,
       'positions-sync-missing': this.positionsSyncMissingQueue,
+      'price-sync': this.priceSyncQueue,
+      'positions-params-fix': this.positionsParamsFixQueue,
     };
   }
 
@@ -50,6 +54,8 @@ export class CronManagementService implements OnModuleInit {
       'balances-sync-real': 'sync-balances',
       'system-monitor': 'monitor-system',
       'positions-sync-missing': 'sync-missing-positions',
+      'price-sync': 'sync-prices',
+      'positions-params-fix': 'fix-positions-params',
     };
     return nameMap[jobName] || null;
   }
@@ -125,15 +131,16 @@ export class CronManagementService implements OnModuleInit {
     ];
 
     for (const job of defaultJobs) {
-      const existing = await this.prisma.cronJobConfig.findUnique({
+      await this.prisma.cronJobConfig.upsert({
         where: { name: job.name },
+        update: {
+          description: job.description,
+          queue_name: job.queue_name,
+          job_id: job.job_id,
+          interval_ms: job.interval_ms,
+        },
+        create: job,
       });
-
-      if (!existing) {
-        await this.prisma.cronJobConfig.create({
-          data: job,
-        });
-      }
     }
   }
 
