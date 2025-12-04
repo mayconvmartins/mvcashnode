@@ -210,6 +210,11 @@ export class CronManagementService implements OnModuleInit {
                     if (rj.key.includes(job.job_id)) {
                       return true;
                     }
+                    
+                    // Verificar se o key contém o nome da fila (para jobs novos)
+                    if (rj.key.includes(job.queue_name)) {
+                      return true;
+                    }
                   }
                   
                   // 3. Comparar pelo id se for igual ao job_id

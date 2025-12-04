@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { PositionsSyncMissingProcessor } from './processors/positions-sync-missing.processor';
+import { PrismaService } from '@mvcashnode/db';
 import { CronExecutionService } from '../shared/cron-execution.service';
 
 @Module({
@@ -11,6 +12,7 @@ import { CronExecutionService } from '../shared/cron-execution.service';
   ],
   providers: [
     PositionsSyncMissingProcessor,
+    PrismaService,
     CronExecutionService,
   ],
 })
