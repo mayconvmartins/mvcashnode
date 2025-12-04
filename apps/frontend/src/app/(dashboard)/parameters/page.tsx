@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { tradeParametersService } from '@/lib/api/trade-parameters.service'
 import type { TradeParameter } from '@/lib/types'
 import { toast } from 'sonner'
@@ -69,6 +70,7 @@ export default function ParametersPage() {
                 default_tp_pct: toNumber(param.default_tp_pct),
                 trailing_stop_enabled: param.trailing_stop_enabled,
                 trailing_distance_pct: toNumber(param.trailing_distance_pct),
+                min_profit_pct: toNumber(param.min_profit_pct),
                 vault_id: param.vault_id ?? undefined,
             }
             
@@ -84,15 +86,57 @@ export default function ParametersPage() {
         },
     })
 
+    // Função auxiliar para truncar texto e mostrar tooltip
+    const TruncatedText = ({ text, maxLength = 30, className = '' }: { text: string; maxLength?: number; className?: string }) => {
+        const isLong = text.length > maxLength
+        const truncated = isLong ? text.substring(0, maxLength) + '...' : text
+        
+        // Se tiver vírgulas, formatar melhor no tooltip
+        const hasMultipleSymbols = text.includes(',')
+
+        if (!isLong && !hasMultipleSymbols) {
+            return <span className={className}>{text}</span>
+        }
+
+        return (
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className={`${className} cursor-help`}>{truncated}</span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-md">
+                    <div className="space-y-1">
+                        {hasMultipleSymbols ? (
+                            <div>
+                                <p className="font-semibold mb-2">Símbolos ({text.split(',').length}):</p>
+                                <div className="flex flex-wrap gap-1">
+                                    {text.split(',').map((symbol, idx) => (
+                                        <Badge key={idx} variant="outline" className="font-mono text-xs">
+                                            {symbol.trim()}
+                                        </Badge>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="font-mono">{text}</p>
+                        )}
+                    </div>
+                </TooltipContent>
+            </Tooltip>
+        )
+    }
+
     const columns: Column<TradeParameter>[] = [
         {
             key: 'name',
             label: 'Nome',
-            render: (param: any) => (
-                <Link href={`/parameters/${param.id}`} className="font-medium hover:underline">
-                    {param.symbol} - {param.side}
-                </Link>
-            ),
+            render: (param: any) => {
+                const displayText = `${param.symbol} - ${param.side}`
+                return (
+                    <Link href={`/parameters/${param.id}`} className="font-medium hover:underline">
+                        <TruncatedText text={displayText} maxLength={35} />
+                    </Link>
+                )
+            },
         },
         {
             key: 'exchange_account_id',
@@ -106,7 +150,9 @@ export default function ParametersPage() {
         {
             key: 'symbol',
             label: 'Símbolo',
-            render: (param) => <span className="font-mono">{param.symbol}</span>,
+            render: (param) => (
+                <TruncatedText text={param.symbol} maxLength={25} className="font-mono" />
+            ),
         },
         {
             key: 'side',
@@ -195,25 +241,27 @@ export default function ParametersPage() {
                     <CardTitle>Todos os Parâmetros</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <DataTable
-                        data={parameters || []}
-                        columns={columns}
-                        loading={isLoading}
-                        emptyState={
-                            <div className="text-center py-12">
-                                <p className="text-lg font-medium mb-2">Nenhum parâmetro cadastrado</p>
-                                <p className="text-muted-foreground mb-4">
-                                    Comece criando seu primeiro parâmetro de trading
-                                </p>
-                                <Link href="/parameters/new">
-                                    <Button variant="gradient">
-                                        <Plus className="h-4 w-4 mr-2" />
-                                        Criar Parâmetro
-                                    </Button>
-                                </Link>
-                            </div>
-                        }
-                    />
+                    <TooltipProvider>
+                        <DataTable
+                            data={parameters || []}
+                            columns={columns}
+                            loading={isLoading}
+                            emptyState={
+                                <div className="text-center py-12">
+                                    <p className="text-lg font-medium mb-2">Nenhum parâmetro cadastrado</p>
+                                    <p className="text-muted-foreground mb-4">
+                                        Comece criando seu primeiro parâmetro de trading
+                                    </p>
+                                    <Link href="/parameters/new">
+                                        <Button variant="gradient">
+                                            <Plus className="h-4 w-4 mr-2" />
+                                            Criar Parâmetro
+                                        </Button>
+                                    </Link>
+                                </div>
+                            }
+                        />
+                    </TooltipProvider>
                 </CardContent>
             </Card>
 

@@ -232,7 +232,7 @@ model TradeParameter {
   id                       Int      @id @default(autoincrement())
   user_id                  Int
   exchange_account_id      Int
-  symbol                   String   @db.VarChar(50)
+  symbol                   String   @db.VarChar(200)
   side                     String   @db.VarChar(10) // 'BUY' | 'SELL' | 'BOTH'
   quote_amount_fixed       Decimal? @db.Decimal(36, 18)
   quote_amount_pct_balance Decimal? @db.Decimal(5, 2)
