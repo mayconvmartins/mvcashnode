@@ -222,7 +222,7 @@ export class SystemMonitorProcessor extends WorkerHost {
     });
 
     if (!existingAlert) {
-      const alert = await this.prisma.systemAlert.create({
+      await this.prisma.systemAlert.create({
         data: {
           alert_type: alertType,
           severity,

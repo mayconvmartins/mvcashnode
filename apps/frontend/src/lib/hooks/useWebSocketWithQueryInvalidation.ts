@@ -195,38 +195,84 @@ export function useWebSocketWithQueryInvalidation({
         }
 
         try {
-            // Simplificar construção de URL
+            // Validar e normalizar URL
             let baseUrl = url.trim()
+            
+            if (!baseUrl) {
+                throw new Error('URL do WebSocket não fornecida')
+            }
+
+            console.log('🔌 [WebSocket] URL original:', baseUrl)
+            console.log('🔌 [WebSocket] Access token disponível:', !!accessToken, accessToken ? `(${accessToken.substring(0, 20)}...)` : '')
             
             // Se a URL não começar com ws:// ou wss://, adicionar ws:// como padrão
             if (!baseUrl.startsWith('ws://') && !baseUrl.startsWith('wss://')) {
                 baseUrl = `ws://${baseUrl}`
+                console.log('🔌 [WebSocket] URL normalizada (adicionado ws://):', baseUrl)
             }
             
-            // Criar objeto URL
-            const wsUrl = new URL(baseUrl)
+            // Criar objeto URL com validação
+            let wsUrl: URL
+            try {
+                wsUrl = new URL(baseUrl)
+            } catch (urlError) {
+                console.error('❌ [WebSocket] Erro ao criar objeto URL:', urlError, 'URL:', baseUrl)
+                throw new Error(`URL inválida: ${baseUrl}. Erro: ${urlError instanceof Error ? urlError.message : String(urlError)}`)
+            }
             
-            // Garantir que o path seja sempre / quando conectar na raiz
-            wsUrl.pathname = '/'
+            // Garantir que o path seja sempre / quando conectar na raiz (conforme gateway configurado)
+            if (!wsUrl.pathname || wsUrl.pathname === '') {
+                wsUrl.pathname = '/'
+            }
             
             // Se a página estiver em HTTPS, garantir que o WebSocket use wss://
             if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
                 if (wsUrl.protocol === 'ws:') {
                     wsUrl.protocol = 'wss:'
+                    console.log('🔌 [WebSocket] Protocolo alterado para wss:// (página em HTTPS)')
+                }
+            }
+            
+            // Validar que temos um hostname
+            if (!wsUrl.hostname) {
+                throw new Error(`URL inválida: hostname não encontrado em ${baseUrl}`)
+            }
+            
+            // Validar que temos uma porta (ou usar padrão)
+            if (!wsUrl.port) {
+                if (wsUrl.protocol === 'ws:') {
+                    wsUrl.port = '80'
+                } else if (wsUrl.protocol === 'wss:') {
+                    wsUrl.port = '443'
                 }
             }
             
             // Adicionar token na query string
+            if (!accessToken) {
+                throw new Error('Token de acesso não disponível para conexão WebSocket')
+            }
+            
             wsUrl.searchParams.set('token', accessToken)
 
             const finalUrl = wsUrl.toString()
             
-            // Validar URL final antes de criar WebSocket
+            // Validações finais da URL
             if (!finalUrl.startsWith('ws://') && !finalUrl.startsWith('wss://')) {
-                throw new Error(`Invalid WebSocket URL: ${finalUrl}`)
+                throw new Error(`URL final inválida (deve começar com ws:// ou wss://): ${finalUrl}`)
+            }
+            
+            if (!finalUrl.includes('token=')) {
+                throw new Error(`Token não encontrado na URL final: ${finalUrl.replace(/token=[^&]+/, 'token=***')}`)
             }
 
-            console.log('🔌 Connecting to WebSocket:', finalUrl.replace(/token=[^&]+/, 'token=***'))
+            console.log('🔌 [WebSocket] Conectando:', {
+                hostname: wsUrl.hostname,
+                port: wsUrl.port,
+                pathname: wsUrl.pathname,
+                protocol: wsUrl.protocol,
+                hasToken: true,
+                url: finalUrl.replace(/token=[^&]+/, 'token=***'),
+            })
 
             const ws = new WebSocket(finalUrl)
             

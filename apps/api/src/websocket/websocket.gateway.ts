@@ -40,6 +40,14 @@ export class WebSocketGateway
   afterInit(server: Server) {
     this.wsService.setServer(server);
     this.logger.log('WebSocket Gateway initialized');
+    this.logger.log(`[WebSocket] Server configurado: ${server ? 'OK' : 'FALHOU'}`);
+    if (server) {
+      this.logger.log(`[WebSocket] Server listeners: ${server.listenerCount('connection')} listener(s) de conexão`);
+      this.logger.log(`[WebSocket] Server options:`, {
+        path: '/',
+        perMessageDeflate: false,
+      });
+    }
   }
 
   async handleConnection(client: WebSocket, ...args: any[]) {
