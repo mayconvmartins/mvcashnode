@@ -16,7 +16,6 @@ import { ArrowLeft, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { CreateBindingDto } from '@/lib/types'
 import { useAuth } from '@/lib/hooks/useAuth'
-import { adminService } from '@/lib/api/admin.service'
 
 export default function NewBindingPage() {
     const params = useParams()
