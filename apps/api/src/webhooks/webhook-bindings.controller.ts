@@ -25,6 +25,7 @@ import { CreateBindingDto } from './dto/create-binding.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PrismaService } from '@mvcashnode/db';
+import { UserRole } from '@mvcashnode/shared';
 
 @ApiTags('Webhooks')
 @Controller('webhook-sources/:sourceId/bindings')
@@ -71,12 +72,9 @@ export class WebhookBindingsController {
     @CurrentUser() user: any
   ) {
     try {
-      // Verificar se o webhook source pertence ao usuário
+      // Verificar se o webhook source existe
       const source = await this.prisma.webhookSource.findFirst({
-        where: {
-          id: sourceId,
-          owner_user_id: user.userId,
-        },
+        where: { id: sourceId },
         include: {
           bindings: {
             include: {
@@ -95,6 +93,11 @@ export class WebhookBindingsController {
 
       if (!source) {
         throw new NotFoundException('Webhook source não encontrado');
+      }
+
+      // Se usuário não é dono: retornar 403 ou lista vazia
+      if (source.owner_user_id !== user.userId) {
+        throw new ForbiddenException('Você não tem permissão para acessar os bindings deste webhook source');
       }
 
       return source.bindings.map((binding) => ({
@@ -180,28 +183,35 @@ export class WebhookBindingsController {
     @Body() createDto: CreateBindingDto
   ) {
     try {
-      // Verificar se o webhook source pertence ao usuário
+      // Verificar se o webhook source existe e se o usuário é dono
       const source = await this.prisma.webhookSource.findFirst({
-        where: {
-          id: sourceId,
-          owner_user_id: user.userId,
-        },
+        where: { id: sourceId },
       });
 
       if (!source) {
         throw new NotFoundException('Webhook source não encontrado');
       }
 
-      // Verificar se a exchange account pertence ao usuário
+      const isOwner = source.owner_user_id === user.userId;
+      const isAdmin = user.roles?.includes(UserRole.ADMIN);
+
+      // Verificar se usuário tem permissão para vincular contas
+      // Se webhook é compartilhado E usuário é admin E é dono: permitir vincular contas de qualquer usuário
+      // Se webhook não é compartilhado: só contas próprias
+      const canBindOtherAccounts = source.is_shared && isAdmin && isOwner;
+
+      // Verificar se a exchange account existe
       const account = await this.prisma.exchangeAccount.findFirst({
-        where: {
-          id: createDto.exchangeAccountId,
-          user_id: user.userId,
-        },
+        where: { id: createDto.exchangeAccountId },
       });
 
       if (!account) {
         throw new NotFoundException('Conta de exchange não encontrada');
+      }
+
+      // Validar se conta pertence ao usuário OU (webhook compartilhado + admin + dono)
+      if (!canBindOtherAccounts && account.user_id !== user.userId) {
+        throw new ForbiddenException('Você não tem permissão para vincular esta conta de exchange');
       }
 
       // Verificar se já existe binding (unique constraint)

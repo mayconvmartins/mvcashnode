@@ -13,10 +13,17 @@ import { webhooksService } from '@/lib/api/webhooks.service'
 import type { WebhookSource } from '@/lib/types'
 import { toast } from 'sonner'
 import { formatDateTime } from '@/lib/utils/format'
+import { useAuth } from '@/lib/hooks/useAuth'
 
 export default function WebhooksPage() {
     const queryClient = useQueryClient()
     const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+    const { user } = useAuth()
+    
+    const isAdmin = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === 'admin' || roleValue === 'ADMIN' || roleValue?.toLowerCase?.() === 'admin'
+    })
 
     const { data: webhooks, isLoading } = useQuery({
         queryKey: ['webhooks'],
@@ -46,21 +53,36 @@ export default function WebhooksPage() {
         {
             key: 'label',
             label: 'Nome',
-            render: (webhook) => <span className="font-medium">{webhook.label}</span>,
+            render: (webhook) => (
+                <div className="flex items-center gap-2">
+                    <span className="font-medium">{webhook.label}</span>
+                    {webhook.is_shared && (
+                        <Badge variant="outline" className="text-xs">
+                            {webhook.is_owner ? 'Compartilhado' : 'Vinculado'}
+                        </Badge>
+                    )}
+                </div>
+            ),
         },
         {
             key: 'webhook_code',
             label: 'Código',
             render: (webhook) => (
                 <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm">{webhook.webhook_code}</span>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => copyWebhookURL(webhook.webhook_code)}
-                    >
-                        <Copy className="h-3 w-3" />
-                    </Button>
+                    {webhook.webhook_code ? (
+                        <>
+                            <span className="font-mono text-sm">{webhook.webhook_code}</span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyWebhookURL(webhook.webhook_code!)}
+                            >
+                                <Copy className="h-3 w-3" />
+                            </Button>
+                        </>
+                    ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                    )}
                 </div>
             ),
         },
@@ -97,29 +119,40 @@ export default function WebhooksPage() {
         {
             key: 'actions',
             label: 'Ações',
-            render: (webhook) => (
-                <div className="flex items-center gap-1">
-                    <Link href={`/webhooks/${webhook.id}`}>
-                        <Button variant="ghost" size="sm" title="Ver Detalhes">
-                            <Eye className="h-4 w-4" />
-                        </Button>
-                    </Link>
-                    <Link href={`/webhooks/${webhook.id}/edit`}>
-                        <Button variant="ghost" size="sm" title="Editar">
-                            <Edit className="h-4 w-4" />
-                        </Button>
-                    </Link>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteConfirmId(webhook.id)}
-                        disabled={deleteMutation.isPending}
-                        title="Excluir"
-                    >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                </div>
-            ),
+            render: (webhook) => {
+                const isOwner = webhook.is_owner !== false // Default true se não especificado
+                const canEdit = isOwner && webhook.webhook_code // Só pode editar se for dono e tiver código
+                
+                return (
+                    <div className="flex items-center gap-1">
+                        {canEdit ? (
+                            <>
+                                <Link href={`/webhooks/${webhook.id}`}>
+                                    <Button variant="ghost" size="sm" title="Ver Detalhes">
+                                        <Eye className="h-4 w-4" />
+                                    </Button>
+                                </Link>
+                                <Link href={`/webhooks/${webhook.id}/edit`}>
+                                    <Button variant="ghost" size="sm" title="Editar">
+                                        <Edit className="h-4 w-4" />
+                                    </Button>
+                                </Link>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setDeleteConfirmId(webhook.id)}
+                                    disabled={deleteMutation.isPending}
+                                    title="Excluir"
+                                >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                            </>
+                        ) : (
+                            <span className="text-sm text-muted-foreground">Sem permissão</span>
+                        )}
+                    </div>
+                )
+            },
         },
     ]
 

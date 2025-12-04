@@ -244,6 +244,8 @@ export interface WebhookSource {
     signing_secret_enc?: string
     rate_limit_per_min: number
     is_active: boolean
+    is_shared?: boolean
+    is_owner?: boolean
     admin_locked: boolean
     alert_group_enabled?: boolean
     alert_group_id?: string
@@ -334,6 +336,7 @@ export interface CreateWebhookSourceDto {
     rateLimitPerMin?: number
     alertGroupEnabled?: boolean
     alertGroupId?: string
+    isShared?: boolean
 }
 
 export interface CreateBindingDto {

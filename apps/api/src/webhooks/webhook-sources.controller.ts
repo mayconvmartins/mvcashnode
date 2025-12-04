@@ -25,6 +25,7 @@ import { CreateWebhookSourceDto } from './dto/create-webhook-source.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PrismaService } from '@mvcashnode/db';
+import { UserRole } from '@mvcashnode/shared';
 
 @ApiTags('Webhooks')
 @Controller('webhook-sources')
@@ -63,9 +64,29 @@ export class WebhookSourcesController {
   })
   async list(@CurrentUser() user: any): Promise<any[]> {
     try {
+      // Buscar IDs das contas do usuário
+      const userAccounts = await this.prisma.exchangeAccount.findMany({
+        where: { user_id: user.userId },
+        select: { id: true },
+      });
+      const userAccountIds = userAccounts.map(acc => acc.id);
+
+      // Buscar webhooks onde:
+      // 1. owner_user_id = userId OU
+      // 2. (is_shared = true E usuário tem contas vinculadas)
       const sources = await this.prisma.webhookSource.findMany({
         where: {
-          owner_user_id: user.userId,
+          OR: [
+            { owner_user_id: user.userId },
+            {
+              is_shared: true,
+              bindings: {
+                some: {
+                  exchange_account_id: { in: userAccountIds },
+                },
+              },
+            },
+          ],
         },
         include: {
           bindings: {
@@ -75,6 +96,7 @@ export class WebhookSourcesController {
                   id: true,
                   label: true,
                   exchange: true,
+                  user_id: true,
                 },
               },
             },
@@ -88,28 +110,45 @@ export class WebhookSourcesController {
       const apiUrl = this.configService.get<string>('API_URL') || 
                      `http://localhost:${this.configService.get<string>('API_PORT') || 4010}`;
 
-      return sources.map(source => ({
-        id: source.id,
-        label: source.label,
-        webhook_code: source.webhook_code,
-        webhook_url: `${apiUrl}/webhooks/${source.webhook_code}`,
-        trade_mode: source.trade_mode,
-        is_active: source.is_active,
-        admin_locked: source.admin_locked,
-        require_signature: source.require_signature,
-        rate_limit_per_min: source.rate_limit_per_min,
-        allowed_ips: source.allowed_ips_json as string[] | null,
-        alert_group_enabled: source.alert_group_enabled,
-        alert_group_id: source.alert_group_id,
-        bindings: source.bindings.map(binding => ({
-          id: binding.id,
-          exchange_account: binding.exchange_account,
-          is_active: binding.is_active,
-          weight: binding.weight,
-        })),
-        created_at: source.created_at,
-        updated_at: source.updated_at,
-      }));
+      return sources.map(source => {
+        const isOwner = source.owner_user_id === user.userId;
+        
+        // Se não for dono, retornar apenas informações básicas
+        if (!isOwner) {
+          return {
+            id: source.id,
+            label: source.label,
+            is_shared: source.is_shared,
+            is_owner: false,
+          };
+        }
+
+        // Se for dono, retornar todos os dados
+        return {
+          id: source.id,
+          label: source.label,
+          webhook_code: source.webhook_code,
+          webhook_url: `${apiUrl}/webhooks/${source.webhook_code}`,
+          trade_mode: source.trade_mode,
+          is_active: source.is_active,
+          is_shared: source.is_shared,
+          is_owner: true,
+          admin_locked: source.admin_locked,
+          require_signature: source.require_signature,
+          rate_limit_per_min: source.rate_limit_per_min,
+          allowed_ips: source.allowed_ips_json as string[] | null,
+          alert_group_enabled: source.alert_group_enabled,
+          alert_group_id: source.alert_group_id,
+          bindings: source.bindings.map(binding => ({
+            id: binding.id,
+            exchange_account: binding.exchange_account,
+            is_active: binding.is_active,
+            weight: binding.weight,
+          })),
+          created_at: source.created_at,
+          updated_at: source.updated_at,
+        };
+      });
     } catch (error: any) {
       throw new BadRequestException('Erro ao listar webhook sources');
     }
@@ -171,9 +210,18 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
     @Body() createDto: CreateWebhookSourceDto
   ) {
     try {
+      // Validar se usuário é admin antes de permitir is_shared = true
+      if (createDto.isShared === true) {
+        const isAdmin = user.roles?.includes(UserRole.ADMIN);
+        if (!isAdmin) {
+          throw new ForbiddenException('Apenas administradores podem marcar webhooks como compartilhados');
+        }
+      }
+
       const source = await this.webhooksService.getSourceService().createSource({
         ...createDto,
         ownerUserId: user.userId,
+        isShared: createDto.isShared || false,
       });
 
       const apiUrl = this.configService.get<string>('API_URL') || 
@@ -238,11 +286,9 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
     @CurrentUser() user: any
   ): Promise<any> {
     try {
+      // Buscar webhook source
       const source = await this.prisma.webhookSource.findFirst({
-        where: {
-          id,
-          owner_user_id: user.userId,
-        },
+        where: { id },
         include: {
           bindings: {
             include: {
@@ -251,6 +297,7 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
                   id: true,
                   label: true,
                   exchange: true,
+                  user_id: true,
                 },
               },
             },
@@ -260,6 +307,38 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
 
       if (!source) {
         throw new NotFoundException('Webhook source não encontrado');
+      }
+
+      const isOwner = source.owner_user_id === user.userId;
+
+      // Se não for dono e webhook não é compartilhado: retornar 404
+      if (!isOwner && !source.is_shared) {
+        throw new NotFoundException('Webhook source não encontrado');
+      }
+
+      // Se não for dono e webhook é compartilhado: retornar apenas id e label
+      if (!isOwner && source.is_shared) {
+        // Verificar se usuário tem contas vinculadas
+        const userAccounts = await this.prisma.exchangeAccount.findMany({
+          where: { user_id: user.userId },
+          select: { id: true },
+        });
+        const userAccountIds = userAccounts.map(acc => acc.id);
+        
+        const hasBoundAccounts = source.bindings.some(
+          binding => userAccountIds.includes(binding.exchange_account_id)
+        );
+
+        if (!hasBoundAccounts) {
+          throw new NotFoundException('Webhook source não encontrado');
+        }
+
+        return {
+          id: source.id,
+          label: source.label,
+          is_shared: true,
+          is_owner: false,
+        };
       }
 
       const apiUrl = this.configService.get<string>('API_URL') || 
@@ -272,6 +351,8 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
         webhook_url: `${apiUrl}/webhooks/${source.webhook_code}`,
         trade_mode: source.trade_mode,
         is_active: source.is_active,
+        is_shared: source.is_shared,
+        is_owner: true,
         admin_locked: source.admin_locked,
         require_signature: source.require_signature,
         rate_limit_per_min: source.rate_limit_per_min,
@@ -391,8 +472,17 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
         throw new NotFoundException('Webhook source não encontrado');
       }
 
+      // Validar se usuário é admin antes de permitir is_shared = true
+      if (updateDto.isShared !== undefined) {
+        const isAdmin = user.roles?.includes(UserRole.ADMIN);
+        if (updateDto.isShared === true && !isAdmin) {
+          throw new ForbiddenException('Apenas administradores podem marcar webhooks como compartilhados');
+        }
+      }
+
       // Atualizar apenas os campos fornecidos
       const updateData: any = {};
+      if (updateDto.isShared !== undefined) updateData.is_shared = updateDto.isShared;
       if (updateDto.label !== undefined) updateData.label = updateDto.label;
       if (updateDto.tradeMode !== undefined) updateData.trade_mode = updateDto.tradeMode;
       if (updateDto.allowedIPs !== undefined) {
@@ -441,6 +531,8 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
         webhook_url: `${apiUrl}/webhooks/${updated.webhook_code}`,
         trade_mode: updated.trade_mode,
         is_active: updated.is_active,
+        is_shared: updated.is_shared,
+        is_owner: true,
         admin_locked: updated.admin_locked,
         require_signature: updated.require_signature,
         rate_limit_per_min: updated.rate_limit_per_min,

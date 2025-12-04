@@ -46,5 +46,10 @@ export class CreateWebhookSourceDto {
   @IsOptional()
   @IsString()
   alertGroupId?: string;
+
+  @ApiProperty({ required: false, example: false, description: 'Marcar webhook como compartilhado (apenas admins)' })
+  @IsOptional()
+  @IsBoolean()
+  isShared?: boolean;
 }
 

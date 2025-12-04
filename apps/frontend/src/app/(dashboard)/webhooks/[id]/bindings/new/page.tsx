@@ -15,12 +15,20 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { CreateBindingDto } from '@/lib/types'
+import { useAuth } from '@/lib/hooks/useAuth'
+import { adminService } from '@/lib/api/admin.service'
 
 export default function NewBindingPage() {
     const params = useParams()
     const router = useRouter()
     const queryClient = useQueryClient()
     const webhookId = parseInt(params.id as string)
+    const { user } = useAuth()
+    
+    const isAdmin = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === 'admin' || roleValue === 'ADMIN' || roleValue?.toLowerCase?.() === 'admin'
+    })
 
     const [formData, setFormData] = useState<CreateBindingDto>({
         exchangeAccountId: 0,
@@ -47,9 +55,42 @@ export default function NewBindingPage() {
         queryKey: ['accounts'],
         queryFn: accountsService.list,
     })
+    
+    // Se webhook é compartilhado E usuário é admin E é dono: buscar todas as contas de todos os usuários
+    const canBindOtherAccounts = webhook?.is_shared && isAdmin && webhook?.is_owner !== false
+    
+    const { data: allUsersAccounts } = useQuery({
+        queryKey: ['admin', 'all-accounts'],
+        queryFn: async () => {
+            // Buscar todos os usuários e suas contas
+            const users = await adminService.listUsers({ limit: 1000 })
+            const allAccounts: any[] = []
+            
+            for (const userItem of users) {
+                try {
+                    const userAccounts = await accountsService.list()
+                    // Adicionar user_id às contas para identificação
+                    const accountsWithUserId = userAccounts.map((acc: any) => ({
+                        ...acc,
+                        user_id: userItem.id,
+                        user_email: userItem.email,
+                    }))
+                    allAccounts.push(...accountsWithUserId)
+                } catch (error) {
+                    console.error(`Erro ao buscar contas do usuário ${userItem.id}:`, error)
+                }
+            }
+            
+            return allAccounts
+        },
+        enabled: canBindOtherAccounts && !!webhook,
+    })
 
+    // Usar todas as contas se webhook compartilhado, senão apenas contas próprias
+    const accountsToUse = canBindOtherAccounts && allUsersAccounts ? allUsersAccounts : accounts
+    
     // Filtrar contas já vinculadas e que correspondem ao trade_mode do webhook
-    const availableAccounts = accounts?.filter((account) => {
+    const availableAccounts = accountsToUse?.filter((account) => {
         // Verificar se a conta já está vinculada
         const isAlreadyBound = existingBindings?.some(
             (binding) => binding.exchange_account_id === account.id
@@ -172,6 +213,11 @@ export default function NewBindingPage() {
                                                     <div className="flex flex-col">
                                                         <span className="font-medium">
                                                             {account.label}
+                                                            {account.user_email && (
+                                                                <span className="text-xs text-muted-foreground ml-2">
+                                                                    ({account.user_email})
+                                                                </span>
+                                                            )}
                                                         </span>
                                                         <span className="text-xs text-muted-foreground">
                                                             {account.exchange} •{' '}
@@ -191,8 +237,9 @@ export default function NewBindingPage() {
                                 </Select>
                             )}
                             <p className="text-sm text-muted-foreground">
-                                Apenas contas com o mesmo modo de trade ({webhook.trade_mode}) e
-                                que ainda não estão vinculadas serão exibidas
+                                {canBindOtherAccounts
+                                    ? `Contas de todos os usuários com o mesmo modo de trade (${webhook.trade_mode}) e que ainda não estão vinculadas serão exibidas`
+                                    : `Apenas suas contas com o mesmo modo de trade (${webhook.trade_mode}) e que ainda não estão vinculadas serão exibidas`}
                             </p>
                         </div>
 

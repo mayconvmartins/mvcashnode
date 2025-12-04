@@ -276,6 +276,7 @@ model WebhookSource {
   signing_secret_enc  String?  @db.Text
   rate_limit_per_min  Int      @default(60)
   is_active           Boolean  @default(true)
+  is_shared           Boolean  @default(false)
   admin_locked        Boolean  @default(false)
   alert_group_enabled Boolean  @default(false)
   alert_group_id      String?  @db.VarChar(255)

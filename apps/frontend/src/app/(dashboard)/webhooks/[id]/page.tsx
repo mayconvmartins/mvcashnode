@@ -296,6 +296,53 @@ export default function WebhookDetailsPage() {
         )
     }
 
+    // Verificar se usuário é dono
+    const isOwner = webhook.is_owner !== false // Default true se não especificado
+    
+    // Se não for dono, mostrar apenas informações básicas
+    if (!isOwner) {
+        return (
+            <div className="space-y-6">
+                <div className="flex items-center gap-4">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => router.push('/webhooks')}
+                    >
+                        <ArrowLeft className="h-5 w-5" />
+                    </Button>
+                    <div>
+                        <h1 className="text-3xl font-bold">{webhook.label}</h1>
+                        <p className="text-muted-foreground">Webhook Compartilhado</p>
+                    </div>
+                </div>
+                
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Webhook Compartilhado</CardTitle>
+                        <CardDescription>
+                            Este webhook foi compartilhado com você. Você tem contas vinculadas a este webhook, mas não tem acesso aos detalhes completos.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="space-y-4">
+                            <div>
+                                <Label className="text-sm font-medium">Nome</Label>
+                                <p className="text-sm text-muted-foreground">{webhook.label}</p>
+                            </div>
+                            <div>
+                                <Label className="text-sm font-medium">Status</Label>
+                                <p className="text-sm text-muted-foreground">
+                                    Você pode ver este webhook na listagem, mas não tem permissão para ver detalhes, eventos ou bindings.
+                                </p>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-6">
             {/* Header */}

@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import type { WebhookSource, TradeMode } from '@/lib/types'
+import { useAuth } from '@/lib/hooks/useAuth'
 
 interface WebhookFormProps {
     webhook?: WebhookSource
@@ -20,6 +21,13 @@ interface WebhookFormProps {
 
 export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) {
     const queryClient = useQueryClient()
+    const { user } = useAuth()
+    
+    const isAdmin = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === 'admin' || roleValue === 'ADMIN' || roleValue?.toLowerCase?.() === 'admin'
+    })
+    
     const [formData, setFormData] = useState({
         label: webhook?.label || '',
         webhookCode: webhook?.webhook_code || '',
@@ -29,6 +37,7 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
         rateLimitPerMin: webhook?.rate_limit_per_min || 60,
         alertGroupEnabled: webhook?.alert_group_enabled || false,
         alertGroupId: webhook?.alert_group_id || '',
+        isShared: webhook?.is_shared || false,
     })
 
     // Atualizar formData quando webhook mudar
@@ -43,6 +52,7 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                 rateLimitPerMin: webhook.rate_limit_per_min || 60,
                 alertGroupEnabled: webhook.alert_group_enabled || false,
                 alertGroupId: webhook.alert_group_id || '',
+                isShared: webhook.is_shared || false,
             })
         }
     }, [webhook])
@@ -56,6 +66,11 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                 requireSignature: formData.requireSignature,
                 rateLimitPerMin: formData.rateLimitPerMin,
                 alertGroupEnabled: formData.alertGroupEnabled,
+            }
+            
+            // Incluir isShared apenas se usuário for admin
+            if (isAdmin) {
+                payload.isShared = formData.isShared
             }
             
             // Sempre enviar alertGroupId: se enabled é true, enviar o ID; se false, enviar null para limpar
@@ -265,6 +280,24 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                         </div>
                     )}
                 </div>
+                
+                {isAdmin && (
+                    <div className="border-t pt-4">
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <Label htmlFor="isShared">Tipo Compartilhado</Label>
+                                <p className="text-sm text-muted-foreground">
+                                    Permite que outros usuários vinculem suas contas a este webhook
+                                </p>
+                            </div>
+                            <Switch
+                                id="isShared"
+                                checked={formData.isShared}
+                                onCheckedChange={(checked) => handleChange('isShared', checked)}
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="flex justify-end gap-2">
