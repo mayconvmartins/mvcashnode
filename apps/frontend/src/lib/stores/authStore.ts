@@ -48,6 +48,7 @@ export const useAuthStore = create<AuthState>()(
                     localStorage.removeItem('refreshToken')
                     localStorage.removeItem('isImpersonating')
                     localStorage.removeItem('originalAdminToken')
+                    localStorage.removeItem('originalAdminRefreshToken')
                     
                     // Remover dos cookies
                     document.cookie = 'accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'

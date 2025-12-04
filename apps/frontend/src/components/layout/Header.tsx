@@ -1,6 +1,7 @@
 'use client'
 
 import { User } from 'lucide-react'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
     DropdownMenu,
@@ -14,12 +15,22 @@ import { ModeToggle } from '@/components/shared/ModeToggle'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { WebSocketStatus } from '@/components/websocket/WebSocketStatus'
+import { UserSelector } from '@/components/admin/UserSelector'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useRouter } from 'next/navigation'
 
 export function Header() {
     const { user, logout } = useAuth()
     const router = useRouter()
+    const pathname = usePathname()
+    
+    // Verificar se está em páginas admin
+    const isAdminPage = pathname?.startsWith('/admin') ?? false
+    // Verificar se o usuário é admin
+    const isAdmin = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === 'admin' || roleValue === 'ADMIN' || roleValue?.toLowerCase?.() === 'admin'
+    })
 
     return (
         <header className="h-16 border-b border-border bg-card/50 backdrop-blur-sm px-6 flex items-center justify-between sticky top-0 z-10">
@@ -32,6 +43,9 @@ export function Header() {
                 <ModeToggle />
                 <ThemeToggle />
                 <NotificationBell />
+                
+                {/* Seletor de usuário - aparece apenas em páginas admin para admins */}
+                {isAdminPage && isAdmin && <UserSelector />}
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>

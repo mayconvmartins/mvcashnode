@@ -56,8 +56,14 @@ export function EditUserModal({ user, open, onOpenChange }: EditUserModalProps) 
     const updateMutation = useMutation({
         mutationFn: ({ id, data }: { id: number; data: UpdateUserDto }) => 
             adminService.updateUser(id, data),
-        onSuccess: () => {
+        onSuccess: (updatedUser, variables) => {
+            // Invalidar queries relacionadas
             queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+            queryClient.invalidateQueries({ queryKey: ['admin', 'user', variables.id] })
+            
+            // Atualizar cache do usuário específico
+            queryClient.setQueryData(['admin', 'user', variables.id], updatedUser)
+            
             toast.success('Usuário atualizado com sucesso!')
             onOpenChange(false)
         },

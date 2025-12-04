@@ -26,12 +26,19 @@ export class UsersController {
     const userId = req.user.userId;
     
     // Mapear campos do frontend para o formato esperado pelo domain service
-    const mappedDto = {
-      fullName: updateDto.full_name || updateDto.fullName,
-      phone: updateDto.phone,
-      whatsappPhone: updateDto.whatsapp_phone || updateDto.whatsappPhone,
-      // Não permitir alterar email ou isActive pelo endpoint /users/me
-    };
+    const mappedDto: any = {};
+    
+    if (updateDto.full_name !== undefined || updateDto.fullName !== undefined) {
+      mappedDto.fullName = updateDto.full_name || updateDto.fullName;
+    }
+    if (updateDto.phone !== undefined) {
+      mappedDto.phone = updateDto.phone;
+    }
+    if (updateDto.whatsapp_phone !== undefined || updateDto.whatsappPhone !== undefined) {
+      mappedDto.whatsappPhone = updateDto.whatsapp_phone || updateDto.whatsappPhone;
+    }
+    
+    // Não permitir alterar email ou isActive pelo endpoint /users/me
     
     const user = await this.userService.getDomainUserService().updateUser(userId, mappedDto);
     return user;

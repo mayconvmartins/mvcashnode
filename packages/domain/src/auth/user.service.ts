@@ -82,9 +82,16 @@ export class UserService {
     if (dto.isActive !== undefined) updateData.is_active = dto.isActive;
 
     const profileUpdate: any = {};
-    if (dto.fullName !== undefined) profileUpdate.full_name = dto.fullName;
-    if (dto.phone !== undefined) profileUpdate.phone = dto.phone;
-    if (dto.whatsappPhone !== undefined) profileUpdate.whatsapp_phone = dto.whatsappPhone;
+    // Tratar campos vazios como null para limpar valores
+    if (dto.fullName !== undefined) {
+      profileUpdate.full_name = dto.fullName && dto.fullName.trim() !== '' ? dto.fullName.trim() : null;
+    }
+    if (dto.phone !== undefined) {
+      profileUpdate.phone = dto.phone && dto.phone.trim() !== '' ? dto.phone.trim() : null;
+    }
+    if (dto.whatsappPhone !== undefined) {
+      profileUpdate.whatsapp_phone = dto.whatsappPhone && dto.whatsappPhone.trim() !== '' ? dto.whatsappPhone.trim() : null;
+    }
 
     return this.prisma.user.update({
       where: { id: userId },

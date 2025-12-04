@@ -2,16 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/lib/stores/authStore'
+import { apiClient } from '@/lib/api/client'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle, X, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 
 export function ImpersonationBanner() {
-    const { accessToken, logout } = useAuthStore()
+    const { accessToken, logout, setTokens, setUser } = useAuthStore()
     const router = useRouter()
     const [isImpersonating, setIsImpersonating] = useState(false)
     const [impersonatedBy, setImpersonatedBy] = useState<string | null>(null)
+    const [isRestoring, setIsRestoring] = useState(false)
 
     useEffect(() => {
         if (!accessToken) {
@@ -46,9 +49,56 @@ export function ImpersonationBanner() {
         if (typeof window !== 'undefined') {
             localStorage.removeItem('isImpersonating')
             localStorage.removeItem('originalAdminToken')
+            localStorage.removeItem('originalAdminRefreshToken')
         }
         logout()
         router.push('/login')
+    }
+
+    const handleRestoreAdmin = async () => {
+        if (typeof window === 'undefined') return
+
+        const originalToken = localStorage.getItem('originalAdminToken')
+        const originalRefreshToken = localStorage.getItem('originalAdminRefreshToken')
+
+        if (!originalToken) {
+            toast.error('Token original do admin não encontrado')
+            handleExit()
+            return
+        }
+
+        setIsRestoring(true)
+
+        try {
+            // Buscar dados do admin com o token original
+            const response = await apiClient.get('/users/me', {
+                headers: {
+                    Authorization: `Bearer ${originalToken}`
+                }
+            })
+            
+            const adminData = response.data
+            
+            // Restaurar token e usuário do admin
+            setTokens(originalToken, originalRefreshToken || originalToken)
+            setUser(adminData)
+            
+            // Limpar flags de impersonation
+            localStorage.removeItem('isImpersonating')
+            localStorage.removeItem('originalAdminToken')
+            localStorage.removeItem('originalAdminRefreshToken')
+            
+            toast.success('Voltou ao modo admin')
+            
+            // Redirecionar para página admin
+            router.push('/admin')
+        } catch (error: any) {
+            console.error('Erro ao restaurar token do admin:', error)
+            toast.error('Erro ao restaurar modo admin. Fazendo logout...')
+            handleExit()
+        } finally {
+            setIsRestoring(false)
+        }
     }
 
     if (!isImpersonating) return null
@@ -59,20 +109,34 @@ export function ImpersonationBanner() {
             <AlertTitle className="text-yellow-800 dark:text-yellow-200">
                 Modo Impersonation Ativo
             </AlertTitle>
-            <AlertDescription className="text-yellow-700 dark:text-yellow-300 flex items-center justify-between">
-                <span>
-                    Você está visualizando o sistema como outro usuário. 
-                    {impersonatedBy && ` Impersonado por admin ID: ${impersonatedBy}`}
-                </span>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleExit}
-                    className="ml-4 border-yellow-500 text-yellow-700 hover:bg-yellow-500/20"
-                >
-                    <X className="h-4 w-4 mr-1" />
-                    Sair do Modo Impersonation
-                </Button>
+            <AlertDescription className="text-yellow-700 dark:text-yellow-300">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span>
+                        Você está visualizando o sistema como outro usuário. 
+                        {impersonatedBy && ` Impersonado por admin ID: ${impersonatedBy}`}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleRestoreAdmin}
+                            disabled={isRestoring}
+                            className="border-blue-500 text-blue-700 hover:bg-blue-500/20"
+                        >
+                            <ArrowLeft className="h-4 w-4 mr-1" />
+                            {isRestoring ? 'Restaurando...' : 'Voltar ao Admin'}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleExit}
+                            className="border-yellow-500 text-yellow-700 hover:bg-yellow-500/20"
+                        >
+                            <X className="h-4 w-4 mr-1" />
+                            Sair
+                        </Button>
+                    </div>
+                </div>
             </AlertDescription>
         </Alert>
     )

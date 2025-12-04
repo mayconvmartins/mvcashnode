@@ -39,9 +39,9 @@ export default function ProfilePage() {
     useEffect(() => {
         if (profile) {
             setFormData({
-                full_name: profile.full_name || '',
-                phone: profile.phone || '',
-                whatsapp_phone: profile.whatsapp_phone || '',
+                full_name: profile.profile?.full_name || profile.full_name || '',
+                phone: profile.profile?.phone || profile.phone || '',
+                whatsapp_phone: profile.profile?.whatsapp_phone || profile.whatsapp_phone || '',
             })
         }
     }, [profile])
@@ -55,16 +55,33 @@ export default function ProfilePage() {
     // Mutation para atualizar perfil
     const updateMutation = useMutation({
         mutationFn: async (formData: any) => {
-            const { data } = await apiClient.put('/users/me', formData)
+            const { data } = await apiClient.put('/users/me', {
+                full_name: formData.full_name || undefined,
+                phone: formData.phone || undefined,
+                whatsapp_phone: formData.whatsapp_phone || undefined,
+            })
             return data
         },
-        onSuccess: () => {
+        onSuccess: (updatedUser) => {
+            // Atualizar cache com os dados retornados
+            queryClient.setQueryData(['profile'], updatedUser)
             queryClient.invalidateQueries({ queryKey: ['profile'] })
+            
+            // Atualizar formData com os novos dados
+            if (updatedUser) {
+                setFormData({
+                    full_name: updatedUser.profile?.full_name || updatedUser.full_name || '',
+                    phone: updatedUser.profile?.phone || updatedUser.phone || '',
+                    whatsapp_phone: updatedUser.profile?.whatsapp_phone || updatedUser.whatsapp_phone || '',
+                })
+            }
+            
             toast.success('Perfil atualizado com sucesso')
             setIsEditing(false)
         },
-        onError: () => {
-            toast.error('Erro ao atualizar perfil')
+        onError: (error: any) => {
+            const errorMessage = error?.response?.data?.message || error?.message || 'Erro ao atualizar perfil'
+            toast.error(errorMessage)
         },
     })
 

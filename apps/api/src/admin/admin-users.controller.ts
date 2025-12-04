@@ -295,7 +295,63 @@ export class AdminUsersController {
   })
   async update(@Param('id', ParseIntPipe) id: number, @Body() updateDto: any) {
     try {
-      const user = await this.adminService.getDomainUserService().updateUser(id, updateDto);
+      // Mapear dados do frontend para o formato esperado pelo domain service
+      const domainUpdateDto: any = {
+        email: updateDto.email,
+        isActive: updateDto.is_active,
+      };
+
+      // Mapear campos do profile
+      if (updateDto.profile) {
+        if (updateDto.profile.full_name !== undefined) {
+          domainUpdateDto.fullName = updateDto.profile.full_name || undefined;
+        }
+        if (updateDto.profile.phone !== undefined) {
+          domainUpdateDto.phone = updateDto.profile.phone || undefined;
+        }
+        if (updateDto.profile.whatsapp_phone !== undefined) {
+          domainUpdateDto.whatsappPhone = updateDto.profile.whatsapp_phone || undefined;
+        }
+      }
+
+      // Atualizar usuário
+      const user = await this.adminService.getDomainUserService().updateUser(id, domainUpdateDto);
+
+      // Atualizar roles se fornecido
+      if (updateDto.roles && Array.isArray(updateDto.roles)) {
+        // Remover roles existentes
+        await this.prisma.userRole.deleteMany({
+          where: { user_id: id },
+        });
+
+        // Adicionar novas roles
+        if (updateDto.roles.length > 0) {
+          await this.prisma.userRole.createMany({
+            data: updateDto.roles.map((role: string) => ({
+              user_id: id,
+              role: role,
+            })),
+          });
+        }
+
+        // Buscar usuário atualizado com roles
+        const updatedUser = await this.prisma.user.findUnique({
+          where: { id },
+          include: {
+            profile: true,
+            roles: true,
+          },
+        });
+
+        return {
+          id: updatedUser!.id,
+          email: updatedUser!.email,
+          is_active: updatedUser!.is_active,
+          roles: updatedUser!.roles.map(r => r.role),
+          profile: updatedUser!.profile,
+          updated_at: updatedUser!.updated_at,
+        };
+      }
       
       return {
         id: user.id,
