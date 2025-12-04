@@ -29,8 +29,10 @@ export class PositionService {
     let tpPct: number | null = null;
 
     try {
+      console.log(`[POSITION-SERVICE] Buscando parâmetros para posição: account=${job.exchange_account_id}, symbol=${job.symbol}`);
+      
       // Buscar primeiro parâmetro BOTH (tem todas as configurações)
-      let parameter = await this.prisma.tradeParameter.findFirst({
+      const bothParameter = await this.prisma.tradeParameter.findFirst({
         where: {
           exchange_account_id: job.exchange_account_id,
           symbol: job.symbol,
@@ -38,79 +40,105 @@ export class PositionService {
         },
       });
 
-      // Se não encontrou BOTH, buscar separadamente
-      if (!parameter) {
-        // Buscar parâmetro para SELL (para min_profit_pct)
-        const sellParameter = await this.prisma.tradeParameter.findFirst({
-          where: {
-            exchange_account_id: job.exchange_account_id,
-            symbol: job.symbol,
-            side: 'SELL',
-          },
-        });
+      // Buscar parâmetros separados (sempre buscar para garantir que temos todos os valores)
+      const buyParameter = await this.prisma.tradeParameter.findFirst({
+        where: {
+          exchange_account_id: job.exchange_account_id,
+          symbol: job.symbol,
+          side: 'BUY',
+        },
+      });
 
-        // Buscar parâmetro para BUY (para TP/SL)
-        const buyParameter = await this.prisma.tradeParameter.findFirst({
-          where: {
-            exchange_account_id: job.exchange_account_id,
-            symbol: job.symbol,
-            side: 'BUY',
-          },
-        });
+      const sellParameter = await this.prisma.tradeParameter.findFirst({
+        where: {
+          exchange_account_id: job.exchange_account_id,
+          symbol: job.symbol,
+          side: 'SELL',
+        },
+      });
 
-        // Usar buyParameter como base (ou sellParameter se buyParameter não existir)
-        parameter = buyParameter || sellParameter;
+      // Priorizar BOTH, mas usar BUY e SELL se necessário
+      const parameter = bothParameter || buyParameter || sellParameter;
 
-        // Copiar min_profit_pct do parâmetro de SELL se existir
-        if (sellParameter && sellParameter.min_profit_pct) {
-          minProfitPct = sellParameter.min_profit_pct.toNumber();
-          console.log(`[POSITION-SERVICE] Copiando min_profit_pct=${minProfitPct}% do parâmetro SELL para posição`);
+      if (bothParameter) {
+        // Parâmetro BOTH encontrado - copiar todas as configurações
+        console.log(`[POSITION-SERVICE] Parâmetro BOTH encontrado (ID: ${bothParameter.id})`);
+        
+        if (bothParameter.min_profit_pct !== null && bothParameter.min_profit_pct !== undefined) {
+          minProfitPct = bothParameter.min_profit_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ min_profit_pct=${minProfitPct}% copiado do parâmetro BOTH`);
         }
-
-        // Copiar TP/SL do parâmetro de BUY se existir
-        if (buyParameter) {
-          if (buyParameter.default_sl_enabled !== undefined) {
-            slEnabled = buyParameter.default_sl_enabled;
-          }
-          if (buyParameter.default_sl_pct) {
-            slPct = buyParameter.default_sl_pct.toNumber();
-          }
-          if (buyParameter.default_tp_enabled !== undefined) {
-            tpEnabled = buyParameter.default_tp_enabled;
-          }
-          if (buyParameter.default_tp_pct) {
-            tpPct = buyParameter.default_tp_pct.toNumber();
-          }
+        
+        if (bothParameter.default_sl_enabled !== undefined && bothParameter.default_sl_enabled !== null) {
+          slEnabled = bothParameter.default_sl_enabled;
+          console.log(`[POSITION-SERVICE] ✓ sl_enabled=${slEnabled} copiado do parâmetro BOTH`);
+        }
+        
+        if (bothParameter.default_sl_pct !== null && bothParameter.default_sl_pct !== undefined) {
+          slPct = bothParameter.default_sl_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ sl_pct=${slPct}% copiado do parâmetro BOTH`);
+        }
+        
+        if (bothParameter.default_tp_enabled !== undefined && bothParameter.default_tp_enabled !== null) {
+          tpEnabled = bothParameter.default_tp_enabled;
+          console.log(`[POSITION-SERVICE] ✓ tp_enabled=${tpEnabled} copiado do parâmetro BOTH`);
+        }
+        
+        if (bothParameter.default_tp_pct !== null && bothParameter.default_tp_pct !== undefined) {
+          tpPct = bothParameter.default_tp_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ tp_pct=${tpPct}% copiado do parâmetro BOTH`);
         }
       } else {
-        // Parâmetro BOTH encontrado - copiar todas as configurações
-        if (parameter.min_profit_pct) {
-          minProfitPct = parameter.min_profit_pct.toNumber();
-          console.log(`[POSITION-SERVICE] Copiando min_profit_pct=${minProfitPct}% do parâmetro BOTH para posição`);
+        // Não encontrou BOTH, usar BUY e SELL separadamente
+        console.log(`[POSITION-SERVICE] Parâmetro BOTH não encontrado, buscando BUY e SELL separadamente`);
+        
+        // Copiar min_profit_pct do parâmetro de SELL (prioridade) ou BUY se SELL não existir
+        if (sellParameter && sellParameter.min_profit_pct !== null && sellParameter.min_profit_pct !== undefined) {
+          minProfitPct = sellParameter.min_profit_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ min_profit_pct=${minProfitPct}% copiado do parâmetro SELL (ID: ${sellParameter.id})`);
+        } else if (buyParameter && buyParameter.min_profit_pct !== null && buyParameter.min_profit_pct !== undefined) {
+          minProfitPct = buyParameter.min_profit_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ min_profit_pct=${minProfitPct}% copiado do parâmetro BUY (ID: ${buyParameter.id})`);
         }
-        if (parameter.default_sl_enabled !== undefined) {
-          slEnabled = parameter.default_sl_enabled;
-        }
-        if (parameter.default_sl_pct) {
-          slPct = parameter.default_sl_pct.toNumber();
-        }
-        if (parameter.default_tp_enabled !== undefined) {
-          tpEnabled = parameter.default_tp_enabled;
-        }
-        if (parameter.default_tp_pct) {
-          tpPct = parameter.default_tp_pct.toNumber();
+
+        // Copiar TP/SL do parâmetro de BUY
+        if (buyParameter) {
+          console.log(`[POSITION-SERVICE] Parâmetro BUY encontrado (ID: ${buyParameter.id})`);
+          
+          if (buyParameter.default_sl_enabled !== undefined && buyParameter.default_sl_enabled !== null) {
+            slEnabled = buyParameter.default_sl_enabled;
+            console.log(`[POSITION-SERVICE] ✓ sl_enabled=${slEnabled} copiado do parâmetro BUY`);
+          }
+          
+          if (buyParameter.default_sl_pct !== null && buyParameter.default_sl_pct !== undefined) {
+            slPct = buyParameter.default_sl_pct.toNumber();
+            console.log(`[POSITION-SERVICE] ✓ sl_pct=${slPct}% copiado do parâmetro BUY`);
+          }
+          
+          if (buyParameter.default_tp_enabled !== undefined && buyParameter.default_tp_enabled !== null) {
+            tpEnabled = buyParameter.default_tp_enabled;
+            console.log(`[POSITION-SERVICE] ✓ tp_enabled=${tpEnabled} copiado do parâmetro BUY`);
+          }
+          
+          if (buyParameter.default_tp_pct !== null && buyParameter.default_tp_pct !== undefined) {
+            tpPct = buyParameter.default_tp_pct.toNumber();
+            console.log(`[POSITION-SERVICE] ✓ tp_pct=${tpPct}% copiado do parâmetro BUY`);
+          }
         }
       }
 
-      if (parameter) {
-        if (slEnabled || tpEnabled) {
-          console.log(`[POSITION-SERVICE] Copiando TP/SL dos parâmetros: SL=${slEnabled ? `${slPct}%` : 'desabilitado'}, TP=${tpEnabled ? `${tpPct}%` : 'desabilitado'}`);
-        }
-      } else {
-        console.log(`[POSITION-SERVICE] Parâmetro não encontrado, deixando valores padrão`);
+      // Resumo final dos valores copiados
+      console.log(`[POSITION-SERVICE] Resumo dos parâmetros copiados para posição:`);
+      console.log(`[POSITION-SERVICE]   - min_profit_pct: ${minProfitPct !== null ? `${minProfitPct}%` : 'null'}`);
+      console.log(`[POSITION-SERVICE]   - sl_enabled: ${slEnabled}, sl_pct: ${slPct !== null ? `${slPct}%` : 'null'}`);
+      console.log(`[POSITION-SERVICE]   - tp_enabled: ${tpEnabled}, tp_pct: ${tpPct !== null ? `${tpPct}%` : 'null'}`);
+
+      if (!parameter) {
+        console.warn(`[POSITION-SERVICE] ⚠️ Nenhum parâmetro encontrado para account=${job.exchange_account_id}, symbol=${job.symbol}. Usando valores padrão.`);
       }
     } catch (error: any) {
-      console.warn(`[POSITION-SERVICE] Erro ao buscar parâmetro para copiar configurações: ${error.message}`);
+      console.error(`[POSITION-SERVICE] ❌ Erro ao buscar parâmetro para copiar configurações: ${error.message}`);
+      console.error(`[POSITION-SERVICE] Stack: ${error.stack}`);
       // Continuar com valores padrão se houver erro
     }
 
