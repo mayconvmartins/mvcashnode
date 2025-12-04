@@ -1,7 +1,7 @@
 'use client'
 
 import { useParams, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { webhooksService } from '@/lib/api/webhooks.service'
 import { accountsService } from '@/lib/api/accounts.service'
@@ -54,10 +54,17 @@ export default function NewBindingPage() {
     
     // Buscar contas próprias ou todas as contas (se admin e webhook compartilhado)
     const { data: accounts, isLoading: isLoadingAccounts } = useQuery({
-        queryKey: ['accounts', canBindOtherAccounts ? 'all' : 'own', webhookId],
+        queryKey: ['accounts', canBindOtherAccounts ? 'all' : 'own', webhookId, canBindOtherAccounts],
         queryFn: () => canBindOtherAccounts ? accountsService.listAll() : accountsService.list(),
         enabled: !!webhook && !isLoadingWebhook,
     })
+
+    // Invalidar query quando canBindOtherAccounts mudar
+    useEffect(() => {
+        if (webhook && canBindOtherAccounts) {
+            queryClient.invalidateQueries({ queryKey: ['accounts'] })
+        }
+    }, [webhook, canBindOtherAccounts, queryClient])
     
     // Usar contas buscadas
     const accountsToUse = accounts

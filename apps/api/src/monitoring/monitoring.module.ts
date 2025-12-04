@@ -32,6 +32,9 @@ import { PrismaService } from '@mvcashnode/db';
     BullModule.registerQueue({
       name: 'system-monitor',
     }),
+    BullModule.registerQueue({
+      name: 'positions-sync-missing',
+    }),
   ],
   controllers: [MonitoringController, CronManagementController],
   providers: [MonitoringService, CronManagementService, PrismaService],

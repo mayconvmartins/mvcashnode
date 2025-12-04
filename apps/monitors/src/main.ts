@@ -180,6 +180,22 @@ async function bootstrap() {
   );
   console.log('✅ Price Sync configurado (a cada 22s, TTL cache: 25s)');
 
+  // Configurar Positions Sync Missing - executa a cada 5 minutos
+  const positionsSyncMissingQueue = app.get<Queue>(getQueueToken('positions-sync-missing'));
+  await positionsSyncMissingQueue.add(
+    'sync-missing-positions',
+    {},
+    {
+      repeat: {
+        every: 300000, // 5 minutos
+      },
+      jobId: 'positions-sync-missing-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Positions Sync Missing configurado (a cada 5min)');
+
   console.log('🎉 Todos os monitores configurados e rodando!');
 }
 

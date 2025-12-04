@@ -72,6 +72,9 @@ export function ImpersonationBanner() {
         setIsRestoring(true)
 
         try {
+            // Remover a query do cache ANTES de setar os novos tokens
+            queryClient.removeQueries({ queryKey: ['auth', 'me'] })
+            
             // Buscar dados do admin com o token original
             const response = await apiClient.get('/users/me', {
                 headers: {
@@ -92,19 +95,18 @@ export function ImpersonationBanner() {
             
             // Invalidar todas as queries para forçar atualização
             queryClient.clear()
-            // Invalidar especificamente a query do useAuth
+            // Invalidar especificamente a query do useAuth para forçar re-execução
             queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
-            // Forçar atualização do cache com os dados do admin
-            queryClient.setQueryData(['auth', 'me'], adminData)
+            // NÃO setar queryData - deixar a query ser re-executada naturalmente com o novo token
             
             toast.success('Voltou ao modo admin')
             
-            // Aguardar um pouco para garantir que o estado foi atualizado
+            // Aguardar um pouco mais para garantir que o estado foi atualizado e o apiClient usa o novo token
             setTimeout(() => {
                 router.push('/admin')
                 // Forçar reload da página para garantir que tudo seja atualizado
                 window.location.href = '/admin'
-            }, 200)
+            }, 500)
         } catch (error: any) {
             console.error('Erro ao restaurar token do admin:', error)
             toast.error('Erro ao restaurar modo admin. Fazendo logout...')

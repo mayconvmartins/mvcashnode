@@ -6,6 +6,7 @@ import { LimitOrdersMonitorModule } from './limit-orders-monitor/limit-orders-mo
 import { BalancesSyncModule } from './balances-sync/balances-sync.module';
 import { SystemMonitorModule } from './system-monitor/system-monitor.module';
 import { PriceSyncModule } from './price-sync/price-sync.module';
+import { PositionsSyncModule } from './positions-sync/positions-sync.module';
 import * as path from 'path';
 
 @Module({
@@ -26,6 +27,7 @@ import * as path from 'path';
     BalancesSyncModule,
     SystemMonitorModule,
     PriceSyncModule,
+    PositionsSyncModule,
   ],
 })
 export class AppModule {}
