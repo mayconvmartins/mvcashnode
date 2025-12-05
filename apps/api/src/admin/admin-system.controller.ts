@@ -1,4 +1,4 @@
-import { Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards, Body } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -1586,6 +1586,614 @@ export class AdminSystemController {
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro na correção de taxas:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/audit-all')
+  @ApiOperation({
+    summary: 'Auditar todas as posições abertas na exchange',
+    description: 'Verifica uma a uma todas as posições abertas, execuções e taxas na exchange via API, comparando com dados do banco e reportando discrepâncias.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Auditoria concluída',
+  })
+  async auditAll() {
+    console.log('[ADMIN] Iniciando auditoria completa de posições...');
+    
+    const startTime = Date.now();
+    let totalPositionsChecked = 0;
+    let totalExecutionsChecked = 0;
+    const discrepancies: Array<{
+      type: string;
+      entityType: 'EXECUTION' | 'POSITION';
+      entityId: number;
+      field: string;
+      currentValue: number | string;
+      expectedValue: number | string;
+      canAutoFix: boolean;
+      fixDescription: string;
+    }> = [];
+    const errors: Array<{ positionId?: number; executionId?: number; error: string }> = [];
+
+    try {
+      // Buscar todas posições abertas (REAL)
+      const openPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          status: 'OPEN',
+          trade_mode: 'REAL',
+        },
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              exchange: true,
+              api_key_enc: true,
+              api_secret_enc: true,
+              testnet: true,
+              is_simulation: true,
+            },
+          },
+          grouped_jobs: {
+            select: {
+              trade_job_id: true,
+            },
+          },
+          fills: {
+            include: {
+              execution: {
+                select: {
+                  id: true,
+                  executed_qty: true,
+                  avg_price: true,
+                  cumm_quote_qty: true,
+                  fee_amount: true,
+                  fee_currency: true,
+                  exchange_order_id: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      totalPositionsChecked = openPositions.length;
+      console.log(`[ADMIN] Encontradas ${totalPositionsChecked} posições abertas para auditar`);
+
+      // Processar em lotes de 5 posições simultaneamente
+      const BATCH_SIZE = 5;
+      const batches: typeof openPositions[] = [];
+      
+      for (let i = 0; i < openPositions.length; i += BATCH_SIZE) {
+        batches.push(openPositions.slice(i, i + BATCH_SIZE));
+      }
+
+      console.log(`[ADMIN] Processando ${batches.length} lote(s) de até ${BATCH_SIZE} posições cada`);
+
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        
+        await Promise.all(
+          batch.map(async (position) => {
+            try {
+              // Pular contas de simulação
+              if (position.exchange_account.is_simulation) {
+                return;
+              }
+
+              const account = position.exchange_account;
+              if (!account.api_key_enc || !account.api_secret_enc) {
+                errors.push({
+                  positionId: position.id,
+                  error: 'Conta sem API keys',
+                });
+                return;
+              }
+
+              // Decriptar API keys
+              const apiKey = await this.encryptionService.decrypt(account.api_key_enc);
+              const apiSecret = await this.encryptionService.decrypt(account.api_secret_enc);
+
+              // Criar adapter
+              const adapter = AdapterFactory.createAdapter(
+                account.exchange as ExchangeType,
+                apiKey,
+                apiSecret,
+                { testnet: account.testnet }
+              );
+
+              // Buscar todas execuções relacionadas à posição
+              const jobIds = [
+                ...(position.grouped_jobs?.map(gj => gj.trade_job_id) || []),
+                ...(position.trade_job_id_open ? [position.trade_job_id_open] : []),
+              ];
+
+              const executions = await this.prisma.tradeExecution.findMany({
+                where: {
+                  trade_job: {
+                    id: { in: jobIds },
+                  },
+                },
+                include: {
+                  trade_job: {
+                    select: {
+                      id: true,
+                      side: true,
+                      symbol: true,
+                      order_type: true,
+                    },
+                  },
+                },
+                select: {
+                  id: true,
+                  executed_qty: true,
+                  avg_price: true,
+                  cumm_quote_qty: true,
+                  fee_amount: true,
+                  fee_currency: true,
+                  exchange_order_id: true,
+                  created_at: true,
+                  trade_job: {
+                    select: {
+                      id: true,
+                      side: true,
+                      symbol: true,
+                      order_type: true,
+                    },
+                  },
+                },
+              });
+
+              totalExecutionsChecked += executions.length;
+
+              // Verificar cada execução
+              for (const execution of executions) {
+                if (!execution.exchange_order_id) {
+                  continue;
+                }
+
+                try {
+                  // Buscar ordem na exchange
+                  let order: any;
+                  try {
+                    if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
+                      order = await adapter.fetchClosedOrder(execution.exchange_order_id, execution.trade_job.symbol);
+                    } else {
+                      order = await adapter.fetchOrder(execution.exchange_order_id, execution.trade_job.symbol, { acknowledged: true });
+                    }
+                  } catch (orderError: any) {
+                    errors.push({
+                      executionId: execution.id,
+                      error: `Erro ao buscar ordem na exchange: ${orderError.message}`,
+                    });
+                    continue;
+                  }
+
+                  // Comparar quantidade executada
+                  const dbQty = execution.executed_qty.toNumber();
+                  const exchangeQty = order.filled || 0;
+                  if (Math.abs(dbQty - exchangeQty) > 0.00000001) {
+                    discrepancies.push({
+                      type: 'QUANTITY',
+                      entityType: 'EXECUTION',
+                      entityId: execution.id,
+                      field: 'executed_qty',
+                      currentValue: dbQty,
+                      expectedValue: exchangeQty,
+                      canAutoFix: true,
+                      fixDescription: `Quantidade executada: ${dbQty} -> ${exchangeQty}`,
+                    });
+                  }
+
+                  // Comparar preço médio
+                  const dbPrice = execution.avg_price.toNumber();
+                  const exchangePrice = order.average || order.price || 0;
+                  if (exchangePrice > 0 && Math.abs(dbPrice - exchangePrice) > dbPrice * 0.001) {
+                    discrepancies.push({
+                      type: 'PRICE',
+                      entityType: 'EXECUTION',
+                      entityId: execution.id,
+                      field: 'avg_price',
+                      currentValue: dbPrice,
+                      expectedValue: exchangePrice,
+                      canAutoFix: true,
+                      fixDescription: `Preço médio: ${dbPrice} -> ${exchangePrice}`,
+                    });
+                  }
+
+                  // Buscar taxas via fetchMyTrades
+                  let realFeeAmount = 0;
+                  let realFeeCurrency = '';
+                  try {
+                    const since = execution.created_at.getTime() - 3600000; // 1 hora antes
+                    const trades = await adapter.fetchMyTrades(execution.trade_job.symbol, since, 100);
+                    const orderTrades = trades.filter((t: any) => {
+                      return t.order === execution.exchange_order_id || 
+                             t.orderId === execution.exchange_order_id || 
+                             (t.info && (t.info.orderId === execution.exchange_order_id || t.info.orderListId === execution.exchange_order_id));
+                    });
+                    
+                    if (orderTrades.length > 0) {
+                      const fees = adapter.extractFeesFromTrades(orderTrades);
+                      realFeeAmount = fees.feeAmount;
+                      realFeeCurrency = fees.feeCurrency;
+                    }
+                  } catch (tradesError: any) {
+                    // Se não conseguir buscar trades, tentar extrair da ordem
+                    const fees = adapter.extractFeesFromOrder(order, execution.trade_job.side.toLowerCase() as 'buy' | 'sell');
+                    realFeeAmount = fees.feeAmount;
+                    realFeeCurrency = fees.feeCurrency;
+                  }
+
+                  // Comparar taxa
+                  const dbFeeAmount = execution.fee_amount?.toNumber() || 0;
+                  const dbFeeCurrency = execution.fee_currency || '';
+                  
+                  if (realFeeAmount > 0) {
+                    if (Math.abs(dbFeeAmount - realFeeAmount) > 0.00000001 || dbFeeCurrency !== realFeeCurrency) {
+                      discrepancies.push({
+                        type: 'FEE_AMOUNT',
+                        entityType: 'EXECUTION',
+                        entityId: execution.id,
+                        field: 'fee_amount',
+                        currentValue: `${dbFeeAmount} ${dbFeeCurrency}`,
+                        expectedValue: `${realFeeAmount} ${realFeeCurrency}`,
+                        canAutoFix: true,
+                        fixDescription: `Taxa: ${dbFeeAmount} ${dbFeeCurrency} -> ${realFeeAmount} ${realFeeCurrency}`,
+                      });
+                    }
+                  }
+                } catch (execError: any) {
+                  errors.push({
+                    executionId: execution.id,
+                    error: `Erro ao auditar execução: ${execError.message}`,
+                  });
+                }
+              }
+
+              // Verificar consistência da posição
+              // Soma dos fills de BUY
+              let totalBuyQty = 0;
+              let totalFeesBuyUsd = 0;
+              let totalSellQty = 0;
+              let totalFeesSellUsd = 0;
+
+              const baseAsset = position.symbol.split('/')[0];
+              const quoteAsset = position.symbol.split('/')[1] || 'USDT';
+
+              for (const fill of position.fills) {
+                const fillExec = fill.execution;
+                if (fill.side === 'BUY' && fillExec) {
+                  totalBuyQty += fillExec.executed_qty.toNumber();
+                  
+                  if (fillExec.fee_amount) {
+                    const feeAmt = fillExec.fee_amount.toNumber();
+                    const feeCur = fillExec.fee_currency || '';
+                    if (feeCur === baseAsset) {
+                      totalFeesBuyUsd += feeAmt * fillExec.avg_price.toNumber();
+                    } else if (feeCur === quoteAsset || feeCur === 'USDT' || feeCur === 'USD') {
+                      totalFeesBuyUsd += feeAmt;
+                    }
+                  }
+                } else if (fill.side === 'SELL' && fillExec) {
+                  totalSellQty += fill.qty.toNumber();
+                  
+                  if (fillExec.fee_amount) {
+                    const feeAmt = fillExec.fee_amount.toNumber();
+                    const feeCur = fillExec.fee_currency || '';
+                    if (feeCur === quoteAsset || feeCur === 'USDT' || feeCur === 'USD') {
+                      totalFeesSellUsd += feeAmt;
+                    } else {
+                      totalFeesSellUsd += feeAmt * fill.price.toNumber();
+                    }
+                  }
+                }
+              }
+
+              const dbQtyTotal = position.qty_total.toNumber();
+              const dbQtyRemaining = position.qty_remaining.toNumber();
+              const dbFeesBuyUsd = position.fees_on_buy_usd?.toNumber() || 0;
+              const dbFeesSellUsd = position.fees_on_sell_usd?.toNumber() || 0;
+
+              // Verificar quantidade total
+              if (Math.abs(dbQtyTotal - totalBuyQty) > 0.00000001) {
+                discrepancies.push({
+                  type: 'POSITION_QTY',
+                  entityType: 'POSITION',
+                  entityId: position.id,
+                  field: 'qty_total',
+                  currentValue: dbQtyTotal,
+                  expectedValue: totalBuyQty,
+                  canAutoFix: true,
+                  fixDescription: `Quantidade total: ${dbQtyTotal} -> ${totalBuyQty} (soma dos fills)`,
+                });
+              }
+
+              // Verificar quantidade restante
+              const expectedRemaining = Math.max(0, totalBuyQty - totalSellQty);
+              if (Math.abs(dbQtyRemaining - expectedRemaining) > 0.00000001) {
+                discrepancies.push({
+                  type: 'POSITION_QTY',
+                  entityType: 'POSITION',
+                  entityId: position.id,
+                  field: 'qty_remaining',
+                  currentValue: dbQtyRemaining,
+                  expectedValue: expectedRemaining,
+                  canAutoFix: true,
+                  fixDescription: `Quantidade restante: ${dbQtyRemaining} -> ${expectedRemaining}`,
+                });
+              }
+
+              // Verificar taxas
+              if (Math.abs(dbFeesBuyUsd - totalFeesBuyUsd) > 0.01) {
+                discrepancies.push({
+                  type: 'POSITION_FEES',
+                  entityType: 'POSITION',
+                  entityId: position.id,
+                  field: 'fees_on_buy_usd',
+                  currentValue: dbFeesBuyUsd,
+                  expectedValue: totalFeesBuyUsd,
+                  canAutoFix: true,
+                  fixDescription: `Taxas de compra: ${dbFeesBuyUsd.toFixed(4)} -> ${totalFeesBuyUsd.toFixed(4)} USD`,
+                });
+              }
+
+              if (Math.abs(dbFeesSellUsd - totalFeesSellUsd) > 0.01) {
+                discrepancies.push({
+                  type: 'POSITION_FEES',
+                  entityType: 'POSITION',
+                  entityId: position.id,
+                  field: 'fees_on_sell_usd',
+                  expectedValue: totalFeesSellUsd,
+                  currentValue: dbFeesSellUsd,
+                  canAutoFix: true,
+                  fixDescription: `Taxas de venda: ${dbFeesSellUsd.toFixed(4)} -> ${totalFeesSellUsd.toFixed(4)} USD`,
+                });
+              }
+            } catch (error: any) {
+              errors.push({
+                positionId: position.id,
+                error: `Erro ao auditar posição: ${error.message}`,
+              });
+            }
+          })
+        );
+
+        console.log(`[ADMIN] Lote ${batchIndex + 1}/${batches.length} concluído: ${discrepancies.length} discrepância(s) encontrada(s) até agora, ${errors.length} erro(s)`);
+      }
+
+      const duration = Date.now() - startTime;
+      console.log(`[ADMIN] Auditoria concluída em ${duration}ms: ${totalPositionsChecked} posições, ${totalExecutionsChecked} execuções, ${discrepancies.length} discrepância(s), ${errors.length} erro(s)`);
+
+      return {
+        total_positions_checked: totalPositionsChecked,
+        total_executions_checked: totalExecutionsChecked,
+        discrepancies_found: discrepancies.length,
+        discrepancies,
+        errors: errors.length,
+        error_details: errors,
+        duration_ms: duration,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro na auditoria:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/audit-fix')
+  @ApiOperation({
+    summary: 'Aplicar correções de auditoria',
+    description: 'Aplica correções selecionadas das discrepâncias encontradas na auditoria.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Correções aplicadas',
+  })
+  async auditFix(@Body() body: { corrections: Array<{
+    type: string;
+    entityType: 'EXECUTION' | 'POSITION';
+    entityId: number;
+    field: string;
+    expectedValue: number | string;
+  }> }) {
+    console.log('[ADMIN] Iniciando aplicação de correções de auditoria...');
+    
+    const startTime = Date.now();
+    let fixed = 0;
+    const errors: Array<{ correction: any; error: string }> = [];
+    const positionService = new PositionService(this.prisma);
+
+    try {
+      const { corrections } = body;
+      console.log(`[ADMIN] Aplicando ${corrections.length} correção(ões)`);
+
+      // Agrupar correções por entidade
+      const executionCorrections = new Map<number, any>();
+      const positionCorrections = new Map<number, any>();
+
+      for (const correction of corrections) {
+        if (correction.entityType === 'EXECUTION') {
+          if (!executionCorrections.has(correction.entityId)) {
+            executionCorrections.set(correction.entityId, {});
+          }
+          const execCorr = executionCorrections.get(correction.entityId)!;
+          execCorr[correction.field] = correction.expectedValue;
+        } else if (correction.entityType === 'POSITION') {
+          if (!positionCorrections.has(correction.entityId)) {
+            positionCorrections.set(correction.entityId, {});
+          }
+          const posCorr = positionCorrections.get(correction.entityId)!;
+          posCorr[correction.field] = correction.expectedValue;
+        }
+      }
+
+      // Aplicar correções de execuções
+      for (const [executionId, corrections] of executionCorrections.entries()) {
+        try {
+          const updateData: any = {};
+          
+          if (corrections.executed_qty !== undefined) {
+            updateData.executed_qty = corrections.executed_qty;
+          }
+          if (corrections.avg_price !== undefined) {
+            updateData.avg_price = corrections.avg_price;
+          }
+          if (corrections.fee_amount !== undefined) {
+            // fee_amount pode vir como string "0.001 BTC" ou número
+            if (typeof corrections.fee_amount === 'string') {
+              const parts = corrections.fee_amount.split(' ');
+              updateData.fee_amount = parseFloat(parts[0]);
+              if (parts[1]) {
+                updateData.fee_currency = parts[1];
+              }
+            } else {
+              updateData.fee_amount = corrections.fee_amount;
+            }
+          }
+
+          await this.prisma.tradeExecution.update({
+            where: { id: executionId },
+            data: updateData,
+          });
+
+          fixed++;
+          console.log(`[ADMIN] ✅ Execução ${executionId} corrigida`);
+        } catch (error: any) {
+          errors.push({
+            correction: { entityType: 'EXECUTION', entityId: executionId },
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao corrigir execução ${executionId}:`, error.message);
+        }
+      }
+
+      // Aplicar correções de posições
+      for (const [positionId, corrections] of positionCorrections.entries()) {
+        try {
+          // Recalcular posição pelos fills
+          const position = await this.prisma.tradePosition.findUnique({
+            where: { id: positionId },
+            include: {
+              fills: {
+                include: {
+                  execution: {
+                    select: {
+                      id: true,
+                      executed_qty: true,
+                      fee_amount: true,
+                      fee_currency: true,
+                      avg_price: true,
+                    },
+                  },
+                },
+              },
+              grouped_jobs: {
+                select: {
+                  trade_job_id: true,
+                },
+              },
+            },
+          });
+
+          if (!position) {
+            errors.push({
+              correction: { entityType: 'POSITION', entityId: positionId },
+              error: 'Posição não encontrada',
+            });
+            continue;
+          }
+
+          const baseAsset = position.symbol.split('/')[0];
+          const quoteAsset = position.symbol.split('/')[1] || 'USDT';
+
+          // Recalcular pelos fills
+          let totalBuyQty = 0;
+          let totalSellQty = 0;
+          let feesOnBuyUsd = 0;
+          let feesOnSellUsd = 0;
+
+          for (const fill of position.fills) {
+            const fillExec = fill.execution;
+            if (fill.side === 'BUY' && fillExec) {
+              totalBuyQty += fillExec.executed_qty.toNumber();
+              
+              if (fillExec.fee_amount) {
+                const feeAmt = fillExec.fee_amount.toNumber();
+                const feeCur = fillExec.fee_currency || '';
+                if (feeCur === baseAsset) {
+                  feesOnBuyUsd += feeAmt * fillExec.avg_price.toNumber();
+                } else if (feeCur === quoteAsset || feeCur === 'USDT' || feeCur === 'USD') {
+                  feesOnBuyUsd += feeAmt;
+                }
+              }
+            } else if (fill.side === 'SELL' && fillExec) {
+              totalSellQty += fill.qty.toNumber();
+              
+              if (fillExec.fee_amount) {
+                const feeAmt = fillExec.fee_amount.toNumber();
+                const feeCur = fillExec.fee_currency || '';
+                if (feeCur === quoteAsset || feeCur === 'USDT' || feeCur === 'USD') {
+                  feesOnSellUsd += feeAmt;
+                } else {
+                  feesOnSellUsd += feeAmt * fill.price.toNumber();
+                }
+              }
+            }
+          }
+
+          const updateData: any = {};
+          
+          if (corrections.qty_total !== undefined || corrections.qty_remaining !== undefined) {
+            updateData.qty_total = corrections.qty_total !== undefined ? corrections.qty_total : totalBuyQty;
+            updateData.qty_remaining = corrections.qty_remaining !== undefined 
+              ? corrections.qty_remaining 
+              : Math.max(0, totalBuyQty - totalSellQty);
+          } else {
+            // Se não especificado, recalcular
+            updateData.qty_total = totalBuyQty;
+            updateData.qty_remaining = Math.max(0, totalBuyQty - totalSellQty);
+          }
+
+          if (corrections.fees_on_buy_usd !== undefined || corrections.fees_on_sell_usd !== undefined) {
+            updateData.fees_on_buy_usd = corrections.fees_on_buy_usd !== undefined ? corrections.fees_on_buy_usd : feesOnBuyUsd;
+            updateData.fees_on_sell_usd = corrections.fees_on_sell_usd !== undefined ? corrections.fees_on_sell_usd : feesOnSellUsd;
+            updateData.total_fees_paid_usd = updateData.fees_on_buy_usd + updateData.fees_on_sell_usd;
+          } else {
+            // Se não especificado, recalcular
+            updateData.fees_on_buy_usd = feesOnBuyUsd;
+            updateData.fees_on_sell_usd = feesOnSellUsd;
+            updateData.total_fees_paid_usd = feesOnBuyUsd + feesOnSellUsd;
+          }
+
+          await this.prisma.tradePosition.update({
+            where: { id: positionId },
+            data: updateData,
+          });
+
+          fixed++;
+          console.log(`[ADMIN] ✅ Posição ${positionId} corrigida`);
+        } catch (error: any) {
+          errors.push({
+            correction: { entityType: 'POSITION', entityId: positionId },
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao corrigir posição ${positionId}:`, error.message);
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      console.log(`[ADMIN] Correções aplicadas em ${duration}ms: ${fixed} corrigida(s), ${errors.length} erro(s)`);
+
+      return {
+        total_corrections: corrections.length,
+        fixed,
+        errors: errors.length,
+        error_details: errors,
+        duration_ms: duration,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro ao aplicar correções:', error);
       throw error;
     }
   }

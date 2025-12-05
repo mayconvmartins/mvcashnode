@@ -12,6 +12,7 @@ import { CronJobsManager } from '@/components/monitoring/CronJobsManager'
 import { BackendLogs } from '@/components/monitoring/BackendLogs'
 import { CleanupOrphanedPositions } from '@/components/monitoring/CleanupOrphanedPositions'
 import { SyncExecutionFees } from '@/components/monitoring/SyncExecutionFees'
+import { AuditPositions } from '@/components/monitoring/AuditPositions'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RefreshCw, Activity, Clock, History, AlertTriangle, FileCode } from 'lucide-react'
@@ -160,8 +161,13 @@ export default function MonitoringPage() {
 
                     {/* Admin Actions */}
                     <div className="grid gap-6 md:grid-cols-2">
-                    <CleanupOrphanedPositions />
+                        <CleanupOrphanedPositions />
                         <SyncExecutionFees />
+                    </div>
+                    
+                    {/* Audit Positions */}
+                    <div className="grid gap-6">
+                        <AuditPositions />
                     </div>
 
                     {/* Content Grid */}

@@ -230,5 +230,48 @@ export const adminService = {
         })
         return response.data
     },
+
+    auditAll: async (): Promise<{
+        total_positions_checked: number
+        total_executions_checked: number
+        discrepancies_found: number
+        discrepancies: Array<{
+            type: string
+            entityType: 'EXECUTION' | 'POSITION'
+            entityId: number
+            field: string
+            currentValue: number | string
+            expectedValue: number | string
+            canAutoFix: boolean
+            fixDescription: string
+        }>
+        errors: number
+        error_details?: Array<{ positionId?: number; executionId?: number; error: string }>
+        duration_ms?: number
+    }> => {
+        const response = await apiClient.post('/admin/system/audit-all', {}, {
+            timeout: 600000, // 10 minutos para auditoria completa
+        })
+        return response.data
+    },
+
+    auditFix: async (corrections: Array<{
+        type: string
+        entityType: 'EXECUTION' | 'POSITION'
+        entityId: number
+        field: string
+        expectedValue: number | string
+    }>): Promise<{
+        total_corrections: number
+        fixed: number
+        errors: number
+        error_details?: Array<{ correction: any; error: string }>
+        duration_ms?: number
+    }> => {
+        const response = await apiClient.post('/admin/system/audit-fix', { corrections }, {
+            timeout: 300000, // 5 minutos para correção
+        })
+        return response.data
+    },
 }
 
