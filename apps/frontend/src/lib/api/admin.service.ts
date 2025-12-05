@@ -203,5 +203,17 @@ export const adminService = {
         const response = await apiClient.post(`/admin/users/${id}/impersonate`)
         return response.data
     },
+
+    // System Operations
+    syncExecutionFees: async (): Promise<{
+        total_checked: number
+        updated: number
+        errors: number
+        error_details?: Array<{ executionId: number; error: string }>
+        duration_ms?: number
+    }> => {
+        const response = await apiClient.post('/admin/system/sync-execution-fees')
+        return response.data
+    },
 }
 
