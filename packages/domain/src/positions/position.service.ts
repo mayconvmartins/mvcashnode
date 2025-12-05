@@ -69,8 +69,8 @@ export class PositionService {
         
         // Se o parâmetro tem múltiplos símbolos separados por vírgula
         if (param.symbol.includes(',')) {
-          const symbolList = param.symbol.split(',').map((s: string) => s.trim()).filter(s => s.length > 0);
-          return symbolList.some(s => normalizeSymbol(s) === jobSymbolNorm);
+          const symbolList = param.symbol.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+          return symbolList.some((s: string) => normalizeSymbol(s) === jobSymbolNorm);
         } else {
           // Símbolo único
           return normalizeSymbol(param.symbol) === jobSymbolNorm;
@@ -483,8 +483,8 @@ export class PositionService {
         
         // Se o parâmetro tem múltiplos símbolos separados por vírgula
         if (param.symbol.includes(',')) {
-          const symbolList = param.symbol.split(',').map((s: string) => s.trim()).filter(s => s.length > 0);
-          return symbolList.some(s => normalizeSymbol(s) === symbolNorm);
+          const symbolList = param.symbol.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+          return symbolList.some((s: string) => normalizeSymbol(s) === symbolNorm);
         } else {
           // Símbolo único
           return normalizeSymbol(param.symbol) === symbolNorm;
