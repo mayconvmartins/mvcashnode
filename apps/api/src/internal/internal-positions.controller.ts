@@ -106,12 +106,26 @@ export class InternalPositionsController {
             },
           });
 
+          // Filtrar jobs que já estão em PositionGroupedJob (já foram agrupados)
+          const groupedJobIds = await this.prisma.positionGroupedJob.findMany({
+            select: { trade_job_id: true },
+          });
+          const groupedJobIdsSet = new Set(groupedJobIds.map(gj => gj.trade_job_id));
+          
+          // Filtrar jobs que não estão agrupados
+          const jobsToProcess = jobsWithoutPosition.filter(job => !groupedJobIdsSet.has(job.id));
+          
           totalChecked += jobsWithoutPosition.length;
+          const skippedGrouped = jobsWithoutPosition.length - jobsToProcess.length;
+          
+          if (skippedGrouped > 0) {
+            console.log(`[SYNC-MISSING-ALL] Usuário ${user.id}: ${skippedGrouped} job(s) ignorado(s) (já agrupado(s))`);
+          }
 
           let positionsCreated = 0;
           let executionsUpdated = 0;
 
-          for (const job of jobsWithoutPosition) {
+          for (const job of jobsToProcess) {
             try {
               let execution = job.executions[0];
               let shouldUpdateExecution = false;

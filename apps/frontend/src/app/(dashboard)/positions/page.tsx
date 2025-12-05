@@ -502,7 +502,35 @@ export default function PositionsPage() {
         {
             key: 'unrealized_pnl',
             label: 'PnL Não Realizado',
-            render: (position: Position) => <PnLBadge value={position.unrealized_pnl || 0} />,
+            render: (position: Position) => {
+                const unrealizedPnl = position.unrealized_pnl || 0
+                // Calcular porcentagem: usar unrealized_pnl_pct se disponível, senão calcular
+                let pnlPct: number | null = null
+                if (position.unrealized_pnl_pct !== null && position.unrealized_pnl_pct !== undefined) {
+                    pnlPct = position.unrealized_pnl_pct
+                } else if (position.price_open && position.current_price) {
+                    const priceOpen = Number(position.price_open)
+                    const currentPrice = Number(position.current_price)
+                    if (priceOpen > 0) {
+                        pnlPct = ((currentPrice - priceOpen) / priceOpen) * 100
+                    }
+                }
+                
+                return (
+                    <div className="flex flex-col gap-1">
+                        <PnLBadge value={unrealizedPnl} />
+                        {pnlPct !== null && (
+                            <span
+                                className={`text-xs font-mono ${
+                                    pnlPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                                }`}
+                            >
+                                {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                            </span>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             key: 'sl_tp',
@@ -649,7 +677,35 @@ export default function PositionsPage() {
         {
             key: 'unrealized_pnl',
             label: 'PnL Não Realizado',
-            render: (position) => <PnLBadge value={position.unrealized_pnl || 0} />,
+            render: (position) => {
+                const unrealizedPnl = position.unrealized_pnl || 0
+                // Calcular porcentagem: usar unrealized_pnl_pct se disponível, senão calcular
+                let pnlPct: number | null = null
+                if (position.unrealized_pnl_pct !== null && position.unrealized_pnl_pct !== undefined) {
+                    pnlPct = position.unrealized_pnl_pct
+                } else if (position.price_open && position.current_price) {
+                    const priceOpen = Number(position.price_open)
+                    const currentPrice = Number(position.current_price)
+                    if (priceOpen > 0) {
+                        pnlPct = ((currentPrice - priceOpen) / priceOpen) * 100
+                    }
+                }
+                
+                return (
+                    <div className="flex flex-col gap-1">
+                        <PnLBadge value={unrealizedPnl} />
+                        {pnlPct !== null && (
+                            <span
+                                className={`text-xs font-mono ${
+                                    pnlPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                                }`}
+                            >
+                                {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                            </span>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             key: 'sl_tp',
