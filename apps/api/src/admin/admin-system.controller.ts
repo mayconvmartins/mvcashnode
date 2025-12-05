@@ -786,12 +786,27 @@ export class AdminSystemController {
       totalChecked = executionsWithFees.length;
       console.log(`[ADMIN] Encontradas ${totalChecked} execuções com taxas para verificar`);
 
-      for (const execution of executionsWithFees) {
-        try {
-          if (!execution.trade_job || !execution.exchange_order_id) {
-            console.log(`[ADMIN] Execução ${execution.id}: Pulando - sem trade_job ou exchange_order_id`);
-            continue;
-          }
+      // Processar em lotes paralelos para melhor performance
+      const BATCH_SIZE = 15; // Processar 15 execuções simultaneamente
+      const batches: typeof executionsWithFees[] = [];
+      
+      for (let i = 0; i < executionsWithFees.length; i += BATCH_SIZE) {
+        batches.push(executionsWithFees.slice(i, i + BATCH_SIZE));
+      }
+
+      console.log(`[ADMIN] Processando ${batches.length} lote(s) de até ${BATCH_SIZE} execuções cada`);
+
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        console.log(`[ADMIN] Processando lote ${batchIndex + 1}/${batches.length} (${batch.length} execuções)`);
+
+        await Promise.all(
+          batch.map(async (execution) => {
+            try {
+              if (!execution.trade_job || !execution.exchange_order_id) {
+                console.log(`[ADMIN] Execução ${execution.id}: Pulando - sem trade_job ou exchange_order_id`);
+                return; // Usar return em vez de continue dentro do map
+              }
 
           const side = execution.trade_job.side.toLowerCase();
           const symbol = execution.trade_job.symbol;
@@ -1156,20 +1171,86 @@ export class AdminSystemController {
                 const newQtyTotal = Math.max(0, totalBuyQty);
                 const newQtyRemaining = Math.max(0, totalBuyQty - totalSellQty);
                 
-                await this.prisma.tradePosition.update({
-                  where: { id: position.id },
-                  data: {
-                    qty_total: newQtyTotal,
-                    qty_remaining: newQtyRemaining,
-                    fees_on_buy_usd: feesOnBuyUsd,
-                    fees_on_sell_usd: feesOnSellUsd,
-                    total_fees_paid_usd: totalFeesUsd,
-                  },
+                // Usar transação para evitar condições de corrida ao atualizar a mesma posição
+                await this.prisma.$transaction(async (tx) => {
+                  // Re-buscar posição com dados atualizados dentro da transação
+                  const currentPosition = await tx.tradePosition.findUnique({
+                    where: { id: position.id },
+                    include: {
+                      fills: {
+                        include: {
+                          execution: {
+                            select: {
+                              id: true,
+                              executed_qty: true,
+                              fee_amount: true,
+                              fee_currency: true,
+                              avg_price: true,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  });
+                  
+                  if (!currentPosition) {
+                    console.warn(`[ADMIN] Execução ${execution.id}: Posição ${position.id} não encontrada na transação`);
+                    return;
+                  }
+                  
+                  // Recalcular novamente com dados atualizados (pode ter sido atualizado por outra execução)
+                  let recalcTotalBuyQty = 0;
+                  let recalcTotalSellQty = 0;
+                  let recalcFeesOnBuyUsd = 0;
+                  let recalcFeesOnSellUsd = 0;
+                  let recalcTotalFeesUsd = 0;
+                  
+                  for (const fill of currentPosition.fills) {
+                    const fillExecution = executionMap.get(fill.trade_execution_id);
+                    if (fill.side === 'BUY' && fillExecution) {
+                      recalcTotalBuyQty += fillExecution.executed_qty.toNumber();
+                      if (fillExecution.fee_amount) {
+                        const fillFeeAmount = fillExecution.fee_amount.toNumber();
+                        const fillFeeCurrency = fillExecution.fee_currency || '';
+                        if (fillFeeCurrency === baseAsset) {
+                          recalcFeesOnBuyUsd += fillFeeAmount * fillExecution.avg_price.toNumber();
+                        } else if (fillFeeCurrency === quoteAsset || fillFeeCurrency === 'USDT' || fillFeeCurrency === 'USD') {
+                          recalcFeesOnBuyUsd += fillFeeAmount;
+                        }
+                      }
+                    } else if (fill.side === 'SELL' && fillExecution) {
+                      recalcTotalSellQty += fill.qty.toNumber();
+                      if (fillExecution.fee_amount) {
+                        const fillFeeAmount = fillExecution.fee_amount.toNumber();
+                        const fillFeeCurrency = fillExecution.fee_currency || '';
+                        if (fillFeeCurrency === quoteAsset || fillFeeCurrency === 'USDT' || fillFeeCurrency === 'USD') {
+                          recalcFeesOnSellUsd += fillFeeAmount;
+                        } else {
+                          recalcFeesOnSellUsd += fillFeeAmount * fill.price.toNumber();
+                        }
+                      }
+                    }
+                  }
+                  
+                  recalcTotalFeesUsd = recalcFeesOnBuyUsd + recalcFeesOnSellUsd;
+                  const finalQtyTotal = Math.max(0, recalcTotalBuyQty);
+                  const finalQtyRemaining = Math.max(0, recalcTotalBuyQty - recalcTotalSellQty);
+                  
+                  await tx.tradePosition.update({
+                    where: { id: position.id },
+                    data: {
+                      qty_total: finalQtyTotal,
+                      qty_remaining: finalQtyRemaining,
+                      fees_on_buy_usd: recalcFeesOnBuyUsd,
+                      fees_on_sell_usd: recalcFeesOnSellUsd,
+                      total_fees_paid_usd: recalcTotalFeesUsd,
+                    },
+                  });
+                  
+                  console.log(
+                    `[ADMIN] Execução ${execution.id}: Posição ${position.id} atualizada - Qty: ${currentPosition.qty_total.toNumber()} -> ${finalQtyTotal}, Remaining: ${currentPosition.qty_remaining.toNumber()} -> ${finalQtyRemaining}, Taxas: ${recalcTotalFeesUsd.toFixed(4)} USD`
+                  );
                 });
-                
-                console.log(
-                  `[ADMIN] Execução ${execution.id}: Posição ${position.id} atualizada - Qty recalculada pelos fills: ${position.qty_total.toNumber()} -> ${newQtyTotal}, Taxa: ${oldFeeUsd.toFixed(4)} USDT -> ${feeUsd.toFixed(4)} USD (${correctFeeAmount.toFixed(8)} ${correctFeeCurrency})`
-                );
               }
             }
 
@@ -1183,6 +1264,10 @@ export class AdminSystemController {
           });
           console.error(`[ADMIN] ❌ Erro ao corrigir execução ${execution.id}:`, error.message);
         }
+          })
+        );
+
+        console.log(`[ADMIN] Lote ${batchIndex + 1}/${batches.length} concluído: ${fixed} corrigidas até agora, ${errors.length} erro(s)`);
       }
 
       const duration = Date.now() - startTime;
