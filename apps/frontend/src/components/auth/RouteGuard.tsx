@@ -18,7 +18,7 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
     const router = useRouter()
     const pathname = usePathname()
     const searchParams = useSearchParams()
-    const { isAuthenticated, user, setTokens, setUser } = useAuthStore()
+    const { isAuthenticated, user, setTokens, setUser, getRememberMe } = useAuthStore()
     const [isLoading, setIsLoading] = useState(true)
     const [hasToken, setHasToken] = useState(false)
     const [processingImpersonation, setProcessingImpersonation] = useState(false)
@@ -137,27 +137,97 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
 
             // Se tem token mas o store não está autenticado, restaurar do localStorage
             if (hasAuthToken && !isAuthenticated && accessTokenLS && refreshTokenLS) {
-                setTokens(accessTokenLS, refreshTokenLS)
+                const rememberMeActive = getRememberMe()
                 
-                // Buscar dados do usuário da API
-                authService.getMe()
-                    .then((userData) => {
-                        setUser(userData)
-                    })
-                    .catch(() => {
-                        // Se falhar, tentar carregar do localStorage
-                        try {
-                            const authStorage = localStorage.getItem('auth-storage')
-                            if (authStorage) {
-                                const parsed = JSON.parse(authStorage)
-                                if (parsed.state?.user) {
-                                    setUser(parsed.state.user)
-                                }
+                // Verificar se o token está próximo de expirar ou expirado
+                let shouldRefresh = false
+                if (accessTokenLS) {
+                    try {
+                        const parts = accessTokenLS.split('.')
+                        if (parts.length === 3) {
+                            const payload = JSON.parse(atob(parts[1]))
+                            const exp = payload.exp * 1000 // Converter para milissegundos
+                            const now = Date.now()
+                            const timeUntilExpiry = exp - now
+                            
+                            // Se rememberMe está ativo e o token está próximo de expirar (menos de 10 minutos) ou já expirou
+                            if (rememberMeActive && timeUntilExpiry < 10 * 60 * 1000) {
+                                shouldRefresh = true
                             }
-                        } catch (e) {
-                            console.error('Erro ao restaurar usuário:', e)
                         }
-                    })
+                    } catch (e) {
+                        console.warn('[AUTH] Erro ao verificar expiração do token:', e)
+                    }
+                }
+                
+                // Se rememberMe está ativo e precisa fazer refresh, tentar renovar tokens
+                if (shouldRefresh && rememberMeActive && refreshTokenLS) {
+                    console.log('[AUTH] Token próximo de expirar, tentando refresh automático...')
+                    authService.refresh(refreshTokenLS)
+                        .then((response) => {
+                            if (response.accessToken && response.refreshToken) {
+                                // Atualizar tokens mantendo rememberMe
+                                setTokens(response.accessToken, response.refreshToken, rememberMeActive)
+                                
+                                // Buscar dados do usuário
+                                return authService.getMe()
+                            }
+                            throw new Error('Resposta de refresh inválida')
+                        })
+                        .then((userData) => {
+                            if (userData) {
+                                setUser(userData)
+                            }
+                        })
+                        .catch((error) => {
+                            console.warn('[AUTH] Erro ao fazer refresh automático, tentando restaurar sessão:', error)
+                            // Se o refresh falhar, tentar restaurar com tokens existentes
+                            setTokens(accessTokenLS, refreshTokenLS, rememberMeActive)
+                            
+                            // Buscar dados do usuário da API
+                            authService.getMe()
+                                .then((userData) => {
+                                    setUser(userData)
+                                })
+                                .catch(() => {
+                                    // Se falhar, tentar carregar do localStorage
+                                    try {
+                                        const authStorage = localStorage.getItem('auth-storage')
+                                        if (authStorage) {
+                                            const parsed = JSON.parse(authStorage)
+                                            if (parsed.state?.user) {
+                                                setUser(parsed.state.user)
+                                            }
+                                        }
+                                    } catch (e) {
+                                        console.error('Erro ao restaurar usuário:', e)
+                                    }
+                                })
+                        })
+                } else {
+                    // Restaurar normalmente sem refresh
+                    setTokens(accessTokenLS, refreshTokenLS, rememberMeActive)
+                    
+                    // Buscar dados do usuário da API
+                    authService.getMe()
+                        .then((userData) => {
+                            setUser(userData)
+                        })
+                        .catch(() => {
+                            // Se falhar, tentar carregar do localStorage
+                            try {
+                                const authStorage = localStorage.getItem('auth-storage')
+                                if (authStorage) {
+                                    const parsed = JSON.parse(authStorage)
+                                    if (parsed.state?.user) {
+                                        setUser(parsed.state.user)
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('Erro ao restaurar usuário:', e)
+                            }
+                        })
+                }
             }
 
             setIsLoading(false)
@@ -166,7 +236,7 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
         // Aguardar um pouco para o store hidratar
         const timer = setTimeout(checkAuth, 100)
         return () => clearTimeout(timer)
-    }, [isAuthenticated, setTokens, setUser, router, searchParams])
+    }, [isAuthenticated, setTokens, setUser, getRememberMe, router, searchParams])
 
     useEffect(() => {
         if (isLoading || processingImpersonation) return

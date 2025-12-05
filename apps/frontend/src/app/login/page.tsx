@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Shield, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { Spinner } from '@/components/ui/spinner'
+import { Checkbox } from '@/components/ui/checkbox'
 import Link from 'next/link'
 
 function LoginPageContent() {
@@ -28,6 +29,7 @@ function LoginPageContent() {
     const [requiresPasswordChange, setRequiresPasswordChange] = useState(false)
     const [newPassword, setNewPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
+    const [rememberMe, setRememberMe] = useState(false)
 
     // Limpar qualquer token de impersonation ao carregar a página de login
     useEffect(() => {
@@ -76,7 +78,7 @@ function LoginPageContent() {
             
             // Salvar tokens e usuário
             if (data.accessToken && data.refreshToken && data.user) {
-                setTokens(data.accessToken, data.refreshToken)
+                setTokens(data.accessToken, data.refreshToken, rememberMe)
                 setUser(data.user)
                 toast.success('Login realizado com sucesso!')
                 
@@ -234,6 +236,21 @@ function LoginPageContent() {
                                         disabled={loginMutation.isPending}
                                         required
                                     />
+                                </div>
+
+                                <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-2">
+                                    <Checkbox
+                                        id="rememberMe"
+                                        checked={rememberMe}
+                                        onCheckedChange={(checked) => setRememberMe(checked === true)}
+                                        disabled={loginMutation.isPending}
+                                    />
+                                    <Label
+                                        htmlFor="rememberMe"
+                                        className="text-sm font-normal cursor-pointer"
+                                    >
+                                        Lembrar de mim
+                                    </Label>
                                 </div>
 
                                 <Button

@@ -7,9 +7,11 @@ interface AuthState {
     accessToken: string | null
     refreshToken: string | null
     isAuthenticated: boolean
-    setTokens: (accessToken: string, refreshToken: string) => void
+    rememberMe: boolean
+    setTokens: (accessToken: string, refreshToken: string, rememberMe?: boolean) => void
     setUser: (user: User) => void
     logout: () => void
+    getRememberMe: () => boolean
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -19,22 +21,41 @@ export const useAuthStore = create<AuthState>()(
             accessToken: null,
             refreshToken: null,
             isAuthenticated: false,
+            rememberMe: false,
 
-            setTokens: (accessToken, refreshToken) => {
+            setTokens: (accessToken, refreshToken, rememberMe = false) => {
                 if (typeof window !== 'undefined') {
                     localStorage.setItem('accessToken', accessToken)
                     localStorage.setItem('refreshToken', refreshToken)
                     
+                    // Salvar preferência rememberMe
+                    if (rememberMe) {
+                        localStorage.setItem('rememberMe', 'true')
+                    } else {
+                        localStorage.removeItem('rememberMe')
+                    }
+                    
                     // Salvar nos cookies para o middleware do Next.js
                     const expiresAccess = new Date()
-                    expiresAccess.setDate(expiresAccess.getDate() + 7) // 7 dias
+                    if (rememberMe) {
+                        expiresAccess.setDate(expiresAccess.getDate() + 30) // 30 dias com rememberMe
+                    } else {
+                        expiresAccess.setDate(expiresAccess.getDate() + 7) // 7 dias sem rememberMe
+                    }
                     document.cookie = `accessToken=${accessToken}; path=/; expires=${expiresAccess.toUTCString()}; SameSite=Lax`
                     
                     const expiresRefresh = new Date()
-                    expiresRefresh.setDate(expiresRefresh.getDate() + 30) // 30 dias
+                    expiresRefresh.setDate(expiresRefresh.getDate() + 30) // 30 dias (sempre)
                     document.cookie = `refreshToken=${refreshToken}; path=/; expires=${expiresRefresh.toUTCString()}; SameSite=Lax`
                 }
-                set({ accessToken, refreshToken, isAuthenticated: true })
+                set({ accessToken, refreshToken, isAuthenticated: true, rememberMe })
+            },
+
+            getRememberMe: () => {
+                if (typeof window !== 'undefined') {
+                    return localStorage.getItem('rememberMe') === 'true'
+                }
+                return false
             },
 
             setUser: (user) => {
@@ -46,6 +67,7 @@ export const useAuthStore = create<AuthState>()(
                     // Limpar todos os tokens e flags de impersonation
                     localStorage.removeItem('accessToken')
                     localStorage.removeItem('refreshToken')
+                    localStorage.removeItem('rememberMe')
                     localStorage.removeItem('isImpersonating')
                     localStorage.removeItem('originalAdminToken')
                     localStorage.removeItem('originalAdminRefreshToken')
@@ -59,6 +81,7 @@ export const useAuthStore = create<AuthState>()(
                     accessToken: null,
                     refreshToken: null,
                     isAuthenticated: false,
+                    rememberMe: false,
                 })
             },
         }),

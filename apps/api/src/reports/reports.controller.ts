@@ -501,5 +501,31 @@ export class ReportsController {
       to ? new Date(to) : undefined
     );
   }
+
+  @Get('dashboard/detailed')
+  @ApiOperation({ 
+    summary: 'Dashboard detalhado',
+    description: 'Retorna métricas detalhadas para o dashboard principal, incluindo comparação SL/TP vs Webhook, performance por símbolo, evolução do P&L e outras estatísticas.',
+  })
+  @ApiQuery({ 
+    name: 'trade_mode', 
+    required: false, 
+    enum: ['REAL', 'SIMULATION'],
+    description: 'Filtrar por modo de trading',
+    example: 'REAL'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Dashboard detalhado retornado com sucesso',
+  })
+  async getDetailedDashboard(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string
+  ) {
+    return this.reportsService.getDetailedDashboardSummary(
+      user.userId,
+      tradeMode as any
+    );
+  }
 }
 

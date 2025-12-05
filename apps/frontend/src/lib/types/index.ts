@@ -600,6 +600,60 @@ export interface WebhookSummary {
     successRate: number
 }
 
+// Resposta do backend para dashboard/detailed
+export interface DetailedDashboardSummary {
+    totalPositions: number
+    openPositions: number
+    closedPositions: number
+    totalInvestment: number
+    totalPnL: number
+    realizedPnL: number
+    unrealizedPnL: number
+    capitalInvested: number
+    roiAccumulated: number
+    roiRealized: number
+    roiUnrealized: number
+    topProfitable: Array<{
+        symbol: string
+        pnl: number
+        pnlPct: number
+    }>
+    topLosses: Array<{
+        symbol: string
+        pnl: number
+        pnlPct: number
+    }>
+    sltpVsWebhook: {
+        sltp: {
+            successRate: number
+            positions: number
+            avgPnL: number
+            roi: number
+        }
+        webhook: {
+            successRate: number
+            positions: number
+            avgPnL: number
+            roi: number
+        }
+    }
+    sltpStats: {
+        activePositions: number
+        closedPositions: number
+        pnl: number
+        roi: number
+    }
+    pnlEvolution: Array<{
+        date: string
+        pnl: number
+    }>
+    positionsBySymbol: Array<{
+        symbol: string
+        open: number
+        closed: number
+    }>
+}
+
 // ============================================
 // FILTERS
 // ============================================

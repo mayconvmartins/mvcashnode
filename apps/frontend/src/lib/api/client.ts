@@ -128,7 +128,7 @@ apiClient.interceptors.response.use(
         return response
     },
     async (error: AxiosError<ApiError>) => {
-        const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean }
+        const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean; _retryTwice?: boolean }
         
         // Limpar requisição pendente após erro (exceto se for cancelamento)
         if (originalRequest && !axios.isCancel(error)) {
@@ -148,6 +148,7 @@ apiClient.interceptors.response.use(
             try {
                 if (typeof window !== 'undefined') {
                     const refreshToken = localStorage.getItem('refreshToken')
+                    const rememberMe = localStorage.getItem('rememberMe') === 'true'
 
                     if (!refreshToken) {
                         throw new Error('No refresh token')
@@ -158,8 +159,34 @@ apiClient.interceptors.response.use(
                         { refreshToken }
                     )
 
+                    // Atualizar tokens no localStorage
                     localStorage.setItem('accessToken', data.accessToken)
                     localStorage.setItem('refreshToken', data.refreshToken)
+
+                    // Atualizar tokens no authStore se disponível (pode não estar disponível em SSR)
+                    try {
+                        const { useAuthStore } = await import('@/lib/stores/authStore')
+                        const store = useAuthStore.getState()
+                        if (store.setTokens) {
+                            store.setTokens(data.accessToken, data.refreshToken, rememberMe)
+                        }
+                    } catch (storeError) {
+                        // Se não conseguir importar o store, continuar normalmente
+                        console.warn('[API-CLIENT] Não foi possível atualizar authStore:', storeError)
+                    }
+
+                    // Atualizar cookies
+                    const expiresAccess = new Date()
+                    if (rememberMe) {
+                        expiresAccess.setDate(expiresAccess.getDate() + 30) // 30 dias com rememberMe
+                    } else {
+                        expiresAccess.setDate(expiresAccess.getDate() + 7) // 7 dias sem rememberMe
+                    }
+                    document.cookie = `accessToken=${data.accessToken}; path=/; expires=${expiresAccess.toUTCString()}; SameSite=Lax`
+                    
+                    const expiresRefresh = new Date()
+                    expiresRefresh.setDate(expiresRefresh.getDate() + 30) // 30 dias (sempre)
+                    document.cookie = `refreshToken=${data.refreshToken}; path=/; expires=${expiresRefresh.toUTCString()}; SameSite=Lax`
 
                     if (originalRequest.headers) {
                         originalRequest.headers.Authorization = `Bearer ${data.accessToken}`
@@ -169,9 +196,63 @@ apiClient.interceptors.response.use(
                 }
             } catch (refreshError) {
                 if (typeof window !== 'undefined') {
+                    const rememberMe = localStorage.getItem('rememberMe') === 'true'
+                    
+                    // Se rememberMe está ativo, tentar mais uma vez antes de redirecionar
+                    // (pode ser um problema temporário de rede)
+                    if (rememberMe && !originalRequest._retryTwice) {
+                        originalRequest._retryTwice = true
+                        console.log('[API-CLIENT] Refresh falhou com rememberMe ativo, tentando novamente...')
+                        
+                        // Aguardar um pouco antes de tentar novamente
+                        await new Promise(resolve => setTimeout(resolve, 1000))
+                        
+                        try {
+                            const refreshToken = localStorage.getItem('refreshToken')
+                            if (refreshToken) {
+                                const { data } = await axios.post(
+                                    `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010'}/auth/refresh`,
+                                    { refreshToken }
+                                )
+                                
+                                localStorage.setItem('accessToken', data.accessToken)
+                                localStorage.setItem('refreshToken', data.refreshToken)
+                                
+                                // Atualizar authStore
+                                try {
+                                    const { useAuthStore } = await import('@/lib/stores/authStore')
+                                    const store = useAuthStore.getState()
+                                    if (store.setTokens) {
+                                        store.setTokens(data.accessToken, data.refreshToken, rememberMe)
+                                    }
+                                } catch (storeError) {
+                                    console.warn('[API-CLIENT] Não foi possível atualizar authStore:', storeError)
+                                }
+                                
+                                // Atualizar cookies
+                                const expiresAccess = new Date()
+                                expiresAccess.setDate(expiresAccess.getDate() + 30)
+                                document.cookie = `accessToken=${data.accessToken}; path=/; expires=${expiresAccess.toUTCString()}; SameSite=Lax`
+                                
+                                const expiresRefresh = new Date()
+                                expiresRefresh.setDate(expiresRefresh.getDate() + 30)
+                                document.cookie = `refreshToken=${data.refreshToken}; path=/; expires=${expiresRefresh.toUTCString()}; SameSite=Lax`
+                                
+                                if (originalRequest.headers) {
+                                    originalRequest.headers.Authorization = `Bearer ${data.accessToken}`
+                                }
+                                
+                                return apiClient(originalRequest)
+                            }
+                        } catch (retryError) {
+                            console.error('[API-CLIENT] Segunda tentativa de refresh também falhou:', retryError)
+                        }
+                    }
+                    
                     // Limpar todos os tokens e flags de impersonation
                     localStorage.removeItem('accessToken')
                     localStorage.removeItem('refreshToken')
+                    localStorage.removeItem('rememberMe')
                     localStorage.removeItem('isImpersonating')
                     localStorage.removeItem('originalAdminToken')
                     document.cookie = 'accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'

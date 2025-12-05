@@ -4,8 +4,12 @@ import { RouteGuard } from '@/components/auth/RouteGuard'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { ImpersonationBanner } from '@/components/auth/ImpersonationBanner'
+import { useAuthRefresh } from '@/lib/hooks/useAuthRefresh'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+    // Hook para refresh automático quando "Lembrar de mim" estiver ativo
+    useAuthRefresh()
+
     return (
         <RouteGuard requireAuth>
             <div className="flex h-screen overflow-hidden">

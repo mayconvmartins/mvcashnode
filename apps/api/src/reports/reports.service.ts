@@ -991,5 +991,381 @@ export class ReportsService {
 
     return correlations.sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
   }
+
+  async getDetailedDashboardSummary(
+    userId: number,
+    tradeMode?: TradeMode
+  ) {
+    console.log(`[ReportsService] getDetailedDashboardSummary chamado: userId=${userId}, tradeMode=${tradeMode}`);
+    
+    // Buscar IDs das exchange accounts do usuário
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: userId },
+      select: { id: true },
+    });
+
+    const accountIds = userAccounts.map((acc) => acc.id);
+
+    if (accountIds.length === 0) {
+      return this.getEmptyDashboardResponse();
+    }
+
+    const whereBase: any = {
+      exchange_account_id: { in: accountIds },
+      ...(tradeMode && { trade_mode: tradeMode }),
+    };
+
+    // Buscar todas as posições (abertas e fechadas) em paralelo
+    const [openPositions, closedPositions] = await Promise.all([
+      this.prisma.tradePosition.findMany({
+        where: {
+          ...whereBase,
+          status: 'OPEN',
+        },
+        select: {
+          id: true,
+          symbol: true,
+          price_open: true,
+          qty_total: true,
+          qty_remaining: true,
+          realized_profit_usd: true,
+          sl_enabled: true,
+          tp_enabled: true,
+          exchange_account: {
+            select: {
+              id: true,
+              exchange: true,
+              testnet: true,
+            },
+          },
+        },
+      }),
+      this.prisma.tradePosition.findMany({
+        where: {
+          ...whereBase,
+          status: 'CLOSED',
+        },
+        select: {
+          id: true,
+          symbol: true,
+          price_open: true,
+          qty_total: true,
+          realized_profit_usd: true,
+          close_reason: true,
+          closed_at: true,
+        },
+      }),
+    ]);
+
+    // Calcular total de posições
+    const totalPositions = openPositions.length + closedPositions.length;
+    const openCount = openPositions.length;
+    const closedCount = closedPositions.length;
+
+    // Calcular investimento total em posições abertas
+    const totalInvestmentOpen = openPositions.reduce((sum, pos) => {
+      return sum + (pos.price_open.toNumber() * pos.qty_remaining.toNumber());
+    }, 0);
+
+    // Calcular capital investido (todas as posições)
+    const totalCapitalInvested = [...openPositions, ...closedPositions].reduce((sum, pos) => {
+      return sum + (pos.price_open.toNumber() * pos.qty_total.toNumber());
+    }, 0);
+
+    // Calcular P&L realizado (posições fechadas)
+    const realizedPnL = closedPositions.reduce((sum, pos) => {
+      return sum + pos.realized_profit_usd.toNumber();
+    }, 0);
+
+    // Calcular P&L não realizado (posições abertas) - usando cache
+    let unrealizedPnL = 0;
+    if (openPositions.length > 0) {
+      const positionsByExchange = new Map<string, typeof openPositions>();
+      const symbolSetByExchange = new Map<string, Set<string>>();
+      
+      for (const position of openPositions) {
+        const exchange = position.exchange_account.exchange;
+        const exchangeKey = `${exchange}_${position.exchange_account.testnet}`;
+        
+        if (!positionsByExchange.has(exchangeKey)) {
+          positionsByExchange.set(exchangeKey, []);
+          symbolSetByExchange.set(exchangeKey, new Set());
+        }
+        positionsByExchange.get(exchangeKey)!.push(position);
+        symbolSetByExchange.get(exchangeKey)!.add(position.symbol);
+      }
+
+      const unrealizedPnLPromises = Array.from(positionsByExchange.entries()).map(
+        async ([exchangeKey, positions]) => {
+          const parts = exchangeKey.split('_');
+          const exchange = parts.slice(0, -1).join('_');
+          const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
+          let exchangeUnrealizedPnL = 0;
+
+          const uniqueSymbols = symbolSetByExchange.get(exchangeKey)!;
+          const priceMap = new Map<string, number>();
+
+          const pricePromises = Array.from(uniqueSymbols).map(async (symbol) => {
+            return this.priceCache.getOrFetchPrice(
+              symbol,
+              exchange,
+              async () => {
+                try {
+                  const ticker = await adapter.fetchTicker(symbol);
+                  return ticker.last || 0;
+                } catch (error: any) {
+                  console.warn(`[ReportsService] Erro ao buscar preço para ${symbol}: ${error.message}`);
+                  return 0;
+                }
+              }
+            );
+          });
+
+          const prices = await Promise.all(pricePromises);
+          Array.from(uniqueSymbols).forEach((symbol, index) => {
+            const price = prices[index];
+            if (price && price > 0) {
+              priceMap.set(symbol, price);
+            }
+          });
+
+          for (const position of positions) {
+            const currentPrice = priceMap.get(position.symbol);
+            if (currentPrice && currentPrice > 0) {
+              const priceOpen = position.price_open.toNumber();
+              const qtyRemaining = position.qty_remaining.toNumber();
+              exchangeUnrealizedPnL += (currentPrice - priceOpen) * qtyRemaining;
+            }
+          }
+
+          return exchangeUnrealizedPnL;
+        }
+      );
+
+      const exchangePnLs = await Promise.all(unrealizedPnLPromises);
+      unrealizedPnL = exchangePnLs.reduce((sum, pnl) => sum + pnl, 0);
+    }
+
+    const totalPnL = realizedPnL + unrealizedPnL;
+
+    // Calcular ROI
+    const roiAccumulated = totalCapitalInvested > 0 ? (totalPnL / totalCapitalInvested) * 100 : 0;
+    const capitalInvestedClosed = closedPositions.reduce((sum, pos) => {
+      return sum + (pos.price_open.toNumber() * pos.qty_total.toNumber());
+    }, 0);
+    const roiRealized = capitalInvestedClosed > 0 ? (realizedPnL / capitalInvestedClosed) * 100 : 0;
+    const roiUnrealized = totalInvestmentOpen > 0 ? (unrealizedPnL / totalInvestmentOpen) * 100 : 0;
+
+    // Classificar posições fechadas por close_reason
+    const sltpPositions = closedPositions.filter(pos => 
+      pos.close_reason === 'STOP_LOSS' || pos.close_reason === 'TARGET_HIT'
+    );
+    const webhookPositions = closedPositions.filter(pos => 
+      pos.close_reason === 'WEBHOOK_SELL'
+    );
+
+    // Calcular estatísticas SL/TP
+    const sltpPnL = sltpPositions.reduce((sum, pos) => sum + pos.realized_profit_usd.toNumber(), 0);
+    const sltpWins = sltpPositions.filter(pos => pos.realized_profit_usd.toNumber() > 0).length;
+    const sltpSuccessRate = sltpPositions.length > 0 ? (sltpWins / sltpPositions.length) * 100 : 0;
+    const sltpAvgPnL = sltpPositions.length > 0 ? sltpPnL / sltpPositions.length : 0;
+    const sltpCapitalInvested = sltpPositions.reduce((sum, pos) => {
+      return sum + (pos.price_open.toNumber() * pos.qty_total.toNumber());
+    }, 0);
+    const sltpROI = sltpCapitalInvested > 0 ? (sltpPnL / sltpCapitalInvested) * 100 : 0;
+
+    // Calcular estatísticas Webhook
+    const webhookPnL = webhookPositions.reduce((sum, pos) => sum + pos.realized_profit_usd.toNumber(), 0);
+    const webhookWins = webhookPositions.filter(pos => pos.realized_profit_usd.toNumber() > 0).length;
+    const webhookSuccessRate = webhookPositions.length > 0 ? (webhookWins / webhookPositions.length) * 100 : 0;
+    const webhookAvgPnL = webhookPositions.length > 0 ? webhookPnL / webhookPositions.length : 0;
+    const webhookCapitalInvested = webhookPositions.reduce((sum, pos) => {
+      return sum + (pos.price_open.toNumber() * pos.qty_total.toNumber());
+    }, 0);
+    const webhookROI = webhookCapitalInvested > 0 ? (webhookPnL / webhookCapitalInvested) * 100 : 0;
+
+    // Performance por símbolo
+    const symbolPerformance: Record<string, { symbol: string; pnl: number; pnlPct: number; count: number }> = {};
+    
+    // Adicionar posições fechadas
+    for (const pos of closedPositions) {
+      const symbol = pos.symbol;
+      if (!symbolPerformance[symbol]) {
+        symbolPerformance[symbol] = { symbol, pnl: 0, pnlPct: 0, count: 0 };
+      }
+      symbolPerformance[symbol].pnl += pos.realized_profit_usd.toNumber();
+      symbolPerformance[symbol].count += 1;
+    }
+
+    // Adicionar posições abertas (apenas contar, não adicionar ao P&L pois não temos preço atual por símbolo aqui)
+    // O P&L não realizado já foi calculado globalmente acima
+    for (const pos of openPositions) {
+      const symbol = pos.symbol;
+      if (!symbolPerformance[symbol]) {
+        symbolPerformance[symbol] = { symbol, pnl: 0, pnlPct: 0, count: 0 };
+      }
+      // Apenas incrementar contador (já que o P&L não realizado por símbolo seria complexo)
+      symbolPerformance[symbol].count += 1;
+    }
+
+    // Calcular P&L percentual por símbolo (baseado no capital investido)
+    for (const symbol of Object.keys(symbolPerformance)) {
+      const symbolPositions = [...openPositions, ...closedPositions].filter(p => p.symbol === symbol);
+      const symbolCapital = symbolPositions.reduce((sum, pos) => {
+        return sum + (pos.price_open.toNumber() * pos.qty_total.toNumber());
+      }, 0);
+      symbolPerformance[symbol].pnlPct = symbolCapital > 0 ? (symbolPerformance[symbol].pnl / symbolCapital) * 100 : 0;
+    }
+
+    const symbolPerformanceArray = Object.values(symbolPerformance);
+    const topProfitable = symbolPerformanceArray
+      .filter(s => s.pnl > 0)
+      .sort((a, b) => b.pnl - a.pnl)
+      .slice(0, 5);
+    const topLosses = symbolPerformanceArray
+      .filter(s => s.pnl < 0)
+      .sort((a, b) => a.pnl - b.pnl)
+      .slice(0, 5);
+
+    // Evolução do P&L acumulado por dia
+    const pnlByDay: Record<string, number> = {};
+    const sortedClosed = [...closedPositions].sort((a, b) => {
+      const dateA = a.closed_at ? new Date(a.closed_at).getTime() : 0;
+      const dateB = b.closed_at ? new Date(b.closed_at).getTime() : 0;
+      return dateA - dateB;
+    });
+
+    let cumulativePnL = 0;
+    for (const pos of sortedClosed) {
+      if (!pos.closed_at) continue;
+      const date = pos.closed_at.toISOString().split('T')[0];
+      cumulativePnL += pos.realized_profit_usd.toNumber();
+      pnlByDay[date] = cumulativePnL;
+    }
+
+    const pnlEvolution = Object.entries(pnlByDay)
+      .map(([date, pnl]) => ({ date, pnl }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Distribuição de posições por símbolo
+    const positionsBySymbol: Record<string, { symbol: string; open: number; closed: number }> = {};
+    
+    for (const pos of openPositions) {
+      if (!positionsBySymbol[pos.symbol]) {
+        positionsBySymbol[pos.symbol] = { symbol: pos.symbol, open: 0, closed: 0 };
+      }
+      positionsBySymbol[pos.symbol].open += 1;
+    }
+
+    for (const pos of closedPositions) {
+      if (!positionsBySymbol[pos.symbol]) {
+        positionsBySymbol[pos.symbol] = { symbol: pos.symbol, open: 0, closed: 0 };
+      }
+      positionsBySymbol[pos.symbol].closed += 1;
+    }
+
+    const positionsDistribution = Object.values(positionsBySymbol);
+
+    return {
+      // Totais
+      totalPositions,
+      openPositions: openCount,
+      closedPositions: closedCount,
+      
+      // Investimento e P&L
+      totalInvestment: totalInvestmentOpen,
+      totalPnL,
+      realizedPnL,
+      unrealizedPnL,
+      
+      // Capital e ROI
+      capitalInvested: totalCapitalInvested,
+      roiAccumulated: parseFloat(roiAccumulated.toFixed(2)),
+      roiRealized: parseFloat(roiRealized.toFixed(2)),
+      roiUnrealized: parseFloat(roiUnrealized.toFixed(2)),
+      
+      // Performance por símbolo
+      topProfitable: topProfitable.map(s => ({
+        symbol: s.symbol,
+        pnl: parseFloat(s.pnl.toFixed(2)),
+        pnlPct: parseFloat(s.pnlPct.toFixed(2)),
+      })),
+      topLosses: topLosses.map(s => ({
+        symbol: s.symbol,
+        pnl: parseFloat(s.pnl.toFixed(2)),
+        pnlPct: parseFloat(s.pnlPct.toFixed(2)),
+      })),
+      
+      // SL/TP vs Webhook
+      sltpVsWebhook: {
+        sltp: {
+          successRate: parseFloat(sltpSuccessRate.toFixed(1)),
+          positions: sltpPositions.length,
+          avgPnL: parseFloat(sltpAvgPnL.toFixed(2)),
+          roi: parseFloat(sltpROI.toFixed(2)),
+        },
+        webhook: {
+          successRate: parseFloat(webhookSuccessRate.toFixed(1)),
+          positions: webhookPositions.length,
+          avgPnL: parseFloat(webhookAvgPnL.toFixed(2)),
+          roi: parseFloat(webhookROI.toFixed(2)),
+        },
+      },
+      
+      // Estatísticas SL/TP
+      sltpStats: {
+        activePositions: openPositions.filter(pos => pos.sl_enabled || pos.tp_enabled).length,
+        closedPositions: sltpPositions.length,
+        pnl: parseFloat(sltpPnL.toFixed(2)),
+        roi: parseFloat(sltpROI.toFixed(2)),
+      },
+      
+      // Evolução do P&L
+      pnlEvolution,
+      
+      // Distribuição por símbolo
+      positionsBySymbol: positionsDistribution,
+    };
+  }
+
+  private getEmptyDashboardResponse() {
+    return {
+      totalPositions: 0,
+      openPositions: 0,
+      closedPositions: 0,
+      totalInvestment: 0,
+      totalPnL: 0,
+      realizedPnL: 0,
+      unrealizedPnL: 0,
+      capitalInvested: 0,
+      roiAccumulated: 0,
+      roiRealized: 0,
+      roiUnrealized: 0,
+      topProfitable: [],
+      topLosses: [],
+      sltpVsWebhook: {
+        sltp: {
+          successRate: 0,
+          positions: 0,
+          avgPnL: 0,
+          roi: 0,
+        },
+        webhook: {
+          successRate: 0,
+          positions: 0,
+          avgPnL: 0,
+          roi: 0,
+        },
+      },
+      sltpStats: {
+        activePositions: 0,
+        closedPositions: 0,
+        pnl: 0,
+        roi: 0,
+      },
+      pnlEvolution: [],
+      positionsBySymbol: [],
+    };
+  }
 }
 

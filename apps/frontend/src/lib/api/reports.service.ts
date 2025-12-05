@@ -7,6 +7,7 @@ import type {
     VaultSummary,
     WebhookSummary,
     ReportFilters,
+    DetailedDashboardSummary,
 } from '@/lib/types'
 
 export const reportsService = {
@@ -155,5 +156,13 @@ export const reportsService = {
                 topSymbols: [],
             }
         }
+    },
+
+    getDetailedDashboardSummary: async (tradeMode?: string): Promise<DetailedDashboardSummary> => {
+        const params = tradeMode ? { trade_mode: tradeMode } : {}
+        const response = await apiClient.get<DetailedDashboardSummary>('/reports/dashboard/detailed', {
+            params,
+        })
+        return response.data
     },
 }
