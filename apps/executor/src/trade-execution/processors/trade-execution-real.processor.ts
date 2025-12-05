@@ -727,9 +727,10 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       // Sempre verificar na exchange se a ordem foi preenchida, especialmente para MARKET orders
       // Isso garante que temos os dados corretos mesmo se a resposta inicial não tiver todos os dados
-      let finalExecutedQty = executedQty;
+      // IMPORTANTE: Usar adjustedExecutedQty como base (já ajustado pela taxa se necessário)
+      let finalExecutedQty = adjustedExecutedQty;
       let finalAvgPrice = avgPrice;
-      let finalCummQuoteQty = cummQuoteQty;
+      let finalCummQuoteQty = adjustedCummQuoteQty;
       
       // Verificar na exchange se:
       // 1. A ordem está FILLED mas temos quantidade 0 (dados faltando)
@@ -833,10 +834,25 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             }
 
             // Ajustar quantidade se taxa for em base asset (BUY)
+            // IMPORTANTE: Se a taxa veio dos trades, finalExecutedQty pode estar bruto (não ajustado)
             if (tradeJob.side === 'BUY' && updatedFeeAmount && updatedFeeCurrency) {
               const baseAsset = tradeJob.symbol.split('/')[0];
               if (updatedFeeCurrency === baseAsset) {
-                finalExecutedQty = Math.max(0, finalExecutedQty - updatedFeeAmount);
+                // Verificar se a quantidade já foi ajustada
+                // Se finalExecutedQty + updatedFeeAmount ≈ quantidade bruta esperada, então não foi ajustado
+                const expectedGrossQty = finalExecutedQty + updatedFeeAmount;
+                const expectedCost = expectedGrossQty * finalAvgPrice;
+                const costDifference = Math.abs(expectedCost - finalCummQuoteQty);
+                
+                // Se o custo esperado é muito próximo do cumm_quote_qty, quantidade não foi ajustada
+                if (costDifference < finalCummQuoteQty * 0.02) {
+                  // Quantidade está bruta, ajustar
+                  finalExecutedQty = Math.max(0, finalExecutedQty - updatedFeeAmount);
+                  this.logger.log(`[EXECUTOR] Quantidade ajustada por taxa (base asset): ${finalExecutedQty + updatedFeeAmount} -> ${finalExecutedQty}`);
+                } else {
+                  // Quantidade já está ajustada, não fazer nada
+                  this.logger.log(`[EXECUTOR] Quantidade já está ajustada: ${finalExecutedQty}`);
+                }
               }
             }
 

@@ -1008,8 +1008,14 @@ export class AdminSystemController {
                           executed_qty: true,
                           fee_amount: true,
                           fee_currency: true,
+                          avg_price: true,
                         },
                       },
+                    },
+                  },
+                  grouped_jobs: {
+                    select: {
+                      trade_job_id: true,
                     },
                   },
                 },
@@ -1024,7 +1030,8 @@ export class AdminSystemController {
                 const feeDifference = feeUsd - oldFeeUsd;
 
                 // RECALCULAR quantidade total da posição baseada nos fills
-                // Se a posição for agrupada, somar todos os fills de BUY e subtrair os de SELL
+                // IMPORTANTE: Os fills podem ter quantidades brutas (antes da taxa) ou líquidas (após taxa)
+                // Precisamos verificar cada fill e ajustar se necessário
                 let totalBuyQty = 0;
                 let totalSellQty = 0;
                 let totalFeesUsd = 0;
@@ -1033,14 +1040,41 @@ export class AdminSystemController {
                 
                 const hasFillForThisExecution = position.fills.some(f => f.trade_execution_id === execution.id);
                 
+                // Buscar todas as execuções relacionadas à posição para verificar taxas
+                const jobIds = [
+                  ...(position.grouped_jobs?.map(gj => gj.trade_job_id) || []),
+                  ...(position.trade_job_id_open ? [position.trade_job_id_open] : [])
+                ];
+                
+                const allExecutions = await this.prisma.tradeExecution.findMany({
+                  where: {
+                    trade_job: {
+                      id: { in: jobIds },
+                    },
+                  },
+                  select: {
+                    id: true,
+                    executed_qty: true,
+                    fee_amount: true,
+                    fee_currency: true,
+                    avg_price: true,
+                    cumm_quote_qty: true,
+                  },
+                });
+                
+                const executionMap = new Map(allExecutions.map(e => [e.id, e]));
+                
                 // Processar todos os fills
                 for (const fill of position.fills) {
                   if (fill.side === 'BUY') {
+                    const fillExecution = executionMap.get(fill.trade_execution_id);
+                    let fillQty = fill.qty.toNumber();
+                    let fillFeeUsd = 0;
+                    
                     // Se é o fill desta execução, usar quantidade ajustada
                     if (fill.trade_execution_id === execution.id) {
-                      totalBuyQty += adjustedExecutedQty;
-                      feesOnBuyUsd += feeUsd; // Usar taxa corrigida
-                      totalFeesUsd += feeUsd;
+                      fillQty = adjustedExecutedQty;
+                      fillFeeUsd = feeUsd;
                       
                       // Atualizar o fill também
                       await this.prisma.positionFill.update({
@@ -1049,35 +1083,54 @@ export class AdminSystemController {
                           qty: adjustedExecutedQty,
                         },
                       });
-                    } else {
-                      totalBuyQty += fill.qty.toNumber();
+                    } else if (fillExecution) {
+                      // SEMPRE usar executed_qty da execução como quantidade correta do fill
+                      // O executed_qty já deveria estar ajustado pela taxa se necessário
+                      const execExecutedQty = fillExecution.executed_qty.toNumber();
+                      const execFeeAmount = fillExecution.fee_amount?.toNumber() || 0;
+                      const execFeeCurrency = fillExecution.fee_currency || '';
+                      const execAvgPrice = fillExecution.avg_price.toNumber();
+                      
+                      // Se o fill tem quantidade diferente do executed_qty, atualizar
+                      if (Math.abs(fillQty - execExecutedQty) > 0.00000001) {
+                        fillQty = execExecutedQty;
+                        console.log(`[ADMIN] Fill ${fill.id} ajustado: ${fill.qty.toNumber()} -> ${fillQty} (usando executed_qty da execução ${fill.trade_execution_id})`);
+                        
+                        await this.prisma.positionFill.update({
+                          where: { id: fill.id },
+                          data: {
+                            qty: fillQty,
+                          },
+                        });
+                      } else {
+                        fillQty = execExecutedQty;
+                      }
                       
                       // Calcular taxa em USD para este fill
-                      if (fill.execution.fee_amount) {
-                        const fillFeeAmount = fill.execution.fee_amount.toNumber();
-                        const fillFeeCurrency = fill.execution.fee_currency || '';
-                        let fillFeeUsd = 0;
-                        
-                        if (fillFeeCurrency === baseAsset) {
-                          // Taxa em base asset, converter para USD
-                          fillFeeUsd = fillFeeAmount * fill.price.toNumber();
-                        } else if (fillFeeCurrency === quoteAsset || fillFeeCurrency === 'USDT' || fillFeeCurrency === 'USD') {
-                          // Taxa já está em USD
-                          fillFeeUsd = fillFeeAmount;
+                      if (execFeeAmount > 0) {
+                        if (execFeeCurrency === baseAsset) {
+                          fillFeeUsd = execFeeAmount * execAvgPrice;
+                        } else if (execFeeCurrency === quoteAsset || execFeeCurrency === 'USDT' || execFeeCurrency === 'USD') {
+                          fillFeeUsd = execFeeAmount;
                         }
-                        
-                        feesOnBuyUsd += fillFeeUsd;
-                        totalFeesUsd += fillFeeUsd;
                       }
+                    } else {
+                      // Se não encontrou execução, manter quantidade do fill como está
+                      console.warn(`[ADMIN] Fill ${fill.id} não tem execução associada (execution_id: ${fill.trade_execution_id})`);
                     }
+                    
+                    totalBuyQty += fillQty;
+                    feesOnBuyUsd += fillFeeUsd;
+                    totalFeesUsd += fillFeeUsd;
                   } else if (fill.side === 'SELL') {
                     // Para fills de SELL, subtrair a quantidade vendida
                     totalSellQty += fill.qty.toNumber();
                     
                     // Adicionar taxa de venda
-                    if (fill.execution.fee_amount) {
-                      const fillFeeAmount = fill.execution.fee_amount.toNumber();
-                      const fillFeeCurrency = fill.execution.fee_currency || '';
+                    const fillExecution = executionMap.get(fill.trade_execution_id);
+                    if (fillExecution && fillExecution.fee_amount) {
+                      const fillFeeAmount = fillExecution.fee_amount.toNumber();
+                      const fillFeeCurrency = fillExecution.fee_currency || '';
                       let fillFeeUsd = 0;
                       
                       if (fillFeeCurrency === quoteAsset || fillFeeCurrency === 'USDT' || fillFeeCurrency === 'USD') {
