@@ -1715,16 +1715,6 @@ export class AdminSystemController {
                     id: { in: jobIds },
                   },
                 },
-                include: {
-                  trade_job: {
-                    select: {
-                      id: true,
-                      side: true,
-                      symbol: true,
-                      order_type: true,
-                    },
-                  },
-                },
                 select: {
                   id: true,
                   executed_qty: true,
