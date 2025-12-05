@@ -136,6 +136,10 @@ model ExchangeAccount {
   testnet               Boolean  @default(false)
   is_active             Boolean  @default(true)
   initial_balances_json Json?    @db.Json
+  fee_rate_buy_limit    Decimal? @db.Decimal(10, 8) // Taxa para compra limit (ex: 0.001 = 0.1%)
+  fee_rate_buy_market    Decimal? @db.Decimal(10, 8) // Taxa para compra market
+  fee_rate_sell_limit   Decimal? @db.Decimal(10, 8) // Taxa para venda limit
+  fee_rate_sell_market   Decimal? @db.Decimal(10, 8) // Taxa para venda market
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt
 

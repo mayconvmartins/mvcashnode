@@ -25,6 +25,7 @@ import {
 import { formatDateTime, formatCurrency, formatAssetAmount } from '@/lib/utils/format'
 import { toast } from 'sonner'
 import { TestConnectionButton } from '@/components/accounts/TestConnectionButton'
+import { FeeRatesConfig } from '@/components/accounts/FeeRatesConfig'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 export default function AccountDetailPage() {
@@ -180,6 +181,7 @@ export default function AccountDetailPage() {
                 <TabsList>
                     <TabsTrigger value="overview">Visão Geral</TabsTrigger>
                     <TabsTrigger value="balances">💰 Saldos</TabsTrigger>
+                    <TabsTrigger value="fees">💵 Taxas</TabsTrigger>
                     <TabsTrigger value="details">Detalhes</TabsTrigger>
                     <TabsTrigger value="security">Segurança</TabsTrigger>
                 </TabsList>
@@ -478,6 +480,10 @@ export default function AccountDetailPage() {
                             )}
                         </CardContent>
                     </Card>
+                </TabsContent>
+
+                <TabsContent value="fees" className="space-y-4">
+                    <FeeRatesConfig accountId={accountId} account={account} />
                 </TabsContent>
 
                 <TabsContent value="details" className="space-y-4">

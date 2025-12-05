@@ -304,6 +304,10 @@ export class ExchangeAccountsController {
         testnet: updateDto.testnet,
         isActive: updateDto.isActive,
         initialBalances: updateDto.initialBalances,
+        feeRateBuyLimit: updateDto.feeRateBuyLimit,
+        feeRateBuyMarket: updateDto.feeRateBuyMarket,
+        feeRateSellLimit: updateDto.feeRateSellLimit,
+        feeRateSellMarket: updateDto.feeRateSellMarket,
       };
 
       // Mapear tradeMode se fornecido (pode vir do frontend como tradeMode)
@@ -505,6 +509,52 @@ export class ExchangeAccountsController {
     @CurrentUser() user: any
   ) {
     return await this.exchangeAccountsService.syncPositions(id, user.userId);
+  }
+
+  @Put(':id/fee-rates')
+  @ApiOperation({ 
+    summary: 'Atualizar taxas da conta',
+    description: 'Atualiza as taxas configuradas para esta conta de exchange. Essas taxas serão usadas quando não for possível obter as taxas reais da exchange.'
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da conta de exchange', example: 1 })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Taxas atualizadas com sucesso',
+  })
+  async updateFeeRates(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any,
+    @Body() feeRates: {
+      feeRateBuyLimit?: number;
+      feeRateBuyMarket?: number;
+      feeRateSellLimit?: number;
+      feeRateSellMarket?: number;
+    }
+  ) {
+    // Verificar se a conta pertence ao usuário
+    const account = await this.prisma.exchangeAccount.findFirst({
+      where: {
+        id,
+        user_id: user.userId,
+      },
+    });
+
+    if (!account) {
+      throw new NotFoundException('Conta de exchange não encontrada');
+    }
+
+    // Atualizar apenas os campos de taxa
+    const updated = await this.prisma.exchangeAccount.update({
+      where: { id },
+      data: {
+        fee_rate_buy_limit: feeRates.feeRateBuyLimit !== undefined ? feeRates.feeRateBuyLimit : account.fee_rate_buy_limit,
+        fee_rate_buy_market: feeRates.feeRateBuyMarket !== undefined ? feeRates.feeRateBuyMarket : account.fee_rate_buy_market,
+        fee_rate_sell_limit: feeRates.feeRateSellLimit !== undefined ? feeRates.feeRateSellLimit : account.fee_rate_sell_limit,
+        fee_rate_sell_market: feeRates.feeRateSellMarket !== undefined ? feeRates.feeRateSellMarket : account.fee_rate_sell_market,
+      },
+    });
+
+    return updated;
   }
 }
 

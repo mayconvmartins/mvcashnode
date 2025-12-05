@@ -282,6 +282,10 @@ export class AdminSystemController {
               api_key_enc: true,
               api_secret_enc: true,
               testnet: true,
+              fee_rate_buy_limit: true,
+              fee_rate_buy_market: true,
+              fee_rate_sell_limit: true,
+              fee_rate_sell_market: true,
             },
           },
           trade_job: {
@@ -289,6 +293,7 @@ export class AdminSystemController {
               id: true,
               side: true,
               symbol: true,
+              order_type: true,
             },
           },
         },
@@ -443,15 +448,35 @@ export class AdminSystemController {
             execution.trade_job.side.toLowerCase() as 'buy' | 'sell'
           );
           
-          // Se não encontrou taxas e temos cost/filled, calcular taxa estimada (0.1% padrão para Bybit)
+          // Se não encontrou taxas, usar taxas configuradas na conta
           if (fees.feeAmount === 0 && order.cost && order.filled) {
-            const estimatedFeeRate = 0.001; // 0.1% padrão
-            const estimatedFee = order.cost * estimatedFeeRate;
-            console.warn(
-              `[ADMIN] ⚠️ Execução ${execution.id}: Não encontrou taxas na ordem, usando taxa estimada de 0.1%: ${estimatedFee} USDT`
-            );
-            fees.feeAmount = estimatedFee;
-            fees.feeCurrency = execution.trade_job.symbol.split('/')[1] || 'USDT';
+            const side = execution.trade_job.side.toLowerCase();
+            const orderType = execution.trade_job.order_type?.toLowerCase() || 'market'; // Assumir market se não especificado
+            
+            // Determinar qual taxa usar baseado no lado e tipo de ordem
+            let feeRate: number | null = null;
+            if (side === 'buy') {
+              feeRate = orderType === 'limit' 
+                ? account.fee_rate_buy_limit?.toNumber() || null
+                : account.fee_rate_buy_market?.toNumber() || null;
+            } else {
+              feeRate = orderType === 'limit'
+                ? account.fee_rate_sell_limit?.toNumber() || null
+                : account.fee_rate_sell_market?.toNumber() || null;
+            }
+
+            if (feeRate !== null && feeRate > 0) {
+              const calculatedFee = order.cost * feeRate;
+              console.log(
+                `[ADMIN] Execução ${execution.id}: Não encontrou taxas na ordem, usando taxa configurada na conta (${(feeRate * 100).toFixed(4)}%): ${calculatedFee} USDT`
+              );
+              fees.feeAmount = calculatedFee;
+              fees.feeCurrency = execution.trade_job.symbol.split('/')[1] || 'USDT';
+            } else {
+              console.warn(
+                `[ADMIN] ⚠️ Execução ${execution.id}: Não encontrou taxas na ordem e não há taxa configurada na conta para ${side.toUpperCase()} ${orderType.toUpperCase()}`
+              );
+            }
           }
 
           console.log(`[ADMIN] Execução ${execution.id}: Taxas extraídas:`, {
