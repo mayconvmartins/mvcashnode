@@ -217,5 +217,18 @@ export const adminService = {
         })
         return response.data
     },
+
+    fixIncorrectFees: async (): Promise<{
+        total_checked: number
+        fixed: number
+        errors: number
+        error_details?: Array<{ executionId: number; error: string }>
+        duration_ms?: number
+    }> => {
+        const response = await apiClient.post('/admin/system/fix-incorrect-fees', {}, {
+            timeout: 300000, // 5 minutos para correção
+        })
+        return response.data
+    },
 }
 

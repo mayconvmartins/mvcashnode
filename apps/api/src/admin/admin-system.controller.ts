@@ -486,12 +486,31 @@ export class AdminSystemController {
             }
 
             if (feeRate !== null && feeRate > 0) {
-              const calculatedFee = order.cost * feeRate;
-              console.log(
-                `[ADMIN] Execução ${execution.id}: Não encontrou taxas na ordem, usando taxa configurada na conta (${(feeRate * 100).toFixed(4)}%): ${calculatedFee} USDT`
-              );
-              fees.feeAmount = calculatedFee;
-              fees.feeCurrency = execution.trade_job.symbol.split('/')[1] || 'USDT';
+              // Determinar em qual moeda a taxa é paga baseado na exchange e lado da ordem
+              // Binance geralmente paga taxa em base asset para BUY e quote asset para SELL
+              // Bybit geralmente paga taxa em base asset para BUY
+              const baseAsset = execution.trade_job.symbol.split('/')[0];
+              const quoteAsset = execution.trade_job.symbol.split('/')[1] || 'USDT';
+              
+              // Para compras, taxa geralmente é em base asset (ex: BTC)
+              // Para vendas, taxa geralmente é em quote asset (ex: USDT)
+              if (side === 'buy') {
+                // Taxa em base asset: calcular baseado na quantidade executada
+                const calculatedFee = order.filled * feeRate;
+                fees.feeAmount = calculatedFee;
+                fees.feeCurrency = baseAsset;
+                console.log(
+                  `[ADMIN] Execução ${execution.id}: Não encontrou taxas na ordem, usando taxa configurada na conta (${(feeRate * 100).toFixed(4)}%): ${calculatedFee} ${baseAsset}`
+                );
+              } else {
+                // Taxa em quote asset: calcular baseado no valor (cost)
+                const calculatedFee = order.cost * feeRate;
+                fees.feeAmount = calculatedFee;
+                fees.feeCurrency = quoteAsset;
+                console.log(
+                  `[ADMIN] Execução ${execution.id}: Não encontrou taxas na ordem, usando taxa configurada na conta (${(feeRate * 100).toFixed(4)}%): ${calculatedFee} ${quoteAsset}`
+                );
+              }
             } else {
               console.warn(
                 `[ADMIN] ⚠️ Execução ${execution.id}: Não encontrou taxas na ordem e não há taxa configurada na conta para ${side.toUpperCase()} ${orderType.toUpperCase()}`
@@ -505,9 +524,18 @@ export class AdminSystemController {
           });
 
           if (fees.feeAmount > 0) {
-            // Calcular taxa percentual
+            // Calcular taxa percentual baseado na moeda da taxa
+            let feeRate: number | null = null;
             const cummQuoteQty = execution.cumm_quote_qty.toNumber();
-            const feeRate = cummQuoteQty > 0 ? (fees.feeAmount / cummQuoteQty) * 100 : null;
+            const executedQty = execution.executed_qty.toNumber();
+            
+            if (fees.feeCurrency === execution.trade_job.symbol.split('/')[1] || fees.feeCurrency === 'USDT' || fees.feeCurrency === 'USD') {
+              // Taxa em quote asset, calcular percentual baseado no valor
+              feeRate = cummQuoteQty > 0 ? (fees.feeAmount / cummQuoteQty) * 100 : null;
+            } else if (fees.feeCurrency === execution.trade_job.symbol.split('/')[0]) {
+              // Taxa em base asset, calcular percentual baseado na quantidade
+              feeRate = executedQty > 0 ? (fees.feeAmount / executedQty) * 100 : null;
+            }
 
             // Ajustar quantidade se necessário
             let adjustedExecutedQty = execution.executed_qty.toNumber();
@@ -544,23 +572,31 @@ export class AdminSystemController {
               });
 
               if (position) {
-                // Calcular taxa em USD
+                // Calcular taxa em USD para registro
                 const quoteAsset = execution.trade_job.symbol.split('/')[1] || 'USDT';
+                const baseAsset = execution.trade_job.symbol.split('/')[0];
                 let feeUsd = fees.feeAmount;
-                if (fees.feeCurrency !== 'USDT' && fees.feeCurrency !== 'USD' && fees.feeCurrency !== quoteAsset) {
-                  if (fees.feeCurrency === execution.trade_job.symbol.split('/')[0]) {
-                    feeUsd = fees.feeAmount * execution.avg_price.toNumber();
-                  }
+                
+                if (fees.feeCurrency === baseAsset) {
+                  // Taxa em base asset, converter para USD usando preço médio
+                  feeUsd = fees.feeAmount * execution.avg_price.toNumber();
+                } else if (fees.feeCurrency !== 'USDT' && fees.feeCurrency !== 'USD' && fees.feeCurrency !== quoteAsset) {
+                  // Outra moeda, tentar converter se possível
+                  feeUsd = fees.feeAmount;
+                  console.warn(`[ADMIN] Taxa em moeda desconhecida ${fees.feeCurrency}, usando valor direto`);
                 }
+                // Se já está em USDT/USD/quoteAsset, usar direto
 
-                // Atualizar taxas da posição
+                // Atualizar APENAS as taxas da posição, não a quantidade
+                // A quantidade já foi ajustada na execução (adjustedExecutedQty)
+                // Mas não devemos atualizar qty_total aqui pois pode estar agrupada
+                // A quantidade será recalculada pelo PositionService quando necessário
                 await this.prisma.tradePosition.update({
                   where: { id: position.id },
                   data: {
                     fees_on_buy_usd: position.fees_on_buy_usd.toNumber() + feeUsd,
                     total_fees_paid_usd: position.total_fees_paid_usd.toNumber() + feeUsd,
-                    qty_total: adjustedExecutedQty,
-                    qty_remaining: adjustedExecutedQty,
+                    // NÃO atualizar qty_total aqui - deixar o PositionService gerenciar
                   },
                 });
               }
@@ -666,6 +702,182 @@ export class AdminSystemController {
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro na sincronização de taxas:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/fix-incorrect-fees')
+  @ApiOperation({
+    summary: 'Corrigir taxas calculadas incorretamente',
+    description: 'Recalcula taxas de execuções que foram preenchidas com taxas em moeda incorreta (ex: USDT quando deveria ser BTC).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Correção concluída',
+  })
+  async fixIncorrectFees() {
+    console.log('[ADMIN] Iniciando correção de taxas incorretas...');
+    
+    const startTime = Date.now();
+    let totalChecked = 0;
+    let fixed = 0;
+    const errors: Array<{ executionId: number; error: string }> = [];
+
+    try {
+      // Buscar execuções com taxas preenchidas que podem estar incorretas
+      // Critério: taxa em quote asset (USDT) mas deveria ser em base asset para BUY
+      const executionsWithFees = await this.prisma.tradeExecution.findMany({
+        where: {
+          fee_amount: { not: null },
+          trade_mode: 'REAL',
+        },
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              exchange: true,
+              fee_rate_buy_limit: true,
+              fee_rate_buy_market: true,
+              fee_rate_sell_limit: true,
+              fee_rate_sell_market: true,
+            },
+          },
+          trade_job: {
+            select: {
+              id: true,
+              side: true,
+              symbol: true,
+              order_type: true,
+            },
+          },
+        },
+        take: 1000,
+      });
+
+      totalChecked = executionsWithFees.length;
+      console.log(`[ADMIN] Encontradas ${totalChecked} execuções com taxas para verificar`);
+
+      for (const execution of executionsWithFees) {
+        try {
+          if (!execution.trade_job) {
+            continue;
+          }
+
+          const side = execution.trade_job.side.toLowerCase();
+          const symbol = execution.trade_job.symbol;
+          const baseAsset = symbol.split('/')[0];
+          const quoteAsset = symbol.split('/')[1] || 'USDT';
+          const feeCurrency = execution.fee_currency || '';
+          const feeAmount = execution.fee_amount?.toNumber() || 0;
+
+          // Verificar se a taxa está na moeda errada
+          // Para BUY: taxa geralmente é em base asset (BTC), não em quote asset (USDT)
+          // Para SELL: taxa geralmente é em quote asset (USDT)
+          let needsFix = false;
+          let correctFeeCurrency = '';
+          let correctFeeAmount = 0;
+
+          if (side === 'buy' && feeCurrency === quoteAsset && feeAmount > 0) {
+            // Taxa está em quote asset (USDT) mas deveria estar em base asset (BTC)
+            // Converter: feeAmount em USDT / preço médio = feeAmount em BTC
+            const avgPrice = execution.avg_price.toNumber();
+            if (avgPrice > 0) {
+              correctFeeAmount = feeAmount / avgPrice;
+              correctFeeCurrency = baseAsset;
+              needsFix = true;
+              console.log(
+                `[ADMIN] Execução ${execution.id}: Taxa incorreta detectada - ${feeAmount} ${feeCurrency} -> ${correctFeeAmount.toFixed(8)} ${correctFeeCurrency}`
+              );
+            }
+          }
+
+          if (needsFix) {
+            // A quantidade atual pode já ter sido ajustada incorretamente
+            // Precisamos restaurar a quantidade original primeiro
+            // A quantidade original seria: executed_qty atual + taxa antiga (se foi subtraída incorretamente)
+            // Mas como a taxa estava em USDT, provavelmente não foi subtraída da quantidade
+            // Então vamos apenas ajustar para a quantidade correta com a nova taxa
+            
+            const currentExecutedQty = execution.executed_qty.toNumber();
+            let adjustedExecutedQty = currentExecutedQty;
+            
+            // Se a taxa está em base asset, subtrair da quantidade
+            if (side === 'buy' && correctFeeCurrency === baseAsset) {
+              adjustedExecutedQty = Math.max(0, currentExecutedQty - correctFeeAmount);
+            }
+
+            // Calcular taxa percentual correta
+            const feeRate = currentExecutedQty > 0 ? (correctFeeAmount / currentExecutedQty) * 100 : null;
+
+            // Atualizar execução
+            await this.prisma.tradeExecution.update({
+              where: { id: execution.id },
+              data: {
+                fee_amount: correctFeeAmount,
+                fee_currency: correctFeeCurrency,
+                fee_rate: feeRate || undefined,
+                executed_qty: adjustedExecutedQty,
+                // cumm_quote_qty não precisa ser ajustado pois a taxa não afeta o valor pago
+              },
+            });
+
+            // Recalcular posições afetadas
+            if (side === 'buy') {
+              const position = await this.prisma.tradePosition.findFirst({
+                where: {
+                  trade_job_id_open: execution.trade_job.id,
+                  status: 'OPEN',
+                },
+              });
+
+              if (position) {
+                // Calcular taxa em USD (base asset * preço médio)
+                const feeUsd = correctFeeAmount * execution.avg_price.toNumber();
+                
+                // Remover a taxa antiga (incorreta) e adicionar a nova (correta)
+                const oldFeeUsd = feeAmount; // Taxa antiga já estava em USD
+                const feeDifference = feeUsd - oldFeeUsd;
+
+                // Calcular diferença de quantidade
+                const qtyDifference = currentExecutedQty - adjustedExecutedQty;
+
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: {
+                    fees_on_buy_usd: position.fees_on_buy_usd.toNumber() + feeDifference,
+                    total_fees_paid_usd: position.total_fees_paid_usd.toNumber() + feeDifference,
+                    // Ajustar quantidade total e restante
+                    qty_total: position.qty_total.toNumber() - qtyDifference,
+                    qty_remaining: position.qty_remaining.toNumber() - qtyDifference,
+                  },
+                });
+              }
+            }
+
+            fixed++;
+            console.log(`[ADMIN] ✅ Execução ${execution.id} corrigida`);
+          }
+        } catch (error: any) {
+          errors.push({
+            executionId: execution.id,
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao corrigir execução ${execution.id}:`, error.message);
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      console.log(`[ADMIN] Correção concluída em ${duration}ms: ${fixed}/${totalChecked} corrigidas, ${errors.length} erros`);
+
+      return {
+        total_checked: totalChecked,
+        fixed,
+        errors: errors.length,
+        error_details: errors.slice(0, 10),
+        duration_ms: duration,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro na correção de taxas:', error);
       throw error;
     }
   }
