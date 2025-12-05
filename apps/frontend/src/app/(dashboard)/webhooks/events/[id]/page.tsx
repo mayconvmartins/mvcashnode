@@ -264,13 +264,17 @@ export default function WebhookEventDetailPage() {
                         )}
                     </div>
 
-                    {event.validation_error && (
+                    {(event.validation_error || event.status === 'SKIPPED') && (
                         <div className="mt-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
                             <div className="flex items-start gap-2">
                                 <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
                                 <div className="flex-1">
-                                    <label className="text-sm font-medium text-destructive">Erro de Validação</label>
-                                    <p className="text-sm text-destructive mt-1">{event.validation_error}</p>
+                                    <label className="text-sm font-medium text-destructive">
+                                        {event.status === 'SKIPPED' ? 'Motivo do SKIP' : 'Erro de Validação'}
+                                    </label>
+                                    <p className="text-sm text-destructive mt-1 whitespace-pre-wrap">
+                                        {event.validation_error || 'Nenhum motivo especificado'}
+                                    </p>
                                 </div>
                             </div>
                         </div>

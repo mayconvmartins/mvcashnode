@@ -14,6 +14,7 @@ interface StatsCardProps {
     loading?: boolean
     className?: string
     trend?: 'up' | 'down' | 'neutral'
+    formatAsCurrency?: boolean
 }
 
 export function StatsCard({
@@ -24,6 +25,7 @@ export function StatsCard({
     loading = false,
     className,
     trend,
+    formatAsCurrency = true,
 }: StatsCardProps) {
     const getTrendColor = () => {
         if (trend === 'up' || (change !== undefined && change > 0)) {
@@ -37,12 +39,20 @@ export function StatsCard({
 
     const formatValue = (val: string | number) => {
         if (typeof val === 'number') {
-            return new Intl.NumberFormat('pt-BR', {
-                style: 'currency',
-                currency: 'USD',
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }).format(val)
+            if (formatAsCurrency) {
+                return new Intl.NumberFormat('pt-BR', {
+                    style: 'currency',
+                    currency: 'USD',
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                }).format(val)
+            } else {
+                // Formatar como número inteiro se for um contador
+                return new Intl.NumberFormat('pt-BR', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0,
+                }).format(val)
+            }
         }
         return val
     }

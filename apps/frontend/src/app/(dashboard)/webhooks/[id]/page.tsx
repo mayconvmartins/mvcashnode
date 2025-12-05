@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { 
     ArrowLeft, 
@@ -28,6 +29,7 @@ import {
     Settings,
     Users,
     List,
+    Info,
     RefreshCw,
     Radio,
     Loader2
@@ -209,7 +211,7 @@ export default function WebhookDetailsPage() {
         {
             key: 'status',
             label: 'Status',
-            render: (event) => {
+            render: (event: any) => {
                 const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'; label: string; icon: any }> = {
                     JOB_CREATED: { variant: 'success', label: 'Job Criado', icon: CheckCircle },
                     RECEIVED: { variant: 'secondary', label: 'Recebido', icon: Clock },
@@ -218,12 +220,36 @@ export default function WebhookDetailsPage() {
                 }
                 const config = statusConfig[event.status] || { variant: 'secondary' as const, label: event.status, icon: Clock }
                 const Icon = config.icon
-                return (
+                const badge = (
                     <Badge variant={config.variant} className="flex items-center gap-1 w-fit">
                         <Icon className="h-3 w-3" />
                         {config.label}
                     </Badge>
                 )
+
+                // Se for SKIPPED e tiver motivo, adicionar tooltip
+                if (event.status === 'SKIPPED' && event.validation_error) {
+                    return (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center gap-1 cursor-help">
+                                        {badge}
+                                        <Info className="h-3 w-3 text-muted-foreground" />
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-md">
+                                    <div className="space-y-1">
+                                        <p className="font-semibold">Motivo do SKIP:</p>
+                                        <p className="text-sm whitespace-pre-wrap">{event.validation_error}</p>
+                                    </div>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )
+                }
+
+                return badge
             },
         },
         {

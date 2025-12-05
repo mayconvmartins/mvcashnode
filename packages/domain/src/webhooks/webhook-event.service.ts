@@ -62,7 +62,7 @@ export class WebhookEventService {
     console.log(`[WEBHOOK-EVENT] ✅ Evento criado: ID=${event.id}, price_reference=${event.price_reference ? event.price_reference.toNumber() : 'NULL'}, action=${event.action}`);
 
     // Create jobs from event
-    const { count: jobsCreated, jobIds } = await this.createJobsFromEvent(event.id);
+    const { count: jobsCreated, jobIds, skipReasons } = await this.createJobsFromEvent(event.id);
 
     // Update event status
     await this.prisma.webhookEvent.update({
@@ -70,13 +70,14 @@ export class WebhookEventService {
       data: {
         status: jobsCreated > 0 ? WebhookEventStatus.JOB_CREATED : WebhookEventStatus.SKIPPED,
         processed_at: new Date(),
+        validation_error: jobsCreated === 0 && skipReasons.length > 0 ? skipReasons.join('; ') : null,
       },
     });
 
     return { event, jobsCreated, jobIds };
   }
 
-  private async createJobsFromEvent(eventId: number): Promise<{ count: number; jobIds: number[] }> {
+  private async createJobsFromEvent(eventId: number): Promise<{ count: number; jobIds: number[]; skipReasons: string[] }> {
     const event = await this.prisma.webhookEvent.findUnique({
       where: { id: eventId },
       include: {
@@ -107,14 +108,18 @@ export class WebhookEventService {
       bindings_count: event?.webhook_source?.bindings?.length || 0,
     });
 
+    const skipReasons: string[] = [];
+
     if (!event) {
       console.error(`[WEBHOOK-EVENT] Evento ${eventId} não encontrado`);
-      return { count: 0, jobIds: [] };
+      skipReasons.push('Evento não encontrado no banco de dados');
+      return { count: 0, jobIds: [], skipReasons };
     }
 
     if (event.action === WebhookAction.UNKNOWN) {
       console.warn(`[WEBHOOK-EVENT] Ação desconhecida para evento ${eventId}. Payload:`, event.raw_text || event.raw_payload_json);
-      return { count: 0, jobIds: [] };
+      skipReasons.push('Ação desconhecida (UNKNOWN) - não foi possível determinar se é compra ou venda');
+      return { count: 0, jobIds: [], skipReasons };
     }
 
     let jobsCreated = 0;
@@ -122,7 +127,8 @@ export class WebhookEventService {
 
     if (!event.webhook_source?.bindings || event.webhook_source.bindings.length === 0) {
       console.warn(`[WEBHOOK-EVENT] Nenhum binding ativo encontrado para webhook source ${event.webhook_source_id}`);
-      return { count: 0, jobIds: [] };
+      skipReasons.push('Nenhum binding ativo encontrado para este webhook');
+      return { count: 0, jobIds: [], skipReasons };
     }
 
     for (const binding of event.webhook_source.bindings) {
@@ -136,6 +142,7 @@ export class WebhookEventService {
       
       if (accountIsSim !== eventIsSim) {
         console.log(`[WEBHOOK-EVENT] Trade mode não corresponde, pulando binding ${binding.id}`);
+        skipReasons.push(`Trade mode não corresponde (evento: ${event.trade_mode}, conta: ${accountIsSim ? 'SIMULATION' : 'REAL'})`);
         continue;
       }
 
@@ -151,13 +158,38 @@ export class WebhookEventService {
 
         // Para BUY, verificar se existe parâmetro de trading
         if (side === 'BUY') {
-          const parameter = await this.prisma.tradeParameter.findFirst({
+          // Função auxiliar para normalizar símbolo (mesma lógica do trade-parameter.service.ts)
+          const normalizeSymbol = (s: string): string => {
+            if (!s) return '';
+            return s.trim().toUpperCase().replace(/\.(P|F|PERP|FUTURES)$/i, '').replace(/\//g, '').replace(/\s/g, '');
+          };
+          
+          const symbolNorm = normalizeSymbol(event.symbol_normalized);
+          
+          // Buscar todos os parâmetros da conta para verificar se algum contém o símbolo
+          const allParameters = await this.prisma.tradeParameter.findMany({
             where: {
               exchange_account_id: binding.exchange_account.id,
-              symbol: event.symbol_normalized,
               side: { in: [side, 'BOTH'] },
             },
           });
+          
+          // Função auxiliar para verificar se um parâmetro corresponde ao símbolo
+          const parameterMatchesSymbol = (param: any): boolean => {
+            if (!param.symbol) return false;
+            
+            // Se o parâmetro tem múltiplos símbolos separados por vírgula
+            if (param.symbol.includes(',')) {
+              const symbolList = param.symbol.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+              return symbolList.some((s: string) => normalizeSymbol(s) === symbolNorm);
+            } else {
+              // Símbolo único
+              return normalizeSymbol(param.symbol) === symbolNorm;
+            }
+          };
+          
+          // Buscar parâmetro que corresponde ao símbolo
+          const parameter = allParameters.find(parameterMatchesSymbol);
 
           if (!parameter) {
             console.warn(`[WEBHOOK-EVENT] ⚠️ Parâmetro de trading NÃO encontrado para:`, {
@@ -167,17 +199,9 @@ export class WebhookEventService {
               symbolRaw: event.symbol_raw,
             });
             console.warn(`[WEBHOOK-EVENT] Tentando buscar parâmetros existentes para esta conta...`);
-            const allParams = await this.prisma.tradeParameter.findMany({
-              where: {
-                exchange_account_id: binding.exchange_account.id,
-              },
-              select: {
-                id: true,
-                symbol: true,
-                side: true,
-              },
-            });
-            console.warn(`[WEBHOOK-EVENT] Parâmetros existentes para conta ${binding.exchange_account.id}:`, allParams);
+            console.warn(`[WEBHOOK-EVENT] Parâmetros existentes para conta ${binding.exchange_account.id}:`, allParameters.map((p: any) => ({ id: p.id, symbol: p.symbol, side: p.side })));
+            skipReasons.push(`Parâmetro de trading não encontrado para conta ${binding.exchange_account.id}, símbolo ${event.symbol_normalized}, lado ${side}`);
+            continue;
           } else {
             console.log(`[WEBHOOK-EVENT] ✅ Parâmetro encontrado:`, {
               id: parameter.id,
@@ -246,6 +270,23 @@ export class WebhookEventService {
 
           console.log(`[WEBHOOK-EVENT] Resultado da busca: ${openPosition ? `POSIÇÃO ENCONTRADA (ID: ${openPosition.id})` : 'NENHUMA POSIÇÃO ENCONTRADA'}`);
 
+          // Verificar se há posições bloqueadas
+          if (!openPosition) {
+            const lockedPosition = await this.prisma.tradePosition.findFirst({
+              where: {
+                exchange_account_id: binding.exchange_account.id,
+                symbol: event.symbol_normalized,
+                trade_mode: event.trade_mode,
+                status: 'OPEN',
+                lock_sell_by_webhook: true,
+              },
+            });
+
+            if (lockedPosition) {
+              skipReasons.push(`Posição bloqueada para venda por webhook (lock_sell_by_webhook = true) - Posição ID: ${lockedPosition.id}`);
+            }
+          }
+
           if (openPosition) {
             baseQuantity = openPosition.qty_remaining.toNumber();
             const priceOpen = openPosition.price_open.toNumber();
@@ -276,6 +317,7 @@ export class WebhookEventService {
 
               if (!validationResult.valid) {
                 console.warn(`[WEBHOOK-EVENT] ⚠️⚠️⚠️ VENDA VIA WEBHOOK SKIPADA: ${validationResult.reason} ⚠️⚠️⚠️`);
+                skipReasons.push(`Validação de lucro mínimo falhou: ${validationResult.reason}`);
                 // Não criar o job de venda
                 continue;
               } else {
@@ -288,6 +330,7 @@ export class WebhookEventService {
             }
           } else {
             console.warn(`[WEBHOOK-EVENT] ⚠️ Nenhuma posição aberta encontrada para vender ${event.symbol_normalized} na conta ${binding.exchange_account.id}`);
+            skipReasons.push(`Nenhuma posição aberta encontrada para vender ${event.symbol_normalized} na conta ${binding.exchange_account.id}`);
             // Continuar mesmo sem posição - o executor vai falhar mas pelo menos o evento será registrado
           }
         }
@@ -300,6 +343,7 @@ export class WebhookEventService {
           }
           if (!limitPrice || limitPrice <= 0) {
             console.error(`[WEBHOOK-EVENT] ⚠️ ERRO: Venda via webhook requer limitPrice, mas limitPrice=${limitPrice}. Pulando criação do job.`);
+            skipReasons.push(`Venda via webhook requer limitPrice válido, mas limitPrice=${limitPrice}`);
             continue;
           }
         }
@@ -356,13 +400,18 @@ export class WebhookEventService {
         jobIds.push(tradeJob.id);
       } catch (error: any) {
         // Log error but continue
-        console.error(`[WEBHOOK-EVENT] Erro ao criar job para binding ${binding.id}:`, error?.message || error);
+        const errorMessage = error?.message || String(error);
+        console.error(`[WEBHOOK-EVENT] Erro ao criar job para binding ${binding.id}:`, errorMessage);
         console.error(`[WEBHOOK-EVENT] Stack:`, error?.stack);
+        skipReasons.push(`Erro ao criar job para conta ${binding.exchange_account.id}: ${errorMessage}`);
       }
     }
 
     console.log(`[WEBHOOK-EVENT] Total de jobs criados: ${jobsCreated} de ${event.webhook_source.bindings.length} bindings`);
-    return { count: jobsCreated, jobIds };
+    if (skipReasons.length > 0) {
+      console.log(`[WEBHOOK-EVENT] Motivos de SKIP coletados:`, skipReasons);
+    }
+    return { count: jobsCreated, jobIds, skipReasons };
   }
 }
 

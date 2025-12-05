@@ -78,6 +78,7 @@ export default function DashboardPage() {
                     value={summary?.openPositions || 0}
                     icon={Target}
                     trend={summary?.positionsTrend ? (summary.positionsTrend > 0 ? 'up' : summary.positionsTrend < 0 ? 'down' : 'neutral') : undefined}
+                    formatAsCurrency={false}
                 />
                 <StatsCard
                     title="PnL do Dia"
@@ -95,6 +96,7 @@ export default function DashboardPage() {
                     title="Contas Ativas"
                     value={summary?.activeAccounts || 0}
                     icon={Activity}
+                    formatAsCurrency={false}
                 />
             </div>
 

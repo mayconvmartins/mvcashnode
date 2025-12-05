@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Eye, RefreshCw, AlertCircle, CheckCircle, XCircle, Clock } from 'lucide-react'
+import { Eye, RefreshCw, AlertCircle, CheckCircle, XCircle, Clock, Info } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -35,7 +36,8 @@ export default function WebhookEventsPage() {
         }),
     })
 
-    const getStatusBadge = (status: string) => {
+    const getStatusBadge = (event: WebhookEvent) => {
+        const status = event.status
         const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'success'> = {
             RECEIVED: 'secondary',
             JOB_CREATED: 'success',
@@ -51,13 +53,36 @@ export default function WebhookEventsPage() {
         }
 
         const Icon = icons[status] || Clock
-
-        return (
+        const badge = (
             <Badge variant={variants[status] || 'secondary'} className="flex items-center gap-1">
                 <Icon className="h-3 w-3" />
                 {status}
             </Badge>
         )
+
+        // Se for SKIPPED e tiver motivo, adicionar tooltip
+        if (status === 'SKIPPED' && event.validation_error) {
+            return (
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="flex items-center gap-1 cursor-help">
+                                {badge}
+                                <Info className="h-3 w-3 text-muted-foreground" />
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-md">
+                            <div className="space-y-1">
+                                <p className="font-semibold">Motivo do SKIP:</p>
+                                <p className="text-sm whitespace-pre-wrap">{event.validation_error}</p>
+                            </div>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            )
+        }
+
+        return badge
     }
 
     const getActionBadge = (action: string) => {
@@ -107,7 +132,7 @@ export default function WebhookEventsPage() {
         {
             key: 'status',
             label: 'Status',
-            render: (event) => getStatusBadge(event.status),
+            render: (event) => getStatusBadge(event),
         },
         {
             key: 'trade_mode',
@@ -267,7 +292,7 @@ export default function WebhookEventsPage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-sm font-medium text-muted-foreground">Status</label>
-                                    <div className="mt-1">{getStatusBadge(selectedEvent.status)}</div>
+                                    <div className="mt-1">{getStatusBadge(selectedEvent)}</div>
                                 </div>
                                 <div>
                                     <label className="text-sm font-medium text-muted-foreground">Modo</label>
@@ -320,11 +345,13 @@ export default function WebhookEventsPage() {
                                     </pre>
                                 </div>
                             )}
-                            {selectedEvent.validation_error && (
+                            {(selectedEvent.validation_error || selectedEvent.status === 'SKIPPED') && (
                                 <div>
-                                    <label className="text-sm font-medium text-muted-foreground">Erro de Validação</label>
-                                    <div className="mt-1 p-3 bg-destructive/10 text-destructive rounded-md text-sm">
-                                        {selectedEvent.validation_error}
+                                    <label className="text-sm font-medium text-muted-foreground">
+                                        {selectedEvent.status === 'SKIPPED' ? 'Motivo do SKIP' : 'Erro de Validação'}
+                                    </label>
+                                    <div className="mt-1 p-3 bg-destructive/10 text-destructive rounded-md text-sm whitespace-pre-wrap">
+                                        {selectedEvent.validation_error || 'Nenhum motivo especificado'}
                                     </div>
                                 </div>
                             )}
