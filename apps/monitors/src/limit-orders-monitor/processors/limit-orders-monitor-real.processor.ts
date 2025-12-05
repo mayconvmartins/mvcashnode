@@ -104,7 +104,6 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
             feeAmount = fees.feeAmount;
             feeCurrency = fees.feeCurrency;
             
-            const executedQty = exchangeOrder.filled || exchangeOrder.amount || 0;
             const cummQuoteQty = exchangeOrder.cost || 0;
             
             if (feeAmount > 0 && cummQuoteQty > 0) {

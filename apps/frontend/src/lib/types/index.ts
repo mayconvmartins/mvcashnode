@@ -352,6 +352,9 @@ export interface CreateBindingDto {
 // ============================================
 
 export interface Position {
+    total_fees_paid_usd?: number
+    fees_on_buy_usd?: number
+    fees_on_sell_usd?: number
     id: number
     exchange_account_id: number
     trade_mode: TradeMode
@@ -363,6 +366,9 @@ export interface Position {
     price_open: number
     status: PositionStatus
     realized_profit_usd: number
+    total_fees_paid_usd?: number
+    fees_on_buy_usd?: number
+    fees_on_sell_usd?: number
     sl_enabled: boolean
     sl_pct?: number
     tp_enabled: boolean

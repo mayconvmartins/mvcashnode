@@ -61,6 +61,9 @@ interface PositionWithRelations extends Position {
         created_at: string
         trade_job?: TradeJob
     }>
+    total_fees_paid_usd?: number
+    fees_on_buy_usd?: number
+    fees_on_sell_usd?: number
 }
 
 export default function PositionDetailPage() {

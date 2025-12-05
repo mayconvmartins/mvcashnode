@@ -314,8 +314,8 @@ export class AdminSystemController {
           }
 
           // Decriptar API keys
-          const apiKey = this.encryptionService.decrypt(account.api_key_enc);
-          const apiSecret = this.encryptionService.decrypt(account.api_secret_enc);
+          const apiKey = await this.encryptionService.decrypt(account.api_key_enc);
+          const apiSecret = await this.encryptionService.decrypt(account.api_secret_enc);
 
           // Criar adapter
           const adapter = AdapterFactory.createAdapter(
