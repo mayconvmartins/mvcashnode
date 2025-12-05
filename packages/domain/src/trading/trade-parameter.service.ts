@@ -117,18 +117,30 @@ export class TradeParameterService {
       tradeMode,
     });
 
+    // Função auxiliar para normalizar símbolo (remove sufixos, espaços, converte para uppercase, remove /)
+    const normalizeSymbol = (s: string): string => {
+      if (!s) return '';
+      return s.trim().toUpperCase().replace(/\.(P|F|PERP|FUTURES)$/i, '').replace(/\//g, '').replace(/\s/g, '');
+    };
+    
     // Normalizar símbolo (remover sufixos como .P, .F, etc.)
-    const normalizedSymbol = symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '').trim();
+    const normalizedSymbol = normalizeSymbol(symbol);
     // Tentar formatos comuns: SOLUSDT -> SOL/USDT, SOL/USDT -> SOLUSDT
     const symbolVariations = [
       symbol.trim(), // Original
       normalizedSymbol,
       normalizedSymbol.replace('/', ''),
       normalizedSymbol.replace(/([A-Z]+)(USDT|BTC|ETH|BNB)/, '$1/$2'),
+      // Adicionar variação sem espaços
+      symbol.replace(/\s/g, '').toUpperCase(),
     ];
     
+    // Remover duplicatas
+    const uniqueVariations = Array.from(new Set(symbolVariations.map(v => normalizeSymbol(v))));
+    
     console.log(`[TRADE-PARAMETER] Símbolo original: "${symbol}"`);
-    console.log(`[TRADE-PARAMETER] Variações de símbolo a verificar: [${symbolVariations.map(v => `"${v}"`).join(', ')}]`);
+    console.log(`[TRADE-PARAMETER] Símbolo normalizado: "${normalizedSymbol}"`);
+    console.log(`[TRADE-PARAMETER] Variações únicas a verificar: [${uniqueVariations.map(v => `"${v}"`).join(', ')}]`);
 
     // Buscar todos os parâmetros da conta para verificar se algum contém o símbolo
     const allParameters = await this.prisma.tradeParameter.findMany({
@@ -152,78 +164,38 @@ export class TradeParameterService {
       
       // Se o símbolo do parâmetro contém vírgulas, verificar se nosso símbolo está na lista
       if (param.symbol && param.symbol.includes(',')) {
-        const symbolList = param.symbol.split(',').map((s: string) => s.trim());
+        const symbolList = param.symbol.split(',').map((s: string) => s.trim()).filter(s => s.length > 0);
         console.log(`[TRADE-PARAMETER] Parâmetro tem múltiplos símbolos: [${symbolList.join(', ')}]`);
-        
-        // Função auxiliar para normalizar símbolo (remove sufixos, espaços, converte para uppercase)
-        const normalizeSymbol = (s: string): string => {
-          if (!s) return '';
-          return s.trim().toUpperCase().replace(/\.(P|F|PERP|FUTURES)$/i, '').replace(/\//g, '');
-        };
         
         // Normalizar símbolo buscado
         const searchSymbolNorm = normalizeSymbol(symbol);
         console.log(`[TRADE-PARAMETER] Símbolo buscado: "${symbol}" -> normalizado: "${searchSymbolNorm}"`);
         console.log(`[TRADE-PARAMETER] Lista de símbolos do parâmetro: [${symbolList.map((s: string) => `"${s}"`).join(', ')}]`);
         
-        // Verificar match direto primeiro (mais rápido e simples)
+        // Verificar match usando todas as variações do símbolo buscado
         let found = false;
-        for (let i = 0; i < symbolList.length; i++) {
-          const listSymbol = symbolList[i];
+        
+        // Primeiro, tentar match direto com símbolo normalizado
+        for (const listSymbol of symbolList) {
           const listSymbolNorm = normalizeSymbol(listSymbol);
           
-          console.log(`[TRADE-PARAMETER] Comparação ${i + 1}/${symbolList.length}: "${listSymbol}" (normalized: "${listSymbolNorm}") vs "${searchSymbolNorm}"`);
-          
-          // Teste 1: Comparação direta normalizada (mais confiável)
           if (listSymbolNorm === searchSymbolNorm) {
-            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH 1 ENCONTRADO: "${listSymbolNorm}" === "${searchSymbolNorm}"`);
-            found = true;
-            break;
-          }
-          
-          // Teste 2: Comparação direta uppercase (sem normalização)
-          const listUpper = listSymbol.trim().toUpperCase();
-          const searchUpper = symbol.trim().toUpperCase();
-          if (listUpper === searchUpper) {
-            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH 2 ENCONTRADO: "${listUpper}" === "${searchUpper}"`);
-            found = true;
-            break;
-          }
-          
-          // Teste 3: Comparação normalizada vs original uppercase
-          if (listSymbolNorm === searchUpper || listUpper === searchSymbolNorm) {
-            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH 3 ENCONTRADO: Cross match`);
-            found = true;
-            break;
-          }
-          
-          // Teste 4: Comparação sem espaços e case-insensitive
-          const listNoSpaces = listSymbol.replace(/\s/g, '').toUpperCase();
-          const searchNoSpaces = symbol.replace(/\s/g, '').toUpperCase();
-          if (listNoSpaces === searchNoSpaces) {
-            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH 4 ENCONTRADO: "${listNoSpaces}" === "${searchNoSpaces}"`);
+            console.log(`[TRADE-PARAMETER] ✅✅✅ MATCH ENCONTRADO: "${listSymbol}" (normalized: "${listSymbolNorm}") === "${symbol}" (normalized: "${searchSymbolNorm}")`);
             found = true;
             break;
           }
         }
         
-        // Se não encontrou com match direto, tentar com variações do símbolo buscado
+        // Se não encontrou, tentar com todas as variações do símbolo buscado
         if (!found) {
-          console.log(`[TRADE-PARAMETER] Match direto não encontrado, tentando ${symbolVariations.length} variações...`);
-          for (let v = 0; v < symbolVariations.length; v++) {
-            const symbolVar = symbolVariations[v];
+          for (const symbolVar of uniqueVariations) {
             const varNorm = normalizeSymbol(symbolVar);
-            console.log(`[TRADE-PARAMETER] Variação ${v + 1}: "${symbolVar}" -> normalizado: "${varNorm}"`);
             
-            for (let i = 0; i < symbolList.length; i++) {
-              const listSymbol = symbolList[i];
+            for (const listSymbol of symbolList) {
               const listSymbolNorm = normalizeSymbol(listSymbol);
               
-              if (listSymbolNorm === varNorm ||
-                  listSymbol.toUpperCase() === symbolVar.toUpperCase() ||
-                  listSymbolNorm === symbolVar.toUpperCase() ||
-                  listSymbol.toUpperCase() === varNorm) {
-                console.log(`[TRADE-PARAMETER] ✅ MATCH via variação ${v + 1}: "${listSymbol}" (${listSymbolNorm}) === "${symbolVar}" (${varNorm})`);
+              if (listSymbolNorm === varNorm) {
+                console.log(`[TRADE-PARAMETER] ✅ MATCH via variação: "${listSymbol}" (${listSymbolNorm}) === "${symbolVar}" (${varNorm})`);
                 found = true;
                 break;
               }
@@ -242,18 +214,24 @@ export class TradeParameterService {
           console.log(`[TRADE-PARAMETER] Símbolos da lista normalizados: [${symbolList.map((s: string) => normalizeSymbol(s)).join(', ')}]`);
         }
       } else {
-        // Comparação direta ou com variações
+        // Comparação direta ou com variações para símbolo único
         console.log(`[TRADE-PARAMETER] Parâmetro tem símbolo único: "${param.symbol}"`);
-        for (const symbolVar of symbolVariations) {
-          const normalizedVar = symbolVar.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '').toUpperCase();
-          const normalizedParam = param.symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace('/', '').toUpperCase();
-          
-          console.log(`[TRADE-PARAMETER] Comparando: param="${param.symbol}" (normalized: "${normalizedParam}") com var="${symbolVar}" (normalized: "${normalizedVar}")`);
-          
-          if (param.symbol.toUpperCase() === symbolVar.toUpperCase() || normalizedParam === normalizedVar || param.symbol.toUpperCase() === symbol.toUpperCase()) {
-            parameter = param;
-            console.log(`[TRADE-PARAMETER] ✅ Parâmetro encontrado: ${param.symbol}`);
-            break;
+        const paramSymbolNorm = normalizeSymbol(param.symbol);
+        
+        // Verificar match direto
+        if (paramSymbolNorm === normalizedSymbol) {
+          parameter = param;
+          console.log(`[TRADE-PARAMETER] ✅ Parâmetro encontrado (match direto): ${param.symbol}`);
+        } else {
+          // Tentar com variações
+          for (const symbolVar of uniqueVariations) {
+            const varNorm = normalizeSymbol(symbolVar);
+            
+            if (paramSymbolNorm === varNorm) {
+              parameter = param;
+              console.log(`[TRADE-PARAMETER] ✅ Parâmetro encontrado (via variação): ${param.symbol}`);
+              break;
+            }
           }
         }
       }

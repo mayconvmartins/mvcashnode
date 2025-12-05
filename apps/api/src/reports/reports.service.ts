@@ -548,10 +548,15 @@ export class ReportsService {
       }
     }
 
+    // Calcular número de contas ativas (contas únicas com posições abertas)
+    const activeAccountIds = new Set(positions.map(p => p.exchange_account.id));
+    const activeAccounts = activeAccountIds.size;
+
     return {
       totalPositions: positions.length,
       totalUnrealizedPnL,
       totalInvested,
+      activeAccounts,
       bySymbol: Object.values(bySymbol),
     };
   }

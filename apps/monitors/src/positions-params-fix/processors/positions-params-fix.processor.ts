@@ -28,16 +28,16 @@ export class PositionsParamsFixProcessor extends WorkerHost {
       // Registrar início da execução
       await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
 
-      // Calcular data limite: 2 minutos atrás
-      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+      // Calcular data limite: 5 minutos atrás (aumentado para capturar posições criadas durante processamento assíncrono)
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-      // Buscar posições abertas sem min_profit_pct criadas há menos de 2 minutos
+      // Buscar posições abertas sem min_profit_pct criadas há menos de 5 minutos
       const positions = await this.prisma.tradePosition.findMany({
         where: {
           status: PositionStatus.OPEN,
           min_profit_pct: null,
           created_at: {
-            gte: twoMinutesAgo,
+            gte: fiveMinutesAgo,
           },
         },
         include: {
@@ -50,7 +50,7 @@ export class PositionsParamsFixProcessor extends WorkerHost {
         },
       });
 
-      this.logger.log(`[POSITIONS-PARAMS-FIX] Encontradas ${positions.length} posição(ões) sem min_profit_pct criadas há menos de 2 minutos`);
+      this.logger.log(`[POSITIONS-PARAMS-FIX] Encontradas ${positions.length} posição(ões) sem min_profit_pct criadas há menos de 5 minutos`);
 
       let updated = 0;
       let errors = 0;

@@ -33,31 +33,68 @@ export class PositionService {
     try {
       console.log(`[POSITION-SERVICE] Buscando parâmetros para posição: account=${job.exchange_account_id}, symbol=${job.symbol}`);
       
-      // Buscar primeiro parâmetro BOTH (tem todas as configurações)
-      const bothParameter = await this.prisma.tradeParameter.findFirst({
+      // Função auxiliar para normalizar símbolo (mesma lógica do trade-parameter.service.ts)
+      const normalizeSymbol = (s: string): string => {
+        if (!s) return '';
+        return s.trim().toUpperCase().replace(/\.(P|F|PERP|FUTURES)$/i, '').replace(/\//g, '').replace(/\s/g, '');
+      };
+      
+      const jobSymbolNorm = normalizeSymbol(job.symbol);
+      
+      // Buscar todos os parâmetros da conta para verificar se algum contém o símbolo
+      const allBothParameters = await this.prisma.tradeParameter.findMany({
         where: {
           exchange_account_id: job.exchange_account_id,
-          symbol: job.symbol,
           side: 'BOTH',
         },
       });
-
-      // Buscar parâmetros separados (sempre buscar para garantir que temos todos os valores)
-      const buyParameter = await this.prisma.tradeParameter.findFirst({
+      
+      const allBuyParameters = await this.prisma.tradeParameter.findMany({
         where: {
           exchange_account_id: job.exchange_account_id,
-          symbol: job.symbol,
           side: 'BUY',
         },
       });
-
-      const sellParameter = await this.prisma.tradeParameter.findFirst({
+      
+      const allSellParameters = await this.prisma.tradeParameter.findMany({
         where: {
           exchange_account_id: job.exchange_account_id,
-          symbol: job.symbol,
           side: 'SELL',
         },
       });
+      
+      // Função auxiliar para verificar se um parâmetro corresponde ao símbolo
+      const parameterMatchesSymbol = (param: any): boolean => {
+        if (!param.symbol) return false;
+        
+        // Se o parâmetro tem múltiplos símbolos separados por vírgula
+        if (param.symbol.includes(',')) {
+          const symbolList = param.symbol.split(',').map((s: string) => s.trim()).filter(s => s.length > 0);
+          return symbolList.some(s => normalizeSymbol(s) === jobSymbolNorm);
+        } else {
+          // Símbolo único
+          return normalizeSymbol(param.symbol) === jobSymbolNorm;
+        }
+      };
+      
+      // Buscar parâmetro BOTH que corresponde ao símbolo
+      let bothParameter = allBothParameters.find(parameterMatchesSymbol);
+      
+      // Buscar parâmetro BUY que corresponde ao símbolo
+      let buyParameter = allBuyParameters.find(parameterMatchesSymbol);
+      
+      // Buscar parâmetro SELL que corresponde ao símbolo
+      let sellParameter = allSellParameters.find(parameterMatchesSymbol);
+      
+      if (bothParameter) {
+        console.log(`[POSITION-SERVICE] Parâmetro BOTH encontrado (ID: ${bothParameter.id}, symbol: ${bothParameter.symbol})`);
+      }
+      if (buyParameter) {
+        console.log(`[POSITION-SERVICE] Parâmetro BUY encontrado (ID: ${buyParameter.id}, symbol: ${buyParameter.symbol})`);
+      }
+      if (sellParameter) {
+        console.log(`[POSITION-SERVICE] Parâmetro SELL encontrado (ID: ${sellParameter.id}, symbol: ${sellParameter.symbol})`);
+      }
 
       // Priorizar BOTH, mas usar BUY e SELL se necessário
       const parameter = bothParameter || buyParameter || sellParameter;
@@ -160,46 +197,77 @@ export class PositionService {
     
     if (groupPositionsEnabled && groupPositionsIntervalMinutes && groupPositionsIntervalMinutes > 0) {
       console.log(`[POSITION-SERVICE] 🔄 Agrupamento habilitado (intervalo: ${groupPositionsIntervalMinutes} minutos)`);
+      console.log(`[POSITION-SERVICE] Buscando posição elegível para: account=${job.exchange_account_id}, symbol=${job.symbol}, mode=${job.trade_mode}`);
       
       try {
         // Calcular data limite para agrupamento
         const intervalStart = new Date();
         intervalStart.setMinutes(intervalStart.getMinutes() - groupPositionsIntervalMinutes);
+        console.log(`[POSITION-SERVICE] Intervalo de agrupamento: de ${intervalStart.toISOString()} até agora`);
         
         // Buscar posições elegíveis para agrupamento
         // Deve ser: mesma conta, mesmo modo, mesmo símbolo, aberta, e:
         // - Já é uma posição agrupada OU
         // - Foi criada dentro do intervalo de tempo
-        eligiblePosition = await this.prisma.tradePosition.findFirst({
-          where: {
-            exchange_account_id: job.exchange_account_id,
-            trade_mode: job.trade_mode,
-            symbol: job.symbol,
-            side: 'LONG',
-            status: PositionStatus.OPEN,
-            qty_remaining: { gt: 0 },
-            OR: [
-              { is_grouped: true },
-              {
-                AND: [
-                  { is_grouped: false },
-                  { created_at: { gte: intervalStart } },
-                ],
-              },
+        const whereClause: any = {
+          exchange_account_id: job.exchange_account_id,
+          trade_mode: job.trade_mode,
+          symbol: job.symbol,
+          side: 'LONG',
+          status: PositionStatus.OPEN,
+          qty_remaining: { gt: 0 },
+        };
+        
+        // Adicionar condição OR usando sintaxe correta do Prisma
+        whereClause.OR = [
+          { is_grouped: true },
+          {
+            AND: [
+              { is_grouped: false },
+              { created_at: { gte: intervalStart } },
             ],
           },
+        ];
+        
+        console.log(`[POSITION-SERVICE] Query de busca:`, JSON.stringify(whereClause, null, 2));
+        
+        eligiblePosition = await this.prisma.tradePosition.findFirst({
+          where: whereClause,
           orderBy: { created_at: 'asc' },
         });
 
         if (eligiblePosition) {
-          console.log(`[POSITION-SERVICE] ✅ Posição elegível encontrada para agrupamento: ID=${eligiblePosition.id}`);
+          console.log(`[POSITION-SERVICE] ✅ Posição elegível encontrada para agrupamento: ID=${eligiblePosition.id}, is_grouped=${eligiblePosition.is_grouped}, created_at=${eligiblePosition.created_at.toISOString()}`);
         } else {
           console.log(`[POSITION-SERVICE] ℹ️ Nenhuma posição elegível encontrada para agrupamento`);
+          // Log adicional: verificar quantas posições existem que atendem os critérios básicos
+          const allMatchingPositions = await this.prisma.tradePosition.findMany({
+            where: {
+              exchange_account_id: job.exchange_account_id,
+              trade_mode: job.trade_mode,
+              symbol: job.symbol,
+              side: 'LONG',
+              status: PositionStatus.OPEN,
+              qty_remaining: { gt: 0 },
+            },
+            select: {
+              id: true,
+              is_grouped: true,
+              created_at: true,
+            },
+          });
+          console.log(`[POSITION-SERVICE] Total de posições abertas encontradas: ${allMatchingPositions.length}`);
+          allMatchingPositions.forEach((p: any) => {
+            console.log(`[POSITION-SERVICE]   - Posição ${p.id}: is_grouped=${p.is_grouped}, created_at=${p.created_at.toISOString()}, dentro do intervalo=${p.created_at >= intervalStart}`);
+          });
         }
       } catch (error: any) {
         console.error(`[POSITION-SERVICE] ❌ Erro ao buscar posição elegível para agrupamento: ${error.message}`);
+        console.error(`[POSITION-SERVICE] Stack: ${error.stack}`);
         // Continuar criando nova posição em caso de erro
       }
+    } else {
+      console.log(`[POSITION-SERVICE] ℹ️ Agrupamento desabilitado ou intervalo não configurado (enabled=${groupPositionsEnabled}, interval=${groupPositionsIntervalMinutes})`);
     }
 
     // Se encontrou posição elegível, agrupar
@@ -379,30 +447,64 @@ export class PositionService {
         return false;
       }
 
-      // Buscar parâmetros primeiro para verificar se há fonte disponível
-      const bothParameter = await this.prisma.tradeParameter.findFirst({
+      // Função auxiliar para normalizar símbolo (mesma lógica do trade-parameter.service.ts)
+      const normalizeSymbol = (s: string): string => {
+        if (!s) return '';
+        return s.trim().toUpperCase().replace(/\.(P|F|PERP|FUTURES)$/i, '').replace(/\//g, '').replace(/\s/g, '');
+      };
+      
+      const symbolNorm = normalizeSymbol(symbol);
+      
+      // Buscar todos os parâmetros da conta para verificar se algum contém o símbolo
+      const allBothParameters = await this.prisma.tradeParameter.findMany({
         where: {
           exchange_account_id: exchangeAccountId,
-          symbol: symbol,
           side: 'BOTH',
         },
       });
-
-      const buyParameter = await this.prisma.tradeParameter.findFirst({
+      
+      const allBuyParameters = await this.prisma.tradeParameter.findMany({
         where: {
           exchange_account_id: exchangeAccountId,
-          symbol: symbol,
           side: 'BUY',
         },
       });
-
-      const sellParameter = await this.prisma.tradeParameter.findFirst({
+      
+      const allSellParameters = await this.prisma.tradeParameter.findMany({
         where: {
           exchange_account_id: exchangeAccountId,
-          symbol: symbol,
           side: 'SELL',
         },
       });
+      
+      // Função auxiliar para verificar se um parâmetro corresponde ao símbolo
+      const parameterMatchesSymbol = (param: any): boolean => {
+        if (!param.symbol) return false;
+        
+        // Se o parâmetro tem múltiplos símbolos separados por vírgula
+        if (param.symbol.includes(',')) {
+          const symbolList = param.symbol.split(',').map((s: string) => s.trim()).filter(s => s.length > 0);
+          return symbolList.some(s => normalizeSymbol(s) === symbolNorm);
+        } else {
+          // Símbolo único
+          return normalizeSymbol(param.symbol) === symbolNorm;
+        }
+      };
+      
+      // Buscar parâmetros que correspondem ao símbolo
+      const bothParameter = allBothParameters.find(parameterMatchesSymbol);
+      const buyParameter = allBuyParameters.find(parameterMatchesSymbol);
+      const sellParameter = allSellParameters.find(parameterMatchesSymbol);
+      
+      if (bothParameter) {
+        console.log(`[POSITION-SERVICE] Parâmetro BOTH encontrado para validação (ID: ${bothParameter.id}, symbol: ${bothParameter.symbol})`);
+      }
+      if (buyParameter) {
+        console.log(`[POSITION-SERVICE] Parâmetro BUY encontrado para validação (ID: ${buyParameter.id}, symbol: ${buyParameter.symbol})`);
+      }
+      if (sellParameter) {
+        console.log(`[POSITION-SERVICE] Parâmetro SELL encontrado para validação (ID: ${sellParameter.id}, symbol: ${sellParameter.symbol})`);
+      }
 
       // Verificar se há parâmetros disponíveis
       const hasParameterSource = bothParameter || buyParameter || sellParameter;

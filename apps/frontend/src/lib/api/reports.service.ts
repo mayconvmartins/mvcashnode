@@ -132,7 +132,7 @@ export const reportsService = {
             const openPositionsData = openPositions.data || {}
             const pnlData = pnlSummary.data || {}
             const openCount = openPositionsData.totalPositions || 0
-            const activeAccounts = openPositionsData.bySymbol?.length || 0
+            const activeAccounts = openPositionsData.activeAccounts || 0
 
             return {
                 openPositions: openCount,

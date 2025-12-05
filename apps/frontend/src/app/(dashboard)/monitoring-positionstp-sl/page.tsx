@@ -351,6 +351,34 @@ export default function MonitoringPositionstpSlPage() {
                                     </div>
                                 )}
 
+                                {/* Valores em USD */}
+                                <div className="pt-2 border-t space-y-2">
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted-foreground">Valor Investido</span>
+                                        <span className="font-medium">
+                                            {formatCurrency(position.total_value_usd)}
+                                        </span>
+                                    </div>
+                                    {position.current_value_usd !== null && (
+                                        <>
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="text-muted-foreground">Valor Atual</span>
+                                                <span className="font-medium">
+                                                    {formatCurrency(position.current_value_usd)}
+                                                </span>
+                                            </div>
+                                            {position.unrealized_pnl_usd !== null && (
+                                                <div className="flex items-center justify-between text-xs">
+                                                    <span className="text-muted-foreground">PnL Não Realizado</span>
+                                                    <span className={`font-medium ${position.unrealized_pnl_usd >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                        {position.unrealized_pnl_usd >= 0 ? '+' : ''}{formatCurrency(position.unrealized_pnl_usd)}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+
                                 {/* Quantidade */}
                                 <div className="pt-2 border-t">
                                     <div className="flex items-center justify-between text-xs">

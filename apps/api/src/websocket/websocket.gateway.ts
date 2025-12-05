@@ -58,7 +58,7 @@ export class WebSocketGateway
     }
 
     try {
-      this.logger.log(`[WebSocket] 🔌 Nova tentativa de conexão. Estado: ${client.readyState}`);
+      this.logger.debug(`[WebSocket] 🔌 Nova tentativa de conexão. Estado: ${client.readyState}`);
 
       // Simplificar extração de URL: usar args[0] diretamente como IncomingMessage
       const request = args[0] as any;
@@ -85,7 +85,7 @@ export class WebSocketGateway
         return;
       }
 
-      this.logger.log(`[WebSocket] 📍 URL extraída: ${requestUrl}`);
+      this.logger.debug(`[WebSocket] 📍 URL extraída: ${requestUrl}`);
 
       // Log dos headers se disponíveis
       if (request.headers) {
@@ -109,7 +109,7 @@ export class WebSocketGateway
       }
 
       const token = url.searchParams.get('token');
-      this.logger.log(`[WebSocket] 🔑 Token extraído: ${token ? 'presente (' + token.substring(0, 20) + '...)' : 'ausente'}`);
+      this.logger.debug(`[WebSocket] 🔑 Token extraído: ${token ? 'presente (' + token.substring(0, 20) + '...)' : 'ausente'}`);
 
       if (!token) {
         this.logger.warn('[WebSocket] ⚠️ Conexão rejeitada: token não fornecido na query string', {
@@ -187,7 +187,7 @@ export class WebSocketGateway
 
       // Adicionar cliente autenticado
       this.wsService.addClient(client, user.id, user.email);
-      this.logger.log(`[WebSocket] ✅ Cliente conectado: userId=${user.id}, email=${user.email}`);
+      this.logger.debug(`[WebSocket] ✅ Cliente conectado: userId=${user.id}, email=${user.email}`);
 
       // Enviar mensagem de boas-vindas apenas se ainda estiver conectado
       if (client.readyState === WebSocket.OPEN) {

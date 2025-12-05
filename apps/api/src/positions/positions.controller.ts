@@ -1347,6 +1347,10 @@ export class PositionsController {
 
         if (!currentPrice || currentPrice <= 0) {
           // Se não conseguir preço, retornar dados básicos sem cálculos
+          const qtyTotal = position.qty_total.toNumber();
+          const qtyRemaining = position.qty_remaining.toNumber();
+          const totalInvestedUsd = qtyTotal * priceOpen;
+          
           return {
             id: position.id,
             symbol: position.symbol,
@@ -1365,15 +1369,25 @@ export class PositionsController {
             distance_to_tp_pct: null,
             distance_to_sl_pct: null,
             status: 'UNKNOWN' as const,
-            qty_remaining: position.qty_remaining.toNumber(),
-            qty_total: position.qty_total.toNumber(),
+            qty_remaining: qtyRemaining,
+            qty_total: qtyTotal,
             sl_triggered: position.sl_triggered,
             tp_triggered: position.tp_triggered,
+            total_value_usd: totalInvestedUsd,
+            current_value_usd: null,
+            unrealized_pnl_usd: null,
           };
         }
 
         // Calcular PnL percentual
         const pnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+        
+        // Calcular valores em USD
+        const qtyTotal = position.qty_total.toNumber();
+        const qtyRemaining = position.qty_remaining.toNumber();
+        const totalInvestedUsd = qtyTotal * priceOpen; // Valor total investido
+        const currentValueUsd = qtyRemaining * currentPrice; // Valor atual da posição
+        const unrealizedPnlUsd = (currentPrice - priceOpen) * qtyRemaining; // PnL não realizado
 
         // Calcular proximidade e distância para TP
         let tpProximityPct: number | null = null;
@@ -1429,10 +1443,13 @@ export class PositionsController {
           distance_to_tp_pct: distanceToTpPct,
           distance_to_sl_pct: distanceToSlPct,
           status,
-          qty_remaining: position.qty_remaining.toNumber(),
-          qty_total: position.qty_total.toNumber(),
+          qty_remaining: qtyRemaining,
+          qty_total: qtyTotal,
           sl_triggered: position.sl_triggered,
           tp_triggered: position.tp_triggered,
+          total_value_usd: totalInvestedUsd,
+          current_value_usd: currentValueUsd,
+          unrealized_pnl_usd: unrealizedPnlUsd,
         };
       });
 

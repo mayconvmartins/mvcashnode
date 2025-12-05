@@ -481,6 +481,9 @@ export interface PositionTPSLMonitoring {
     qty_total: number
     sl_triggered: boolean
     tp_triggered: boolean
+    total_value_usd: number
+    current_value_usd: number | null
+    unrealized_pnl_usd: number | null
 }
 
 export interface ClosePositionDto {

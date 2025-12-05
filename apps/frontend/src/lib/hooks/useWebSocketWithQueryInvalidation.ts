@@ -495,11 +495,16 @@ export function useWebSocketWithQueryInvalidation({
     }, [autoConnect, enabled]) // connect e disconnect são estáveis via useCallback
 
     // Reconnect when token changes (mas não quando enabled muda, pois já é tratado acima)
+    const previousTokenRef = useRef<string | null>(null)
     useEffect(() => {
         if (!isMountedRef.current) return
         
+        // Verificar se o token realmente mudou (evitar reconexões desnecessárias)
+        const tokenChanged = previousTokenRef.current !== accessToken
+        previousTokenRef.current = accessToken
+        
         // Se o token mudou e já estávamos conectados, reconectar
-        if (enabled && accessToken && wsRef.current) {
+        if (enabled && accessToken && wsRef.current && tokenChanged) {
             const currentState = wsRef.current.readyState
             // Apenas reconectar se realmente estiver conectado (não apenas conectando)
             if (currentState === WebSocket.OPEN) {
@@ -518,8 +523,9 @@ export function useWebSocketWithQueryInvalidation({
                     clearTimeout(timeoutId)
                 }
             }
-        } else if (enabled && accessToken && !wsRef.current) {
+        } else if (enabled && accessToken && !wsRef.current && tokenChanged) {
             // Se não há conexão mas temos token, tentar conectar (primeira vez ou após desconexão)
+            // Mas apenas se o token realmente mudou ou é a primeira vez
             const timeoutId = setTimeout(() => {
                 if (isMountedRef.current && enabled && accessToken && !wsRef.current) {
                     console.log('🔌 Token available, connecting WebSocket...')
