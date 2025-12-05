@@ -1007,7 +1007,8 @@ export class AdminSystemController {
               },
             });
 
-            // Recalcular posições afetadas
+            // SEMPRE recalcular posições afetadas pelos fills, mesmo se a taxa não precisou correção
+            // Isso garante que a quantidade total esteja sempre correta
             if (side === 'buy') {
               const position = await this.prisma.tradePosition.findFirst({
                 where: {
@@ -1037,23 +1038,8 @@ export class AdminSystemController {
               });
 
               if (position) {
-                // Calcular taxa em USD (base asset * preço médio)
-                const feeUsd = correctFeeAmount * execution.avg_price.toNumber();
-                
-                // Remover a taxa antiga (incorreta) e adicionar a nova (correta)
-                const oldFeeUsd = feeAmount; // Taxa antiga já estava em USD
-                const feeDifference = feeUsd - oldFeeUsd;
-
-                // RECALCULAR quantidade total da posição baseada nos fills
-                // IMPORTANTE: Os fills podem ter quantidades brutas (antes da taxa) ou líquidas (após taxa)
-                // Precisamos verificar cada fill e ajustar se necessário
-                let totalBuyQty = 0;
-                let totalSellQty = 0;
-                let totalFeesUsd = 0;
-                let feesOnBuyUsd = 0;
-                let feesOnSellUsd = 0;
-                
-                const hasFillForThisExecution = position.fills.some(f => f.trade_execution_id === execution.id);
+                // SEMPRE recalcular quantidade total pelos fills, mesmo se a taxa não foi corrigida
+                // Isso garante que a quantidade esteja sempre correta
                 
                 // Buscar todas as execuções relacionadas à posição para verificar taxas
                 const jobIds = [
@@ -1078,6 +1064,17 @@ export class AdminSystemController {
                 });
                 
                 const executionMap = new Map(allExecutions.map(e => [e.id, e]));
+                
+                // RECALCULAR quantidade total da posição baseada nos fills
+                // IMPORTANTE: Os fills podem ter quantidades brutas (antes da taxa) ou líquidas (após taxa)
+                // Precisamos verificar cada fill e ajustar se necessário
+                let totalBuyQty = 0;
+                let totalSellQty = 0;
+                let totalFeesUsd = 0;
+                let feesOnBuyUsd = 0;
+                let feesOnSellUsd = 0;
+                
+                const hasFillForThisExecution = position.fills.some(f => f.trade_execution_id === execution.id);
                 
                 // Processar todos os fills
                 for (const fill of position.fills) {
@@ -1256,6 +1253,196 @@ export class AdminSystemController {
 
             fixed++;
             console.log(`[ADMIN] ✅ Execução ${execution.id} corrigida`);
+          } else {
+            // Mesmo se não precisar corrigir a taxa, recalcular posição pelos fills
+            // Isso garante que a quantidade total esteja sempre correta
+            if (side === 'buy') {
+              try {
+                const position = await this.prisma.tradePosition.findFirst({
+                  where: {
+                    trade_job_id_open: execution.trade_job.id,
+                    status: 'OPEN',
+                  },
+                  include: {
+                    fills: {
+                      include: {
+                        execution: {
+                          select: {
+                            id: true,
+                            executed_qty: true,
+                            fee_amount: true,
+                            fee_currency: true,
+                            avg_price: true,
+                          },
+                        },
+                      },
+                    },
+                    grouped_jobs: {
+                      select: {
+                        trade_job_id: true,
+                      },
+                    },
+                  },
+                });
+
+                if (position) {
+                  // Buscar todas as execuções relacionadas
+                  const jobIds = [
+                    ...(position.grouped_jobs?.map(gj => gj.trade_job_id) || []),
+                    ...(position.trade_job_id_open ? [position.trade_job_id_open] : [])
+                  ];
+                  
+                  const allExecutions = await this.prisma.tradeExecution.findMany({
+                    where: {
+                      trade_job: {
+                        id: { in: jobIds },
+                      },
+                    },
+                    select: {
+                      id: true,
+                      executed_qty: true,
+                      fee_amount: true,
+                      fee_currency: true,
+                      avg_price: true,
+                    },
+                  });
+                  
+                  const executionMap = new Map(allExecutions.map(e => [e.id, e]));
+                  
+                  // Recalcular pelos fills
+                  let totalBuyQty = 0;
+                  let totalSellQty = 0;
+                  let feesOnBuyUsd = 0;
+                  let feesOnSellUsd = 0;
+                  
+                  for (const fill of position.fills) {
+                    const fillExecution = executionMap.get(fill.trade_execution_id);
+                    if (fill.side === 'BUY' && fillExecution) {
+                      const execExecutedQty = fillExecution.executed_qty.toNumber();
+                      totalBuyQty += execExecutedQty;
+                      
+                      // Atualizar fill se necessário
+                      if (Math.abs(fill.qty.toNumber() - execExecutedQty) > 0.00000001) {
+                        await this.prisma.positionFill.update({
+                          where: { id: fill.id },
+                          data: { qty: execExecutedQty },
+                        });
+                      }
+                      
+                      // Calcular taxa
+                      if (fillExecution.fee_amount) {
+                        const fillFeeAmount = fillExecution.fee_amount.toNumber();
+                        const fillFeeCurrency = fillExecution.fee_currency || '';
+                        if (fillFeeCurrency === baseAsset) {
+                          feesOnBuyUsd += fillFeeAmount * fillExecution.avg_price.toNumber();
+                        } else if (fillFeeCurrency === quoteAsset || fillFeeCurrency === 'USDT' || fillFeeCurrency === 'USD') {
+                          feesOnBuyUsd += fillFeeAmount;
+                        }
+                      }
+                    } else if (fill.side === 'SELL' && fillExecution) {
+                      totalSellQty += fill.qty.toNumber();
+                      if (fillExecution.fee_amount) {
+                        const fillFeeAmount = fillExecution.fee_amount.toNumber();
+                        const fillFeeCurrency = fillExecution.fee_currency || '';
+                        if (fillFeeCurrency === quoteAsset || fillFeeCurrency === 'USDT' || fillFeeCurrency === 'USD') {
+                          feesOnSellUsd += fillFeeAmount;
+                        } else {
+                          feesOnSellUsd += fillFeeAmount * fill.price.toNumber();
+                        }
+                      }
+                    }
+                  }
+                  
+                  const finalQtyTotal = Math.max(0, totalBuyQty);
+                  const finalQtyRemaining = Math.max(0, totalBuyQty - totalSellQty);
+                  const finalTotalFees = feesOnBuyUsd + feesOnSellUsd;
+                  
+                  // Atualizar posição dentro de transação
+                  await this.prisma.$transaction(async (tx) => {
+                    const currentPosition = await tx.tradePosition.findUnique({
+                      where: { id: position.id },
+                      include: {
+                        fills: {
+                          include: {
+                            execution: {
+                              select: {
+                                id: true,
+                                executed_qty: true,
+                                fee_amount: true,
+                                fee_currency: true,
+                                avg_price: true,
+                              },
+                            },
+                          },
+                        },
+                      },
+                    });
+                    
+                    if (currentPosition) {
+                      // Recalcular novamente com dados atualizados
+                      let recalcBuyQty = 0;
+                      let recalcSellQty = 0;
+                      let recalcFeesBuy = 0;
+                      let recalcFeesSell = 0;
+                      
+                      for (const fill of currentPosition.fills) {
+                        const fillExec = executionMap.get(fill.trade_execution_id);
+                        if (fill.side === 'BUY' && fillExec) {
+                          recalcBuyQty += fillExec.executed_qty.toNumber();
+                          if (fillExec.fee_amount) {
+                            const feeAmt = fillExec.fee_amount.toNumber();
+                            const feeCur = fillExec.fee_currency || '';
+                            if (feeCur === baseAsset) {
+                              recalcFeesBuy += feeAmt * fillExec.avg_price.toNumber();
+                            } else if (feeCur === quoteAsset || feeCur === 'USDT' || feeCur === 'USD') {
+                              recalcFeesBuy += feeAmt;
+                            }
+                          }
+                        } else if (fill.side === 'SELL' && fillExec) {
+                          recalcSellQty += fill.qty.toNumber();
+                          if (fillExec.fee_amount) {
+                            const feeAmt = fillExec.fee_amount.toNumber();
+                            const feeCur = fillExec.fee_currency || '';
+                            if (feeCur === quoteAsset || feeCur === 'USDT' || feeCur === 'USD') {
+                              recalcFeesSell += feeAmt;
+                            } else {
+                              recalcFeesSell += feeAmt * fill.price.toNumber();
+                            }
+                          }
+                        }
+                      }
+                      
+                      const finalQty = Math.max(0, recalcBuyQty);
+                      const finalRemaining = Math.max(0, recalcBuyQty - recalcSellQty);
+                      const finalFees = recalcFeesBuy + recalcFeesSell;
+                      
+                      const oldQty = currentPosition.qty_total.toNumber();
+                      const oldRemaining = currentPosition.qty_remaining.toNumber();
+                      
+                      await tx.tradePosition.update({
+                        where: { id: position.id },
+                        data: {
+                          qty_total: finalQty,
+                          qty_remaining: finalRemaining,
+                          fees_on_buy_usd: recalcFeesBuy,
+                          fees_on_sell_usd: recalcFeesSell,
+                          total_fees_paid_usd: finalFees,
+                        },
+                      });
+                      
+                      if (Math.abs(oldQty - finalQty) > 0.00000001 || Math.abs(oldRemaining - finalRemaining) > 0.00000001) {
+                        console.log(`[ADMIN] Execução ${execution.id}: Posição ${position.id} recalculada pelos fills - Qty: ${oldQty} -> ${finalQty}, Remaining: ${oldRemaining} -> ${finalRemaining}`);
+                        fixed++; // Incrementar se a quantidade foi corrigida
+                      } else {
+                        console.log(`[ADMIN] Execução ${execution.id}: Posição ${position.id} verificada - quantidades já estão corretas (Qty: ${finalQty}, Remaining: ${finalRemaining})`);
+                      }
+                    }
+                  });
+                }
+              } catch (posError: any) {
+                console.error(`[ADMIN] Erro ao recalcular posição para execução ${execution.id}: ${posError.message}`);
+              }
+            }
           }
         } catch (error: any) {
           errors.push({
