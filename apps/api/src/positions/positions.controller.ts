@@ -611,12 +611,16 @@ export class PositionsController {
 
         // Função auxiliar para verificar se um símbolo está contido em uma string de símbolos (pode ter vírgulas)
         const symbolMatches = (positionSymbol: string, parameterSymbol: string): boolean => {
+          if (!parameterSymbol) return false;
+          
           const normalizedPos = normalizeSymbol(positionSymbol);
+          
           // Se o parâmetro tem vírgulas, verificar se o símbolo está na lista
           if (parameterSymbol.includes(',')) {
-            const paramSymbols = parameterSymbol.split(',').map(s => normalizeSymbol(s.trim()));
-            return paramSymbols.includes(normalizedPos);
+            const paramSymbols = parameterSymbol.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            return paramSymbols.some(s => normalizeSymbol(s) === normalizedPos);
           }
+          
           // Caso contrário, comparar diretamente
           return normalizeSymbol(parameterSymbol) === normalizedPos;
         };
@@ -627,17 +631,26 @@ export class PositionsController {
             // Tentar encontrar parâmetro exato primeiro
             let parameter = parameterMap.get(`${position.exchange_account_id}:${position.symbol}`);
             
-            // Se não encontrou, buscar por correspondência de símbolo (pode ter vírgulas no parâmetro)
+            // Se não encontrou, buscar em todos os parâmetros por correspondência de símbolo
+            // Isso é necessário porque o parâmetro pode ter múltiplos símbolos separados por vírgula
             if (!parameter) {
-              for (const [key, param] of parameterMap.entries()) {
-                if (key.startsWith(`${position.exchange_account_id}:`)) {
+              // Buscar em todos os parâmetros da mesma conta
+              for (const param of parameters) {
+                if (param.exchange_account_id === position.exchange_account_id) {
                   // Verificar se o símbolo da posição está contido no campo symbol do parâmetro
                   if (symbolMatches(position.symbol, param.symbol)) {
                     parameter = param;
+                    console.log(`[PositionsController] Parâmetro encontrado para posição ${position.id}: symbol="${position.symbol}" -> param.symbol="${param.symbol}"`);
                     break;
                   }
                 }
               }
+            } else {
+              console.log(`[PositionsController] Parâmetro encontrado via mapa para posição ${position.id}: symbol="${position.symbol}"`);
+            }
+
+            if (!parameter) {
+              console.warn(`[PositionsController] Nenhum parâmetro encontrado para posição ${position.id}: account=${position.exchange_account_id}, symbol="${position.symbol}"`);
             }
 
             // Usar função helper para calcular grouping_open
