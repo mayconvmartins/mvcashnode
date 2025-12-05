@@ -578,6 +578,7 @@ export class PositionsController {
             side: { in: ['BUY', 'BOTH'] },
           },
           select: {
+            id: true,
             exchange_account_id: true,
             symbol: true,
             group_positions_enabled: true,
