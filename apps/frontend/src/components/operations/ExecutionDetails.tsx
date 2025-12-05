@@ -120,24 +120,24 @@ export function ExecutionDetails({ execution }: ExecutionDetailsProps) {
 
                     {/* Fees */}
                     {(execution.fee_amount || execution.commission) && (
-                        <div className="p-3 rounded-lg bg-muted/50">
-                            <div className="flex items-center justify-between mb-2">
+                    <div className="p-3 rounded-lg bg-muted/50">
+                        <div className="flex items-center justify-between mb-2">
                                 <span className="text-sm font-medium">Taxa da Exchange</span>
-                                <Badge variant="secondary" className="text-xs">
+                            <Badge variant="secondary" className="text-xs">
                                     {execution.fee_currency || execution.commissionAsset || 'N/A'}
-                                </Badge>
-                            </div>
+                            </Badge>
+                        </div>
                             <div className="space-y-1">
-                                <p className="text-lg font-semibold">
+                        <p className="text-lg font-semibold">
                                     {execution.fee_amount || execution.commission || 0} {execution.fee_currency || execution.commissionAsset || ''}
-                                </p>
+                        </p>
                                 {execution.fee_rate && (
                                     <p className="text-xs text-muted-foreground">
                                         Taxa: {execution.fee_rate.toFixed(4)}%
                                     </p>
                                 )}
                             </div>
-                        </div>
+                    </div>
                     )}
 
                     {/* Order ID */}

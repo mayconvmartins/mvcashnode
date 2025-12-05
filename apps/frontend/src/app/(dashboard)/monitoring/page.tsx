@@ -160,7 +160,7 @@ export default function MonitoringPage() {
 
                     {/* Admin Actions */}
                     <div className="grid gap-6 md:grid-cols-2">
-                        <CleanupOrphanedPositions />
+                    <CleanupOrphanedPositions />
                         <SyncExecutionFees />
                     </div>
 
