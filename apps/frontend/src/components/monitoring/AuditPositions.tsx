@@ -30,6 +30,8 @@ interface Discrepancy {
 }
 
 export function AuditPositions() {
+  console.log('[AuditPositions] Component rendered')
+  
   const [auditResult, setAuditResult] = useState<{
     total_positions_checked: number
     total_executions_checked: number
@@ -232,7 +234,7 @@ export function AuditPositions() {
                   )}
                 </div>
 
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -246,35 +248,43 @@ export function AuditPositions() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {auditResult.discrepancies.map((disc, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            {disc.canAutoFix && (
-                              <Checkbox
-                                checked={selectedCorrections.has(index)}
-                                onCheckedChange={(checked) =>
-                                  handleSelectCorrection(index, checked as boolean)
-                                }
-                              />
-                            )}
+                      {auditResult.discrepancies.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                            Nenhuma discrepância encontrada
                           </TableCell>
-                          <TableCell>
-                            <Badge className={getTypeBadge(disc.type)}>{disc.type}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              <div className="font-medium">{disc.entityType}</div>
-                              <div className="text-muted-foreground">ID: {disc.entityId}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">{disc.field}</TableCell>
-                          <TableCell className="font-mono text-sm">{String(disc.currentValue)}</TableCell>
-                          <TableCell className="font-mono text-sm text-green-600">
-                            {String(disc.expectedValue)}
-                          </TableCell>
-                          <TableCell className="text-sm">{disc.fixDescription}</TableCell>
                         </TableRow>
-                      ))}
+                      ) : (
+                        auditResult.discrepancies.map((disc, index) => (
+                          <TableRow key={`${disc.entityType}-${disc.entityId}-${disc.field}-${index}`}>
+                            <TableCell>
+                              {disc.canAutoFix && (
+                                <Checkbox
+                                  checked={selectedCorrections.has(index)}
+                                  onCheckedChange={(checked) =>
+                                    handleSelectCorrection(index, checked as boolean)
+                                  }
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={getTypeBadge(disc.type)}>{disc.type}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                <div className="font-medium">{disc.entityType}</div>
+                                <div className="text-muted-foreground">ID: {disc.entityId}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-sm whitespace-nowrap">{disc.field}</TableCell>
+                            <TableCell className="font-mono text-sm whitespace-nowrap">{String(disc.currentValue)}</TableCell>
+                            <TableCell className="font-mono text-sm text-green-600 dark:text-green-400 whitespace-nowrap">
+                              {String(disc.expectedValue)}
+                            </TableCell>
+                            <TableCell className="text-sm">{disc.fixDescription}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </div>

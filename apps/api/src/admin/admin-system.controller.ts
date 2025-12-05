@@ -1750,7 +1750,9 @@ export class AdminSystemController {
                     if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
                       order = await adapter.fetchClosedOrder(execution.exchange_order_id, execution.trade_job.symbol);
                     } else {
-                      order = await adapter.fetchOrder(execution.exchange_order_id, execution.trade_job.symbol, { acknowledged: true });
+                      // Para Binance, não passar parâmetros extras (não aceita acknowledged)
+                      const params = account.exchange === 'BINANCE_SPOT' ? undefined : { acknowledged: true };
+                      order = await adapter.fetchOrder(execution.exchange_order_id, execution.trade_job.symbol, params);
                     }
                   } catch (orderError: any) {
                     errors.push({
