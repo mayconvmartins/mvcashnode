@@ -205,10 +205,17 @@ export class PositionService {
         intervalStart.setMinutes(intervalStart.getMinutes() - groupPositionsIntervalMinutes);
         console.log(`[POSITION-SERVICE] Intervalo de agrupamento: de ${intervalStart.toISOString()} até agora`);
         
+        // Buscar jobs que já estão agrupados para excluir suas posições da busca
+        const groupedJobIds = await this.prisma.positionGroupedJob.findMany({
+          select: { trade_job_id: true },
+        });
+        const groupedJobIdsSet = new Set(groupedJobIds.map(gj => gj.trade_job_id));
+        
         // Buscar posições elegíveis para agrupamento
         // Deve ser: mesma conta, mesmo modo, mesmo símbolo, aberta, e:
         // - Já é uma posição agrupada OU
         // - Foi criada dentro do intervalo de tempo
+        // E o job de abertura não deve estar já agrupado em outra posição
         const whereClause: any = {
           exchange_account_id: job.exchange_account_id,
           trade_mode: job.trade_mode,
@@ -217,6 +224,13 @@ export class PositionService {
           status: PositionStatus.OPEN,
           qty_remaining: { gt: 0 },
         };
+        
+        // Excluir posições cujo job de abertura já está agrupado em outra posição
+        if (groupedJobIdsSet.size > 0) {
+          whereClause.NOT = {
+            trade_job_id_open: { in: Array.from(groupedJobIdsSet) },
+          };
+        }
         
         // Adicionar condição OR usando sintaxe correta do Prisma
         // Para posições agrupadas, verificar se group_started_at (ou created_at) está dentro do intervalo
@@ -247,6 +261,7 @@ export class PositionService {
         ];
         
         console.log(`[POSITION-SERVICE] Query de busca:`, JSON.stringify(whereClause, null, 2));
+        console.log(`[POSITION-SERVICE] Jobs já agrupados (excluídos): ${Array.from(groupedJobIdsSet).join(', ') || 'nenhum'}`);
         
         eligiblePosition = await this.prisma.tradePosition.findFirst({
           where: whereClause,
@@ -254,7 +269,9 @@ export class PositionService {
         });
 
         if (eligiblePosition) {
-          console.log(`[POSITION-SERVICE] ✅ Posição elegível encontrada para agrupamento: ID=${eligiblePosition.id}, is_grouped=${eligiblePosition.is_grouped}, created_at=${eligiblePosition.created_at.toISOString()}`);
+          const posDate = eligiblePosition.group_started_at || eligiblePosition.created_at;
+          const isWithinInterval = new Date(posDate) >= intervalStart;
+          console.log(`[POSITION-SERVICE] ✅ Posição elegível encontrada para agrupamento: ID=${eligiblePosition.id}, is_grouped=${eligiblePosition.is_grouped}, created_at=${eligiblePosition.created_at.toISOString()}, group_started_at=${eligiblePosition.group_started_at?.toISOString() || 'null'}, dentro do intervalo=${isWithinInterval}`);
         } else {
           console.log(`[POSITION-SERVICE] ℹ️ Nenhuma posição elegível encontrada para agrupamento`);
           // Log adicional: verificar quantas posições existem que atendem os critérios básicos
@@ -271,11 +288,16 @@ export class PositionService {
               id: true,
               is_grouped: true,
               created_at: true,
+              group_started_at: true,
+              trade_job_id_open: true,
             },
           });
           console.log(`[POSITION-SERVICE] Total de posições abertas encontradas: ${allMatchingPositions.length}`);
           allMatchingPositions.forEach((p: any) => {
-            console.log(`[POSITION-SERVICE]   - Posição ${p.id}: is_grouped=${p.is_grouped}, created_at=${p.created_at.toISOString()}, dentro do intervalo=${p.created_at >= intervalStart}`);
+            const posDate = p.group_started_at || p.created_at;
+            const isWithinInterval = new Date(posDate) >= intervalStart;
+            const isJobGrouped = groupedJobIdsSet.has(p.trade_job_id_open);
+            console.log(`[POSITION-SERVICE]   - Posição ${p.id}: is_grouped=${p.is_grouped}, created_at=${p.created_at.toISOString()}, group_started_at=${p.group_started_at?.toISOString() || 'null'}, dentro do intervalo=${isWithinInterval}, job já agrupado=${isJobGrouped}`);
           });
         }
       } catch (error: any) {
@@ -343,13 +365,33 @@ export class PositionService {
           },
         });
 
-        // Criar registro de agrupamento para rastrear o job original
+        // Criar registro de agrupamento para rastrear o job original (novo job)
         await tx.positionGroupedJob.create({
           data: {
             position_id: updatedPosition.id,
             trade_job_id: jobId,
           },
         });
+
+        // Criar registro de agrupamento também para o job da posição existente (se ainda não existir)
+        if (positionToUpdate.trade_job_id_open) {
+          const existingGroupedJob = await tx.positionGroupedJob.findFirst({
+            where: {
+              position_id: updatedPosition.id,
+              trade_job_id: positionToUpdate.trade_job_id_open,
+            },
+          });
+          
+          if (!existingGroupedJob) {
+            await tx.positionGroupedJob.create({
+              data: {
+                position_id: updatedPosition.id,
+                trade_job_id: positionToUpdate.trade_job_id_open,
+              },
+            });
+            console.log(`[POSITION-SERVICE] ✅ Criado PositionGroupedJob para job existente: ${positionToUpdate.trade_job_id_open}`);
+          }
+        }
 
         console.log(`[POSITION-SERVICE] ✅ Posição ${updatedPosition.id} atualizada com agrupamento (total qty: ${totalQty}, avg price: ${weightedAvgPrice.toFixed(8)})`);
 
@@ -1219,7 +1261,8 @@ export class PositionService {
         });
       }
 
-      // Criar PositionGroupedJob para cada posição agrupada (exceto base)
+      // Criar PositionGroupedJob para cada posição agrupada (incluindo base)
+      // Primeiro, criar para as posições que serão deletadas
       for (const position of positionsToDelete) {
         // Verificar se já existe para evitar duplicatas
         const existing = await tx.positionGroupedJob.findFirst({
@@ -1236,6 +1279,27 @@ export class PositionService {
               trade_job_id: position.trade_job_id_open,
             },
           });
+          console.log(`[POSITION-SERVICE] ✅ Criado PositionGroupedJob para posição deletada: job ${position.trade_job_id_open}`);
+        }
+      }
+      
+      // Também criar PositionGroupedJob para o job da posição base (se ainda não existir)
+      if (basePosition.trade_job_id_open) {
+        const existingBaseGroupedJob = await tx.positionGroupedJob.findFirst({
+          where: {
+            position_id: basePosition.id,
+            trade_job_id: basePosition.trade_job_id_open,
+          },
+        });
+        
+        if (!existingBaseGroupedJob) {
+          await tx.positionGroupedJob.create({
+            data: {
+              position_id: basePosition.id,
+              trade_job_id: basePosition.trade_job_id_open,
+            },
+          });
+          console.log(`[POSITION-SERVICE] ✅ Criado PositionGroupedJob para posição base: job ${basePosition.trade_job_id_open}`);
         }
       }
 

@@ -613,25 +613,39 @@ export class PositionsController {
         const symbolMatches = (positionSymbol: string, parameterSymbol: string): boolean => {
           if (!parameterSymbol) return false;
           
+          // Normalizar ambos os símbolos
           const normalizedPos = normalizeSymbol(positionSymbol);
+          const normalizedParam = normalizeSymbol(parameterSymbol.trim());
           
           // Se o parâmetro tem vírgulas, verificar se o símbolo está na lista
-          if (parameterSymbol.includes(',')) {
+          if (normalizedParam.includes(',') || parameterSymbol.includes(',')) {
+            // Usar o símbolo original para split, mas normalizar cada um
             const paramSymbols = parameterSymbol.split(',').map(s => s.trim()).filter(s => s.length > 0);
-            return paramSymbols.some(s => normalizeSymbol(s) === normalizedPos);
+            return paramSymbols.some(s => {
+              const normalized = normalizeSymbol(s);
+              return normalized === normalizedPos;
+            });
           }
           
           // Caso contrário, comparar diretamente
-          return normalizeSymbol(parameterSymbol) === normalizedPos;
+          return normalizedParam === normalizedPos;
         };
 
         // Calcular grouping_open para cada posição agrupada
         positionsWithMetrics.forEach((position: any) => {
           if (position.is_grouped) {
-            // Tentar encontrar parâmetro exato primeiro
+            // Normalizar símbolo da posição para busca
+            const normalizedPositionSymbol = normalizeSymbol(position.symbol);
+            
+            // Tentar encontrar parâmetro exato primeiro (com símbolo normalizado)
             let parameter = parameterMap.get(`${position.exchange_account_id}:${position.symbol}`);
             
-            // Se não encontrou, buscar em todos os parâmetros por correspondência de símbolo
+            // Se não encontrou, tentar com símbolo normalizado
+            if (!parameter && normalizedPositionSymbol) {
+              parameter = parameterMap.get(`${position.exchange_account_id}:${normalizedPositionSymbol}`);
+            }
+            
+            // Se ainda não encontrou, buscar em todos os parâmetros por correspondência de símbolo
             // Isso é necessário porque o parâmetro pode ter múltiplos símbolos separados por vírgula
             if (!parameter) {
               // Buscar em todos os parâmetros da mesma conta
@@ -640,7 +654,7 @@ export class PositionsController {
                   // Verificar se o símbolo da posição está contido no campo symbol do parâmetro
                   if (symbolMatches(position.symbol, param.symbol)) {
                     parameter = param;
-                    console.log(`[PositionsController] Parâmetro encontrado para posição ${position.id}: symbol="${position.symbol}" -> param.symbol="${param.symbol}"`);
+                    console.log(`[PositionsController] Parâmetro encontrado para posição ${position.id}: symbol="${position.symbol}" (normalized: "${normalizedPositionSymbol}") -> param.symbol="${param.symbol}"`);
                     break;
                   }
                 }
@@ -650,7 +664,14 @@ export class PositionsController {
             }
 
             if (!parameter) {
-              console.warn(`[PositionsController] Nenhum parâmetro encontrado para posição ${position.id}: account=${position.exchange_account_id}, symbol="${position.symbol}"`);
+              console.warn(`[PositionsController] Nenhum parâmetro encontrado para posição ${position.id}: account=${position.exchange_account_id}, symbol="${position.symbol}" (normalized: "${normalizedPositionSymbol}")`);
+              console.warn(`[PositionsController] Parâmetros disponíveis para esta conta:`, 
+                parameters.filter(p => p.exchange_account_id === position.exchange_account_id).map(p => ({
+                  id: p.id,
+                  symbol: p.symbol,
+                  symbol_normalized: normalizeSymbol(p.symbol)
+                }))
+              );
             }
 
             // Usar função helper para calcular grouping_open
