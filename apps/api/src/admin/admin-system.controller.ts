@@ -999,6 +999,20 @@ export class AdminSystemController {
                   trade_job_id_open: execution.trade_job.id,
                   status: 'OPEN',
                 },
+                include: {
+                  fills: {
+                    include: {
+                      execution: {
+                        select: {
+                          id: true,
+                          executed_qty: true,
+                          fee_amount: true,
+                          fee_currency: true,
+                        },
+                      },
+                    },
+                  },
+                },
               });
 
               if (position) {
@@ -1009,46 +1023,99 @@ export class AdminSystemController {
                 const oldFeeUsd = feeAmount; // Taxa antiga já estava em USD
                 const feeDifference = feeUsd - oldFeeUsd;
 
-                // Calcular diferença de quantidade (quantidade original real - quantidade ajustada)
-                const qtyDifference = actualOriginalQty - adjustedExecutedQty;
+                // RECALCULAR quantidade total da posição baseada nos fills
+                // Se a posição for agrupada, somar todos os fills de BUY e subtrair os de SELL
+                let totalBuyQty = 0;
+                let totalSellQty = 0;
+                let totalFeesUsd = 0;
+                let feesOnBuyUsd = 0;
+                let feesOnSellUsd = 0;
                 
-                // Ajustar quantidade total e restante
-                // Se a quantidade original real é maior que a quantidade atual da execução, 
-                // significa que a quantidade foi reduzida incorretamente e precisa ser restaurada
-                const currentPositionQty = position.qty_total.toNumber();
-                const currentPositionQtyRemaining = position.qty_remaining.toNumber();
+                const hasFillForThisExecution = position.fills.some(f => f.trade_execution_id === execution.id);
                 
-                // Se a quantidade original real é maior que a atual da execução, restaurar primeiro
-                let newQtyTotal = currentPositionQty;
-                let newQtyRemaining = currentPositionQtyRemaining;
-                
-                if (actualOriginalQty > originalQty) {
-                  // Quantidade foi reduzida incorretamente, restaurar
-                  const qtyToRestore = actualOriginalQty - originalQty;
-                  newQtyTotal = currentPositionQty + qtyToRestore;
-                  newQtyRemaining = currentPositionQtyRemaining + qtyToRestore;
-                  console.log(
-                    `[ADMIN] Execução ${execution.id}: Restaurando quantidade na posição: ${currentPositionQty} -> ${newQtyTotal} (+${qtyToRestore})`
-                  );
+                // Processar todos os fills
+                for (const fill of position.fills) {
+                  if (fill.side === 'BUY') {
+                    // Se é o fill desta execução, usar quantidade ajustada
+                    if (fill.trade_execution_id === execution.id) {
+                      totalBuyQty += adjustedExecutedQty;
+                      feesOnBuyUsd += feeUsd; // Usar taxa corrigida
+                      totalFeesUsd += feeUsd;
+                      
+                      // Atualizar o fill também
+                      await this.prisma.positionFill.update({
+                        where: { id: fill.id },
+                        data: {
+                          qty: adjustedExecutedQty,
+                        },
+                      });
+                    } else {
+                      totalBuyQty += fill.qty.toNumber();
+                      
+                      // Calcular taxa em USD para este fill
+                      if (fill.execution.fee_amount) {
+                        const fillFeeAmount = fill.execution.fee_amount.toNumber();
+                        const fillFeeCurrency = fill.execution.fee_currency || '';
+                        let fillFeeUsd = 0;
+                        
+                        if (fillFeeCurrency === baseAsset) {
+                          // Taxa em base asset, converter para USD
+                          fillFeeUsd = fillFeeAmount * fill.price.toNumber();
+                        } else if (fillFeeCurrency === quoteAsset || fillFeeCurrency === 'USDT' || fillFeeCurrency === 'USD') {
+                          // Taxa já está em USD
+                          fillFeeUsd = fillFeeAmount;
+                        }
+                        
+                        feesOnBuyUsd += fillFeeUsd;
+                        totalFeesUsd += fillFeeUsd;
+                      }
+                    }
+                  } else if (fill.side === 'SELL') {
+                    // Para fills de SELL, subtrair a quantidade vendida
+                    totalSellQty += fill.qty.toNumber();
+                    
+                    // Adicionar taxa de venda
+                    if (fill.execution.fee_amount) {
+                      const fillFeeAmount = fill.execution.fee_amount.toNumber();
+                      const fillFeeCurrency = fill.execution.fee_currency || '';
+                      let fillFeeUsd = 0;
+                      
+                      if (fillFeeCurrency === quoteAsset || fillFeeCurrency === 'USDT' || fillFeeCurrency === 'USD') {
+                        fillFeeUsd = fillFeeAmount;
+                      } else {
+                        // Taxa em base asset na venda (raro), converter para USD
+                        fillFeeUsd = fillFeeAmount * fill.price.toNumber();
+                      }
+                      
+                      feesOnSellUsd += fillFeeUsd;
+                      totalFeesUsd += fillFeeUsd;
+                    }
+                  }
                 }
                 
-                // Agora subtrair a taxa correta (diferença entre quantidade original e ajustada)
-                newQtyTotal = newQtyTotal - qtyDifference;
-                newQtyRemaining = newQtyRemaining - qtyDifference;
+                // Se esta execução não tem fill ainda, adicionar
+                if (!hasFillForThisExecution && side === 'buy') {
+                  totalBuyQty += adjustedExecutedQty;
+                  feesOnBuyUsd += feeUsd;
+                  totalFeesUsd += feeUsd;
+                }
+                
+                const newQtyTotal = Math.max(0, totalBuyQty);
+                const newQtyRemaining = Math.max(0, totalBuyQty - totalSellQty);
                 
                 await this.prisma.tradePosition.update({
                   where: { id: position.id },
                   data: {
-                    fees_on_buy_usd: position.fees_on_buy_usd.toNumber() + feeDifference,
-                    total_fees_paid_usd: position.total_fees_paid_usd.toNumber() + feeDifference,
-                    // Ajustar quantidade total e restante
                     qty_total: newQtyTotal,
                     qty_remaining: newQtyRemaining,
+                    fees_on_buy_usd: feesOnBuyUsd,
+                    fees_on_sell_usd: feesOnSellUsd,
+                    total_fees_paid_usd: totalFeesUsd,
                   },
                 });
                 
                 console.log(
-                  `[ADMIN] Execução ${execution.id}: Posição ${position.id} atualizada - Qty: ${currentPositionQty} -> ${newQtyTotal}, Taxa: ${oldFeeUsd.toFixed(4)} USDT -> ${feeUsd.toFixed(4)} USD (${correctFeeAmount.toFixed(8)} ${correctFeeCurrency})`
+                  `[ADMIN] Execução ${execution.id}: Posição ${position.id} atualizada - Qty recalculada pelos fills: ${position.qty_total.toNumber()} -> ${newQtyTotal}, Taxa: ${oldFeeUsd.toFixed(4)} USDT -> ${feeUsd.toFixed(4)} USD (${correctFeeAmount.toFixed(8)} ${correctFeeCurrency})`
                 );
               }
             }
