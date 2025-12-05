@@ -787,7 +787,7 @@ export class AdminSystemController {
       console.log(`[ADMIN] Encontradas ${totalChecked} execuções com taxas para verificar`);
 
       // Processar em lotes paralelos para melhor performance
-      const BATCH_SIZE = 15; // Processar 15 execuções simultaneamente
+      const BATCH_SIZE = 10; // Processar 10 execuções simultaneamente
       const batches: typeof executionsWithFees[] = [];
       
       for (let i = 0; i < executionsWithFees.length; i += BATCH_SIZE) {
@@ -995,6 +995,14 @@ export class AdminSystemController {
             console.log(`[ADMIN] Execução ${execution.id}: Taxa: ${feeAmount} ${feeCurrency} -> ${correctFeeAmount.toFixed(8)} ${correctFeeCurrency}`);
             console.log(`[ADMIN] Execução ${execution.id}: Quantidade: ${originalQty} -> ${adjustedExecutedQty} (original: ${actualOriginalQty})`);
 
+            // Calcular taxa em USD
+            let feeUsd = 0;
+            if (correctFeeCurrency === baseAsset) {
+              feeUsd = correctFeeAmount * avgPrice;
+            } else if (correctFeeCurrency === quoteAsset || correctFeeCurrency === 'USDT' || correctFeeCurrency === 'USD') {
+              feeUsd = correctFeeAmount;
+            }
+
             // Atualizar execução
             await this.prisma.tradeExecution.update({
               where: { id: execution.id },
@@ -1066,18 +1074,64 @@ export class AdminSystemController {
                 const executionMap = new Map(allExecutions.map(e => [e.id, e]));
                 
                 // RECALCULAR quantidade total da posição baseada nos fills
-                // IMPORTANTE: Os fills podem ter quantidades brutas (antes da taxa) ou líquidas (após taxa)
-                // Precisamos verificar cada fill e ajustar se necessário
+                // IMPORTANTE: Pode haver fills duplicados para a mesma execução
+                // Agrupar fills por execução e usar apenas um fill por execução
+                const fillsByExecution = new Map<number, any[]>();
+                for (const fill of position.fills) {
+                  if (!fillsByExecution.has(fill.trade_execution_id)) {
+                    fillsByExecution.set(fill.trade_execution_id, []);
+                  }
+                  fillsByExecution.get(fill.trade_execution_id)!.push(fill);
+                }
+                
+                // Para cada execução, usar apenas o fill mais recente (ou único)
+                // Também remover fills órfãos (sem execução correspondente)
+                const uniqueFills: any[] = [];
+                for (const [execId, fills] of fillsByExecution.entries()) {
+                  // Verificar se a execução existe
+                  const executionExists = executionMap.has(execId);
+                  
+                  if (!executionExists) {
+                    // Todos os fills desta execução são órfãos - DELETAR TODOS
+                    console.warn(`[ADMIN] Execução ${execId} não existe - deletando ${fills.length} fill(s) órfão(s)`);
+                    for (const orphanFill of fills) {
+                      await this.prisma.positionFill.delete({
+                        where: { id: orphanFill.id },
+                      });
+                    }
+                    continue; // Pular esta execução
+                  }
+                  
+                  // Ordenar por created_at (mais recente primeiro) e pegar o primeiro
+                  const sortedFills = fills.sort((a, b) => 
+                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                  );
+                  uniqueFills.push(sortedFills[0]);
+                  
+                  // Se há múltiplos fills para a mesma execução, deletar os duplicados
+                  if (fills.length > 1) {
+                    const fillToKeep = sortedFills[0];
+                    const fillsToDelete = sortedFills.slice(1);
+                    console.log(`[ADMIN] Execução ${execId}: Encontrados ${fills.length} fills duplicados, mantendo fill ${fillToKeep.id}, deletando ${fillsToDelete.length} duplicado(s)`);
+                    
+                    for (const duplicateFill of fillsToDelete) {
+                      await this.prisma.positionFill.delete({
+                        where: { id: duplicateFill.id },
+                      });
+                    }
+                  }
+                }
+                
                 let totalBuyQty = 0;
                 let totalSellQty = 0;
                 let totalFeesUsd = 0;
                 let feesOnBuyUsd = 0;
                 let feesOnSellUsd = 0;
                 
-                const hasFillForThisExecution = position.fills.some(f => f.trade_execution_id === execution.id);
+                const hasFillForThisExecution = uniqueFills.some(f => f.trade_execution_id === execution.id);
                 
-                // Processar todos os fills
-                for (const fill of position.fills) {
+                // Processar apenas fills únicos (um por execução)
+                for (const fill of uniqueFills) {
                   if (fill.side === 'BUY') {
                     const fillExecution = executionMap.get(fill.trade_execution_id);
                     let fillQty = fill.qty.toNumber();
@@ -1127,8 +1181,12 @@ export class AdminSystemController {
                         }
                       }
                     } else {
-                      // Se não encontrou execução, manter quantidade do fill como está
-                      console.warn(`[ADMIN] Fill ${fill.id} não tem execução associada (execution_id: ${fill.trade_execution_id})`);
+                      // Fill órfão: não tem execução correspondente - DELETAR
+                      console.warn(`[ADMIN] Fill ${fill.id} é órfão (execution_id: ${fill.trade_execution_id} não existe) - DELETANDO`);
+                      await this.prisma.positionFill.delete({
+                        where: { id: fill.id },
+                      });
+                      continue; // Pular este fill, não somar na quantidade
                     }
                     
                     totalBuyQty += fillQty;
@@ -1309,13 +1367,60 @@ export class AdminSystemController {
                   
                   const executionMap = new Map(allExecutions.map(e => [e.id, e]));
                   
-                  // Recalcular pelos fills
+                  // Agrupar fills por execução para evitar duplicados
+                  const fillsByExecution = new Map<number, any[]>();
+                  for (const fill of position.fills) {
+                    if (!fillsByExecution.has(fill.trade_execution_id)) {
+                      fillsByExecution.set(fill.trade_execution_id, []);
+                    }
+                    fillsByExecution.get(fill.trade_execution_id)!.push(fill);
+                  }
+                  
+                  // Para cada execução, usar apenas o fill mais recente (ou único)
+                  // Também remover fills órfãos (sem execução correspondente)
+                  const uniqueFills: any[] = [];
+                  for (const [execId, fills] of fillsByExecution.entries()) {
+                    // Verificar se a execução existe
+                    const executionExists = executionMap.has(execId);
+                    
+                    if (!executionExists) {
+                      // Todos os fills desta execução são órfãos - DELETAR TODOS
+                      console.warn(`[ADMIN] Execução ${execId} não existe - deletando ${fills.length} fill(s) órfão(s)`);
+                      for (const orphanFill of fills) {
+                        await this.prisma.positionFill.delete({
+                          where: { id: orphanFill.id },
+                        });
+                      }
+                      continue; // Pular esta execução
+                    }
+                    
+                    // Ordenar por created_at (mais recente primeiro) e pegar o primeiro
+                    const sortedFills = fills.sort((a, b) => 
+                      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    );
+                    uniqueFills.push(sortedFills[0]);
+                    
+                    // Se há múltiplos fills para a mesma execução, deletar os duplicados
+                    if (fills.length > 1) {
+                      const fillToKeep = sortedFills[0];
+                      const fillsToDelete = sortedFills.slice(1);
+                      console.log(`[ADMIN] Execução ${execId}: Encontrados ${fills.length} fills duplicados, mantendo fill ${fillToKeep.id}, deletando ${fillsToDelete.length} duplicado(s)`);
+                      
+                      for (const duplicateFill of fillsToDelete) {
+                        await this.prisma.positionFill.delete({
+                          where: { id: duplicateFill.id },
+                        });
+                      }
+                    }
+                  }
+                  
+                  // Recalcular pelos fills únicos
                   let totalBuyQty = 0;
                   let totalSellQty = 0;
                   let feesOnBuyUsd = 0;
                   let feesOnSellUsd = 0;
                   
-                  for (const fill of position.fills) {
+                  for (const fill of uniqueFills) {
                     const fillExecution = executionMap.get(fill.trade_execution_id);
                     if (fill.side === 'BUY' && fillExecution) {
                       const execExecutedQty = fillExecution.executed_qty.toNumber();
@@ -1379,13 +1484,25 @@ export class AdminSystemController {
                     });
                     
                     if (currentPosition) {
-                      // Recalcular novamente com dados atualizados
+                      // Recalcular novamente com dados atualizados, agrupando fills por execução
                       let recalcBuyQty = 0;
                       let recalcSellQty = 0;
                       let recalcFeesBuy = 0;
                       let recalcFeesSell = 0;
                       
+                      // Agrupar fills por execução para evitar contar duplicados
+                      const fillsByExecInTx2 = new Map<number, any>();
                       for (const fill of currentPosition.fills) {
+                        const execId = fill.trade_execution_id;
+                        // Manter apenas o fill mais recente para cada execução
+                        if (!fillsByExecInTx2.has(execId) || 
+                            new Date(fill.created_at) > new Date(fillsByExecInTx2.get(execId)!.created_at)) {
+                          fillsByExecInTx2.set(execId, fill);
+                        }
+                      }
+                      
+                      // Recalcular usando apenas fills únicos
+                      for (const fill of fillsByExecInTx2.values()) {
                         const fillExec = executionMap.get(fill.trade_execution_id);
                         if (fill.side === 'BUY' && fillExec) {
                           recalcBuyQty += fillExec.executed_qty.toNumber();
