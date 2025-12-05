@@ -53,6 +53,7 @@ export function AuditPositions() {
 
   const auditMutation = useMutation({
     mutationFn: () => adminService.auditAll(),
+    retry: false, // Não tentar novamente automaticamente (pode demorar muito)
     onSuccess: (data) => {
       setAuditResult(data)
       setSelectedCorrections(new Set())

@@ -250,7 +250,7 @@ export const adminService = {
         duration_ms?: number
     }> => {
         const response = await apiClient.post('/admin/system/audit-all', {}, {
-            timeout: 600000, // 10 minutos para auditoria completa
+            timeout: 1800000, // 30 minutos para auditoria completa (pode processar muitas posições)
         })
         return response.data
     },

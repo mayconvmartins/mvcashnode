@@ -62,9 +62,13 @@ apiClient.interceptors.request.use(
         config.cancelToken = cancelTokenSource.token
         pendingRequests.set(requestKey, cancelTokenSource)
         
-        // Timeout maior para operações longas (uploads, etc)
+        // Timeout maior para operações longas (uploads, auditorias, etc)
         if (config.data instanceof FormData || config.timeout === undefined) {
             config.timeout = 60000 // 60 segundos para uploads
+        }
+        // Se o timeout foi explicitamente definido na requisição, usar esse valor
+        if (config.timeout && config.timeout > 10000) {
+            // Timeout customizado já definido, manter
         }
         
         if (typeof window !== 'undefined') {
