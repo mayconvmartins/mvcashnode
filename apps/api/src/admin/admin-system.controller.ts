@@ -338,16 +338,38 @@ export class AdminSystemController {
           // Buscar ordem na exchange
           // Para Bybit, usar fetchClosedOrder para ordens antigas (fora das últimas 500)
           let order: any;
+          let rawOrder: any = null; // Guardar ordem original antes da conversão
           try {
             if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
+              // Acessar ordem original antes da conversão
+              const exchange = (adapter as any).exchange;
+              if (exchange && exchange.has && exchange.has['fetchClosedOrder']) {
+                rawOrder = await (exchange as any).fetchClosedOrder(
+                  execution.exchange_order_id,
+                  execution.trade_job.symbol
+                );
+              } else {
+                rawOrder = await exchange.fetchOrder(
+                  execution.exchange_order_id,
+                  execution.trade_job.symbol,
+                  { acknowledged: true }
+                );
+              }
+              // Converter para OrderResult
               order = await adapter.fetchClosedOrder(
                 execution.exchange_order_id,
                 execution.trade_job.symbol
               );
             } else {
-              // Para outras exchanges ou se fetchClosedOrder não estiver disponível,
-              // tentar fetchOrder com acknowledged: true para Bybit
+              // Para outras exchanges, buscar ordem original
+              const exchange = (adapter as any).exchange;
               const params = account.exchange === 'BYBIT_SPOT' ? { acknowledged: true } : undefined;
+              rawOrder = await exchange.fetchOrder(
+                execution.exchange_order_id,
+                execution.trade_job.symbol,
+                params
+              );
+              // Converter para OrderResult
               order = await adapter.fetchOrder(
                 execution.exchange_order_id,
                 execution.trade_job.symbol,
@@ -358,6 +380,12 @@ export class AdminSystemController {
             // Se falhar com fetchClosedOrder, tentar fetchOrder com acknowledged: true
             if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
               try {
+                const exchange = (adapter as any).exchange;
+                rawOrder = await exchange.fetchOrder(
+                  execution.exchange_order_id,
+                  execution.trade_job.symbol,
+                  { acknowledged: true }
+                );
                 order = await adapter.fetchOrder(
                   execution.exchange_order_id,
                   execution.trade_job.symbol,
@@ -382,6 +410,15 @@ export class AdminSystemController {
               throw fetchError;
             }
           }
+          
+          // Se order não tem fills mas rawOrder tem, usar rawOrder
+          if ((!order.fills || order.fills.length === 0) && rawOrder) {
+            order.fills = rawOrder.fills;
+            order.fee = rawOrder.fee;
+            order.commission = rawOrder.commission;
+            order.commissionAsset = rawOrder.commissionAsset;
+            order.info = rawOrder.info;
+          }
 
           // Log detalhado da ordem para debug
           console.log(`[ADMIN] Execução ${execution.id}: Ordem recebida:`, {
@@ -394,13 +431,28 @@ export class AdminSystemController {
             commission: order.commission || 'sem commission',
             cost: order.cost,
             filled: order.filled,
+            rawOrderFills: rawOrder?.fills ? `${rawOrder.fills.length} fills` : 'sem fills no rawOrder',
+            rawOrderFee: rawOrder?.fee ? JSON.stringify(rawOrder.fee) : 'sem fee no rawOrder',
+            rawOrderInfo: rawOrder?.info ? 'tem info' : 'sem info no rawOrder',
           });
 
-          // Extrair taxas
+          // Extrair taxas - usar rawOrder se disponível (tem mais informações)
+          const orderToExtract = rawOrder || order;
           const fees = adapter.extractFeesFromOrder(
-            order,
+            orderToExtract,
             execution.trade_job.side.toLowerCase() as 'buy' | 'sell'
           );
+          
+          // Se não encontrou taxas e temos cost/filled, calcular taxa estimada (0.1% padrão para Bybit)
+          if (fees.feeAmount === 0 && order.cost && order.filled) {
+            const estimatedFeeRate = 0.001; // 0.1% padrão
+            const estimatedFee = order.cost * estimatedFeeRate;
+            console.warn(
+              `[ADMIN] ⚠️ Execução ${execution.id}: Não encontrou taxas na ordem, usando taxa estimada de 0.1%: ${estimatedFee} USDT`
+            );
+            fees.feeAmount = estimatedFee;
+            fees.feeCurrency = execution.trade_job.symbol.split('/')[1] || 'USDT';
+          }
 
           console.log(`[ADMIN] Execução ${execution.id}: Taxas extraídas:`, {
             feeAmount: fees.feeAmount,
@@ -524,6 +576,11 @@ export class AdminSystemController {
               orderCommissionAsset: order.commissionAsset,
               orderInfo: order.info ? JSON.stringify(order.info).substring(0, 500) : 'sem info',
               orderKeys: Object.keys(order),
+              rawOrderFills: rawOrder?.fills ? JSON.stringify(rawOrder.fills.slice(0, 2), null, 2) : 'sem fills no rawOrder',
+              rawOrderFee: rawOrder?.fee,
+              rawOrderCommission: rawOrder?.commission,
+              rawOrderInfo: rawOrder?.info ? JSON.stringify(rawOrder.info).substring(0, 1000) : 'sem info no rawOrder',
+              rawOrderKeys: rawOrder ? Object.keys(rawOrder) : [],
             });
           }
             } catch (error: any) {
