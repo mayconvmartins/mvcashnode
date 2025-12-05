@@ -15,6 +15,7 @@ interface StatsCardProps {
     className?: string
     trend?: 'up' | 'down' | 'neutral'
     formatAsCurrency?: boolean
+    description?: string
 }
 
 export function StatsCard({
@@ -26,6 +27,7 @@ export function StatsCard({
     className,
     trend,
     formatAsCurrency = true,
+    description,
 }: StatsCardProps) {
     const getTrendColor = () => {
         if (trend === 'up' || (change !== undefined && change > 0)) {
@@ -87,6 +89,9 @@ export function StatsCard({
                     </div>
                     <div className="space-y-1">
                         <p className="text-2xl font-bold font-mono">{formatValue(value)}</p>
+                        {description && (
+                            <p className="text-xs text-muted-foreground">{description}</p>
+                        )}
                         {change !== undefined && (
                             <p className={cn('text-sm font-medium', getTrendColor())}>
                                 {change > 0 ? '+' : ''}
