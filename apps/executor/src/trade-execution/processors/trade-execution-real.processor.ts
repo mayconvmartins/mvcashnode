@@ -624,6 +624,46 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // Verificar se ordem foi parcialmente preenchida
       const isPartiallyFilled = isOrderPartiallyFilled || (order.filled && order.filled < order.amount);
 
+      // Extrair taxas da ordem
+      let feeAmount: number | null = null;
+      let feeCurrency: string | null = null;
+      let feeRate: number | null = null;
+      
+      try {
+        const fees = adapter.extractFeesFromOrder(order, tradeJob.side.toLowerCase() as 'buy' | 'sell');
+        feeAmount = fees.feeAmount;
+        feeCurrency = fees.feeCurrency;
+        
+        // Calcular taxa percentual se possível
+        if (feeAmount > 0 && cummQuoteQty > 0) {
+          feeRate = (feeAmount / cummQuoteQty) * 100;
+        }
+        
+        this.logger.log(`[EXECUTOR] Taxas extraídas: ${feeAmount} ${feeCurrency}, taxa: ${feeRate?.toFixed(4)}%`);
+      } catch (feeError: any) {
+        this.logger.warn(`[EXECUTOR] Erro ao extrair taxas: ${feeError.message}`);
+      }
+
+      // Ajustar quantidade executada se taxa for em base asset (BUY)
+      let adjustedExecutedQty = executedQty;
+      if (tradeJob.side === 'BUY' && feeAmount && feeCurrency) {
+        const baseAsset = tradeJob.symbol.split('/')[0];
+        if (feeCurrency === baseAsset) {
+          adjustedExecutedQty = Math.max(0, executedQty - feeAmount);
+          this.logger.log(`[EXECUTOR] Quantidade ajustada por taxa (base asset): ${executedQty} -> ${adjustedExecutedQty}`);
+        }
+      }
+
+      // Ajustar cumm_quote_qty se taxa for em quote asset (SELL)
+      let adjustedCummQuoteQty = cummQuoteQty;
+      if (tradeJob.side === 'SELL' && feeAmount && feeCurrency) {
+        const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
+        if (feeCurrency === quoteAsset) {
+          adjustedCummQuoteQty = Math.max(0, cummQuoteQty - feeAmount);
+          this.logger.log(`[EXECUTOR] Valor ajustado por taxa (quote asset): ${cummQuoteQty} -> ${adjustedCummQuoteQty}`);
+        }
+      }
+
       // Create execution
       const execution = await this.prisma.tradeExecution.create({
         data: {
@@ -634,9 +674,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           exchange_order_id: order.id,
           client_order_id: `client-${tradeJobId}-${Date.now()}`,
           status_exchange: order.status,
-          executed_qty: executedQty,
-          cumm_quote_qty: cummQuoteQty,
+          executed_qty: adjustedExecutedQty,
+          cumm_quote_qty: adjustedCummQuoteQty,
           avg_price: avgPrice,
+          fee_amount: feeAmount || undefined,
+          fee_currency: feeCurrency || undefined,
+          fee_rate: feeRate || undefined,
           fills_json: order.fills || undefined,
           raw_response_json: JSON.parse(JSON.stringify(order)),
         },
@@ -705,7 +748,40 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             finalAvgPrice = updatedAverage;
             finalCummQuoteQty = updatedCost > 0 ? updatedCost : (updatedFilled * updatedAverage);
             
-            this.logger.log(`[EXECUTOR] ✅ Dados corrigidos da exchange: qty=${finalExecutedQty}, price=${finalAvgPrice}, cost=${finalCummQuoteQty}`);
+            // Extrair taxas da ordem atualizada
+            let updatedFeeAmount: number | null = null;
+            let updatedFeeCurrency: string | null = null;
+            let updatedFeeRate: number | null = null;
+            
+            try {
+              const fees = adapter.extractFeesFromOrder(updatedOrder, tradeJob.side.toLowerCase() as 'buy' | 'sell');
+              updatedFeeAmount = fees.feeAmount;
+              updatedFeeCurrency = fees.feeCurrency;
+              
+              if (updatedFeeAmount > 0 && finalCummQuoteQty > 0) {
+                updatedFeeRate = (updatedFeeAmount / finalCummQuoteQty) * 100;
+              }
+            } catch (feeError: any) {
+              this.logger.warn(`[EXECUTOR] Erro ao extrair taxas da ordem atualizada: ${feeError.message}`);
+            }
+
+            // Ajustar quantidade se taxa for em base asset (BUY)
+            if (tradeJob.side === 'BUY' && updatedFeeAmount && updatedFeeCurrency) {
+              const baseAsset = tradeJob.symbol.split('/')[0];
+              if (updatedFeeCurrency === baseAsset) {
+                finalExecutedQty = Math.max(0, finalExecutedQty - updatedFeeAmount);
+              }
+            }
+
+            // Ajustar cumm_quote_qty se taxa for em quote asset (SELL)
+            if (tradeJob.side === 'SELL' && updatedFeeAmount && updatedFeeCurrency) {
+              const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
+              if (updatedFeeCurrency === quoteAsset) {
+                finalCummQuoteQty = Math.max(0, finalCummQuoteQty - updatedFeeAmount);
+              }
+            }
+            
+            this.logger.log(`[EXECUTOR] ✅ Dados corrigidos da exchange: qty=${finalExecutedQty}, price=${finalAvgPrice}, cost=${finalCummQuoteQty}, fee=${updatedFeeAmount} ${updatedFeeCurrency}`);
             
             // Atualizar a execução com os dados corretos
             await this.prisma.tradeExecution.update({
@@ -714,6 +790,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                 executed_qty: finalExecutedQty,
                 avg_price: finalAvgPrice,
                 cumm_quote_qty: finalCummQuoteQty,
+                fee_amount: updatedFeeAmount || undefined,
+                fee_currency: updatedFeeCurrency || undefined,
+                fee_rate: updatedFeeRate || undefined,
                 status_exchange: updatedOrder.status || order.status,
                 raw_response_json: JSON.parse(JSON.stringify(updatedOrder)),
               },
@@ -731,6 +810,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       // Update position apenas se quantidade executada > 0
       if (finalExecutedQty > 0) {
+        // Buscar execução atualizada para obter taxas
+        const updatedExecution = await this.prisma.tradeExecution.findUnique({
+          where: { id: execution.id },
+        });
+
         const positionService = new PositionService(this.prisma);
         try {
           if (tradeJob.side === 'BUY') {
@@ -738,7 +822,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               tradeJobId,
               execution.id,
               finalExecutedQty,
-              finalAvgPrice
+              finalAvgPrice,
+              updatedExecution?.fee_amount?.toNumber(),
+              updatedExecution?.fee_currency || undefined
             );
             this.logger.log(`[EXECUTOR] Posição de compra atualizada para job ${tradeJobId}, positionId: ${positionId}`);
             
@@ -766,7 +852,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               execution.id,
               finalExecutedQty,
               finalAvgPrice,
-              'WEBHOOK'
+              'WEBHOOK',
+              updatedExecution?.fee_amount?.toNumber(),
+              updatedExecution?.fee_currency || undefined
             );
             this.logger.log(`[EXECUTOR] Posição de venda atualizada para job ${tradeJobId}`);
 

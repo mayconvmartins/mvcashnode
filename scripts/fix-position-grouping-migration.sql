@@ -56,3 +56,6 @@ WHERE TABLE_SCHEMA = DATABASE()
 
 -- 6. Se as mudanças NÃO foram aplicadas, você pode aplicar manualmente:
 --    (Execute os comandos da migration.sql um por um, verificando erros)
+
+
+

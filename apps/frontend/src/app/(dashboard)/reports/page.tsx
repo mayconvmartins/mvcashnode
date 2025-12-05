@@ -72,6 +72,13 @@ export default function ReportsIndexPage() {
             path: '/reports/symbol-correlation',
             color: 'text-pink-500',
         },
+        {
+            title: 'Relatório de Taxas',
+            description: 'Análise detalhada das taxas pagas nas exchanges',
+            icon: BarChart3,
+            path: '/reports/fees',
+            color: 'text-yellow-500',
+        },
     ]
 
     return (

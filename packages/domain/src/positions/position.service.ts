@@ -11,7 +11,14 @@ export interface PositionFill {
 export class PositionService {
   constructor(private prisma: PrismaClient) {}
 
-  async onBuyExecuted(jobId: number, executionId: number, executedQty: number, avgPrice: number): Promise<number> {
+  async onBuyExecuted(
+    jobId: number, 
+    executionId: number, 
+    executedQty: number, 
+    avgPrice: number,
+    feeAmount?: number,
+    feeCurrency?: string
+  ): Promise<number> {
     const job = await this.prisma.tradeJob.findUnique({
       where: { id: jobId },
       include: { exchange_account: true },
@@ -263,10 +270,54 @@ export class PositionService {
         console.log(`[POSITION-SERVICE] Query de busca:`, JSON.stringify(whereClause, null, 2));
         console.log(`[POSITION-SERVICE] Jobs já agrupados (excluídos): ${Array.from(groupedJobIdsSet).join(', ') || 'nenhum'}`);
         
-        eligiblePosition = await this.prisma.tradePosition.findFirst({
-          where: whereClause,
-          orderBy: { created_at: 'asc' },
+        // Priorizar posições agrupadas: primeiro buscar posições agrupadas, depois não agrupadas
+        // Isso garante que novas posições sempre se juntem à posição agrupada existente se ela estiver dentro do intervalo
+        
+        // Construir where clause para posições agrupadas (sem a condição NOT que pode excluir incorretamente)
+        const groupedWhereClause: any = {
+          exchange_account_id: job.exchange_account_id,
+          trade_mode: job.trade_mode,
+          symbol: job.symbol,
+          side: 'LONG',
+          status: PositionStatus.OPEN,
+          qty_remaining: { gt: 0 },
+          is_grouped: true,
+          OR: [
+            { group_started_at: { gte: intervalStart } },
+            {
+              AND: [
+                { group_started_at: null },
+                { created_at: { gte: intervalStart } },
+              ],
+            },
+          ],
+        };
+        
+        // Para posições agrupadas, não aplicar a condição NOT porque queremos encontrar a posição agrupada existente
+        // A condição NOT só é necessária para evitar agrupar posições cujo job já está agrupado em OUTRA posição
+        // Mas quando uma posição é agrupada, ela mantém seu trade_job_id_open original, então não será excluída
+        
+        let groupedPosition = await this.prisma.tradePosition.findFirst({
+          where: groupedWhereClause,
+          orderBy: [
+            { group_started_at: 'asc' },
+            { created_at: 'asc' },
+          ],
         });
+        
+        if (groupedPosition) {
+          eligiblePosition = groupedPosition;
+          const posDate = groupedPosition.group_started_at || groupedPosition.created_at;
+          const isWithinInterval = new Date(posDate) >= intervalStart;
+          console.log(`[POSITION-SERVICE] ✅ Posição agrupada encontrada (prioridade): ID=${groupedPosition.id}, is_grouped=${groupedPosition.is_grouped}, group_started_at=${groupedPosition.group_started_at?.toISOString() || 'null'}, dentro do intervalo=${isWithinInterval}`);
+        } else {
+          console.log(`[POSITION-SERVICE] ℹ️ Nenhuma posição agrupada encontrada, buscando posições não agrupadas`);
+          // Se não encontrou posição agrupada, buscar posições não agrupadas
+          eligiblePosition = await this.prisma.tradePosition.findFirst({
+            where: whereClause,
+            orderBy: { created_at: 'asc' },
+          });
+        }
 
         if (eligiblePosition) {
           const posDate = eligiblePosition.group_started_at || eligiblePosition.created_at;
@@ -293,11 +344,25 @@ export class PositionService {
             },
           });
           console.log(`[POSITION-SERVICE] Total de posições abertas encontradas: ${allMatchingPositions.length}`);
-          allMatchingPositions.forEach((p: any) => {
+          
+          // Separar posições agrupadas e não agrupadas para melhor diagnóstico
+          const groupedPositions = allMatchingPositions.filter((p: any) => p.is_grouped);
+          const ungroupedPositions = allMatchingPositions.filter((p: any) => !p.is_grouped);
+          
+          console.log(`[POSITION-SERVICE] Posições agrupadas: ${groupedPositions.length}`);
+          groupedPositions.forEach((p: any) => {
             const posDate = p.group_started_at || p.created_at;
             const isWithinInterval = new Date(posDate) >= intervalStart;
             const isJobGrouped = groupedJobIdsSet.has(p.trade_job_id_open);
-            console.log(`[POSITION-SERVICE]   - Posição ${p.id}: is_grouped=${p.is_grouped}, created_at=${p.created_at.toISOString()}, group_started_at=${p.group_started_at?.toISOString() || 'null'}, dentro do intervalo=${isWithinInterval}, job já agrupado=${isJobGrouped}`);
+            console.log(`[POSITION-SERVICE]   [AGRUPADA] Posição ${p.id}: created_at=${p.created_at.toISOString()}, group_started_at=${p.group_started_at?.toISOString() || 'null'}, dentro do intervalo=${isWithinInterval}, job já agrupado=${isJobGrouped}`);
+          });
+          
+          console.log(`[POSITION-SERVICE] Posições não agrupadas: ${ungroupedPositions.length}`);
+          ungroupedPositions.forEach((p: any) => {
+            const posDate = p.group_started_at || p.created_at;
+            const isWithinInterval = new Date(posDate) >= intervalStart;
+            const isJobGrouped = groupedJobIdsSet.has(p.trade_job_id_open);
+            console.log(`[POSITION-SERVICE]   [NÃO AGRUPADA] Posição ${p.id}: created_at=${p.created_at.toISOString()}, dentro do intervalo=${isWithinInterval}, job já agrupado=${isJobGrouped}`);
           });
         }
       } catch (error: any) {
@@ -307,6 +372,23 @@ export class PositionService {
       }
     } else {
       console.log(`[POSITION-SERVICE] ℹ️ Agrupamento desabilitado ou intervalo não configurado (enabled=${groupPositionsEnabled}, interval=${groupPositionsIntervalMinutes})`);
+    }
+
+    // Calcular taxa em USD para atualização da posição
+    let feeUsd = 0;
+    if (feeAmount && feeAmount > 0 && feeCurrency) {
+      const quoteAsset = job.symbol.split('/')[1] || 'USDT';
+      if (feeCurrency === 'USDT' || feeCurrency === 'USD' || feeCurrency === quoteAsset) {
+        // Taxa já está em USD ou em quote asset (que geralmente é USDT)
+        feeUsd = feeAmount;
+      } else if (feeCurrency === job.symbol.split('/')[0]) {
+        // Taxa em base asset, converter usando preço médio
+        feeUsd = feeAmount * avgPrice;
+      } else {
+        // Outra moeda, usar aproximação (assumir 1:1 com USD se não conseguir converter)
+        feeUsd = feeAmount;
+        console.warn(`[POSITION-SERVICE] Taxa em moeda desconhecida ${feeCurrency}, usando valor direto`);
+      }
     }
 
     // Se encontrou posição elegível, agrupar
@@ -320,7 +402,7 @@ export class PositionService {
         if (!positionToUpdate || positionToUpdate.status !== PositionStatus.OPEN) {
           // Posição não existe mais ou foi fechada, criar nova
           console.log(`[POSITION-SERVICE] ⚠️ Posição elegível não está mais disponível, criando nova posição`);
-          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, false, null);
+          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, false, null, feeUsd);
         }
 
         // Calcular novo custo médio ponderado
@@ -338,9 +420,14 @@ export class PositionService {
         console.log(`[POSITION-SERVICE]   - Qty existente: ${existingQty}, Preço: ${existingPrice}`);
         console.log(`[POSITION-SERVICE]   - Qty nova: ${newQty}, Preço: ${newPrice}`);
         console.log(`[POSITION-SERVICE]   - Custo médio ponderado: ${weightedAvgPrice.toFixed(8)}`);
+        console.log(`[POSITION-SERVICE]   - Taxa na compra: ${feeUsd} USD`);
 
         // Determinar group_started_at (usar o mais antigo)
         const groupStartedAt = positionToUpdate.group_started_at || positionToUpdate.created_at;
+
+        // Atualizar taxas acumuladas
+        const existingFeesOnBuy = positionToUpdate.fees_on_buy_usd.toNumber();
+        const existingTotalFees = positionToUpdate.total_fees_paid_usd.toNumber();
 
         // Atualizar posição existente
         const updatedPosition = await tx.tradePosition.update({
@@ -351,6 +438,8 @@ export class PositionService {
             price_open: weightedAvgPrice,
             is_grouped: true,
             group_started_at: groupStartedAt,
+            fees_on_buy_usd: existingFeesOnBuy + feeUsd,
+            total_fees_paid_usd: existingTotalFees + feeUsd,
           },
         });
 
@@ -413,7 +502,8 @@ export class PositionService {
       tpEnabled,
       tpPct,
       false,
-      null
+      null,
+      feeUsd
     );
   }
 
@@ -433,7 +523,8 @@ export class PositionService {
     tpEnabled: boolean,
     tpPct: number | null,
     isGrouped: boolean,
-    groupStartedAt: Date | null
+    groupStartedAt: Date | null,
+    feesOnBuyUsd: number = 0
   ): Promise<number> {
     // Create new position
     const position = await prisma.tradePosition.create({
@@ -454,6 +545,8 @@ export class PositionService {
         tp_pct: tpPct,
         is_grouped: isGrouped,
         group_started_at: groupStartedAt,
+        fees_on_buy_usd: feesOnBuyUsd,
+        total_fees_paid_usd: feesOnBuyUsd,
       },
     });
 
@@ -749,7 +842,9 @@ export class PositionService {
     executionId: number,
     executedQty: number,
     avgPrice: number,
-    origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING'
+    origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING',
+    feeAmount?: number,
+    feeCurrency?: string
   ): Promise<void> {
     const job = await this.prisma.tradeJob.findUnique({
       where: { id: jobId },
@@ -786,22 +881,55 @@ export class PositionService {
       return;
     }
 
+    // Calcular taxa em USD para a venda
+    let feeUsd = 0;
+    if (feeAmount && feeAmount > 0 && feeCurrency) {
+      const quoteAsset = job.symbol.split('/')[1] || 'USDT';
+      if (feeCurrency === 'USDT' || feeCurrency === 'USD' || feeCurrency === quoteAsset) {
+        // Taxa já está em USD ou em quote asset
+        feeUsd = feeAmount;
+      } else if (feeCurrency === job.symbol.split('/')[0]) {
+        // Taxa em base asset, converter usando preço de venda
+        feeUsd = feeAmount * avgPrice;
+      } else {
+        // Outra moeda, usar aproximação
+        feeUsd = feeAmount;
+        console.warn(`[POSITION-SERVICE] Taxa em moeda desconhecida ${feeCurrency}, usando valor direto`);
+      }
+    }
+
+    // Proporção da taxa para cada posição (baseado na quantidade vendida)
+    const totalQtySold = executedQty;
     let remainingToSell = executedQty;
+    let totalFeeDistributed = 0;
 
     for (const position of eligiblePositions) {
       if (remainingToSell <= 0) break;
 
       const qtyToClose = Math.min(position.qty_remaining.toNumber(), remainingToSell);
-      const profitUsd = (avgPrice - position.price_open.toNumber()) * qtyToClose;
+      
+      // Calcular proporção da taxa para esta posição
+      const feeProportion = totalQtySold > 0 ? (qtyToClose / totalQtySold) : 0;
+      const positionFeeUsd = feeUsd * feeProportion;
+      totalFeeDistributed += positionFeeUsd;
+      
+      // Calcular lucro descontando a taxa proporcional
+      const grossProfitUsd = (avgPrice - position.price_open.toNumber()) * qtyToClose;
+      const profitUsd = grossProfitUsd - positionFeeUsd;
 
       const newQtyRemaining = position.qty_remaining.toNumber() - qtyToClose;
-      const newRealizedProfit = position.realized_profit_usd.toNumber() + profitUsd;
+      const existingRealizedProfit = position.realized_profit_usd.toNumber();
+      const existingFeesOnSell = position.fees_on_sell_usd.toNumber();
+      const existingTotalFees = position.total_fees_paid_usd.toNumber();
+      const newRealizedProfit = existingRealizedProfit + profitUsd;
 
       await this.prisma.tradePosition.update({
         where: { id: position.id },
         data: {
           qty_remaining: newQtyRemaining,
           realized_profit_usd: newRealizedProfit,
+          fees_on_sell_usd: existingFeesOnSell + positionFeeUsd,
+          total_fees_paid_usd: existingTotalFees + positionFeeUsd,
           status: newQtyRemaining === 0 ? PositionStatus.CLOSED : PositionStatus.OPEN,
           closed_at: newQtyRemaining === 0 ? new Date() : null,
           close_reason: newQtyRemaining === 0 ? this.getCloseReason(origin) : null,

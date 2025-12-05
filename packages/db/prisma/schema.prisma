@@ -401,6 +401,9 @@ model TradeExecution {
   executed_qty        Decimal  @db.Decimal(36, 18)
   cumm_quote_qty      Decimal  @db.Decimal(36, 18)
   avg_price           Decimal  @db.Decimal(36, 18)
+  fee_amount          Decimal? @db.Decimal(36, 18)
+  fee_currency        String?  @db.VarChar(20)
+  fee_rate            Decimal? @db.Decimal(10, 8)
   fills_json          Json?    @db.Json
   raw_response_json   Json?    @db.Json
   created_at          DateTime @default(now())
@@ -432,6 +435,9 @@ model TradePosition {
   price_open            Decimal   @db.Decimal(36, 18)
   status                String    @default("OPEN") @db.VarChar(20)
   realized_profit_usd   Decimal   @default(0) @db.Decimal(36, 18)
+  total_fees_paid_usd   Decimal   @default(0) @db.Decimal(36, 18)
+  fees_on_buy_usd       Decimal   @default(0) @db.Decimal(36, 18)
+  fees_on_sell_usd      Decimal   @default(0) @db.Decimal(36, 18)
   sl_enabled            Boolean   @default(false)
   sl_pct                Decimal?  @db.Decimal(5, 2)
   tp_enabled            Boolean   @default(false)

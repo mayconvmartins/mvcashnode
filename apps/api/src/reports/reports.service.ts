@@ -1367,5 +1367,212 @@ export class ReportsService {
       positionsBySymbol: [],
     };
   }
+
+  async getFeesReport(
+    userId: number,
+    tradeMode?: TradeMode,
+    from?: Date,
+    to?: Date,
+    exchangeAccountId?: number,
+    symbol?: string
+  ) {
+    // Construir filtros
+    const whereClause: any = {
+      user_id: userId,
+    };
+
+    if (tradeMode) {
+      whereClause.trade_mode = tradeMode;
+    }
+
+    if (exchangeAccountId) {
+      whereClause.exchange_account_id = exchangeAccountId;
+    }
+
+    if (symbol) {
+      whereClause.symbol = symbol;
+    }
+
+    // Buscar execuções com taxas
+    const executionsWhere: any = {
+      exchange_account: {
+        user_id: userId,
+      },
+      fee_amount: { not: null },
+    };
+
+    if (tradeMode) {
+      executionsWhere.trade_mode = tradeMode;
+    }
+
+    if (exchangeAccountId) {
+      executionsWhere.exchange_account_id = exchangeAccountId;
+    }
+
+    if (from || to) {
+      executionsWhere.created_at = {};
+      if (from) executionsWhere.created_at.gte = from;
+      if (to) executionsWhere.created_at.lte = to;
+    }
+
+    // Agregações de execuções
+    const [executionsTotal, executionsByAccount, executionsWithDetails] = await Promise.all([
+      // Total de taxas
+      this.prisma.tradeExecution.aggregate({
+        where: executionsWhere,
+        _sum: {
+          fee_amount: true,
+        },
+        _count: {
+          id: true,
+        },
+        _avg: {
+          fee_amount: true,
+        },
+      }),
+
+      // Taxas por conta
+      this.prisma.tradeExecution.groupBy({
+        by: ['exchange_account_id'],
+        where: executionsWhere,
+        _sum: {
+          fee_amount: true,
+        },
+        _count: {
+          id: true,
+        },
+        _avg: {
+          fee_amount: true,
+        },
+      }),
+
+      // Buscar execuções com detalhes para agrupar por símbolo e data
+      this.prisma.tradeExecution.findMany({
+        where: executionsWhere,
+        select: {
+          created_at: true,
+          fee_amount: true,
+          trade_job: {
+            select: {
+              symbol: true,
+            },
+          },
+        },
+        orderBy: {
+          created_at: 'asc',
+        },
+      }),
+    ]);
+
+    // Agrupar execuções por símbolo
+    const bySymbolMap = new Map<string, number>();
+    executionsWithDetails.forEach((exec) => {
+      const symbol = exec.trade_job?.symbol || 'UNKNOWN';
+      bySymbolMap.set(symbol, (bySymbolMap.get(symbol) || 0) + 1);
+    });
+    const executionsBySymbol = Array.from(bySymbolMap.entries()).map(([symbol, count]) => ({
+      symbol,
+      execution_count: count,
+    }));
+
+    // Agrupar execuções por data
+    const executionsByDateMap = new Map<string, { total_fees: number; count: number }>();
+    executionsWithDetails.forEach((exec) => {
+      const date = exec.created_at.toISOString().split('T')[0];
+      const existing = executionsByDateMap.get(date) || { total_fees: 0, count: 0 };
+      executionsByDateMap.set(date, {
+        total_fees: existing.total_fees + (exec.fee_amount?.toNumber() || 0),
+        count: existing.count + 1,
+      });
+    });
+    const executionsByDateGrouped = Array.from(executionsByDateMap.entries()).map(([date, data]) => ({
+      date,
+      total_fees: data.total_fees,
+      count: data.count,
+    }));
+
+    // Buscar detalhes das contas para o relatório
+    const accountIds = executionsByAccount.map((e: any) => e.exchange_account_id);
+    const accounts = await this.prisma.exchangeAccount.findMany({
+      where: {
+        id: { in: accountIds },
+        user_id: userId,
+      },
+      select: {
+        id: true,
+        label: true,
+        exchange: true,
+      },
+    });
+
+    const accountMap = new Map(accounts.map((a) => [a.id, a]));
+
+    // Taxas por posição
+    const positionsWhere: any = {
+      exchange_account: {
+        user_id: userId,
+      },
+      total_fees_paid_usd: { gt: 0 },
+    };
+
+    if (tradeMode) {
+      positionsWhere.trade_mode = tradeMode;
+    }
+
+    if (exchangeAccountId) {
+      positionsWhere.exchange_account_id = exchangeAccountId;
+    }
+
+    if (symbol) {
+      positionsWhere.symbol = symbol;
+    }
+
+    const [positionsTotal, positionsBySide] = await Promise.all([
+      this.prisma.tradePosition.aggregate({
+        where: positionsWhere,
+        _sum: {
+          total_fees_paid_usd: true,
+          fees_on_buy_usd: true,
+          fees_on_sell_usd: true,
+        },
+        _count: {
+          id: true,
+        },
+      }),
+
+      this.prisma.tradePosition.groupBy({
+        by: ['status'],
+        where: positionsWhere,
+        _sum: {
+          total_fees_paid_usd: true,
+        },
+      }),
+    ]);
+
+    return {
+      summary: {
+        total_fees_usd: executionsTotal._sum.fee_amount?.toNumber() || 0,
+        total_executions: executionsTotal._count.id || 0,
+        avg_fee_per_execution: executionsTotal._avg.fee_amount?.toNumber() || 0,
+        total_positions_with_fees: positionsTotal._count.id || 0,
+        total_fees_from_positions: positionsTotal._sum.total_fees_paid_usd?.toNumber() || 0,
+        fees_on_buy: positionsTotal._sum.fees_on_buy_usd?.toNumber() || 0,
+        fees_on_sell: positionsTotal._sum.fees_on_sell_usd?.toNumber() || 0,
+      },
+      by_account: executionsByAccount.map((e: any) => ({
+        account_id: e.exchange_account_id,
+        account: accountMap.get(e.exchange_account_id),
+        total_fees: e._sum.fee_amount?.toNumber() || 0,
+        execution_count: e._count.id || 0,
+        avg_fee: e._avg.fee_amount?.toNumber() || 0,
+      })),
+      by_symbol: executionsBySymbol,
+      by_date: executionsByDateGrouped,
+      by_position_status: positionsBySide.map((e: any) => ({
+        status: e.status,
+        total_fees: e._sum.total_fees_paid_usd?.toNumber() || 0,
+      })),
+    };
+  }
 }
 

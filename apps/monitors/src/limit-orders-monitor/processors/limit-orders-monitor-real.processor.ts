@@ -94,6 +94,46 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
         const exchangeOrder = await adapter.fetchOrder(existingExecution.exchange_order_id, order.symbol);
 
         if (exchangeOrder.status === 'FILLED' || exchangeOrder.status === 'closed') {
+          // Extrair taxas da ordem
+          let feeAmount: number | null = null;
+          let feeCurrency: string | null = null;
+          let feeRate: number | null = null;
+          
+          try {
+            const fees = adapter.extractFeesFromOrder(exchangeOrder, order.side.toLowerCase() as 'buy' | 'sell');
+            feeAmount = fees.feeAmount;
+            feeCurrency = fees.feeCurrency;
+            
+            const executedQty = exchangeOrder.filled || exchangeOrder.amount || 0;
+            const cummQuoteQty = exchangeOrder.cost || 0;
+            
+            if (feeAmount > 0 && cummQuoteQty > 0) {
+              feeRate = (feeAmount / cummQuoteQty) * 100;
+            }
+          } catch (feeError: any) {
+            console.warn(`[LIMIT-ORDERS-MONITOR] Erro ao extrair taxas: ${feeError.message}`);
+          }
+
+          let executedQty = exchangeOrder.filled || exchangeOrder.amount || 0;
+          let cummQuoteQty = exchangeOrder.cost || 0;
+          const avgPrice = exchangeOrder.average || exchangeOrder.price || 0;
+
+          // Ajustar quantidade se taxa for em base asset (BUY)
+          if (order.side === 'BUY' && feeAmount && feeCurrency) {
+            const baseAsset = order.symbol.split('/')[0];
+            if (feeCurrency === baseAsset) {
+              executedQty = Math.max(0, executedQty - feeAmount);
+            }
+          }
+
+          // Ajustar cumm_quote_qty se taxa for em quote asset (SELL)
+          if (order.side === 'SELL' && feeAmount && feeCurrency) {
+            const quoteAsset = order.symbol.split('/')[1] || 'USDT';
+            if (feeCurrency === quoteAsset) {
+              cummQuoteQty = Math.max(0, cummQuoteQty - feeAmount);
+            }
+          }
+
           // Create execution
           const execution = await this.prisma.tradeExecution.create({
             data: {
@@ -104,9 +144,12 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
               exchange_order_id: exchangeOrder.id,
               client_order_id: `client-${order.id}`,
               status_exchange: exchangeOrder.status,
-              executed_qty: exchangeOrder.filled || exchangeOrder.amount,
-              cumm_quote_qty: exchangeOrder.cost || 0,
-              avg_price: exchangeOrder.average || exchangeOrder.price || 0,
+              executed_qty: executedQty,
+              cumm_quote_qty: cummQuoteQty,
+              avg_price: avgPrice,
+              fee_amount: feeAmount || undefined,
+              fee_currency: feeCurrency || undefined,
+              fee_rate: feeRate || undefined,
               raw_response_json: JSON.parse(JSON.stringify(exchangeOrder)),
             },
           });
@@ -117,7 +160,9 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
               order.id,
               execution.id,
               execution.executed_qty.toNumber(),
-              execution.avg_price.toNumber()
+              execution.avg_price.toNumber(),
+              feeAmount || undefined,
+              feeCurrency || undefined
             );
           } else {
             await positionService.onSellExecuted(
@@ -125,7 +170,9 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
               execution.id,
               execution.executed_qty.toNumber(),
               execution.avg_price.toNumber(),
-              'MANUAL'
+              'MANUAL',
+              feeAmount || undefined,
+              feeCurrency || undefined
             );
           }
 

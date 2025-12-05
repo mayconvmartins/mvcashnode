@@ -428,6 +428,15 @@ export default function OperationDetailPage() {
                                                         <label className="text-sm font-medium text-muted-foreground">Valor Total</label>
                                                         <div className="mt-1 font-mono">{formatCurrency(exec.cumm_quote_qty)}</div>
                                                     </div>
+                                                    {exec.fee_amount && (
+                                                        <div>
+                                                            <label className="text-sm font-medium text-muted-foreground">Taxa</label>
+                                                            <div className="mt-1 font-mono text-sm">
+                                                                {exec.fee_amount} {exec.fee_currency || ''}
+                                                                {exec.fee_rate && ` (${exec.fee_rate.toFixed(4)}%)`}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     {exec.exchange_order_id && (
                                                         <div>
                                                             <label className="text-sm font-medium text-muted-foreground">ID da Ordem</label>

@@ -422,6 +422,28 @@ export default function PositionDetailPage() {
                         )}
                     </CardContent>
                 </Card>
+
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardDescription className="flex items-center gap-2">
+                            <DollarSign className="h-4 w-4" />
+                            Taxas Pagas
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">
+                            {formatCurrency(Number(position.total_fees_paid_usd || 0))}
+                        </div>
+                        <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                            {Number(position.fees_on_buy_usd || 0) > 0 && (
+                                <p>Compra: {formatCurrency(Number(position.fees_on_buy_usd))}</p>
+                            )}
+                            {Number(position.fees_on_sell_usd || 0) > 0 && (
+                                <p>Venda: {formatCurrency(Number(position.fees_on_sell_usd))}</p>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
 
             {/* Tabs */}

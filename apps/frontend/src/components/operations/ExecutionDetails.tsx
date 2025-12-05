@@ -15,8 +15,11 @@ export interface ExecutionDetailsData {
     side: 'BUY' | 'SELL'
     executedQty: number
     executedPrice: number
-    commission: number
-    commissionAsset: string
+    commission?: number
+    commissionAsset?: string
+    fee_amount?: number
+    fee_currency?: string
+    fee_rate?: number
     executionTime: string
     orderId?: string
     status: string
@@ -115,18 +118,27 @@ export function ExecutionDetails({ execution }: ExecutionDetailsProps) {
 
                     <Separator />
 
-                    {/* Commission */}
-                    <div className="p-3 rounded-lg bg-muted/50">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium">Comissão</span>
-                            <Badge variant="secondary" className="text-xs">
-                                {execution.commissionAsset}
-                            </Badge>
+                    {/* Fees */}
+                    {(execution.fee_amount || execution.commission) && (
+                        <div className="p-3 rounded-lg bg-muted/50">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium">Taxa da Exchange</span>
+                                <Badge variant="secondary" className="text-xs">
+                                    {execution.fee_currency || execution.commissionAsset || 'N/A'}
+                                </Badge>
+                            </div>
+                            <div className="space-y-1">
+                                <p className="text-lg font-semibold">
+                                    {execution.fee_amount || execution.commission || 0} {execution.fee_currency || execution.commissionAsset || ''}
+                                </p>
+                                {execution.fee_rate && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Taxa: {execution.fee_rate.toFixed(4)}%
+                                    </p>
+                                )}
+                            </div>
                         </div>
-                        <p className="text-lg font-semibold">
-                            {execution.commission} {execution.commissionAsset}
-                        </p>
-                    </div>
+                    )}
 
                     {/* Order ID */}
                     {execution.orderId && (

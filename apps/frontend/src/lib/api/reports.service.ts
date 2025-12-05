@@ -49,6 +49,13 @@ export const reportsService = {
         return response.data
     },
 
+    getFeesReport: async (filters?: ReportFilters): Promise<any> => {
+        const response = await apiClient.get('/reports/fees', {
+            params: filters,
+        })
+        return response.data
+    },
+
     getWebhooksSummary: async (filters?: {
         webhook_source_id?: number
         from?: string

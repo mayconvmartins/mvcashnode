@@ -227,5 +227,73 @@ export abstract class ExchangeAdapter {
       volume: ticker.baseVolume ? Number(ticker.baseVolume) : undefined,
     };
   }
+
+  /**
+   * Extrai informações de taxas de uma ordem da exchange
+   * @param order Ordem da exchange (OrderResult ou objeto com fills)
+   * @param side Lado da ordem ('buy' ou 'sell')
+   * @returns Objeto com valor da taxa e moeda
+   */
+  extractFeesFromOrder(order: OrderResult | any, side: 'buy' | 'sell'): { feeAmount: number; feeCurrency: string } {
+    let totalFeeAmount = 0;
+    let feeCurrency = '';
+
+    // Tentar extrair dos fills primeiro (mais preciso)
+    if (order.fills && Array.isArray(order.fills) && order.fills.length > 0) {
+      for (const fill of order.fills) {
+        // CCXT geralmente retorna fee como objeto { cost, currency } ou como número
+        if (fill.fee) {
+          if (typeof fill.fee === 'object' && fill.fee.cost !== undefined) {
+            totalFeeAmount += Number(fill.fee.cost) || 0;
+            if (!feeCurrency && fill.fee.currency) {
+              feeCurrency = String(fill.fee.currency);
+            }
+          } else if (typeof fill.fee === 'number') {
+            totalFeeAmount += fill.fee;
+          }
+        }
+        // Algumas exchanges retornam commission diretamente
+        if (fill.commission && !fill.fee) {
+          totalFeeAmount += Number(fill.commission) || 0;
+          if (!feeCurrency && fill.commissionAsset) {
+            feeCurrency = String(fill.commissionAsset);
+          }
+        }
+      }
+    }
+
+    // Se não encontrou nos fills, tentar no objeto order diretamente
+    if (totalFeeAmount === 0) {
+      if (order.fee) {
+        if (typeof order.fee === 'object' && order.fee.cost !== undefined) {
+          totalFeeAmount = Number(order.fee.cost) || 0;
+          feeCurrency = order.fee.currency ? String(order.fee.currency) : '';
+        } else if (typeof order.fee === 'number') {
+          totalFeeAmount = order.fee;
+        }
+      }
+      if (order.commission && !order.fee) {
+        totalFeeAmount = Number(order.commission) || 0;
+        feeCurrency = order.commissionAsset ? String(order.commissionAsset) : '';
+      }
+    }
+
+    // Se ainda não encontrou moeda, inferir baseado no lado da ordem e símbolo
+    if (!feeCurrency && order.symbol) {
+      const symbolParts = String(order.symbol).split('/');
+      if (side === 'buy') {
+        // Para compra, taxa geralmente é em quote asset (ex: USDT)
+        feeCurrency = symbolParts[1] || 'USDT';
+      } else {
+        // Para venda, taxa geralmente é em base asset
+        feeCurrency = symbolParts[0] || '';
+      }
+    }
+
+    return {
+      feeAmount: totalFeeAmount,
+      feeCurrency: feeCurrency || 'USDT', // Fallback para USDT
+    };
+  }
 }
 

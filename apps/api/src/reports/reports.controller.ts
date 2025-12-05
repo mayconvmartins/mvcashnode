@@ -17,6 +17,68 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class ReportsController {
   constructor(private reportsService: ReportsService) {}
 
+  @Get('fees')
+  @ApiOperation({
+    summary: 'Relatório de taxas',
+    description: 'Retorna relatório detalhado de taxas pagas, incluindo totais, médias e agregações por período, conta e símbolo.',
+  })
+  @ApiQuery({
+    name: 'trade_mode',
+    required: false,
+    enum: ['REAL', 'SIMULATION'],
+    description: 'Filtrar por modo de trading',
+    example: 'REAL',
+  })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    type: String,
+    description: 'Data inicial (ISO 8601)',
+    example: '2025-02-01T00:00:00.000Z',
+  })
+  @ApiQuery({
+    name: 'to',
+    required: false,
+    type: String,
+    description: 'Data final (ISO 8601)',
+    example: '2025-02-12T23:59:59.999Z',
+  })
+  @ApiQuery({
+    name: 'exchange_account_id',
+    required: false,
+    type: Number,
+    description: 'Filtrar por conta de exchange específica',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'symbol',
+    required: false,
+    type: String,
+    description: 'Filtrar por símbolo específico',
+    example: 'BTC/USDT',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Relatório de taxas retornado com sucesso',
+  })
+  async getFeesReport(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('exchange_account_id') exchangeAccountId?: number,
+    @Query('symbol') symbol?: string
+  ) {
+    return this.reportsService.getFeesReport(
+      user.userId,
+      tradeMode as any,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+      exchangeAccountId,
+      symbol
+    );
+  }
+
   @Get('pnl/summary')
   @ApiOperation({ 
     summary: 'Resumo de PnL (Profit and Loss)',

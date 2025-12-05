@@ -318,6 +318,44 @@ export class TradeExecutionSimProcessor extends WorkerHost {
 
       // Create simulated execution
       const cummQuoteQty = executedQty * avgPrice;
+      
+      // Calcular taxas simuladas (0.1% padrão)
+      const DEFAULT_FEE_RATE = 0.001; // 0.1%
+      let feeAmount: number | null = null;
+      let feeCurrency: string | null = null;
+      let feeRate: number | null = DEFAULT_FEE_RATE * 100; // 0.1%
+      
+      if (tradeJob.side === 'BUY') {
+        // Para compra, taxa geralmente é em base asset ou quote asset
+        // Vamos simular como quote asset (mais comum)
+        const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
+        feeAmount = cummQuoteQty * DEFAULT_FEE_RATE;
+        feeCurrency = quoteAsset;
+      } else {
+        // Para venda, taxa geralmente é em base asset
+        const baseAsset = tradeJob.symbol.split('/')[0];
+        feeAmount = executedQty * DEFAULT_FEE_RATE;
+        feeCurrency = baseAsset;
+      }
+      
+      // Ajustar quantidade executada se taxa for em base asset (BUY)
+      let adjustedExecutedQty = executedQty;
+      if (tradeJob.side === 'BUY' && feeAmount && feeCurrency) {
+        const baseAsset = tradeJob.symbol.split('/')[0];
+        if (feeCurrency === baseAsset) {
+          adjustedExecutedQty = Math.max(0, executedQty - feeAmount);
+        }
+      }
+      
+      // Ajustar cumm_quote_qty se taxa for em quote asset (SELL)
+      let adjustedCummQuoteQty = cummQuoteQty;
+      if (tradeJob.side === 'SELL' && feeAmount && feeCurrency) {
+        const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
+        if (feeCurrency === quoteAsset) {
+          adjustedCummQuoteQty = Math.max(0, cummQuoteQty - feeAmount);
+        }
+      }
+      
       const execution = await this.prisma.tradeExecution.create({
         data: {
           trade_job_id: tradeJobId,
@@ -327,13 +365,18 @@ export class TradeExecutionSimProcessor extends WorkerHost {
           exchange_order_id: `SIM-${randomUUID()}`,
           client_order_id: `client-${tradeJobId}-${Date.now()}`,
           status_exchange: 'FILLED',
-          executed_qty: executedQty,
-          cumm_quote_qty: cummQuoteQty,
+          executed_qty: adjustedExecutedQty,
+          cumm_quote_qty: adjustedCummQuoteQty,
           avg_price: avgPrice,
+          fee_amount: feeAmount || undefined,
+          fee_currency: feeCurrency || undefined,
+          fee_rate: feeRate || undefined,
           raw_response_json: {
             simulated: true,
             price: avgPrice,
             current_price: currentPrice,
+            fee_amount: feeAmount,
+            fee_currency: feeCurrency,
             timestamp: new Date().toISOString(),
           },
         },
@@ -348,17 +391,21 @@ export class TradeExecutionSimProcessor extends WorkerHost {
           await positionService.onBuyExecuted(
             tradeJobId,
             execution.id,
-            executedQty,
-            avgPrice
+            adjustedExecutedQty,
+            avgPrice,
+            feeAmount || undefined,
+            feeCurrency || undefined
           );
           this.logger.log(`[EXECUTOR-SIM] Posição de compra atualizada para job ${tradeJobId}`);
         } else {
           await positionService.onSellExecuted(
             tradeJobId,
             execution.id,
-            executedQty,
+            adjustedExecutedQty,
             avgPrice,
-            'WEBHOOK'
+            'WEBHOOK',
+            feeAmount || undefined,
+            feeCurrency || undefined
           );
           this.logger.log(`[EXECUTOR-SIM] Posição de venda atualizada para job ${tradeJobId}`);
         }

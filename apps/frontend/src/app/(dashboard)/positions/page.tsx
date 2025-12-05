@@ -688,6 +688,15 @@ export default function PositionsPage() {
             ),
         },
         {
+            key: 'total_fees_paid_usd',
+            label: 'Taxas',
+            render: (position) => (
+                <span className="font-mono text-sm text-muted-foreground">
+                    {position.total_fees_paid_usd ? formatCurrency(Number(position.total_fees_paid_usd)) : '-'}
+                </span>
+            ),
+        },
+        {
             key: 'realized_profit_usd',
             label: 'PnL Realizado',
             render: (position) => <PnLBadge value={Number(position.realized_profit_usd || 0)} />,
