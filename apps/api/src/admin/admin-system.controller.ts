@@ -526,21 +526,22 @@ export class AdminSystemController {
               orderKeys: Object.keys(order),
             });
           }
-          } catch (error: any) {
-          const errorMessage = error.message || 'Erro desconhecido';
-          errors.push({
-            executionId: execution.id,
-            error: errorMessage,
-          });
-          
-          // Log mais detalhado para erros específicos
-          if (errorMessage.includes('last 500 orders') || errorMessage.includes('muito antiga')) {
-            console.warn(
-              `[ADMIN] ⚠️ Execução ${execution.id}: Ordem muito antiga (fora das últimas 500 ordens da Bybit). ` +
-              `Não é possível buscar taxas via API. Considere atualizar manualmente ou usar dados históricos.`
-            );
-          } else {
-              console.error(`[ADMIN] ❌ Erro ao processar execução ${execution.id}:`, errorMessage);
+            } catch (error: any) {
+              const errorMessage = error.message || 'Erro desconhecido';
+              errors.push({
+                executionId: execution.id,
+                error: errorMessage,
+              });
+              
+              // Log mais detalhado para erros específicos
+              if (errorMessage.includes('last 500 orders') || errorMessage.includes('muito antiga')) {
+                console.warn(
+                  `[ADMIN] ⚠️ Execução ${execution.id}: Ordem muito antiga (fora das últimas 500 ordens da Bybit). ` +
+                  `Não é possível buscar taxas via API. Considere atualizar manualmente ou usar dados históricos.`
+                );
+              } else {
+                console.error(`[ADMIN] ❌ Erro ao processar execução ${execution.id}:`, errorMessage);
+              }
             }
           })
         );
