@@ -219,8 +219,25 @@ export class PositionService {
         };
         
         // Adicionar condição OR usando sintaxe correta do Prisma
+        // Para posições agrupadas, verificar se group_started_at (ou created_at) está dentro do intervalo
+        // Para posições não agrupadas, verificar se created_at está dentro do intervalo
         whereClause.OR = [
-          { is_grouped: true },
+          {
+            AND: [
+              { is_grouped: true },
+              {
+                OR: [
+                  { group_started_at: { gte: intervalStart } },
+                  {
+                    AND: [
+                      { group_started_at: null },
+                      { created_at: { gte: intervalStart } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
           {
             AND: [
               { is_grouped: false },
