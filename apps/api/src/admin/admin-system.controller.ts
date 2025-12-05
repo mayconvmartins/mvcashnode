@@ -326,10 +326,52 @@ export class AdminSystemController {
           );
 
           // Buscar ordem na exchange
-          const order = await adapter.fetchOrder(
-            execution.exchange_order_id,
-            execution.trade_job.symbol
-          );
+          // Para Bybit, usar fetchClosedOrder para ordens antigas (fora das últimas 500)
+          let order: any;
+          try {
+            if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
+              order = await adapter.fetchClosedOrder(
+                execution.exchange_order_id,
+                execution.trade_job.symbol
+              );
+            } else {
+              // Para outras exchanges ou se fetchClosedOrder não estiver disponível,
+              // tentar fetchOrder com acknowledged: true para Bybit
+              const params = account.exchange === 'BYBIT_SPOT' ? { acknowledged: true } : undefined;
+              order = await adapter.fetchOrder(
+                execution.exchange_order_id,
+                execution.trade_job.symbol,
+                params
+              );
+            }
+          } catch (fetchError: any) {
+            // Se falhar com fetchClosedOrder, tentar fetchOrder com acknowledged: true
+            if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
+              try {
+                order = await adapter.fetchOrder(
+                  execution.exchange_order_id,
+                  execution.trade_job.symbol,
+                  { acknowledged: true }
+                );
+              } catch (retryError: any) {
+                // Se ainda falhar, verificar se é o erro específico de ordem antiga
+                if (retryError.message?.includes('last 500 orders')) {
+                  throw new Error(
+                    `Ordem muito antiga (fora das últimas 500). Não é possível buscar taxas para execução ${execution.id}.`
+                  );
+                }
+                throw retryError;
+              }
+            } else {
+              // Para outras exchanges, verificar se é erro de ordem antiga
+              if (fetchError.message?.includes('last 500 orders')) {
+                throw new Error(
+                  `Ordem muito antiga (fora das últimas 500). Não é possível buscar taxas para execução ${execution.id}.`
+                );
+              }
+              throw fetchError;
+            }
+          }
 
           // Extrair taxas
           const fees = adapter.extractFeesFromOrder(
@@ -446,11 +488,21 @@ export class AdminSystemController {
             console.warn(`[ADMIN] ⚠️ Execução ${execution.id} não tem taxas na exchange`);
           }
         } catch (error: any) {
+          const errorMessage = error.message || 'Erro desconhecido';
           errors.push({
             executionId: execution.id,
-            error: error.message || 'Erro desconhecido',
+            error: errorMessage,
           });
-          console.error(`[ADMIN] ❌ Erro ao processar execução ${execution.id}:`, error.message);
+          
+          // Log mais detalhado para erros específicos
+          if (errorMessage.includes('last 500 orders') || errorMessage.includes('muito antiga')) {
+            console.warn(
+              `[ADMIN] ⚠️ Execução ${execution.id}: Ordem muito antiga (fora das últimas 500 ordens da Bybit). ` +
+              `Não é possível buscar taxas via API. Considere atualizar manualmente ou usar dados históricos.`
+            );
+          } else {
+            console.error(`[ADMIN] ❌ Erro ao processar execução ${execution.id}:`, errorMessage);
+          }
         }
       }
 
