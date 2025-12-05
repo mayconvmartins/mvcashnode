@@ -300,18 +300,28 @@ export class AdminSystemController {
 
       const positionService = new PositionService(this.prisma);
 
-      // Processar em lotes para não sobrecarregar
-      for (const execution of executionsWithoutFees) {
-        try {
-          if (!execution.exchange_order_id || !execution.trade_job) {
-            continue;
-          }
+      // Processar em paralelo com limite de concorrência para evitar timeout
+      const BATCH_SIZE = 10; // Processar 10 por vez
+      const batches = [];
+      for (let i = 0; i < executionsWithoutFees.length; i += BATCH_SIZE) {
+        batches.push(executionsWithoutFees.slice(i, i + BATCH_SIZE));
+      }
 
-          const account = execution.exchange_account;
-          if (!account.api_key_enc || !account.api_secret_enc) {
-            console.warn(`[ADMIN] Conta ${account.id} sem API keys, pulando execução ${execution.id}`);
-            continue;
-          }
+      console.log(`[ADMIN] Processando ${executionsWithoutFees.length} execuções em ${batches.length} lotes de ${BATCH_SIZE}`);
+
+      for (const batch of batches) {
+        await Promise.all(
+          batch.map(async (execution) => {
+            try {
+              if (!execution.exchange_order_id || !execution.trade_job) {
+                return; // Pular esta execução
+              }
+
+              const account = execution.exchange_account;
+              if (!account.api_key_enc || !account.api_secret_enc) {
+                console.warn(`[ADMIN] Conta ${account.id} sem API keys, pulando execução ${execution.id}`);
+                return; // Pular esta execução
+              }
 
           // Decriptar API keys
           const apiKey = await this.encryptionService.decrypt(account.api_key_enc);
@@ -373,11 +383,29 @@ export class AdminSystemController {
             }
           }
 
+          // Log detalhado da ordem para debug
+          console.log(`[ADMIN] Execução ${execution.id}: Ordem recebida:`, {
+            id: order.id,
+            symbol: order.symbol,
+            side: order.side,
+            status: order.status,
+            fills: order.fills ? `${order.fills.length} fills` : 'sem fills',
+            fee: order.fee ? JSON.stringify(order.fee) : 'sem fee',
+            commission: order.commission || 'sem commission',
+            cost: order.cost,
+            filled: order.filled,
+          });
+
           // Extrair taxas
           const fees = adapter.extractFeesFromOrder(
             order,
             execution.trade_job.side.toLowerCase() as 'buy' | 'sell'
           );
+
+          console.log(`[ADMIN] Execução ${execution.id}: Taxas extraídas:`, {
+            feeAmount: fees.feeAmount,
+            feeCurrency: fees.feeCurrency,
+          });
 
           if (fees.feeAmount > 0) {
             // Calcular taxa percentual
@@ -485,9 +513,20 @@ export class AdminSystemController {
             updated++;
             console.log(`[ADMIN] ✅ Execução ${execution.id} atualizada com taxas: ${fees.feeAmount} ${fees.feeCurrency}`);
           } else {
-            console.warn(`[ADMIN] ⚠️ Execução ${execution.id} não tem taxas na exchange`);
+            console.warn(`[ADMIN] ⚠️ Execução ${execution.id} não tem taxas na exchange (feeAmount: ${fees.feeAmount})`);
+            // Log detalhado para entender por que não encontrou taxas
+            console.log(`[ADMIN] Debug execução ${execution.id} - Estrutura completa da ordem:`, {
+              hasFills: !!order.fills,
+              fillsCount: order.fills ? order.fills.length : 0,
+              fills: order.fills ? JSON.stringify(order.fills.slice(0, 2), null, 2) : 'sem fills',
+              orderFee: order.fee,
+              orderCommission: order.commission,
+              orderCommissionAsset: order.commissionAsset,
+              orderInfo: order.info ? JSON.stringify(order.info).substring(0, 500) : 'sem info',
+              orderKeys: Object.keys(order),
+            });
           }
-        } catch (error: any) {
+          } catch (error: any) {
           const errorMessage = error.message || 'Erro desconhecido';
           errors.push({
             executionId: execution.id,
@@ -501,8 +540,14 @@ export class AdminSystemController {
               `Não é possível buscar taxas via API. Considere atualizar manualmente ou usar dados históricos.`
             );
           } else {
-            console.error(`[ADMIN] ❌ Erro ao processar execução ${execution.id}:`, errorMessage);
-          }
+              console.error(`[ADMIN] ❌ Erro ao processar execução ${execution.id}:`, errorMessage);
+            }
+          })
+        );
+        
+        // Pequeno delay entre lotes para não sobrecarregar a API
+        if (batches.indexOf(batch) < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 

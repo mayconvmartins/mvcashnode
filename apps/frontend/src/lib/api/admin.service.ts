@@ -212,7 +212,9 @@ export const adminService = {
         error_details?: Array<{ executionId: number; error: string }>
         duration_ms?: number
     }> => {
-        const response = await apiClient.post('/admin/system/sync-execution-fees')
+        const response = await apiClient.post('/admin/system/sync-execution-fees', {}, {
+            timeout: 300000, // 5 minutos para sincronização (pode processar muitas execuções)
+        })
         return response.data
     },
 }

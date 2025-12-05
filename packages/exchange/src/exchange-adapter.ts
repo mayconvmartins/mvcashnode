@@ -238,25 +238,62 @@ export abstract class ExchangeAdapter {
     let totalFeeAmount = 0;
     let feeCurrency = '';
 
+    // Log para debug (apenas em desenvolvimento)
+    const debugLog = process.env.NODE_ENV === 'development';
+
     // Tentar extrair dos fills primeiro (mais preciso)
     if (order.fills && Array.isArray(order.fills) && order.fills.length > 0) {
+      if (debugLog) {
+        console.log('[ExchangeAdapter] Verificando fills:', order.fills.length, 'fills encontrados');
+      }
+      
       for (const fill of order.fills) {
         // CCXT geralmente retorna fee como objeto { cost, currency } ou como número
         if (fill.fee) {
           if (typeof fill.fee === 'object' && fill.fee.cost !== undefined) {
-            totalFeeAmount += Number(fill.fee.cost) || 0;
+            const feeCost = Number(fill.fee.cost) || 0;
+            totalFeeAmount += feeCost;
             if (!feeCurrency && fill.fee.currency) {
               feeCurrency = String(fill.fee.currency);
             }
+            if (debugLog && feeCost > 0) {
+              console.log('[ExchangeAdapter] Taxa encontrada no fill.fee:', feeCost, fill.fee.currency);
+            }
           } else if (typeof fill.fee === 'number') {
             totalFeeAmount += fill.fee;
+            if (debugLog && fill.fee > 0) {
+              console.log('[ExchangeAdapter] Taxa encontrada no fill.fee (número):', fill.fee);
+            }
           }
         }
+        
         // Algumas exchanges retornam commission diretamente
-        if (fill.commission && !fill.fee) {
-          totalFeeAmount += Number(fill.commission) || 0;
-          if (!feeCurrency && fill.commissionAsset) {
-            feeCurrency = String(fill.commissionAsset);
+        if (fill.commission !== undefined && fill.commission !== null) {
+          const commission = Number(fill.commission) || 0;
+          if (commission > 0) {
+            totalFeeAmount += commission;
+            if (!feeCurrency && fill.commissionAsset) {
+              feeCurrency = String(fill.commissionAsset);
+            }
+            if (debugLog) {
+              console.log('[ExchangeAdapter] Taxa encontrada no fill.commission:', commission, fill.commissionAsset);
+            }
+          }
+        }
+        
+        // Verificar outros campos possíveis (algumas exchanges usam nomes diferentes)
+        if (totalFeeAmount === 0) {
+          // Bybit pode usar 'executedQty' e calcular taxa baseada na diferença
+          // Ou pode ter 'fee' como string no formato "0.001 USDT"
+          if (fill.fee && typeof fill.fee === 'string') {
+            const feeMatch = fill.fee.match(/([\d.]+)\s+(\w+)/);
+            if (feeMatch) {
+              totalFeeAmount = Number(feeMatch[1]) || 0;
+              feeCurrency = feeMatch[2] || '';
+              if (debugLog && totalFeeAmount > 0) {
+                console.log('[ExchangeAdapter] Taxa encontrada no fill.fee (string):', totalFeeAmount, feeCurrency);
+              }
+            }
           }
         }
       }
@@ -268,13 +305,60 @@ export abstract class ExchangeAdapter {
         if (typeof order.fee === 'object' && order.fee.cost !== undefined) {
           totalFeeAmount = Number(order.fee.cost) || 0;
           feeCurrency = order.fee.currency ? String(order.fee.currency) : '';
+          if (debugLog && totalFeeAmount > 0) {
+            console.log('[ExchangeAdapter] Taxa encontrada no order.fee:', totalFeeAmount, feeCurrency);
+          }
         } else if (typeof order.fee === 'number') {
           totalFeeAmount = order.fee;
+          if (debugLog && totalFeeAmount > 0) {
+            console.log('[ExchangeAdapter] Taxa encontrada no order.fee (número):', totalFeeAmount);
+          }
+        } else if (typeof order.fee === 'string') {
+          // Formato string "0.001 USDT"
+          const feeMatch = order.fee.match(/([\d.]+)\s+(\w+)/);
+          if (feeMatch) {
+            totalFeeAmount = Number(feeMatch[1]) || 0;
+            feeCurrency = feeMatch[2] || '';
+            if (debugLog && totalFeeAmount > 0) {
+              console.log('[ExchangeAdapter] Taxa encontrada no order.fee (string):', totalFeeAmount, feeCurrency);
+            }
+          }
         }
       }
-      if (order.commission && !order.fee) {
+      
+      if (order.commission !== undefined && order.commission !== null && totalFeeAmount === 0) {
         totalFeeAmount = Number(order.commission) || 0;
         feeCurrency = order.commissionAsset ? String(order.commissionAsset) : '';
+        if (debugLog && totalFeeAmount > 0) {
+          console.log('[ExchangeAdapter] Taxa encontrada no order.commission:', totalFeeAmount, feeCurrency);
+        }
+      }
+      
+      // Verificar campos adicionais que algumas exchanges podem usar
+      if (totalFeeAmount === 0 && order.info) {
+        // Algumas exchanges retornam informações adicionais em 'info'
+        const info = order.info;
+        if (info.executedQty && info.cummulativeQuoteQty) {
+          // Pode calcular taxa baseada na diferença (não ideal, mas melhor que nada)
+          // Isso é apenas um fallback se não encontrar taxa explícita
+        }
+        if (info.fee) {
+          if (typeof info.fee === 'string') {
+            const feeMatch = info.fee.match(/([\d.]+)\s+(\w+)/);
+            if (feeMatch) {
+              totalFeeAmount = Number(feeMatch[1]) || 0;
+              feeCurrency = feeMatch[2] || '';
+              if (debugLog && totalFeeAmount > 0) {
+                console.log('[ExchangeAdapter] Taxa encontrada no order.info.fee:', totalFeeAmount, feeCurrency);
+              }
+            }
+          } else if (typeof info.fee === 'number') {
+            totalFeeAmount = info.fee;
+            if (debugLog && totalFeeAmount > 0) {
+              console.log('[ExchangeAdapter] Taxa encontrada no order.info.fee (número):', totalFeeAmount);
+            }
+          }
+        }
       }
     }
 
