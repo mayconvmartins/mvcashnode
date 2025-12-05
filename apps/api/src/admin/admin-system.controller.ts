@@ -763,6 +763,8 @@ export class AdminSystemController {
             select: {
               id: true,
               exchange: true,
+              api_key_enc: true,
+              api_secret_enc: true,
               fee_rate_buy_limit: true,
               fee_rate_buy_market: true,
               fee_rate_sell_limit: true,
@@ -811,9 +813,8 @@ export class AdminSystemController {
           let realFeeFromTrades: { feeAmount: number; feeCurrency: string } | null = null;
           
           try {
-            const encryptionService = new EncryptionService();
-            const apiKey = await encryptionService.decrypt(execution.exchange_account.api_key_enc || '');
-            const apiSecret = await encryptionService.decrypt(execution.exchange_account.api_secret_enc || '');
+            const apiKey = await this.encryptionService.decrypt(execution.exchange_account.api_key_enc || '');
+            const apiSecret = await this.encryptionService.decrypt(execution.exchange_account.api_secret_enc || '');
             
             if (apiKey && apiSecret) {
               const adapter = AdapterFactory.createAdapter(
