@@ -368,8 +368,39 @@ export class TradeParametersController {
       const updateData: any = {};
       if (updateDto.symbol !== undefined) updateData.symbol = updateDto.symbol;
       if (updateDto.side !== undefined) updateData.side = updateDto.side;
-      if (updateDto.quote_amount_fixed !== undefined) updateData.quote_amount_fixed = updateDto.quote_amount_fixed;
-      if (updateDto.quote_amount_pct_balance !== undefined) updateData.quote_amount_pct_balance = updateDto.quote_amount_pct_balance;
+      
+      // Mapear campos do frontend (orderSizeType e orderSizeValue) para o formato do backend
+      if (updateDto.orderSizeType !== undefined || updateDto.orderSizeValue !== undefined) {
+        const orderSizeType = updateDto.orderSizeType;
+        // Converter orderSizeValue para número explicitamente
+        const orderSizeValue = updateDto.orderSizeValue !== undefined 
+          ? (typeof updateDto.orderSizeValue === 'string' ? parseFloat(updateDto.orderSizeValue) : Number(updateDto.orderSizeValue))
+          : undefined;
+        
+        if (orderSizeType === 'FIXED' && orderSizeValue !== undefined) {
+          // Se for FIXED, definir quote_amount_fixed e limpar quote_amount_pct_balance
+          updateData.quote_amount_fixed = orderSizeValue;
+          updateData.quote_amount_pct_balance = null;
+        } else if ((orderSizeType === 'PERCENT_BALANCE' || orderSizeType === 'PERCENT') && orderSizeValue !== undefined) {
+          // Se for PERCENT, definir quote_amount_pct_balance e limpar quote_amount_fixed
+          updateData.quote_amount_pct_balance = orderSizeValue;
+          updateData.quote_amount_fixed = null;
+        }
+      } else {
+        // Se não veio orderSizeType, usar os campos diretos (compatibilidade com API antiga)
+        if (updateDto.quote_amount_fixed !== undefined) {
+          const value = typeof updateDto.quote_amount_fixed === 'string' 
+            ? parseFloat(updateDto.quote_amount_fixed) 
+            : Number(updateDto.quote_amount_fixed);
+          updateData.quote_amount_fixed = isNaN(value) ? updateDto.quote_amount_fixed : value;
+        }
+        if (updateDto.quote_amount_pct_balance !== undefined) {
+          const value = typeof updateDto.quote_amount_pct_balance === 'string' 
+            ? parseFloat(updateDto.quote_amount_pct_balance) 
+            : Number(updateDto.quote_amount_pct_balance);
+          updateData.quote_amount_pct_balance = isNaN(value) ? updateDto.quote_amount_pct_balance : value;
+        }
+      }
       if (updateDto.max_orders_per_hour !== undefined) updateData.max_orders_per_hour = updateDto.max_orders_per_hour;
       if (updateDto.min_interval_sec !== undefined) updateData.min_interval_sec = updateDto.min_interval_sec;
       if (updateDto.order_type_default !== undefined) updateData.order_type_default = updateDto.order_type_default;
