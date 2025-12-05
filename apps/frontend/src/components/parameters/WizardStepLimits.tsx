@@ -18,6 +18,8 @@ export function WizardStepLimits({ data, updateData }: WizardStepLimitsProps) {
         queryFn: () => vaultsService.getAll(),
     })
 
+    const hasCurrentValues = data.maxDailyTrades || data.groupPositionsEnabled || data.vaultId
+
     return (
         <div className="space-y-6">
             <div>
@@ -25,6 +27,35 @@ export function WizardStepLimits({ data, updateData }: WizardStepLimitsProps) {
                 <p className="text-sm text-muted-foreground mb-6">
                     Configure limites de frequência e vault opcional
                 </p>
+                {hasCurrentValues && (
+                    <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 mb-4">
+                        <p className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-2">Valores atuais:</p>
+                        <div className="space-y-1 text-sm">
+                            {data.maxDailyTrades && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Máx. Trades/Dia:</span>
+                                    <span className="font-medium">{data.maxDailyTrades}</span>
+                                </div>
+                            )}
+                            {data.groupPositionsEnabled && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Agrupamento:</span>
+                                    <span className="font-medium">
+                                        {data.groupPositionsIntervalMinutes ? `${data.groupPositionsIntervalMinutes} min` : 'Habilitado'}
+                                    </span>
+                                </div>
+                            )}
+                            {data.vaultId && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Vault:</span>
+                                    <span className="font-medium">
+                                        {vaults?.find((v: any) => String(v.id) === String(data.vaultId))?.name || 'ID: ' + data.vaultId}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="space-y-4">

@@ -48,16 +48,30 @@ export default function EditParameterPage() {
         accountId: parameter.exchange_account_id?.toString() || (parameter as any).exchange_account?.id?.toString(),
         symbol: parameter.symbol,
         side: parameter.side,
-        orderSizeType: parameter.quote_amount_fixed ? 'FIXED' : 'PERCENT',
-        orderSizeValue: parameter.quote_amount_fixed || parameter.quote_amount_pct_balance || 0,
-        stopLossPercent: parameter.default_sl_pct,
-        takeProfitPercent: parameter.default_tp_pct,
-        minProfitPct: parameter.min_profit_pct,
+        orderSizeType: parameter.quote_amount_fixed ? 'FIXED' : (parameter.quote_amount_pct_balance ? 'PERCENT' : 'FIXED'),
+        orderSizeValue: parameter.quote_amount_fixed 
+            ? (typeof parameter.quote_amount_fixed === 'number' ? parameter.quote_amount_fixed : parseFloat(parameter.quote_amount_fixed))
+            : (parameter.quote_amount_pct_balance 
+                ? (typeof parameter.quote_amount_pct_balance === 'number' ? parameter.quote_amount_pct_balance : parseFloat(parameter.quote_amount_pct_balance))
+                : 0),
+        stopLossPercent: parameter.default_sl_pct 
+            ? (typeof parameter.default_sl_pct === 'number' ? parameter.default_sl_pct : parseFloat(parameter.default_sl_pct))
+            : undefined,
+        takeProfitPercent: parameter.default_tp_pct 
+            ? (typeof parameter.default_tp_pct === 'number' ? parameter.default_tp_pct : parseFloat(parameter.default_tp_pct))
+            : undefined,
+        minProfitPct: parameter.min_profit_pct 
+            ? (typeof parameter.min_profit_pct === 'number' ? parameter.min_profit_pct : parseFloat(parameter.min_profit_pct))
+            : undefined,
         trailingStop: parameter.trailing_stop_enabled || false,
-        maxDailyTrades: parameter.max_orders_per_hour, // Ajustar se necessário
+        maxDailyTrades: parameter.max_orders_per_hour 
+            ? (typeof parameter.max_orders_per_hour === 'number' ? parameter.max_orders_per_hour : parseInt(parameter.max_orders_per_hour))
+            : undefined,
         maxWeeklyTrades: undefined, // Não existe no schema
         groupPositionsEnabled: parameter.group_positions_enabled || false,
-        groupPositionsIntervalMinutes: parameter.group_positions_interval_minutes || undefined,
+        groupPositionsIntervalMinutes: parameter.group_positions_interval_minutes 
+            ? (typeof parameter.group_positions_interval_minutes === 'number' ? parameter.group_positions_interval_minutes : parseInt(parameter.group_positions_interval_minutes))
+            : undefined,
         vaultId: parameter.vault_id?.toString() || parameter.vault?.id?.toString(),
     }
 

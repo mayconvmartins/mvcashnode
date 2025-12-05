@@ -18,6 +18,15 @@ export function WizardStepOrderSize({ data, updateData }: WizardStepOrderSizePro
                 <p className="text-sm text-muted-foreground mb-6">
                     Configure como calcular o tamanho das ordens
                 </p>
+                {data.orderSizeValue && (
+                    <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 mb-4">
+                        <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                            Valor atual: {data.orderSizeType === 'PERCENT' 
+                                ? `${data.orderSizeValue}%` 
+                                : `$${data.orderSizeValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        </p>
+                    </div>
+                )}
             </div>
 
             <div className="space-y-4">

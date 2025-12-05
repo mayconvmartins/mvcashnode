@@ -55,7 +55,15 @@ export default function ParameterDetailPage() {
                     </Button>
                     <div>
                         <h1 className="text-3xl font-bold gradient-text">
-                            {parameter.symbol} - {parameter.side}
+                            {parameter.symbol.includes(',') ? (
+                                <span>
+                                    {parameter.symbol.split(',').length} Símbolos - {parameter.side}
+                                </span>
+                            ) : (
+                                <span>
+                                    {parameter.symbol} - {parameter.side}
+                                </span>
+                            )}
                         </h1>
                         <p className="text-muted-foreground mt-1">
                             {account?.label || `Conta ID: ${parameter.exchange_account_id}`}
@@ -84,8 +92,24 @@ export default function ParameterDetailPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <div>
-                            <label className="text-xs text-muted-foreground">Símbolo</label>
-                            <div className="font-mono text-lg font-semibold">{parameter.symbol}</div>
+                            <label className="text-xs text-muted-foreground">Símbolo(s)</label>
+                            <div className="mt-2">
+                                {parameter.symbol.includes(',') ? (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                        {parameter.symbol.split(',').map((sym: string, index: number) => (
+                                            <Badge 
+                                                key={index} 
+                                                variant="outline" 
+                                                className="font-mono text-sm py-1 px-2 justify-center"
+                                            >
+                                                {sym.trim()}
+                                            </Badge>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="font-mono text-lg font-semibold">{parameter.symbol}</div>
+                                )}
+                            </div>
                         </div>
                         <div>
                             <label className="text-xs text-muted-foreground">Lado</label>
