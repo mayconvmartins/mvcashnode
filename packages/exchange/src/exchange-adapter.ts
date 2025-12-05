@@ -215,6 +215,28 @@ export abstract class ExchangeAdapter {
     await this.exchange.cancelOrder(orderId, symbol);
   }
 
+  /**
+   * Busca trades executados do usuário
+   * Esta é a fonte confiável de taxas segundo a documentação do CCXT
+   * @param symbol Símbolo do par (ex: 'BTC/USDT')
+   * @param since Timestamp em milissegundos desde quando buscar trades
+   * @param limit Número máximo de trades a retornar
+   * @param params Parâmetros adicionais específicos da exchange
+   * @returns Array de trades no formato do CCXT
+   */
+  async fetchMyTrades(symbol: string, since?: number, limit?: number, params?: any): Promise<any[]> {
+    try {
+      const trades = await this.exchange.fetchMyTrades(symbol, since, limit, params);
+      return trades || [];
+    } catch (error: any) {
+      // Se a exchange não suporta fetchMyTrades, retornar array vazio
+      if (error.message?.includes('not supported') || error.message?.includes('not implemented')) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
   async fetchTicker(symbol: string): Promise<Ticker> {
     const ticker = await this.exchange.fetchTicker(symbol);
     return {
@@ -229,7 +251,57 @@ export abstract class ExchangeAdapter {
   }
 
   /**
+   * Extrai informações de taxas de trades executados
+   * Esta é a fonte confiável de taxas segundo a documentação do CCXT
+   * @param trades Array de trades retornados por fetchMyTrades
+   * @returns Objeto com valor total da taxa e moeda
+   */
+  extractFeesFromTrades(trades: any[]): { feeAmount: number; feeCurrency: string } {
+    const feesByCurrency: Record<string, number> = {};
+    
+    for (const t of trades) {
+      // Verificar t.fee (objeto único com { cost, currency })
+      if (t.fee && t.fee.cost !== undefined && t.fee.currency) {
+        const currency = String(t.fee.currency);
+        const cost = Number(t.fee.cost) || 0;
+        if (cost > 0) {
+          feesByCurrency[currency] = (feesByCurrency[currency] || 0) + cost;
+        }
+      }
+      
+      // Verificar t.fees (array de objetos { cost, currency })
+      if (t.fees && Array.isArray(t.fees)) {
+        for (const f of t.fees) {
+          if (f.cost !== undefined && f.currency) {
+            const currency = String(f.currency);
+            const cost = Number(f.cost) || 0;
+            if (cost > 0) {
+              feesByCurrency[currency] = (feesByCurrency[currency] || 0) + cost;
+            }
+          }
+        }
+      }
+    }
+    
+    // Retornar primeira moeda encontrada (ou somar todas se necessário)
+    const currencies = Object.keys(feesByCurrency);
+    if (currencies.length === 0) {
+      return { feeAmount: 0, feeCurrency: '' };
+    }
+    
+    // Se múltiplas moedas, retornar a maior (mais comum) ou primeira
+    // Normalmente todas as taxas de uma ordem são na mesma moeda
+    const mainCurrency = currencies[0];
+    return {
+      feeAmount: feesByCurrency[mainCurrency],
+      feeCurrency: mainCurrency
+    };
+  }
+
+  /**
    * Extrai informações de taxas de uma ordem da exchange
+   * NOTA: fetchMyTrades + extractFeesFromTrades é a fonte preferida e mais confiável
+   * Este método é mantido como fallback quando fetchMyTrades não está disponível
    * @param order Ordem da exchange (OrderResult ou objeto com fills)
    * @param side Lado da ordem ('buy' ou 'sell')
    * @returns Objeto com valor da taxa e moeda

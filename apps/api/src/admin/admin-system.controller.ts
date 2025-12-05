@@ -456,19 +456,46 @@ export class AdminSystemController {
             usingRawOrder: orderToExtract === rawOrder,
           });
 
-          // Extrair taxas - usar orderToExtract (pode ser rawOrder ou order)
-          // O extractFeesFromOrder procura por:
-          // 1. fill.commission e fill.commissionAsset (Binance usa este formato)
-          // 2. fill.fee (outras exchanges)
-          // 3. order.fee ou order.commission
-          const fees = adapter.extractFeesFromOrder(
-            orderToExtract,
-            execution.trade_job.side.toLowerCase() as 'buy' | 'sell'
-          );
+          // Extrair taxas - PRIORIDADE: usar fetchMyTrades (fonte confiável)
+          let fees = { feeAmount: 0, feeCurrency: '' };
           
-          // IMPORTANTE: Só usar taxas configuradas na conta como FALLBACK
+          // 1. Tentar buscar trades reais da exchange (fonte mais confiável)
+          if (execution.exchange_order_id) {
+            try {
+              const since = execution.created_at.getTime() - 3600000; // 1 hora antes da execução
+              const trades = await adapter.fetchMyTrades(execution.trade_job.symbol, since, 100);
+              
+              // Filtrar trades que correspondem à ordem
+              const orderTrades = trades.filter((t: any) => {
+                return t.order === execution.exchange_order_id || 
+                       t.orderId === execution.exchange_order_id || 
+                       (t.info && (t.info.orderId === execution.exchange_order_id || t.info.orderListId === execution.exchange_order_id));
+              });
+              
+              if (orderTrades.length > 0) {
+                fees = adapter.extractFeesFromTrades(orderTrades);
+                console.log(`[ADMIN] Execução ${execution.id}: Taxas extraídas de trades: ${fees.feeAmount} ${fees.feeCurrency} (${orderTrades.length} trade(s))`);
+              }
+            } catch (tradesError: any) {
+              // Se fetchMyTrades falhar, continuar com fallback
+              console.log(`[ADMIN] Execução ${execution.id}: Não foi possível buscar trades: ${tradesError.message}`);
+            }
+          }
+          
+          // 2. Se não encontrou em trades, usar extractFeesFromOrder (fallback)
+          if (fees.feeAmount === 0) {
+            fees = adapter.extractFeesFromOrder(
+              orderToExtract,
+              execution.trade_job.side.toLowerCase() as 'buy' | 'sell'
+            );
+            if (fees.feeAmount > 0) {
+              console.log(`[ADMIN] Execução ${execution.id}: Taxas extraídas da ordem: ${fees.feeAmount} ${fees.feeCurrency}`);
+            }
+          }
+          
+          // 3. IMPORTANTE: Só usar taxas configuradas na conta como FALLBACK
           // quando realmente não encontrou taxas na resposta da exchange
-          // (fees.feeAmount === 0 significa que não encontrou taxas na ordem)
+          // (fees.feeAmount === 0 significa que não encontrou taxas na ordem nem nos trades)
           if (fees.feeAmount === 0 && order.cost && order.filled) {
             const side = execution.trade_job.side.toLowerCase();
             const orderType = execution.trade_job.order_type?.toLowerCase() || 'market'; // Assumir market se não especificado
@@ -759,7 +786,8 @@ export class AdminSystemController {
 
       for (const execution of executionsWithFees) {
         try {
-          if (!execution.trade_job) {
+          if (!execution.trade_job || !execution.exchange_order_id) {
+            console.log(`[ADMIN] Execução ${execution.id}: Pulando - sem trade_job ou exchange_order_id`);
             continue;
           }
 
@@ -769,78 +797,187 @@ export class AdminSystemController {
           const quoteAsset = symbol.split('/')[1] || 'USDT';
           const feeCurrency = execution.fee_currency || '';
           const feeAmount = execution.fee_amount?.toNumber() || 0;
+          const currentExecutedQty = execution.executed_qty.toNumber();
+          const cummQuoteQty = execution.cumm_quote_qty.toNumber();
+          const avgPrice = execution.avg_price.toNumber();
 
-          // Verificar se a taxa está na moeda errada
-          // Para BUY: taxa geralmente é em base asset (BTC), não em quote asset (USDT)
-          // Para SELL: taxa geralmente é em quote asset (USDT)
+          // Verificar se a taxa está na moeda errada ou se difere da taxa real da exchange
           let needsFix = false;
           let correctFeeCurrency = '';
           let correctFeeAmount = 0;
+          let fixReason = '';
 
-          if (side === 'buy' && feeCurrency === quoteAsset && feeAmount > 0) {
+          // 1. Tentar buscar trades reais da exchange para comparar
+          let realFeeFromTrades: { feeAmount: number; feeCurrency: string } | null = null;
+          
+          try {
+            const encryptionService = new EncryptionService();
+            const apiKey = await encryptionService.decrypt(execution.exchange_account.api_key_enc || '');
+            const apiSecret = await encryptionService.decrypt(execution.exchange_account.api_secret_enc || '');
+            
+            if (apiKey && apiSecret) {
+              const adapter = AdapterFactory.createAdapter(
+                execution.exchange_account.exchange as any,
+                apiKey,
+                apiSecret,
+                { testnet: false }
+              );
+              
+              const since = execution.created_at.getTime() - 3600000; // 1 hora antes
+              const trades = await adapter.fetchMyTrades(symbol, since, 100);
+              
+              // Filtrar trades que correspondem à ordem
+              const orderTrades = trades.filter((t: any) => {
+                return t.order === execution.exchange_order_id || 
+                       t.orderId === execution.exchange_order_id || 
+                       (t.info && (t.info.orderId === execution.exchange_order_id || t.info.orderListId === execution.exchange_order_id));
+              });
+              
+              if (orderTrades.length > 0) {
+                realFeeFromTrades = adapter.extractFeesFromTrades(orderTrades);
+                console.log(`[ADMIN] Execução ${execution.id}: Taxa real da exchange: ${realFeeFromTrades.feeAmount} ${realFeeFromTrades.feeCurrency}`);
+                
+                // Comparar com taxa armazenada
+                if (realFeeFromTrades.feeAmount > 0) {
+                  const storedFeeInRealCurrency = feeCurrency === realFeeFromTrades.feeCurrency 
+                    ? feeAmount 
+                    : (feeCurrency === quoteAsset && realFeeFromTrades.feeCurrency === baseAsset)
+                      ? feeAmount / avgPrice // Converter USDT para base asset
+                      : (feeCurrency === baseAsset && realFeeFromTrades.feeCurrency === quoteAsset)
+                        ? feeAmount * avgPrice // Converter base asset para USDT
+                        : feeAmount;
+                  
+                  const difference = Math.abs(storedFeeInRealCurrency - realFeeFromTrades.feeAmount);
+                  const tolerance = realFeeFromTrades.feeAmount * 0.01; // 1% de tolerância
+                  
+                  if (difference > tolerance || feeCurrency !== realFeeFromTrades.feeCurrency) {
+                    needsFix = true;
+                    correctFeeAmount = realFeeFromTrades.feeAmount;
+                    correctFeeCurrency = realFeeFromTrades.feeCurrency;
+                    fixReason = `Taxa armazenada (${feeAmount} ${feeCurrency}) difere da taxa real da exchange (${realFeeFromTrades.feeAmount} ${realFeeFromTrades.feeCurrency})`;
+                    console.log(`[ADMIN] Execução ${execution.id}: ${fixReason}`);
+                  }
+                }
+              }
+            }
+          } catch (tradesError: any) {
+            console.log(`[ADMIN] Execução ${execution.id}: Não foi possível buscar trades: ${tradesError.message}`);
+          }
+
+          // 2. Se não encontrou trades ou não precisa corrigir, verificar critérios existentes
+          if (!needsFix && side === 'buy' && feeCurrency === quoteAsset && feeAmount > 0) {
             // Taxa está em quote asset (USDT) mas deveria estar em base asset (BTC)
             // IMPORTANTE: Quando a taxa estava em USDT, ela NÃO foi subtraída da quantidade
             // Portanto, a quantidade atual (executed_qty) É a quantidade original bruta
             
-            const currentExecutedQty = execution.executed_qty.toNumber();
-            const cummQuoteQty = execution.cumm_quote_qty.toNumber();
-            const avgPrice = execution.avg_price.toNumber();
-            
             if (avgPrice > 0 && currentExecutedQty > 0 && cummQuoteQty > 0) {
               // Calcular taxa percentual baseada na taxa antiga (em USDT)
-              // Isso nos dá a taxa percentual real que foi aplicada
               const feeRatePercent = feeAmount / cummQuoteQty;
               
               // Calcular taxa correta em base asset: quantidade_original * taxa_percentual
-              // Esta é a forma correta: taxa sobre a quantidade comprada
               correctFeeAmount = currentExecutedQty * feeRatePercent;
               correctFeeCurrency = baseAsset;
               needsFix = true;
+              fixReason = `Taxa em quote asset (${feeAmount} ${feeCurrency}) mas deveria estar em base asset para BUY`;
               
               console.log(
-                `[ADMIN] Execução ${execution.id}: Taxa incorreta detectada - ${feeAmount} ${feeCurrency} (${(feeRatePercent * 100).toFixed(4)}%)`
-              );
-              console.log(
-                `[ADMIN] Execução ${execution.id}: Quantidade original: ${currentExecutedQty} ${baseAsset}, Taxa calculada: ${correctFeeAmount.toFixed(8)} ${baseAsset} (${(feeRatePercent * 100).toFixed(4)}% sobre quantidade)`
+                `[ADMIN] Execução ${execution.id}: ${fixReason} (${(feeRatePercent * 100).toFixed(4)}%)`
               );
             }
           }
 
+          // 3. Verificar se taxa está em base asset mas quantidade não foi ajustada (BUY)
+          if (!needsFix && side === 'buy' && feeCurrency === baseAsset && feeAmount > 0 && avgPrice > 0) {
+            // Calcular quantidade esperada após taxa
+            const expectedQtyAfterFee = currentExecutedQty + feeAmount; // Quantidade original seria maior
+            const expectedCost = expectedQtyAfterFee * avgPrice;
+            
+            // Se o custo esperado é muito próximo do cumm_quote_qty, significa que quantidade não foi ajustada
+            const costDifference = Math.abs(expectedCost - cummQuoteQty);
+            if (costDifference < cummQuoteQty * 0.02) { // Diferença menor que 2%
+              // Quantidade não foi ajustada, precisa corrigir
+              needsFix = true;
+              correctFeeAmount = feeAmount; // Taxa já está correta
+              correctFeeCurrency = baseAsset; // Moeda já está correta
+              fixReason = `Taxa em base asset mas quantidade não foi ajustada (qty atual: ${currentExecutedQty}, deveria ser: ${currentExecutedQty - feeAmount})`;
+              console.log(`[ADMIN] Execução ${execution.id}: ${fixReason}`);
+            }
+          }
+
           if (needsFix) {
-            // IMPORTANTE: Quando a taxa estava em USDT (quote asset), ela NÃO foi subtraída da quantidade
-            // Portanto, a quantidade atual (executed_qty) É a quantidade original bruta
             const originalQty = execution.executed_qty.toNumber();
             const cummQuoteQty = execution.cumm_quote_qty.toNumber();
             const avgPrice = execution.avg_price.toNumber();
             
-            // Calcular taxa percentual baseada na taxa antiga (em USDT)
-            // Isso nos dá a taxa percentual real que foi aplicada
-            const feeRatePercent = cummQuoteQty > 0 ? (feeAmount / cummQuoteQty) : 0;
-            
-            // Verificar se a quantidade atual já foi reduzida incorretamente
-            // Se a quantidade atual * preço médio for muito menor que cumm_quote_qty, pode ter sido reduzida
-            const expectedQtyFromCost = cummQuoteQty / avgPrice;
-            const qtyDifference = Math.abs(originalQty - expectedQtyFromCost);
-            
-            // Se a diferença for significativa (mais de 1%), pode ter sido reduzida incorretamente
-            // Nesse caso, usar a quantidade calculada a partir do cost
             let actualOriginalQty = originalQty;
-            if (qtyDifference > expectedQtyFromCost * 0.01 && expectedQtyFromCost > originalQty) {
-              // Quantidade pode ter sido reduzida incorretamente, restaurar do cost
-              actualOriginalQty = expectedQtyFromCost;
-              console.log(
-                `[ADMIN] Execução ${execution.id}: Quantidade parece ter sido reduzida incorretamente. Restaurando: ${originalQty} -> ${actualOriginalQty}`
-              );
+            let adjustedExecutedQty = originalQty;
+            let feeRate: number | null = null;
+            
+            // Se a taxa correta veio de trades reais, usar diretamente
+            if (realFeeFromTrades && correctFeeCurrency === realFeeFromTrades.feeCurrency) {
+              // Taxa já está correta, só precisa ajustar quantidade se necessário
+              if (side === 'buy' && correctFeeCurrency === baseAsset) {
+                // Taxa em base asset para BUY - quantidade deve ser reduzida
+                // Verificar se já foi reduzida
+                const expectedQtyAfterFee = originalQty + correctFeeAmount;
+                const expectedCost = expectedQtyAfterFee * avgPrice;
+                
+                // Se o custo esperado é próximo do cumm_quote_qty, quantidade não foi ajustada
+                if (Math.abs(expectedCost - cummQuoteQty) < cummQuoteQty * 0.02) {
+                  actualOriginalQty = expectedQtyAfterFee;
+                  adjustedExecutedQty = originalQty; // Quantidade atual já está correta (sem taxa)
+                } else {
+                  // Quantidade já foi ajustada, só atualizar taxa
+                  adjustedExecutedQty = originalQty;
+                  actualOriginalQty = originalQty + correctFeeAmount;
+                }
+              } else {
+                adjustedExecutedQty = originalQty;
+                actualOriginalQty = originalQty;
+              }
+              
+              feeRate = cummQuoteQty > 0 ? (correctFeeAmount / cummQuoteQty) * 100 : null;
+              if (correctFeeCurrency === baseAsset && actualOriginalQty > 0) {
+                feeRate = (correctFeeAmount / actualOriginalQty) * 100;
+              }
+            } else {
+              // Taxa precisa ser recalculada (caso de taxa em quote asset para BUY)
+              // IMPORTANTE: Quando a taxa estava em USDT (quote asset), ela NÃO foi subtraída da quantidade
+              const feeRatePercent = cummQuoteQty > 0 ? (feeAmount / cummQuoteQty) : 0;
+              
+              // Verificar se a quantidade atual já foi reduzida incorretamente
+              const expectedQtyFromCost = cummQuoteQty / avgPrice;
+              const qtyDifference = Math.abs(originalQty - expectedQtyFromCost);
+              
+              if (qtyDifference > expectedQtyFromCost * 0.01 && expectedQtyFromCost > originalQty) {
+                actualOriginalQty = expectedQtyFromCost;
+                console.log(
+                  `[ADMIN] Execução ${execution.id}: Quantidade parece ter sido reduzida incorretamente. Restaurando: ${originalQty} -> ${actualOriginalQty}`
+                );
+              }
+              
+              // Recalcular taxa correta baseada na quantidade original real
+              if (correctFeeAmount === 0) {
+                correctFeeAmount = actualOriginalQty * feeRatePercent;
+              }
+              
+              // Calcular quantidade líquida após subtrair a taxa em base asset
+              if (side === 'buy' && correctFeeCurrency === baseAsset) {
+                adjustedExecutedQty = Math.max(0, actualOriginalQty - correctFeeAmount);
+              } else {
+                adjustedExecutedQty = originalQty;
+              }
+
+              // Calcular taxa percentual correta
+              feeRate = actualOriginalQty > 0 ? (correctFeeAmount / actualOriginalQty) * 100 : null;
+              if (correctFeeCurrency === quoteAsset && cummQuoteQty > 0) {
+                feeRate = (correctFeeAmount / cummQuoteQty) * 100;
+              }
             }
             
-            // Recalcular taxa correta baseada na quantidade original real
-            correctFeeAmount = actualOriginalQty * feeRatePercent;
-            
-            // Calcular quantidade líquida após subtrair a taxa em base asset
-            const adjustedExecutedQty = Math.max(0, actualOriginalQty - correctFeeAmount);
-
-            // Calcular taxa percentual correta (baseada na quantidade original)
-            const feeRate = actualOriginalQty > 0 ? (correctFeeAmount / actualOriginalQty) * 100 : null;
+            console.log(`[ADMIN] Execução ${execution.id}: Correção - ${fixReason}`);
+            console.log(`[ADMIN] Execução ${execution.id}: Taxa: ${feeAmount} ${feeCurrency} -> ${correctFeeAmount.toFixed(8)} ${correctFeeCurrency}`);
+            console.log(`[ADMIN] Execução ${execution.id}: Quantidade: ${originalQty} -> ${adjustedExecutedQty} (original: ${actualOriginalQty})`);
 
             // Atualizar execução
             await this.prisma.tradeExecution.update({

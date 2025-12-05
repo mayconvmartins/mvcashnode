@@ -624,22 +624,60 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // Verificar se ordem foi parcialmente preenchida
       const isPartiallyFilled = isOrderPartiallyFilled || (order.filled && order.filled < order.amount);
 
-      // Extrair taxas da ordem
+      // Extrair taxas - PRIORIDADE: usar fetchMyTrades (fonte confiável)
       let feeAmount: number | null = null;
       let feeCurrency: string | null = null;
       let feeRate: number | null = null;
       
       try {
-        const fees = adapter.extractFeesFromOrder(order, tradeJob.side.toLowerCase() as 'buy' | 'sell');
-        feeAmount = fees.feeAmount;
-        feeCurrency = fees.feeCurrency;
+        // 1. Tentar buscar trades reais da exchange (fonte mais confiável)
+        if (order.id) {
+          try {
+            const since = Date.now() - 60000; // Último minuto
+            const trades = await adapter.fetchMyTrades(tradeJob.symbol, since, 100);
+            
+            // Filtrar trades que correspondem à ordem
+            const orderTrades = trades.filter((t: any) => {
+              // Verificar por orderId, order, ou clientOrderId
+              return t.order === order.id || 
+                     t.orderId === order.id || 
+                     (t.info && (t.info.orderId === order.id || t.info.orderListId === order.id));
+            });
+            
+            if (orderTrades.length > 0) {
+              const fees = adapter.extractFeesFromTrades(orderTrades);
+              if (fees.feeAmount > 0) {
+                feeAmount = fees.feeAmount;
+                feeCurrency = fees.feeCurrency;
+                this.logger.log(`[EXECUTOR] Taxas extraídas de trades: ${feeAmount} ${feeCurrency} (${orderTrades.length} trade(s))`);
+              }
+            }
+          } catch (tradesError: any) {
+            // Se fetchMyTrades falhar, continuar com fallback
+            this.logger.debug(`[EXECUTOR] Não foi possível buscar trades: ${tradesError.message}`);
+          }
+        }
         
-        // Calcular taxa percentual se possível
+        // 2. Se não encontrou em trades, usar extractFeesFromOrder (fallback)
+        if (!feeAmount || feeAmount === 0) {
+          const fees = adapter.extractFeesFromOrder(order, tradeJob.side.toLowerCase() as 'buy' | 'sell');
+          feeAmount = fees.feeAmount;
+          feeCurrency = fees.feeCurrency;
+          if (feeAmount > 0) {
+            this.logger.log(`[EXECUTOR] Taxas extraídas da ordem: ${feeAmount} ${feeCurrency}`);
+          }
+        }
+        
+        // 3. Calcular taxa percentual se possível
         if (feeAmount > 0 && cummQuoteQty > 0) {
           feeRate = (feeAmount / cummQuoteQty) * 100;
         }
         
-        this.logger.log(`[EXECUTOR] Taxas extraídas: ${feeAmount} ${feeCurrency}, taxa: ${feeRate?.toFixed(4)}%`);
+        if (feeAmount > 0) {
+          this.logger.log(`[EXECUTOR] Taxas finais: ${feeAmount} ${feeCurrency}, taxa: ${feeRate?.toFixed(4)}%`);
+        } else {
+          this.logger.warn(`[EXECUTOR] Nenhuma taxa encontrada na ordem ou trades`);
+        }
       } catch (feeError: any) {
         this.logger.warn(`[EXECUTOR] Erro ao extrair taxas: ${feeError.message}`);
       }
@@ -748,15 +786,44 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             finalAvgPrice = updatedAverage;
             finalCummQuoteQty = updatedCost > 0 ? updatedCost : (updatedFilled * updatedAverage);
             
-            // Extrair taxas da ordem atualizada
+            // Extrair taxas da ordem atualizada - PRIORIDADE: usar fetchMyTrades
             let updatedFeeAmount: number | null = null;
             let updatedFeeCurrency: string | null = null;
             let updatedFeeRate: number | null = null;
             
             try {
-              const fees = adapter.extractFeesFromOrder(updatedOrder, tradeJob.side.toLowerCase() as 'buy' | 'sell');
-              updatedFeeAmount = fees.feeAmount;
-              updatedFeeCurrency = fees.feeCurrency;
+              // 1. Tentar buscar trades reais da exchange (fonte mais confiável)
+              if (updatedOrder.id) {
+                try {
+                  const since = Date.now() - 60000; // Último minuto
+                  const trades = await adapter.fetchMyTrades(tradeJob.symbol, since, 100);
+                  
+                  // Filtrar trades que correspondem à ordem
+                  const orderTrades = trades.filter((t: any) => {
+                    return t.order === updatedOrder.id || 
+                           t.orderId === updatedOrder.id || 
+                           (t.info && (t.info.orderId === updatedOrder.id || t.info.orderListId === updatedOrder.id));
+                  });
+                  
+                  if (orderTrades.length > 0) {
+                    const fees = adapter.extractFeesFromTrades(orderTrades);
+                    if (fees.feeAmount > 0) {
+                      updatedFeeAmount = fees.feeAmount;
+                      updatedFeeCurrency = fees.feeCurrency;
+                      this.logger.log(`[EXECUTOR] Taxas extraídas de trades (atualizado): ${updatedFeeAmount} ${updatedFeeCurrency}`);
+                    }
+                  }
+                } catch (tradesError: any) {
+                  this.logger.debug(`[EXECUTOR] Não foi possível buscar trades atualizados: ${tradesError.message}`);
+                }
+              }
+              
+              // 2. Se não encontrou em trades, usar extractFeesFromOrder (fallback)
+              if (!updatedFeeAmount || updatedFeeAmount === 0) {
+                const fees = adapter.extractFeesFromOrder(updatedOrder, tradeJob.side.toLowerCase() as 'buy' | 'sell');
+                updatedFeeAmount = fees.feeAmount;
+                updatedFeeCurrency = fees.feeCurrency;
+              }
               
               if (updatedFeeAmount > 0 && finalCummQuoteQty > 0) {
                 updatedFeeRate = (updatedFeeAmount / finalCummQuoteQty) * 100;
