@@ -8,12 +8,13 @@ import { formatCurrency } from '@/lib/utils/format'
 import { DollarSign, TrendingUp, TrendingDown, BarChart3, PieChart } from 'lucide-react'
 import { reportsService } from '@/lib/api/reports.service'
 import { DateRangeFilter, type DatePreset } from '@/components/positions/DateRangeFilter'
+import { TradeMode } from '@/lib/types'
 
 export default function FeesReportPage() {
     const [dateFrom, setDateFrom] = useState<string | undefined>()
     const [dateTo, setDateTo] = useState<string | undefined>()
     const [datePreset, setDatePreset] = useState<DatePreset>('all')
-    const [tradeMode, setTradeMode] = useState<'REAL' | 'SIMULATION' | undefined>('REAL')
+    const [tradeMode, setTradeMode] = useState<TradeMode | undefined>(TradeMode.REAL)
 
     const { data: feesReport, isLoading } = useQuery({
         queryKey: ['fees-report', dateFrom, dateTo, tradeMode],
@@ -67,12 +68,12 @@ export default function FeesReportPage() {
                 <div className="flex items-center gap-4">
                     <select
                         value={tradeMode || ''}
-                        onChange={(e) => setTradeMode(e.target.value as 'REAL' | 'SIMULATION' | undefined)}
+                        onChange={(e) => setTradeMode(e.target.value ? (e.target.value as TradeMode) : undefined)}
                         className="px-3 py-2 border rounded-md"
                     >
                         <option value="">Todos</option>
-                        <option value="REAL">Real</option>
-                        <option value="SIMULATION">Simulação</option>
+                        <option value={TradeMode.REAL}>Real</option>
+                        <option value={TradeMode.SIMULATION}>Simulação</option>
                     </select>
                     <DateRangeFilter
                         from={dateFrom}
