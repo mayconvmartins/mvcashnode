@@ -378,6 +378,7 @@ export interface Position {
     lock_sell_by_webhook: boolean
     is_grouped: boolean
     group_started_at?: string
+    grouping_open?: boolean | null
     close_reason?: string
     closed_at?: string
     created_at: string

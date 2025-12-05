@@ -1368,6 +1368,45 @@ export class PositionService {
     return { checked, deleted, errors };
   }
 
+  /**
+   * Verifica se uma posição agrupada está aberta para novas ordens (dentro do intervalo de tempo)
+   * @param position Posição com campos is_grouped, group_started_at e created_at
+   * @param parameter Parâmetro de trade com group_positions_enabled e group_positions_interval_minutes
+   * @returns true se está aberta, false se está fechada, null se não aplicável
+   */
+  isGroupingOpen(
+    position: { 
+      is_grouped: boolean; 
+      group_started_at: Date | null; 
+      created_at: Date 
+    },
+    parameter: { 
+      group_positions_enabled: boolean; 
+      group_positions_interval_minutes: number | null 
+    } | null
+  ): boolean | null {
+    // Se a posição não está agrupada, não aplicável
+    if (!position.is_grouped) {
+      return null;
+    }
+
+    // Se não há parâmetro ou agrupamento não está habilitado, não aplicável
+    if (!parameter || !parameter.group_positions_enabled || !parameter.group_positions_interval_minutes) {
+      return null;
+    }
+
+    // Calcular data de início do agrupamento
+    const startDate = position.group_started_at || position.created_at;
+    
+    // Calcular data limite (início + intervalo)
+    const intervalEnd = new Date(startDate);
+    intervalEnd.setMinutes(intervalEnd.getMinutes() + parameter.group_positions_interval_minutes);
+    
+    // Verificar se ainda está dentro do intervalo
+    const now = new Date();
+    return now < intervalEnd;
+  }
+
   private getCloseReason(origin: string): CloseReason {
     switch (origin) {
       case 'STOP_LOSS':

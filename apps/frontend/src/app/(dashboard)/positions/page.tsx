@@ -417,6 +417,23 @@ export default function PositionsPage() {
             label: 'Símbolo',
             render: (position: Position) => (
                 <div className="flex items-center gap-2">
+                    {position.is_grouped && position.grouping_open !== null && position.grouping_open !== undefined && (
+                        <Badge 
+                            variant="outline" 
+                            className={`text-xs ${
+                                position.grouping_open 
+                                    ? 'bg-green-500/10 text-green-600 border-green-500/50' 
+                                    : 'bg-red-500/10 text-red-600 border-red-500/50'
+                            }`}
+                        >
+                            {position.grouping_open ? 'Aberto' : 'Fechado'}
+                        </Badge>
+                    )}
+                    {position.is_grouped && (position.grouping_open === null || position.grouping_open === undefined) && (
+                        <Badge variant="outline" className="bg-gray-500/10 text-gray-600 border-gray-500/50 text-xs">
+                            N/A
+                        </Badge>
+                    )}
                     <SymbolDisplay
                         exchange={position.exchange_account_id as any}
                         symbol={position.symbol}
@@ -582,6 +599,23 @@ export default function PositionsPage() {
             label: 'Símbolo',
             render: (position) => (
                 <div className="flex items-center gap-2">
+                    {position.is_grouped && position.grouping_open !== null && position.grouping_open !== undefined && (
+                        <Badge 
+                            variant="outline" 
+                            className={`text-xs ${
+                                position.grouping_open 
+                                    ? 'bg-green-500/10 text-green-600 border-green-500/50' 
+                                    : 'bg-red-500/10 text-red-600 border-red-500/50'
+                            }`}
+                        >
+                            {position.grouping_open ? 'Aberto' : 'Fechado'}
+                        </Badge>
+                    )}
+                    {position.is_grouped && (position.grouping_open === null || position.grouping_open === undefined) && (
+                        <Badge variant="outline" className="bg-gray-500/10 text-gray-600 border-gray-500/50 text-xs">
+                            N/A
+                        </Badge>
+                    )}
                     <SymbolDisplay
                         exchange={position.exchange_account_id as any}
                         symbol={position.symbol}

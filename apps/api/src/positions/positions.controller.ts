@@ -36,7 +36,7 @@ import { PrismaService } from '@mvcashnode/db';
 import { OrderType, ExchangeType, CacheService, UserRole } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { WebSocketService } from '../websocket/websocket.service';
-import { PositionService } from '@mvcashnode/domain';
+import { PositionService, TradeParameterService } from '@mvcashnode/domain';
 import { ExchangeAccountService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
 
@@ -47,6 +47,9 @@ import { EncryptionService } from '@mvcashnode/shared';
 export class PositionsController {
   private cacheService: CacheService;
 
+  private positionService: PositionService;
+  private tradeParameterService: TradeParameterService;
+
   constructor(
     private positionsService: PositionsService,
     private tradeJobQueueService: TradeJobQueueService,
@@ -54,6 +57,8 @@ export class PositionsController {
     private wsService: WebSocketService,
     private encryptionService: EncryptionService
   ) {
+    this.positionService = new PositionService(this.prisma);
+    this.tradeParameterService = new TradeParameterService(this.prisma);
     // Inicializar cache service Redis
     this.cacheService = new CacheService(
       process.env.REDIS_HOST || 'localhost',
@@ -549,6 +554,113 @@ export class PositionsController {
           ...(shouldIncludeFills ? { sell_jobs: sellJobs } : {}),
         };
       });
+
+      // Calcular status de agrupamento (grouping_open) para posições agrupadas
+      // Buscar parâmetros de trade em batch para otimizar queries
+      const groupedPositions = positionsWithMetrics.filter(p => p.is_grouped);
+      const parameterMap = new Map<string, any>();
+      
+      if (groupedPositions.length > 0) {
+        // Agrupar posições por exchange_account_id e symbol para buscar parâmetros
+        const uniqueKeys = new Set<string>();
+        groupedPositions.forEach(pos => {
+          const key = `${pos.exchange_account_id}:${pos.symbol}`;
+          uniqueKeys.add(key);
+        });
+
+        // Buscar todos os parâmetros relevantes de uma vez
+        // Como os símbolos podem ter vírgulas (múltiplos símbolos), buscar todos os parâmetros das contas
+        const accountIds = Array.from(new Set(Array.from(uniqueKeys).map(key => parseInt(key.split(':')[0]))));
+        
+        const parameters = await this.prisma.tradeParameter.findMany({
+          where: {
+            exchange_account_id: { in: accountIds },
+            side: { in: ['BUY', 'BOTH'] },
+          },
+          select: {
+            exchange_account_id: true,
+            symbol: true,
+            group_positions_enabled: true,
+            group_positions_interval_minutes: true,
+          },
+        });
+
+        // Criar mapa para acesso rápido
+        // Como símbolos podem ter vírgulas, criar entradas para cada símbolo individual
+        parameters.forEach(param => {
+          const key = `${param.exchange_account_id}:${param.symbol}`;
+          parameterMap.set(key, param);
+          
+          // Se o símbolo tem vírgulas, criar entradas individuais também
+          if (param.symbol.includes(',')) {
+            const individualSymbols = param.symbol.split(',').map(s => s.trim());
+            individualSymbols.forEach(symbol => {
+              const individualKey = `${param.exchange_account_id}:${symbol}`;
+              if (!parameterMap.has(individualKey)) {
+                parameterMap.set(individualKey, param);
+              }
+            });
+          }
+        });
+
+        // Função auxiliar para normalizar símbolo (mesma lógica do trade-parameter.service.ts)
+        const normalizeSymbol = (s: string): string => {
+          if (!s) return '';
+          return s.trim().toUpperCase().replace(/\.(P|F|PERP|FUTURES)$/i, '').replace(/\//g, '').replace(/\s/g, '');
+        };
+
+        // Função auxiliar para verificar se um símbolo está contido em uma string de símbolos (pode ter vírgulas)
+        const symbolMatches = (positionSymbol: string, parameterSymbol: string): boolean => {
+          const normalizedPos = normalizeSymbol(positionSymbol);
+          // Se o parâmetro tem vírgulas, verificar se o símbolo está na lista
+          if (parameterSymbol.includes(',')) {
+            const paramSymbols = parameterSymbol.split(',').map(s => normalizeSymbol(s.trim()));
+            return paramSymbols.includes(normalizedPos);
+          }
+          // Caso contrário, comparar diretamente
+          return normalizeSymbol(parameterSymbol) === normalizedPos;
+        };
+
+        // Calcular grouping_open para cada posição agrupada
+        positionsWithMetrics.forEach((position: any) => {
+          if (position.is_grouped) {
+            // Tentar encontrar parâmetro exato primeiro
+            let parameter = parameterMap.get(`${position.exchange_account_id}:${position.symbol}`);
+            
+            // Se não encontrou, buscar por correspondência de símbolo (pode ter vírgulas no parâmetro)
+            if (!parameter) {
+              for (const [key, param] of parameterMap.entries()) {
+                if (key.startsWith(`${position.exchange_account_id}:`)) {
+                  // Verificar se o símbolo da posição está contido no campo symbol do parâmetro
+                  if (symbolMatches(position.symbol, param.symbol)) {
+                    parameter = param;
+                    break;
+                  }
+                }
+              }
+            }
+
+            // Usar função helper para calcular grouping_open
+            const groupingOpen = this.positionService.isGroupingOpen(
+              {
+                is_grouped: position.is_grouped,
+                group_started_at: position.group_started_at ? new Date(position.group_started_at) : null,
+                created_at: new Date(position.created_at),
+              },
+              parameter
+            );
+
+            position.grouping_open = groupingOpen;
+          } else {
+            position.grouping_open = null;
+          }
+        });
+      } else {
+        // Se não há posições agrupadas, definir grouping_open como null para todas
+        positionsWithMetrics.forEach((position: any) => {
+          position.grouping_open = null;
+        });
+      }
 
       // Calcular percentual de PnL não realizado
       const totalUnrealizedPnlPct = totalInvested > 0 
