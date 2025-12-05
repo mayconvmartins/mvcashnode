@@ -438,12 +438,118 @@ export default function PositionDetailPage() {
                             {formatCurrency(Number(position.total_fees_paid_usd || 0))}
                         </div>
                         <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                            {Number(position.fees_on_buy_usd || 0) > 0 && (
-                                <p>Compra: {formatCurrency(Number(position.fees_on_buy_usd))}</p>
-                            )}
-                            {Number(position.fees_on_sell_usd || 0) > 0 && (
-                                <p>Venda: {formatCurrency(Number(position.fees_on_sell_usd))}</p>
-                            )}
+                            {(() => {
+                                // Calcular taxas na moeda original a partir dos fills
+                                const feesByCurrency = new Map<string, { amount: number; usd: number }>();
+                                
+                                if (position.fills) {
+                                    position.fills.forEach((fill: any) => {
+                                        if (fill.execution?.fee_amount && fill.execution?.fee_currency) {
+                                            const currency = fill.execution.fee_currency;
+                                            const amount = Number(fill.execution.fee_amount);
+                                            
+                                            // Calcular valor em USD
+                                            let usdValue = 0;
+                                            if (currency === 'USDT' || currency === 'USD') {
+                                                usdValue = amount;
+                                            } else if (fill.execution.avg_price) {
+                                                // Taxa em base asset, converter para USD
+                                                usdValue = amount * Number(fill.execution.avg_price);
+                                            }
+                                            
+                                            const existing = feesByCurrency.get(currency) || { amount: 0, usd: 0 };
+                                            feesByCurrency.set(currency, {
+                                                amount: existing.amount + amount,
+                                                usd: existing.usd + usdValue,
+                                            });
+                                        }
+                                    });
+                                }
+                                
+                                // Se não encontrou taxas nos fills, usar valores agregados
+                                if (feesByCurrency.size === 0) {
+                                    return (
+                                        <>
+                                            {Number(position.fees_on_buy_usd || 0) > 0 && (
+                                                <p>Compra: {formatCurrency(Number(position.fees_on_buy_usd))}</p>
+                                            )}
+                                            {Number(position.fees_on_sell_usd || 0) > 0 && (
+                                                <p>Venda: {formatCurrency(Number(position.fees_on_sell_usd))}</p>
+                                            )}
+                                        </>
+                                    );
+                                }
+                                
+                                // Agrupar por compra/venda
+                                const buyFees: Array<{ currency: string; amount: number; usd: number }> = [];
+                                const sellFees: Array<{ currency: string; amount: number; usd: number }> = [];
+                                
+                                if (position.fills) {
+                                    position.fills.forEach((fill: any) => {
+                                        if (fill.execution?.fee_amount && fill.execution?.fee_currency) {
+                                            const currency = fill.execution.fee_currency;
+                                            const amount = Number(fill.execution.fee_amount);
+                                            
+                                            let usdValue = 0;
+                                            if (currency === 'USDT' || currency === 'USD') {
+                                                usdValue = amount;
+                                            } else if (fill.execution.avg_price) {
+                                                usdValue = amount * Number(fill.execution.avg_price);
+                                            }
+                                            
+                                            if (fill.side === 'BUY') {
+                                                buyFees.push({ currency, amount, usd: usdValue });
+                                            } else {
+                                                sellFees.push({ currency, amount, usd: usdValue });
+                                            }
+                                        }
+                                    });
+                                }
+                                
+                                // Agrupar taxas por moeda
+                                const buyFeesByCurrency = new Map<string, { amount: number; usd: number }>();
+                                buyFees.forEach(fee => {
+                                    const existing = buyFeesByCurrency.get(fee.currency) || { amount: 0, usd: 0 };
+                                    buyFeesByCurrency.set(fee.currency, {
+                                        amount: existing.amount + fee.amount,
+                                        usd: existing.usd + fee.usd,
+                                    });
+                                });
+                                
+                                const sellFeesByCurrency = new Map<string, { amount: number; usd: number }>();
+                                sellFees.forEach(fee => {
+                                    const existing = sellFeesByCurrency.get(fee.currency) || { amount: 0, usd: 0 };
+                                    sellFeesByCurrency.set(fee.currency, {
+                                        amount: existing.amount + fee.amount,
+                                        usd: existing.usd + fee.usd,
+                                    });
+                                });
+                                
+                                return (
+                                    <>
+                                        {buyFeesByCurrency.size > 0 && (
+                                            <div>
+                                                <p className="font-medium">Compra:</p>
+                                                {Array.from(buyFeesByCurrency.entries()).map(([currency, data]) => (
+                                                    <p key={currency} className="ml-4">
+                                                        {formatAssetAmount(data.amount)} {currency} ({formatCurrency(data.usd)})
+                                                    </p>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {sellFeesByCurrency.size > 0 && (
+                                            <div>
+                                                <p className="font-medium">Venda:</p>
+                                                {Array.from(sellFeesByCurrency.entries()).map(([currency, data]) => (
+                                                    <p key={currency} className="ml-4">
+                                                        {formatAssetAmount(data.amount)} {currency} ({formatCurrency(data.usd)})
+                                                    </p>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
                         </div>
                     </CardContent>
                 </Card>

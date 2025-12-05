@@ -779,35 +779,68 @@ export class AdminSystemController {
 
           if (side === 'buy' && feeCurrency === quoteAsset && feeAmount > 0) {
             // Taxa está em quote asset (USDT) mas deveria estar em base asset (BTC)
-            // Converter: feeAmount em USDT / preço médio = feeAmount em BTC
+            // IMPORTANTE: Quando a taxa estava em USDT, ela NÃO foi subtraída da quantidade
+            // Portanto, a quantidade atual (executed_qty) É a quantidade original bruta
+            
+            const currentExecutedQty = execution.executed_qty.toNumber();
+            const cummQuoteQty = execution.cumm_quote_qty.toNumber();
             const avgPrice = execution.avg_price.toNumber();
-            if (avgPrice > 0) {
-              correctFeeAmount = feeAmount / avgPrice;
+            
+            if (avgPrice > 0 && currentExecutedQty > 0 && cummQuoteQty > 0) {
+              // Calcular taxa percentual baseada na taxa antiga (em USDT)
+              // Isso nos dá a taxa percentual real que foi aplicada
+              const feeRatePercent = feeAmount / cummQuoteQty;
+              
+              // Calcular taxa correta em base asset: quantidade_original * taxa_percentual
+              // Esta é a forma correta: taxa sobre a quantidade comprada
+              correctFeeAmount = currentExecutedQty * feeRatePercent;
               correctFeeCurrency = baseAsset;
               needsFix = true;
+              
               console.log(
-                `[ADMIN] Execução ${execution.id}: Taxa incorreta detectada - ${feeAmount} ${feeCurrency} -> ${correctFeeAmount.toFixed(8)} ${correctFeeCurrency}`
+                `[ADMIN] Execução ${execution.id}: Taxa incorreta detectada - ${feeAmount} ${feeCurrency} (${(feeRatePercent * 100).toFixed(4)}%)`
+              );
+              console.log(
+                `[ADMIN] Execução ${execution.id}: Quantidade original: ${currentExecutedQty} ${baseAsset}, Taxa calculada: ${correctFeeAmount.toFixed(8)} ${baseAsset} (${(feeRatePercent * 100).toFixed(4)}% sobre quantidade)`
               );
             }
           }
 
           if (needsFix) {
-            // A quantidade atual pode já ter sido ajustada incorretamente
-            // Precisamos restaurar a quantidade original primeiro
-            // A quantidade original seria: executed_qty atual + taxa antiga (se foi subtraída incorretamente)
-            // Mas como a taxa estava em USDT, provavelmente não foi subtraída da quantidade
-            // Então vamos apenas ajustar para a quantidade correta com a nova taxa
+            // IMPORTANTE: Quando a taxa estava em USDT (quote asset), ela NÃO foi subtraída da quantidade
+            // Portanto, a quantidade atual (executed_qty) É a quantidade original bruta
+            const originalQty = execution.executed_qty.toNumber();
+            const cummQuoteQty = execution.cumm_quote_qty.toNumber();
+            const avgPrice = execution.avg_price.toNumber();
             
-            const currentExecutedQty = execution.executed_qty.toNumber();
-            let adjustedExecutedQty = currentExecutedQty;
+            // Calcular taxa percentual baseada na taxa antiga (em USDT)
+            // Isso nos dá a taxa percentual real que foi aplicada
+            const feeRatePercent = cummQuoteQty > 0 ? (feeAmount / cummQuoteQty) : 0;
             
-            // Se a taxa está em base asset, subtrair da quantidade
-            if (side === 'buy' && correctFeeCurrency === baseAsset) {
-              adjustedExecutedQty = Math.max(0, currentExecutedQty - correctFeeAmount);
+            // Verificar se a quantidade atual já foi reduzida incorretamente
+            // Se a quantidade atual * preço médio for muito menor que cumm_quote_qty, pode ter sido reduzida
+            const expectedQtyFromCost = cummQuoteQty / avgPrice;
+            const qtyDifference = Math.abs(originalQty - expectedQtyFromCost);
+            
+            // Se a diferença for significativa (mais de 1%), pode ter sido reduzida incorretamente
+            // Nesse caso, usar a quantidade calculada a partir do cost
+            let actualOriginalQty = originalQty;
+            if (qtyDifference > expectedQtyFromCost * 0.01 && expectedQtyFromCost > originalQty) {
+              // Quantidade pode ter sido reduzida incorretamente, restaurar do cost
+              actualOriginalQty = expectedQtyFromCost;
+              console.log(
+                `[ADMIN] Execução ${execution.id}: Quantidade parece ter sido reduzida incorretamente. Restaurando: ${originalQty} -> ${actualOriginalQty}`
+              );
             }
+            
+            // Recalcular taxa correta baseada na quantidade original real
+            correctFeeAmount = actualOriginalQty * feeRatePercent;
+            
+            // Calcular quantidade líquida após subtrair a taxa em base asset
+            const adjustedExecutedQty = Math.max(0, actualOriginalQty - correctFeeAmount);
 
-            // Calcular taxa percentual correta
-            const feeRate = currentExecutedQty > 0 ? (correctFeeAmount / currentExecutedQty) * 100 : null;
+            // Calcular taxa percentual correta (baseada na quantidade original)
+            const feeRate = actualOriginalQty > 0 ? (correctFeeAmount / actualOriginalQty) * 100 : null;
 
             // Atualizar execução
             await this.prisma.tradeExecution.update({
@@ -838,19 +871,47 @@ export class AdminSystemController {
                 const oldFeeUsd = feeAmount; // Taxa antiga já estava em USD
                 const feeDifference = feeUsd - oldFeeUsd;
 
-                // Calcular diferença de quantidade
-                const qtyDifference = currentExecutedQty - adjustedExecutedQty;
-
+                // Calcular diferença de quantidade (quantidade original real - quantidade ajustada)
+                const qtyDifference = actualOriginalQty - adjustedExecutedQty;
+                
+                // Ajustar quantidade total e restante
+                // Se a quantidade original real é maior que a quantidade atual da execução, 
+                // significa que a quantidade foi reduzida incorretamente e precisa ser restaurada
+                const currentPositionQty = position.qty_total.toNumber();
+                const currentPositionQtyRemaining = position.qty_remaining.toNumber();
+                
+                // Se a quantidade original real é maior que a atual da execução, restaurar primeiro
+                let newQtyTotal = currentPositionQty;
+                let newQtyRemaining = currentPositionQtyRemaining;
+                
+                if (actualOriginalQty > originalQty) {
+                  // Quantidade foi reduzida incorretamente, restaurar
+                  const qtyToRestore = actualOriginalQty - originalQty;
+                  newQtyTotal = currentPositionQty + qtyToRestore;
+                  newQtyRemaining = currentPositionQtyRemaining + qtyToRestore;
+                  console.log(
+                    `[ADMIN] Execução ${execution.id}: Restaurando quantidade na posição: ${currentPositionQty} -> ${newQtyTotal} (+${qtyToRestore})`
+                  );
+                }
+                
+                // Agora subtrair a taxa correta (diferença entre quantidade original e ajustada)
+                newQtyTotal = newQtyTotal - qtyDifference;
+                newQtyRemaining = newQtyRemaining - qtyDifference;
+                
                 await this.prisma.tradePosition.update({
                   where: { id: position.id },
                   data: {
                     fees_on_buy_usd: position.fees_on_buy_usd.toNumber() + feeDifference,
                     total_fees_paid_usd: position.total_fees_paid_usd.toNumber() + feeDifference,
                     // Ajustar quantidade total e restante
-                    qty_total: position.qty_total.toNumber() - qtyDifference,
-                    qty_remaining: position.qty_remaining.toNumber() - qtyDifference,
+                    qty_total: newQtyTotal,
+                    qty_remaining: newQtyRemaining,
                   },
                 });
+                
+                console.log(
+                  `[ADMIN] Execução ${execution.id}: Posição ${position.id} atualizada - Qty: ${currentPositionQty} -> ${newQtyTotal}, Taxa: ${oldFeeUsd.toFixed(4)} USDT -> ${feeUsd.toFixed(4)} USD (${correctFeeAmount.toFixed(8)} ${correctFeeCurrency})`
+                );
               }
             }
 

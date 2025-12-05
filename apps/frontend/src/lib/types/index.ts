@@ -405,6 +405,15 @@ export interface PositionFill {
     qty: number
     price: number
     created_at: string
+    execution?: {
+        id: number
+        avg_price: number | null
+        executed_qty: number | null
+        fee_amount: number | null
+        fee_currency: string | null
+        fee_rate: number | null
+        created_at: string
+    }
 }
 
 export interface PositionGroupedJob {

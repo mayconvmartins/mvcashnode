@@ -1737,6 +1737,9 @@ export class PositionsController {
                   id: true,
                   avg_price: true,
                   executed_qty: true,
+                  fee_amount: true,
+                  fee_currency: true,
+                  fee_rate: true,
                   created_at: true,
                   trade_job: {
                     select: {
@@ -1889,6 +1892,15 @@ export class PositionsController {
         qty: fill.qty.toNumber(),
         price: fill.price.toNumber(),
         created_at: fill.created_at,
+        execution: fill.execution ? {
+          id: fill.execution.id,
+          avg_price: fill.execution.avg_price?.toNumber() || null,
+          executed_qty: fill.execution.executed_qty?.toNumber() || null,
+          fee_amount: fill.execution.fee_amount?.toNumber() || null,
+          fee_currency: fill.execution.fee_currency || null,
+          fee_rate: fill.execution.fee_rate?.toNumber() || null,
+          created_at: fill.execution.created_at,
+        } : null,
       })) : [];
 
       // Mapear grouped_jobs para o formato esperado pelo frontend
