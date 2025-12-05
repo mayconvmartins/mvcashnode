@@ -530,7 +530,7 @@ export class ExchangeAccountsController {
       feeRateSellLimit?: number;
       feeRateSellMarket?: number;
     }
-  ) {
+  ): Promise<any> {
     // Verificar se a conta pertence ao usuário
     const account = await this.prisma.exchangeAccount.findFirst({
       where: {
