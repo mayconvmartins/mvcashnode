@@ -416,13 +416,25 @@ export class AdminSystemController {
             }
           }
           
-          // Se order não tem fills mas rawOrder tem, usar rawOrder
-          if ((!order.fills || order.fills.length === 0) && rawOrder) {
-            order.fills = rawOrder.fills;
-            order.fee = rawOrder.fee;
-            order.commission = rawOrder.commission;
-            order.commissionAsset = rawOrder.commissionAsset;
-            order.info = rawOrder.info;
+          // Sempre priorizar rawOrder se disponível (tem informações originais da exchange)
+          // O CCXT pode converter e perder alguns campos como commission nos fills
+          let orderToExtract: any = rawOrder || order;
+          
+          // Se rawOrder tem fills mas order não tem, ou se rawOrder tem mais informações, usar rawOrder
+          if (rawOrder) {
+            if ((!order.fills || order.fills.length === 0) && rawOrder.fills && rawOrder.fills.length > 0) {
+              // rawOrder tem fills que order não tem
+              orderToExtract = rawOrder;
+            } else if (order.fills && order.fills.length > 0 && rawOrder.fills && rawOrder.fills.length > 0) {
+              // Ambos têm fills, verificar se rawOrder tem commission e order não
+              const rawOrderHasCommission = rawOrder.fills.some((f: any) => f.commission !== undefined && f.commission !== null);
+              const orderHasCommission = order.fills.some((f: any) => f.commission !== undefined && f.commission !== null);
+              
+              if (rawOrderHasCommission && !orderHasCommission) {
+                // rawOrder tem commission mas order não tem, usar rawOrder
+                orderToExtract = rawOrder;
+              }
+            }
           }
 
           // Log detalhado da ordem para debug
@@ -432,23 +444,31 @@ export class AdminSystemController {
             side: order.side,
             status: order.status,
             fills: order.fills ? `${order.fills.length} fills` : 'sem fills',
+            fillsSample: order.fills && order.fills.length > 0 ? JSON.stringify(order.fills[0]) : 'sem fills',
             fee: order.fee ? JSON.stringify(order.fee) : 'sem fee',
             commission: order.commission || 'sem commission',
             cost: order.cost,
             filled: order.filled,
             rawOrderFills: rawOrder?.fills ? `${rawOrder.fills.length} fills` : 'sem fills no rawOrder',
+            rawOrderFillsSample: rawOrder?.fills && rawOrder.fills.length > 0 ? JSON.stringify(rawOrder.fills[0]) : 'sem fills no rawOrder',
             rawOrderFee: rawOrder?.fee ? JSON.stringify(rawOrder.fee) : 'sem fee no rawOrder',
-            rawOrderInfo: rawOrder?.info ? 'tem info' : 'sem info no rawOrder',
+            rawOrderCommission: rawOrder?.commission || 'sem commission no rawOrder',
+            usingRawOrder: orderToExtract === rawOrder,
           });
 
-          // Extrair taxas - usar rawOrder se disponível (tem mais informações)
-          const orderToExtract = rawOrder || order;
+          // Extrair taxas - usar orderToExtract (pode ser rawOrder ou order)
+          // O extractFeesFromOrder procura por:
+          // 1. fill.commission e fill.commissionAsset (Binance usa este formato)
+          // 2. fill.fee (outras exchanges)
+          // 3. order.fee ou order.commission
           const fees = adapter.extractFeesFromOrder(
             orderToExtract,
             execution.trade_job.side.toLowerCase() as 'buy' | 'sell'
           );
           
-          // Se não encontrou taxas, usar taxas configuradas na conta
+          // IMPORTANTE: Só usar taxas configuradas na conta como FALLBACK
+          // quando realmente não encontrou taxas na resposta da exchange
+          // (fees.feeAmount === 0 significa que não encontrou taxas na ordem)
           if (fees.feeAmount === 0 && order.cost && order.filled) {
             const side = execution.trade_job.side.toLowerCase();
             const orderType = execution.trade_job.order_type?.toLowerCase() || 'market'; // Assumir market se não especificado

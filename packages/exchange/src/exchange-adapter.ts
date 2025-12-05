@@ -267,9 +267,12 @@ export abstract class ExchangeAdapter {
           }
         }
         
-        // Algumas exchanges retornam commission diretamente
+        // Algumas exchanges retornam commission diretamente (Binance usa este formato)
+        // Commission pode vir como string ou número
         if (fill.commission !== undefined && fill.commission !== null) {
-          const commission = Number(fill.commission) || 0;
+          const commission = typeof fill.commission === 'string' 
+            ? Number(fill.commission) || 0
+            : Number(fill.commission) || 0;
           if (commission > 0) {
             totalFeeAmount += commission;
             if (!feeCurrency && fill.commissionAsset) {
