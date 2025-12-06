@@ -1540,6 +1540,7 @@ export class PositionService {
    * Busca posições que têm PositionGroupedJob mas não deveriam existir mais
    * ou posições que foram agrupadas mas não foram deletadas corretamente
    * Também verifica posições CLOSED e jobs órfãos
+   * Primeiro corrige PositionGroupedJob faltantes baseado nos fills
    * @returns Estatísticas da limpeza
    */
   async cleanupOrphanedGroupedPositions(): Promise<{
@@ -1552,6 +1553,15 @@ export class PositionService {
     let deleted = 0;
 
     try {
+      // PRIMEIRO: Corrigir PositionGroupedJob faltantes baseado nos fills
+      // Isso garante que todos os jobs dos fills estejam em PositionGroupedJob
+      console.log(`[POSITION-SERVICE] 🔧 Corrigindo PositionGroupedJob faltantes baseado em fills...`);
+      const fixResult = await this.fixMissingGroupedJobsFromFills();
+      console.log(
+        `[POSITION-SERVICE] ✅ Correção de PositionGroupedJob: ${fixResult.checked} posição(ões) verificada(s), ${fixResult.added} job(s) adicionado(s), ${fixResult.orphanedRemoved} posição(ões) órfã(s) removida(s)`
+      );
+      deleted += fixResult.orphanedRemoved;
+      errors.push(...fixResult.errors);
       // Buscar todas as posições agrupadas que têm PositionGroupedJob (OPEN e CLOSED)
       const groupedPositions = await this.prisma.tradePosition.findMany({
         where: {
@@ -1723,6 +1733,120 @@ export class PositionService {
                 }
               }
             }
+
+            // Verificação adicional: Buscar fills da posição agrupada que pertencem a jobs não agrupados
+            // Isso identifica casos onde o fill foi movido mas o job não foi adicionado ao PositionGroupedJob
+            const fillsWithJobs = await this.prisma.positionFill.findMany({
+              where: {
+                position_id: groupedPosition.id,
+                side: 'BUY',
+              },
+              include: {
+                execution: {
+                  include: {
+                    trade_job: {
+                      select: {
+                        id: true,
+                        side: true,
+                      },
+                    },
+                  },
+                },
+              },
+            });
+
+            // Coletar job IDs dos fills que não estão em PositionGroupedJob
+            const fillsWithMissingJobs: number[] = [];
+            for (const fill of fillsWithJobs) {
+              if (fill.execution?.trade_job?.id && fill.execution.trade_job.side === 'BUY') {
+                const jobId = fill.execution.trade_job.id;
+                if (!groupedJobIds.includes(jobId)) {
+                  fillsWithMissingJobs.push(jobId);
+                }
+              }
+            }
+
+            // Se há fills de jobs não agrupados, adicionar ao PositionGroupedJob
+            if (fillsWithMissingJobs.length > 0) {
+              const uniqueMissingJobIds = Array.from(new Set(fillsWithMissingJobs));
+              console.log(
+                `[POSITION-SERVICE] 🔍 Posição agrupada ${groupedPosition.id}: Encontrados fills de ${uniqueMissingJobIds.length} job(s) não agrupado(s): ${uniqueMissingJobIds.join(', ')}`
+              );
+
+              for (const jobId of uniqueMissingJobIds) {
+                try {
+                  // Verificar se já existe
+                  const existing = await this.prisma.positionGroupedJob.findFirst({
+                    where: {
+                      position_id: groupedPosition.id,
+                      trade_job_id: jobId,
+                    },
+                  });
+
+                  if (!existing) {
+                    await this.prisma.positionGroupedJob.create({
+                      data: {
+                        position_id: groupedPosition.id,
+                        trade_job_id: jobId,
+                      },
+                    });
+                    console.log(
+                      `[POSITION-SERVICE] ✅ Adicionado PositionGroupedJob baseado em fill: posição ${groupedPosition.id}, job ${jobId}`
+                    );
+                  }
+
+                  // Verificar se há posição órfã com este job
+                  const orphanedPosition = await this.prisma.tradePosition.findFirst({
+                    where: {
+                      trade_job_id_open: jobId,
+                      id: { not: groupedPosition.id },
+                      status: PositionStatus.OPEN,
+                    },
+                  });
+
+                  if (orphanedPosition) {
+                    console.log(
+                      `[POSITION-SERVICE] 🔧 Identificada posição órfã ${orphanedPosition.id} (job ${jobId}) que tem fill na posição agrupada ${groupedPosition.id}`
+                    );
+
+                    // Mover fills restantes para a posição agrupada
+                    const orphanedFills = await this.prisma.positionFill.findMany({
+                      where: {
+                        position_id: orphanedPosition.id,
+                      },
+                    });
+
+                    if (orphanedFills.length > 0) {
+                      await this.prisma.positionFill.updateMany({
+                        where: {
+                          position_id: orphanedPosition.id,
+                        },
+                        data: {
+                          position_id: groupedPosition.id,
+                        },
+                      });
+                      console.log(
+                        `[POSITION-SERVICE] ✅ ${orphanedFills.length} fill(s) movido(s) da posição órfã ${orphanedPosition.id} para posição agrupada ${groupedPosition.id}`
+                      );
+                    }
+
+                    // Deletar posição órfã
+                    await this.prisma.tradePosition.delete({
+                      where: { id: orphanedPosition.id },
+                    });
+
+                    deleted++;
+                    console.log(
+                      `[POSITION-SERVICE] ✅ Posição órfã ${orphanedPosition.id} removida`
+                    );
+                  }
+                } catch (error: any) {
+                  const errorMsg = `Erro ao processar job ${jobId} dos fills: ${error.message}`;
+                  errors.push(errorMsg);
+                  console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+                }
+              }
+            }
           }
         } catch (error: any) {
           const errorMsg = `Erro ao limpar posições órfãs da posição ${groupedPosition.id}: ${error.message}`;
@@ -1878,6 +2002,208 @@ export class PositionService {
     }
 
     return { checked, fixed, errors };
+  }
+
+  /**
+   * Corrige PositionGroupedJob faltantes baseado nos fills das posições agrupadas
+   * Identifica fills de jobs que não estão em PositionGroupedJob e adiciona
+   * Também identifica posições órfãs que têm fills na agrupada mas o job não está agrupado
+   * @returns Estatísticas da correção
+   */
+  async fixMissingGroupedJobsFromFills(): Promise<{
+    checked: number;
+    added: number;
+    orphanedRemoved: number;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    let checked = 0;
+    let added = 0;
+    let orphanedRemoved = 0;
+
+    try {
+      // Buscar todas as posições agrupadas
+      const groupedPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          is_grouped: true,
+        },
+        include: {
+          fills: {
+            where: {
+              side: 'BUY',
+            },
+            include: {
+              execution: {
+                include: {
+                  trade_job: {
+                    select: {
+                      id: true,
+                      side: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          grouped_jobs: {
+            select: {
+              trade_job_id: true,
+            },
+          },
+        },
+      });
+
+      checked = groupedPositions.length;
+
+      for (const groupedPosition of groupedPositions) {
+        try {
+          const existingGroupedJobIds = new Set(
+            groupedPosition.grouped_jobs.map(gj => gj.trade_job_id)
+          );
+
+          // Coletar todos os job IDs dos fills BUY
+          const jobIdsFromFills = new Set<number>();
+          for (const fill of groupedPosition.fills) {
+            if (fill.execution?.trade_job?.id && fill.execution.trade_job.side === 'BUY') {
+              jobIdsFromFills.add(fill.execution.trade_job.id);
+            }
+          }
+
+          // Verificar quais jobs dos fills não estão em PositionGroupedJob
+          const missingJobIds = Array.from(jobIdsFromFills).filter(
+            jobId => !existingGroupedJobIds.has(jobId)
+          );
+
+          if (missingJobIds.length > 0) {
+            console.log(
+              `[POSITION-SERVICE] 🔍 Posição agrupada ${groupedPosition.id}: Encontrados ${missingJobIds.length} job(s) faltante(s) nos fills: ${missingJobIds.join(', ')}`
+            );
+
+            // Adicionar jobs faltantes ao PositionGroupedJob
+            for (const jobId of missingJobIds) {
+              try {
+                // Verificar se o job existe e é BUY
+                const job = await this.prisma.tradeJob.findUnique({
+                  where: { id: jobId },
+                  select: { id: true, side: true },
+                });
+
+                if (!job || job.side !== 'BUY') {
+                  console.warn(
+                    `[POSITION-SERVICE] ⚠️ Job ${jobId} não encontrado ou não é BUY, pulando`
+                  );
+                  continue;
+                }
+
+                // Verificar se já existe (pode ter sido criado em outra iteração)
+                const existing = await this.prisma.positionGroupedJob.findFirst({
+                  where: {
+                    position_id: groupedPosition.id,
+                    trade_job_id: jobId,
+                  },
+                });
+
+                if (!existing) {
+                  await this.prisma.positionGroupedJob.create({
+                    data: {
+                      position_id: groupedPosition.id,
+                      trade_job_id: jobId,
+                    },
+                  });
+                  added++;
+                  console.log(
+                    `[POSITION-SERVICE] ✅ Adicionado PositionGroupedJob: posição ${groupedPosition.id}, job ${jobId}`
+                  );
+                }
+              } catch (error: any) {
+                const errorMsg = `Erro ao adicionar PositionGroupedJob para job ${jobId}: ${error.message}`;
+                errors.push(errorMsg);
+                console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+              }
+            }
+          }
+
+          // Identificar posições órfãs que têm fills nesta posição agrupada
+          // mas o job não está em PositionGroupedJob (agora já adicionamos, mas pode haver posições órfãs)
+          for (const fill of groupedPosition.fills) {
+            if (fill.execution?.trade_job?.id && fill.execution.trade_job.side === 'BUY') {
+              const jobId = fill.execution.trade_job.id;
+              
+              // Verificar se há uma posição órfã com este job
+              const orphanedPosition = await this.prisma.tradePosition.findFirst({
+                where: {
+                  trade_job_id_open: jobId,
+                  id: { not: groupedPosition.id },
+                  status: PositionStatus.OPEN,
+                },
+              });
+
+              if (orphanedPosition) {
+                // Verificar se o job está em PositionGroupedJob (pode ter sido adicionado acima)
+                const isJobGrouped = await this.prisma.positionGroupedJob.findFirst({
+                  where: {
+                    position_id: groupedPosition.id,
+                    trade_job_id: jobId,
+                  },
+                });
+
+                if (isJobGrouped) {
+                  // O job está agrupado, então esta posição é órfã e deve ser removida
+                  console.log(
+                    `[POSITION-SERVICE] 🔧 Identificada posição órfã ${orphanedPosition.id} (job ${jobId}) que tem fill na posição agrupada ${groupedPosition.id}`
+                  );
+
+                  // Mover fills restantes para a posição agrupada (se houver)
+                  const orphanedFills = await this.prisma.positionFill.findMany({
+                    where: {
+                      position_id: orphanedPosition.id,
+                    },
+                  });
+
+                  if (orphanedFills.length > 0) {
+                    await this.prisma.positionFill.updateMany({
+                      where: {
+                        position_id: orphanedPosition.id,
+                      },
+                      data: {
+                        position_id: groupedPosition.id,
+                      },
+                    });
+                    console.log(
+                      `[POSITION-SERVICE] ✅ ${orphanedFills.length} fill(s) movido(s) da posição órfã ${orphanedPosition.id} para posição agrupada ${groupedPosition.id}`
+                    );
+                  }
+
+                  // Deletar posição órfã
+                  await this.prisma.tradePosition.delete({
+                    where: { id: orphanedPosition.id },
+                  });
+
+                  orphanedRemoved++;
+                  console.log(
+                    `[POSITION-SERVICE] ✅ Posição órfã ${orphanedPosition.id} removida`
+                  );
+                }
+              }
+            }
+          }
+        } catch (error: any) {
+          const errorMsg = `Erro ao corrigir PositionGroupedJob da posição ${groupedPosition.id}: ${error.message}`;
+          errors.push(errorMsg);
+          console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+        }
+      }
+
+      console.log(
+        `[POSITION-SERVICE] ✅ Correção de PositionGroupedJob concluída: ${checked} posição(ões) agrupada(s) verificada(s), ${added} job(s) adicionado(s), ${orphanedRemoved} posição(ões) órfã(s) removida(s)`
+      );
+    } catch (error: any) {
+      const errorMsg = `Erro geral na correção de PositionGroupedJob: ${error.message}`;
+      errors.push(errorMsg);
+      console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+    }
+
+    return { checked, added, orphanedRemoved, errors };
   }
 
   /**

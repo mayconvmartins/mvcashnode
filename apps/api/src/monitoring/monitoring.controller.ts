@@ -287,5 +287,32 @@ export class MonitoringController {
   }> {
     return this.monitoringService.cleanupOrphanedGroupedPositions();
   }
+
+  @Post('fix-missing-grouped-jobs')
+  @ApiOperation({
+    summary: 'Corrigir PositionGroupedJob faltantes baseado em fills',
+    description: 'Identifica fills de jobs que não estão em PositionGroupedJob e adiciona. Também identifica e remove posições órfãs que têm fills na agrupada mas o job não está agrupado.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Correção executada com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        checked: { type: 'number', description: 'Quantidade de posições agrupadas verificadas' },
+        added: { type: 'number', description: 'Quantidade de jobs adicionados ao PositionGroupedJob' },
+        orphanedRemoved: { type: 'number', description: 'Quantidade de posições órfãs removidas' },
+        errors: { type: 'array', items: { type: 'string' }, description: 'Lista de erros encontrados' },
+      },
+    },
+  })
+  async fixMissingGroupedJobs(): Promise<{
+    checked: number;
+    added: number;
+    orphanedRemoved: number;
+    errors: string[];
+  }> {
+    return this.monitoringService.fixMissingGroupedJobsFromFills();
+  }
 }
 

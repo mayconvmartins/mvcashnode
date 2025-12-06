@@ -701,5 +701,15 @@ export class MonitoringService {
     const positionService = new PositionService(this.prisma);
     return positionService.cleanupOrphanedGroupedPositions();
   }
+
+  async fixMissingGroupedJobsFromFills(): Promise<{
+    checked: number;
+    added: number;
+    orphanedRemoved: number;
+    errors: string[];
+  }> {
+    const positionService = new PositionService(this.prisma);
+    return positionService.fixMissingGroupedJobsFromFills();
+  }
 }
 
