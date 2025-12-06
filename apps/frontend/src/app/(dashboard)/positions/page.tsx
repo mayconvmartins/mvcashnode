@@ -68,6 +68,7 @@ export default function PositionsPage() {
     const [groupPreview, setGroupPreview] = useState<GroupPreview | null>(null)
     const [dustPage, setDustPage] = useState(1)
     const dustLimit = 20
+    const [positionTypeFilter, setPositionTypeFilter] = useState<'normal' | 'todas'>('normal')
 
     // Verificar se o usuário é admin (usando a mesma lógica dos outros componentes)
     const isAdmin = user?.roles?.some((role: any) => {
@@ -91,8 +92,12 @@ export default function PositionsPage() {
         if (selectedAccount !== 'all') filters.exchange_account_id = parseInt(selectedAccount)
         if (dateFrom) filters.from = dateFrom
         if (dateTo) filters.to = dateTo
+        // Por padrão, excluir resíduos. Só incluir se o filtro for "todas"
+        if (positionTypeFilter === 'normal') {
+            filters.is_dust = false
+        }
         return filters
-    }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo])
+    }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, positionTypeFilter])
 
     // Construir filtros para posições fechadas
     const closedFilters = useMemo(() => {
@@ -454,6 +459,11 @@ export default function PositionsPage() {
                         symbol={position.symbol}
                         showExchange={false}
                     />
+                    {position.is_dust && (
+                        <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/50 text-xs">
+                            Resíduo
+                        </Badge>
+                    )}
                     {position.is_grouped && (
                         <Badge 
                             variant="outline" 
@@ -809,7 +819,7 @@ export default function PositionsPage() {
         },
     ]
 
-    const hasActiveFilters = selectedSymbol !== 'all' || selectedAccount !== 'all' || datePreset !== 'all'
+    const hasActiveFilters = selectedSymbol !== 'all' || selectedAccount !== 'all' || datePreset !== 'all' || positionTypeFilter !== 'normal'
 
     return (
         <div className="space-y-6">
@@ -1025,6 +1035,21 @@ export default function PositionsPage() {
                                 preset={datePreset}
                                 onDateChange={handleDateChange}
                             />
+
+                            <div className="space-y-2">
+                                <Label htmlFor="position-type-filter">Tipo de Posição (Abertas)</Label>
+                                <Select value={positionTypeFilter} onValueChange={(value: 'normal' | 'todas') => {
+                                    setPositionTypeFilter(value)
+                                }}>
+                                    <SelectTrigger id="position-type-filter">
+                                        <SelectValue placeholder="Tipo de posição" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="normal">Normais (sem resíduos)</SelectItem>
+                                        <SelectItem value="todas">Todas</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </CardContent>
                     </CollapsibleContent>
                 </Card>
