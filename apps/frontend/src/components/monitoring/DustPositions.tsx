@@ -159,7 +159,7 @@ export function DustPositions() {
           Gerenciamento de Resíduos
         </CardTitle>
         <CardDescription>
-          Identifica e gerencia posições com quantidade restante muito baixa (< 1% E < US$ 5.00)
+          Identifica e gerencia posições com quantidade restante muito baixa (&lt; 1% E &lt; US$ 5.00)
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">

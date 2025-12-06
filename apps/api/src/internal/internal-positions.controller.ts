@@ -106,20 +106,22 @@ export class InternalPositionsController {
             },
           });
 
-          // Filtrar jobs que já estão em PositionGroupedJob (já foram agrupados)
+          // Filtrar jobs que já estão em PositionGroupedJob de QUALQUER posição (OPEN ou CLOSED)
+          // Se um job está em PositionGroupedJob, significa que foi agrupado e não deve ser recriado
+          // mesmo que a posição agrupada esteja CLOSED
           const groupedJobIds = await this.prisma.positionGroupedJob.findMany({
             select: { trade_job_id: true },
           });
           const groupedJobIdsSet = new Set(groupedJobIds.map(gj => gj.trade_job_id));
           
-          // Filtrar jobs que não estão agrupados
+          // Filtrar jobs que não estão agrupados (não estão em PositionGroupedJob de nenhuma posição)
           const jobsToProcess = jobsWithoutPosition.filter(job => !groupedJobIdsSet.has(job.id));
           
           totalChecked += jobsWithoutPosition.length;
           const skippedGrouped = jobsWithoutPosition.length - jobsToProcess.length;
           
           if (skippedGrouped > 0) {
-            console.log(`[SYNC-MISSING-ALL] Usuário ${user.id}: ${skippedGrouped} job(s) ignorado(s) (já agrupado(s))`);
+            console.log(`[SYNC-MISSING-ALL] Usuário ${user.id}: ${skippedGrouped} job(s) ignorado(s) (já agrupado(s) em PositionGroupedJob)`);
           }
 
           let positionsCreated = 0;

@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, PositionStatus, CloseReason, ExchangeType } from '@mvcashnode/shared';
+import { TradeMode, PositionStatus, CloseReason } from '@mvcashnode/shared';
 
 export interface PositionFill {
   executionId: number;
@@ -1035,7 +1035,7 @@ export class PositionService {
     } else {
       // Para MARKET, buscar preço atual
       const { AdapterFactory } = await import('@mvcashnode/exchange');
-      const adapter = AdapterFactory.createAdapter(position.exchange_account.exchange as ExchangeType);
+      const adapter = AdapterFactory.createAdapter(position.exchange_account.exchange);
       const ticker = await adapter.fetchTicker(position.symbol);
       sellPrice = ticker.last;
     }
@@ -1454,6 +1454,41 @@ export class PositionService {
         },
       });
 
+      // VALIDAÇÃO FINAL: Verificar se todos os jobs foram adicionados ao PositionGroupedJob
+      const allJobIds = positions
+        .map(p => p.trade_job_id_open)
+        .filter((id): id is number => id !== null);
+      
+      const groupedJobs = await tx.positionGroupedJob.findMany({
+        where: {
+          position_id: updatedPosition.id,
+          trade_job_id: { in: allJobIds },
+        },
+        select: { trade_job_id: true },
+      });
+      
+      const groupedJobIds = new Set(groupedJobs.map(gj => gj.trade_job_id));
+      const missingJobIds = allJobIds.filter(jobId => !groupedJobIds.has(jobId));
+      
+      if (missingJobIds.length > 0) {
+        console.warn(`[POSITION-SERVICE] ⚠️ Aviso: ${missingJobIds.length} job(s) não foram adicionados ao PositionGroupedJob: ${missingJobIds.join(', ')}`);
+        // Criar os que estão faltando
+        for (const jobId of missingJobIds) {
+          try {
+            await tx.positionGroupedJob.create({
+              data: {
+                position_id: updatedPosition.id,
+                trade_job_id: jobId,
+              },
+            });
+            console.log(`[POSITION-SERVICE] ✅ Criado PositionGroupedJob faltante para job ${jobId}`);
+          } catch (error: any) {
+            console.error(`[POSITION-SERVICE] ❌ Erro ao criar PositionGroupedJob para job ${jobId}: ${error.message}`);
+            throw new Error(`Falha ao criar PositionGroupedJob para job ${jobId}: ${error.message}`);
+          }
+        }
+      }
+
       // Deletar posições agrupadas
       if (positionsToDeleteIds.length > 0) {
         const deleteResult = await tx.tradePosition.deleteMany({
@@ -1470,6 +1505,29 @@ export class PositionService {
         }
       }
 
+      // Verificação final de integridade: garantir que não há posições órfãs
+      const orphanedPositions = await tx.tradePosition.findMany({
+        where: {
+          trade_job_id_open: { in: allJobIds },
+          id: { not: updatedPosition.id },
+          status: PositionStatus.OPEN,
+        },
+      });
+
+      if (orphanedPositions.length > 0) {
+        const orphanedIds = orphanedPositions.map(p => p.id);
+        console.warn(`[POSITION-SERVICE] ⚠️ Aviso: Encontradas ${orphanedPositions.length} posição(ões) órfã(s) após agrupamento: IDs ${orphanedIds.join(', ')}`);
+        // Mover fills e deletar posições órfãs
+        for (const orphaned of orphanedPositions) {
+          await tx.positionFill.updateMany({
+            where: { position_id: orphaned.id },
+            data: { position_id: updatedPosition.id },
+          });
+          await tx.tradePosition.delete({ where: { id: orphaned.id } });
+          console.log(`[POSITION-SERVICE] ✅ Posição órfã ${orphaned.id} removida e fills movidos para posição agrupada`);
+        }
+      }
+
       console.log(`[POSITION-SERVICE] ✅ Posições agrupadas: ${positionsToDeleteIds.length} posição(ões) agrupada(s) na posição base ${basePosition.id}`);
       console.log(`[POSITION-SERVICE]   - Qty total: ${totalQty}, Qty restante: ${totalQtyRemaining}, Preço médio: ${weightedAvgPrice.toFixed(8)}`);
 
@@ -1481,6 +1539,7 @@ export class PositionService {
    * Limpa posições órfãs de agrupamento
    * Busca posições que têm PositionGroupedJob mas não deveriam existir mais
    * ou posições que foram agrupadas mas não foram deletadas corretamente
+   * Também verifica posições CLOSED e jobs órfãos
    * @returns Estatísticas da limpeza
    */
   async cleanupOrphanedGroupedPositions(): Promise<{
@@ -1493,11 +1552,10 @@ export class PositionService {
     let deleted = 0;
 
     try {
-      // Buscar todas as posições agrupadas que têm PositionGroupedJob
+      // Buscar todas as posições agrupadas que têm PositionGroupedJob (OPEN e CLOSED)
       const groupedPositions = await this.prisma.tradePosition.findMany({
         where: {
           is_grouped: true,
-          status: PositionStatus.OPEN,
         },
         include: {
           grouped_jobs: {
@@ -1517,11 +1575,11 @@ export class PositionService {
           
           if (groupedJobIds.length > 0) {
             // Buscar posições que têm esses trade_job_id_open e não são a posição agrupada
+            // Verificar tanto OPEN quanto CLOSED para garantir limpeza completa
             const orphanedPositions = await this.prisma.tradePosition.findMany({
               where: {
                 trade_job_id_open: { in: groupedJobIds },
                 id: { not: groupedPosition.id },
-                status: PositionStatus.OPEN,
               },
             });
 
@@ -1548,8 +1606,33 @@ export class PositionService {
 
               deleted += orphanedPositions.length;
               console.log(
-                `[POSITION-SERVICE] ✅ Limpeza: ${orphanedPositions.length} posição(ões) órfã(s) deletada(s) relacionada(s) à posição agrupada ${groupedPosition.id}`
+                `[POSITION-SERVICE] ✅ Limpeza: ${orphanedPositions.length} posição(ões) órfã(s) deletada(s) relacionada(s) à posição agrupada ${groupedPosition.id} (status: ${groupedPosition.status})`
               );
+            }
+
+            // Verificar jobs órfãos: jobs que estão em PositionGroupedJob desta posição
+            // mas têm position_open null ou apontando para outra posição
+            const jobsWithIncorrectPosition = await this.prisma.tradeJob.findMany({
+              where: {
+                id: { in: groupedJobIds },
+                OR: [
+                  { position_open: null },
+                  { position_open: { id: { not: groupedPosition.id } } },
+                ],
+              },
+              include: {
+                position_open: {
+                  select: { id: true },
+                },
+              },
+            });
+
+            if (jobsWithIncorrectPosition.length > 0) {
+              console.log(
+                `[POSITION-SERVICE] ⚠️ Encontrados ${jobsWithIncorrectPosition.length} job(s) com position_open incorreto relacionado(s) à posição agrupada ${groupedPosition.id}`
+              );
+              // Não corrigimos automaticamente aqui, apenas logamos
+              // A correção será feita pelo método fixJobPositionIntegrity se necessário
             }
           }
         } catch (error: any) {
@@ -1569,6 +1652,143 @@ export class PositionService {
     }
 
     return { checked, deleted, errors };
+  }
+
+  /**
+   * Verifica e corrige inconsistências entre TradeJob.position_open e PositionGroupedJob
+   * Garante que se um job está em PositionGroupedJob, ele não deve ter position_open
+   * apontando para outra posição ou null quando deveria apontar para a posição agrupada
+   * @returns Estatísticas da correção
+   */
+  async fixJobPositionIntegrity(): Promise<{
+    checked: number;
+    fixed: number;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    let checked = 0;
+    let fixed = 0;
+
+    try {
+      // Buscar todos os PositionGroupedJob
+      const allGroupedJobs = await this.prisma.positionGroupedJob.findMany({
+        include: {
+          position: {
+            select: {
+              id: true,
+              status: true,
+            },
+          },
+          trade_job: {
+            select: {
+              id: true,
+              position_open: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      checked = allGroupedJobs.length;
+
+      for (const groupedJob of allGroupedJobs) {
+        try {
+          const job = groupedJob.trade_job;
+          const expectedPositionId = groupedJob.position.id;
+          const currentPositionId = job.position_open?.id;
+
+          // Se o job tem position_open null ou apontando para outra posição,
+          // isso é uma inconsistência que precisa ser corrigida
+          if (!currentPositionId || currentPositionId !== expectedPositionId) {
+            // Verificar se a posição agrupada ainda existe
+            const groupedPosition = await this.prisma.tradePosition.findUnique({
+              where: { id: expectedPositionId },
+            });
+
+            if (!groupedPosition) {
+              // Posição agrupada não existe mais, remover PositionGroupedJob
+              await this.prisma.positionGroupedJob.delete({
+                where: {
+                  id: groupedJob.id,
+                },
+              });
+              console.log(
+                `[POSITION-SERVICE] ✅ Removido PositionGroupedJob ${groupedJob.id} (posição agrupada ${expectedPositionId} não existe mais)`
+              );
+              fixed++;
+            } else {
+              // Posição agrupada existe, mas o job não está apontando para ela
+              // Não podemos corrigir automaticamente porque o relacionamento position_open
+              // é gerenciado pelo Prisma através do trade_job_id_open na posição
+              // Mas podemos logar para diagnóstico
+              console.warn(
+                `[POSITION-SERVICE] ⚠️ Inconsistência detectada: Job ${job.id} está em PositionGroupedJob da posição ${expectedPositionId}, mas position_open ${currentPositionId ? `aponta para ${currentPositionId}` : 'é null'}`
+              );
+              
+              // Se há uma posição atual que não é a agrupada, verificar se é órfã
+              if (currentPositionId && currentPositionId !== expectedPositionId) {
+                const currentPosition = await this.prisma.tradePosition.findUnique({
+                  where: { id: currentPositionId },
+                  include: {
+                    fills: {
+                      select: { id: true },
+                    },
+                  },
+                });
+
+                if (currentPosition) {
+                  // Verificar se esta posição é órfã (não deveria existir)
+                  const otherGroupedJobs = await this.prisma.positionGroupedJob.findMany({
+                    where: {
+                      trade_job_id: job.id,
+                      position_id: { not: expectedPositionId },
+                    },
+                  });
+
+                  if (otherGroupedJobs.length === 0) {
+                    // Esta posição é órfã, mover fills e deletar
+                    console.log(
+                      `[POSITION-SERVICE] 🔧 Corrigindo: Movendo fills da posição órfã ${currentPositionId} para posição agrupada ${expectedPositionId}`
+                    );
+                    
+                    await this.prisma.positionFill.updateMany({
+                      where: { position_id: currentPositionId },
+                      data: { position_id: expectedPositionId },
+                    });
+
+                    await this.prisma.tradePosition.delete({
+                      where: { id: currentPositionId },
+                    });
+
+                    fixed++;
+                    console.log(
+                      `[POSITION-SERVICE] ✅ Posição órfã ${currentPositionId} removida e fills movidos para posição agrupada ${expectedPositionId}`
+                    );
+                  }
+                }
+              }
+            }
+          }
+        } catch (error: any) {
+          const errorMsg = `Erro ao corrigir integridade do job ${groupedJob.trade_job_id}: ${error.message}`;
+          errors.push(errorMsg);
+          console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+        }
+      }
+
+      console.log(
+        `[POSITION-SERVICE] ✅ Verificação de integridade concluída: ${checked} PositionGroupedJob(s) verificado(s), ${fixed} inconsistência(s) corrigida(s)`
+      );
+    } catch (error: any) {
+      const errorMsg = `Erro geral na verificação de integridade: ${error.message}`;
+      errors.push(errorMsg);
+      console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+    }
+
+    return { checked, fixed, errors };
   }
 
   /**
@@ -1669,7 +1889,6 @@ export class PositionService {
     }> = [];
 
     const { AdapterFactory } = await import('@mvcashnode/exchange');
-    const ExchangeType = (await import('@mvcashnode/shared')).ExchangeType;
 
     for (const position of positions) {
       // Pular contas de simulação
@@ -1689,7 +1908,7 @@ export class PositionService {
       try {
         // Buscar preço atual
         const adapter = AdapterFactory.createAdapter(
-          position.exchange_account.exchange as ExchangeType
+          position.exchange_account.exchange
         );
         const ticker = await adapter.fetchTicker(position.symbol);
         const currentPrice = ticker.last;
@@ -1760,9 +1979,8 @@ export class PositionService {
 
       // Buscar preço atual para validar valor
       const { AdapterFactory } = await import('@mvcashnode/exchange');
-      const ExchangeType = (await import('@mvcashnode/shared')).ExchangeType;
       const adapter = AdapterFactory.createAdapter(
-        originalPosition.exchange_account.exchange as ExchangeType
+        originalPosition.exchange_account.exchange
       );
       const ticker = await adapter.fetchTicker(originalPosition.symbol);
       const currentPrice = ticker.last;
@@ -1774,7 +1992,7 @@ export class PositionService {
 
       // Criar job temporário para a nova posição resíduo (necessário para trade_job_id_open)
       const { TradeJobService } = await import('../trading/trade-job.service');
-      const tradeJobService = new TradeJobService(tx);
+      const tradeJobService = new TradeJobService(tx as any);
       const dustJob = await tradeJobService.createJob({
         exchangeAccountId: originalPosition.exchange_account_id,
         tradeMode: originalPosition.trade_mode as TradeMode,
@@ -1931,7 +2149,6 @@ export class PositionService {
     }>();
 
     const { AdapterFactory } = await import('@mvcashnode/exchange');
-    const ExchangeType = (await import('@mvcashnode/shared')).ExchangeType;
 
     for (const position of dustPositions) {
       const key = `${position.exchange_account_id}:${position.symbol}`;
@@ -1955,7 +2172,7 @@ export class PositionService {
       // Buscar preço atual para calcular valor
       try {
         const adapter = AdapterFactory.createAdapter(
-          position.exchange_account.exchange as ExchangeType
+          position.exchange_account.exchange
         );
         const ticker = await adapter.fetchTicker(position.symbol);
         const currentPrice = ticker.last;
@@ -1989,7 +2206,7 @@ export class PositionService {
     symbol: string,
     exchangeAccountId: number,
     positionIds: number[],
-    skipMinProfit: boolean = true
+    _skipMinProfit: boolean = true
   ): Promise<{ tradeJobId: number; totalQty: number; totalValueUsd: number }> {
     return await this.prisma.$transaction(async (tx) => {
       // Buscar posições resíduo
@@ -2019,9 +2236,8 @@ export class PositionService {
 
       // Buscar preço atual para validar valor mínimo
       const { AdapterFactory } = await import('@mvcashnode/exchange');
-      const ExchangeType = (await import('@mvcashnode/shared')).ExchangeType;
       const adapter = AdapterFactory.createAdapter(
-        dustPositions[0].exchange_account.exchange as ExchangeType
+        dustPositions[0].exchange_account.exchange
       );
       const ticker = await adapter.fetchTicker(symbol);
       const currentPrice = ticker.last;
@@ -2034,7 +2250,7 @@ export class PositionService {
 
       // Criar job de venda
       const { TradeJobService } = await import('../trading/trade-job.service');
-      const tradeJobService = new TradeJobService(tx);
+      const tradeJobService = new TradeJobService(tx as any);
       const tradeJob = await tradeJobService.createJob({
         exchangeAccountId,
         tradeMode: dustPositions[0].trade_mode as TradeMode,
