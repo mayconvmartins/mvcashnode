@@ -22,6 +22,7 @@ export class CronManagementService implements OnModuleInit {
     @InjectQueue('positions-sync-missing') private positionsSyncMissingQueue: Queue,
     @InjectQueue('price-sync') private priceSyncQueue: Queue,
     @InjectQueue('positions-params-fix') private positionsParamsFixQueue: Queue,
+    @InjectQueue('dust-positions-monitor') private dustPositionsMonitorQueue: Queue,
   ) {}
 
   /**
@@ -38,6 +39,7 @@ export class CronManagementService implements OnModuleInit {
       'positions-sync-missing': this.positionsSyncMissingQueue,
       'price-sync': this.priceSyncQueue,
       'positions-params-fix': this.positionsParamsFixQueue,
+      'dust-positions-monitor': this.dustPositionsMonitorQueue,
     };
   }
 
@@ -127,6 +129,13 @@ export class CronManagementService implements OnModuleInit {
         queue_name: 'positions-params-fix',
         job_id: 'positions-params-fix-repeat',
         interval_ms: 60000,
+      },
+      {
+        name: 'dust-positions-monitor',
+        description: 'Identificação e conversão automática de posições resíduo (< 1% E < US$ 5.00)',
+        queue_name: 'dust-positions-monitor',
+        job_id: 'dust-positions-monitor-repeat',
+        interval_ms: 300000, // 5 minutos
       },
     ];
 

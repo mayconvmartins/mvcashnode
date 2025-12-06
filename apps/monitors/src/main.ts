@@ -212,6 +212,22 @@ async function bootstrap() {
   );
   console.log('✅ Positions Params Fix configurado (a cada 1min)');
 
+  // Configurar Dust Positions Monitor - executa a cada 5 minutos
+  const dustPositionsMonitorQueue = app.get<Queue>(getQueueToken('dust-positions-monitor'));
+  await dustPositionsMonitorQueue.add(
+    'monitor-dust-positions',
+    {},
+    {
+      repeat: {
+        every: 300000, // 5 minutos
+      },
+      jobId: 'dust-positions-monitor-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Dust Positions Monitor configurado (a cada 5min)');
+
   console.log('🎉 Todos os monitores configurados e rodando!');
 }
 

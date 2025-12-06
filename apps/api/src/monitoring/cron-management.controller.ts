@@ -53,7 +53,8 @@ export class CronManagementController {
 - \`system-monitor\`: Monitor de sistema e alertas (a cada 30s)
 - \`positions-sync-missing\`: Sincronização de posições faltantes (a cada 5min)
 - \`price-sync\`: Sincronização de preços das exchanges para cache (a cada 22s)
-- \`positions-params-fix\`: Correção de parâmetros faltantes em posições recentes (a cada 1min)`,
+- \`positions-params-fix\`: Correção de parâmetros faltantes em posições recentes (a cada 1min)
+- \`dust-positions-monitor\`: Identificação e conversão automática de posições resíduo (a cada 5min)`,
   })
   @ApiResponse({
     status: 200,

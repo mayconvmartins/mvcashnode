@@ -8,6 +8,7 @@ import { SystemMonitorModule } from './system-monitor/system-monitor.module';
 import { PriceSyncModule } from './price-sync/price-sync.module';
 import { PositionsSyncModule } from './positions-sync/positions-sync.module';
 import { PositionsParamsFixModule } from './positions-params-fix/positions-params-fix.module';
+import { DustPositionsMonitorModule } from './dust-positions-monitor/dust-positions-monitor.module';
 import * as path from 'path';
 
 @Module({
@@ -30,6 +31,7 @@ import * as path from 'path';
     PriceSyncModule,
     PositionsSyncModule,
     PositionsParamsFixModule,
+    DustPositionsMonitorModule,
   ],
 })
 export class AppModule {}
