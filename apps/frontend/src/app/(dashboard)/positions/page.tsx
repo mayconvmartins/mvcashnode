@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw, Settings, Target, Layers } from 'lucide-react'
+import { Eye, TrendingUp, TrendingDown, DollarSign, Filter, ChevronDown, RefreshCw, Settings, Target, Layers, Lock, Unlock } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -57,6 +57,8 @@ export default function PositionsPage() {
     const [bulkSLTPDialogOpen, setBulkSLTPDialogOpen] = useState(false)
     const [bulkSLEnabled, setBulkSLEnabled] = useState(false)
     const [bulkSLPct, setBulkSLPct] = useState<string>('')
+    const [bulkWebhookDialogOpen, setBulkWebhookDialogOpen] = useState(false)
+    const [bulkWebhookLockAction, setBulkWebhookLockAction] = useState<boolean | null>(null)
     const [bulkTPEnabled, setBulkTPEnabled] = useState(false)
     const [bulkTPPct, setBulkTPPct] = useState<string>('')
     const [createManualModalOpen, setCreateManualModalOpen] = useState(false)
@@ -446,6 +448,25 @@ export default function PositionsPage() {
         }
     }
 
+    const handleBulkLockWebhook = async (lock: boolean) => {
+        try {
+            const selected = openPositions.filter((p: Position) => 
+                selectedPositionIds.includes(p.id)
+            )
+            
+            const promises = selected.map((position: Position) =>
+                positionsService.lockSellByWebhook(position.id, lock)
+            )
+            
+            await Promise.all(promises)
+            
+            queryClient.invalidateQueries({ queryKey: ['positions'] })
+            toast.success(`${selected.length} posição(ões) ${lock ? 'bloqueada(s)' : 'desbloqueada(s)'} para webhook`)
+        } catch (error: any) {
+            toast.error(error.response?.data?.message || 'Erro ao atualizar bloqueio de webhook')
+        }
+    }
+
     // Colunas para DataTableAdvanced (posições abertas com seleção)
     // DataTableAdvanced só aceita label como string, não como função
     const openColumns = [
@@ -453,29 +474,42 @@ export default function PositionsPage() {
             key: 'symbol',
             label: 'Símbolo',
             render: (position: Position) => (
-                <div className="flex items-center gap-2">
-                    <SymbolDisplay
-                        exchange={position.exchange_account_id as any}
-                        symbol={position.symbol}
-                        showExchange={false}
-                    />
-                    {position.is_dust && (
-                        <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/50 text-xs">
-                            Resíduo
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                        <SymbolDisplay
+                            exchange={position.exchange_account_id as any}
+                            symbol={position.symbol}
+                            showExchange={false}
+                        />
+                        {position.is_dust && (
+                            <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/50 text-xs">
+                                Resíduo
+                            </Badge>
+                        )}
+                        {position.is_grouped && (
+                            <Badge 
+                                variant="outline" 
+                                className={`text-xs ${
+                                    position.grouping_open === true
+                                        ? 'bg-green-500/10 text-green-600 border-green-500/50' 
+                                        : position.grouping_open === false
+                                        ? 'bg-red-500/10 text-red-600 border-red-500/50'
+                                        : 'bg-gray-500/10 text-gray-600 border-gray-500/50'
+                                }`}
+                            >
+                                {position.grouping_open === true ? 'Grupo Aberto' : 
+                                 position.grouping_open === false ? 'Grupo Fechado' : 
+                                 'Grupo'}
+                            </Badge>
+                        )}
+                    </div>
+                    {position.lock_sell_by_webhook ? (
+                        <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/50 text-xs w-fit">
+                            Webhook Bloqueado
                         </Badge>
-                    )}
-                    {position.is_grouped && (
-                        <Badge 
-                            variant="outline" 
-                            className={`text-xs ${
-                                position.grouping_open === true
-                                    ? 'bg-green-500/10 text-green-600 border-green-500/50' 
-                                    : position.grouping_open === false
-                                    ? 'bg-red-500/10 text-red-600 border-red-500/50'
-                                    : 'bg-gray-500/10 text-gray-600 border-gray-500/50'
-                            }`}
-                        >
-                            Agrupada
+                    ) : (
+                        <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/50 text-xs w-fit">
+                            Webhook Liberado
                         </Badge>
                     )}
                 </div>
@@ -501,9 +535,11 @@ export default function PositionsPage() {
             key: 'type',
             label: 'Tipo',
             render: (position: Position) => (
-                <Badge variant={position.is_grouped ? 'default' : 'outline'}>
-                    {position.is_grouped ? 'Agrupada' : 'Única'}
-                </Badge>
+                <div className="flex flex-col gap-1">
+                    <Badge variant={position.is_grouped ? 'default' : 'outline'}>
+                        {position.is_grouped ? 'Agrupada' : 'Única'}
+                    </Badge>
+                </div>
             ),
         },
         {
@@ -632,24 +668,42 @@ export default function PositionsPage() {
             key: 'symbol',
             label: 'Símbolo',
             render: (position) => (
-                <div className="flex items-center gap-2">
-                    <SymbolDisplay
-                        exchange={position.exchange_account_id as any}
-                        symbol={position.symbol}
-                        showExchange={false}
-                    />
-                    {position.is_grouped && (
-                        <Badge 
-                            variant="outline" 
-                            className={`text-xs ${
-                                position.grouping_open === true
-                                    ? 'bg-green-500/10 text-green-600 border-green-500/50' 
-                                    : position.grouping_open === false
-                                    ? 'bg-red-500/10 text-red-600 border-red-500/50'
-                                    : 'bg-gray-500/10 text-gray-600 border-gray-500/50'
-                            }`}
-                        >
-                            Agrupada
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                        <SymbolDisplay
+                            exchange={position.exchange_account_id as any}
+                            symbol={position.symbol}
+                            showExchange={false}
+                        />
+                        {position.is_dust && (
+                            <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/50 text-xs">
+                                Resíduo
+                            </Badge>
+                        )}
+                        {position.is_grouped && (
+                            <Badge 
+                                variant="outline" 
+                                className={`text-xs ${
+                                    position.grouping_open === true
+                                        ? 'bg-green-500/10 text-green-600 border-green-500/50' 
+                                        : position.grouping_open === false
+                                        ? 'bg-red-500/10 text-red-600 border-red-500/50'
+                                        : 'bg-gray-500/10 text-gray-600 border-gray-500/50'
+                                }`}
+                            >
+                                {position.grouping_open === true ? 'Grupo Aberto' : 
+                                 position.grouping_open === false ? 'Grupo Fechado' : 
+                                 'Grupo'}
+                            </Badge>
+                        )}
+                    </div>
+                    {position.lock_sell_by_webhook ? (
+                        <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/50 text-xs w-fit">
+                            Webhook Bloqueado
+                        </Badge>
+                    ) : (
+                        <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/50 text-xs w-fit">
+                            Webhook Liberado
                         </Badge>
                     )}
                 </div>
@@ -1069,44 +1123,11 @@ export default function PositionsPage() {
                 <TabsContent value="open">
                     <Card className="glass">
                         <CardHeader>
-                            <div className="flex items-center justify-between">
-                                <CardTitle>
-                                    Posições Abertas - {tradeMode}
-                                    {selectedSymbol !== 'all' && ` • ${selectedSymbol}`}
-                                    {selectedAccount !== 'all' && accounts && ` • ${accounts.find(a => a.id.toString() === selectedAccount)?.label}`}
-                                </CardTitle>
-                                {selectedPositionIds.length > 0 && (
-                                    <div className="flex items-center gap-2">
-                                        {canGroupPositions && (
-                                            <Button
-                                                onClick={handleGroupPreview}
-                                                variant="default"
-                                                size="sm"
-                                                className="bg-blue-600 hover:bg-blue-700"
-                                            >
-                                                <Layers className="h-4 w-4 mr-2" />
-                                                Agrupar ({selectedPositionIds.length})
-                                            </Button>
-                                        )}
-                                        <Button
-                                            onClick={() => setBulkSLTPDialogOpen(true)}
-                                            variant="default"
-                                            size="sm"
-                                        >
-                                            <Settings className="h-4 w-4 mr-2" />
-                                            Definir TP/SL ({selectedPositionIds.length})
-                                        </Button>
-                                        <Button
-                                            onClick={() => setBulkMinProfitDialogOpen(true)}
-                                            variant="default"
-                                            size="sm"
-                                        >
-                                            <Target className="h-4 w-4 mr-2" />
-                                            Definir Lucro Mínimo ({selectedPositionIds.length})
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
+                            <CardTitle>
+                                Posições Abertas - {tradeMode}
+                                {selectedSymbol !== 'all' && ` • ${selectedSymbol}`}
+                                {selectedAccount !== 'all' && accounts && ` • ${accounts.find(a => a.id.toString() === selectedAccount)?.label}`}
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <DataTableAdvanced<Position>
@@ -1126,6 +1147,11 @@ export default function PositionsPage() {
                                         new Set(selected.map((p: Position) => p.symbol)).size === 1 &&
                                         new Set(selected.map((p: Position) => p.exchange_account_id)).size === 1 &&
                                         new Set(selected.map((p: Position) => p.trade_mode)).size === 1
+                                    
+                                    // Verificar estado de bloqueio webhook das posições selecionadas
+                                    const allLocked = selected.length > 0 && selected.every((p: Position) => p.lock_sell_by_webhook)
+                                    const allUnlocked = selected.length > 0 && selected.every((p: Position) => !p.lock_sell_by_webhook)
+                                    const webhookLockStatus = allLocked ? 'all_locked' : allUnlocked ? 'all_unlocked' : 'mixed'
                                     
                                     return (
                                         <div className="flex items-center gap-2">
@@ -1158,6 +1184,39 @@ export default function PositionsPage() {
                                             >
                                                 <Target className="h-4 w-4 mr-2" />
                                                 Definir Lucro Mínimo
+                                            </Button>
+                                            <Button
+                                                onClick={() => {
+                                                    if (webhookLockStatus === 'all_locked') {
+                                                        handleBulkLockWebhook(false)
+                                                    } else if (webhookLockStatus === 'all_unlocked') {
+                                                        handleBulkLockWebhook(true)
+                                                    } else {
+                                                        // Se misturado, abrir dialog para escolher ação
+                                                        setBulkWebhookLockAction(null)
+                                                        setBulkWebhookDialogOpen(true)
+                                                    }
+                                                }}
+                                                variant="default"
+                                                size="sm"
+                                                className={webhookLockStatus === 'all_locked' ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'}
+                                            >
+                                                {webhookLockStatus === 'all_locked' ? (
+                                                    <>
+                                                        <Unlock className="h-4 w-4 mr-2" />
+                                                        Desbloquear Webhook
+                                                    </>
+                                                ) : webhookLockStatus === 'all_unlocked' ? (
+                                                    <>
+                                                        <Lock className="h-4 w-4 mr-2" />
+                                                        Bloquear Webhook
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Lock className="h-4 w-4 mr-2" />
+                                                        Alternar Bloqueio
+                                                    </>
+                                                )}
                                             </Button>
                                         </div>
                                     )
@@ -1469,6 +1528,76 @@ export default function PositionsPage() {
                             disabled={bulkUpdateMinProfitMutation.isPending || (!bulkMinProfitRemove && !bulkMinProfitPct)}
                         >
                             {bulkUpdateMinProfitMutation.isPending ? 'Atualizando...' : 'Aplicar'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Dialog para bloquear/desbloquear webhook em massa (quando estados misturados) */}
+            <Dialog open={bulkWebhookDialogOpen} onOpenChange={setBulkWebhookDialogOpen}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>Bloquear/Desbloquear Webhook em Massa</DialogTitle>
+                        <DialogDescription>
+                            Algumas posições estão bloqueadas e outras não. Escolha a ação para {selectedPositionIds.length} posição(ões) selecionada(s)
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label>Selecione a ação:</Label>
+                            <div className="space-y-2">
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="radio"
+                                        id="webhook-lock"
+                                        name="webhook-action"
+                                        value="lock"
+                                        checked={bulkWebhookLockAction === true}
+                                        onChange={() => setBulkWebhookLockAction(true)}
+                                        className="h-4 w-4"
+                                    />
+                                    <Label htmlFor="webhook-lock" className="font-normal cursor-pointer">
+                                        Bloquear todas as posições
+                                    </Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="radio"
+                                        id="webhook-unlock"
+                                        name="webhook-action"
+                                        value="unlock"
+                                        checked={bulkWebhookLockAction === false}
+                                        onChange={() => setBulkWebhookLockAction(false)}
+                                        className="h-4 w-4"
+                                    />
+                                    <Label htmlFor="webhook-unlock" className="font-normal cursor-pointer">
+                                        Desbloquear todas as posições
+                                    </Label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setBulkWebhookDialogOpen(false)
+                                setBulkWebhookLockAction(null)
+                            }}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            onClick={() => {
+                                if (bulkWebhookLockAction !== null) {
+                                    handleBulkLockWebhook(bulkWebhookLockAction)
+                                    setBulkWebhookDialogOpen(false)
+                                    setBulkWebhookLockAction(null)
+                                }
+                            }}
+                            disabled={bulkWebhookLockAction === null}
+                        >
+                            Aplicar
                         </Button>
                     </DialogFooter>
                 </DialogContent>
