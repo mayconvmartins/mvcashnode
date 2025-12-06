@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, PositionStatus, CloseReason } from '@mvcashnode/shared';
+import { TradeMode, PositionStatus, CloseReason, ExchangeType } from '@mvcashnode/shared';
 
 export interface PositionFill {
   executionId: number;
@@ -1035,7 +1035,7 @@ export class PositionService {
     } else {
       // Para MARKET, buscar preço atual
       const { AdapterFactory } = await import('@mvcashnode/exchange');
-      const adapter = AdapterFactory.createAdapter(position.exchange_account.exchange);
+      const adapter = AdapterFactory.createAdapter(position.exchange_account.exchange as ExchangeType);
       const ticker = await adapter.fetchTicker(position.symbol);
       sellPrice = ticker.last;
     }
@@ -1908,7 +1908,7 @@ export class PositionService {
       try {
         // Buscar preço atual
         const adapter = AdapterFactory.createAdapter(
-          position.exchange_account.exchange
+          position.exchange_account.exchange as ExchangeType
         );
         const ticker = await adapter.fetchTicker(position.symbol);
         const currentPrice = ticker.last;
@@ -1980,7 +1980,7 @@ export class PositionService {
       // Buscar preço atual para validar valor
       const { AdapterFactory } = await import('@mvcashnode/exchange');
       const adapter = AdapterFactory.createAdapter(
-        originalPosition.exchange_account.exchange
+        originalPosition.exchange_account.exchange as ExchangeType
       );
       const ticker = await adapter.fetchTicker(originalPosition.symbol);
       const currentPrice = ticker.last;
@@ -2172,7 +2172,7 @@ export class PositionService {
       // Buscar preço atual para calcular valor
       try {
         const adapter = AdapterFactory.createAdapter(
-          position.exchange_account.exchange
+          position.exchange_account.exchange as ExchangeType
         );
         const ticker = await adapter.fetchTicker(position.symbol);
         const currentPrice = ticker.last;
@@ -2237,7 +2237,7 @@ export class PositionService {
       // Buscar preço atual para validar valor mínimo
       const { AdapterFactory } = await import('@mvcashnode/exchange');
       const adapter = AdapterFactory.createAdapter(
-        dustPositions[0].exchange_account.exchange
+        dustPositions[0].exchange_account.exchange as ExchangeType
       );
       const ticker = await adapter.fetchTicker(symbol);
       const currentPrice = ticker.last;
