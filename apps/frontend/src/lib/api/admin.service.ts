@@ -273,5 +273,88 @@ export const adminService = {
         })
         return response.data
     },
+
+    identifyDustPositions: async (): Promise<{
+        candidates: Array<{
+            positionId: number
+            symbol: string
+            exchangeAccountId: number
+            qtyRemaining: number
+            qtyTotal: number
+            percentage: number
+            currentValueUsd: number
+            currentPrice: number
+        }>
+        total_found: number
+    }> => {
+        const response = await apiClient.post('/admin/system/identify-dust-positions', {}, {
+            timeout: 300000, // 5 minutos
+        })
+        return response.data
+    },
+
+    convertToDust: async (positionIds: number[]): Promise<{
+        total_requested: number
+        converted: number
+        new_dust_positions: number[]
+        errors: number
+        error_details?: Array<{ positionId: number; error: string }>
+        duration_ms?: number
+    }> => {
+        const response = await apiClient.post('/admin/system/convert-to-dust', { positionIds }, {
+            timeout: 300000, // 5 minutos
+        })
+        return response.data
+    },
+
+    getDustPositions: async (): Promise<{
+        groups: Array<{
+            symbol: string
+            exchangeAccountId: number
+            exchange: string
+            totalQty: number
+            totalValueUsd: number
+            positionCount: number
+            positionIds: number[]
+            canClose: boolean
+        }>
+        positions: Array<{
+            id: number
+            symbol: string
+            exchange_account_id: number
+            exchange_account_label: string
+            exchange: string
+            qty_remaining: number
+            qty_total: number
+            price_open: number
+            dust_value_usd: number
+            original_position_id: number | null
+            created_at: string
+        }>
+        total_count: number
+    }> => {
+        const response = await apiClient.get('/admin/system/dust-positions', {
+            timeout: 60000, // 1 minuto
+        })
+        return response.data
+    },
+
+    closeDustBySymbol: async (symbol: string, exchangeAccountId: number, positionIds: number[]): Promise<{
+        message: string
+        tradeJobId: number
+        totalQty: number
+        totalValueUsd: number
+        symbol: string
+        positionIds: number[]
+    }> => {
+        const response = await apiClient.post('/admin/system/close-dust-by-symbol', {
+            symbol,
+            exchangeAccountId,
+            positionIds,
+        }, {
+            timeout: 60000, // 1 minuto
+        })
+        return response.data
+    },
 }
 

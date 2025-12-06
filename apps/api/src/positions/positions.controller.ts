@@ -205,7 +205,8 @@ export class PositionsController {
     @Query('to') to?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-    @Query('include_fills') includeFills?: boolean
+    @Query('include_fills') includeFills?: boolean,
+    @Query('is_dust') isDust?: string
   ): Promise<any> {
     const startTime = Date.now();
     try {
@@ -283,6 +284,12 @@ export class PositionsController {
         if (to) {
           where.created_at.lte = new Date(to);
         }
+      }
+
+      // Filtro de resíduo (dust)
+      if (isDust !== undefined) {
+        const isDustBool = isDust === 'true' || isDust === '1';
+        where.is_dust = isDustBool;
       }
 
       // Paginação

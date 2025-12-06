@@ -381,6 +381,9 @@ export interface Position {
     lock_sell_by_webhook: boolean
     is_grouped: boolean
     group_started_at?: string
+    is_dust?: boolean
+    dust_value_usd?: number
+    original_position_id?: number | null
     grouping_open?: boolean | null
     close_reason?: string
     closed_at?: string
@@ -680,6 +683,7 @@ export interface PositionFilters {
     to?: string
     page?: number
     limit?: number
+    is_dust?: boolean | string
 }
 
 export interface LimitOrderFilters {

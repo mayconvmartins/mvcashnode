@@ -553,21 +553,26 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           });
 
           if (openPosition) {
-            const validationResult = await positionService.validateMinProfit(openPosition.id, avgPrice);
+            // Ignorar validação de lucro mínimo para posições resíduo (is_dust = true)
+            if (!openPosition.is_dust) {
+              const validationResult = await positionService.validateMinProfit(openPosition.id, avgPrice);
 
-            if (!validationResult.valid) {
-              this.logger.warn(`[EXECUTOR] ⚠️ Validação de lucro mínimo FALHOU: ${validationResult.reason}`);
-              await this.prisma.tradeJob.update({
-                where: { id: tradeJobId },
-                data: {
-                  status: TradeJobStatus.FAILED,
-                  reason_code: 'MIN_PROFIT_NOT_MET',
-                  reason_message: validationResult.reason,
-                },
-              });
-              throw new Error(`Venda não permitida: ${validationResult.reason}`);
+              if (!validationResult.valid) {
+                this.logger.warn(`[EXECUTOR] ⚠️ Validação de lucro mínimo FALHOU: ${validationResult.reason}`);
+                await this.prisma.tradeJob.update({
+                  where: { id: tradeJobId },
+                  data: {
+                    status: TradeJobStatus.FAILED,
+                    reason_code: 'MIN_PROFIT_NOT_MET',
+                    reason_message: validationResult.reason,
+                  },
+                });
+                throw new Error(`Venda não permitida: ${validationResult.reason}`);
+              } else {
+                this.logger.log(`[EXECUTOR] ✅ Validação de lucro mínimo PASSOU: ${validationResult.reason}`);
+              }
             } else {
-              this.logger.log(`[EXECUTOR] ✅ Validação de lucro mínimo PASSOU: ${validationResult.reason}`);
+              this.logger.log(`[EXECUTOR] ✅ Validação de lucro mínimo IGNORADA (posição resíduo)`);
             }
           }
         } catch (validationError: any) {

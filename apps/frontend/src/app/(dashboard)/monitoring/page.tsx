@@ -13,6 +13,7 @@ import { BackendLogs } from '@/components/monitoring/BackendLogs'
 import { CleanupOrphanedPositions } from '@/components/monitoring/CleanupOrphanedPositions'
 import { SyncExecutionFees } from '@/components/monitoring/SyncExecutionFees'
 import { AuditPositions } from '@/components/monitoring/AuditPositions'
+import { DustPositions } from '@/components/monitoring/DustPositions'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RefreshCw, Activity, Clock, History, AlertTriangle, FileCode } from 'lucide-react'
@@ -168,6 +169,11 @@ export default function MonitoringPage() {
                     {/* Audit Positions */}
                     <div className="grid gap-6">
                         <AuditPositions />
+                    </div>
+                    
+                    {/* Dust Positions */}
+                    <div className="grid gap-6">
+                        <DustPositions />
                     </div>
 
                     {/* Content Grid */}

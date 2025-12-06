@@ -9,8 +9,16 @@ import { EncryptionService } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
+import { BullModule } from '@nestjs/bullmq';
 
 @Module({
+  imports: [
+    BullModule.registerQueue(
+      { name: 'trade-execution-real' },
+      { name: 'trade-execution-sim' }
+    ),
+  ],
   controllers: [
     AdminUsersController,
     AdminSystemController,
@@ -20,6 +28,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
   providers: [
     AdminService,
     PrismaService,
+    TradeJobQueueService,
     {
       provide: EncryptionService,
       useFactory: (configService: ConfigService) => {

@@ -1373,6 +1373,12 @@ export class PositionService {
 
       const weightedAvgPrice = totalQty > 0 ? totalCost / totalQty : 0;
 
+      // Determinar se a posição agrupada será dust ou não
+      // Se todas são dust: manter is_dust = true
+      // Se misturado: is_dust = false (posição normal com resíduo incorporado)
+      const allAreDust = positions.every(p => p.is_dust === true);
+      const finalIsDust = allAreDust;
+
       // Identificar posições que serão deletadas (todas exceto base)
       const positionsToDelete = positions.filter(p => p.id !== basePosition.id);
       const positionsToDeleteIds = positionsToDelete.map(p => p.id);
@@ -1440,6 +1446,11 @@ export class PositionService {
           price_open: weightedAvgPrice,
           is_grouped: true,
           group_started_at: oldestDate,
+          is_dust: finalIsDust,
+          // Se agrupando resíduos, recalcular dust_value_usd
+          ...(finalIsDust ? {
+            dust_value_usd: totalQtyRemaining * weightedAvgPrice, // Aproximação, será atualizado quando buscar preço real
+          } : {}),
         },
       });
 
@@ -1612,6 +1623,438 @@ export class PositionService {
       default:
         return CloseReason.MANUAL;
     }
+  }
+
+  /**
+   * Identifica posições candidatas a resíduo
+   * Critérios: qty_remaining < 1% da qty_total E valor < US$ 5.00
+   */
+  async findDustPositions(): Promise<Array<{
+    positionId: number;
+    symbol: string;
+    exchangeAccountId: number;
+    qtyRemaining: number;
+    qtyTotal: number;
+    percentage: number;
+    currentValueUsd: number;
+    currentPrice: number;
+  }>> {
+    const positions = await this.prisma.tradePosition.findMany({
+      where: {
+        status: PositionStatus.OPEN,
+        trade_mode: TradeMode.REAL,
+        qty_remaining: { gt: 0 },
+        is_dust: false,
+      },
+      include: {
+        exchange_account: {
+          select: {
+            id: true,
+            exchange: true,
+            is_simulation: true,
+          },
+        },
+      },
+    });
+
+    const dustCandidates: Array<{
+      positionId: number;
+      symbol: string;
+      exchangeAccountId: number;
+      qtyRemaining: number;
+      qtyTotal: number;
+      percentage: number;
+      currentValueUsd: number;
+      currentPrice: number;
+    }> = [];
+
+    const { AdapterFactory } = await import('@mvcashnode/exchange');
+    const ExchangeType = (await import('@mvcashnode/shared')).ExchangeType;
+
+    for (const position of positions) {
+      // Pular contas de simulação
+      if (position.exchange_account.is_simulation) {
+        continue;
+      }
+
+      const qtyRemaining = position.qty_remaining.toNumber();
+      const qtyTotal = position.qty_total.toNumber();
+      const percentage = (qtyRemaining / qtyTotal) * 100;
+
+      // Se porcentagem >= 1%, não é resíduo
+      if (percentage >= 1) {
+        continue;
+      }
+
+      try {
+        // Buscar preço atual
+        const adapter = AdapterFactory.createAdapter(
+          position.exchange_account.exchange as ExchangeType
+        );
+        const ticker = await adapter.fetchTicker(position.symbol);
+        const currentPrice = ticker.last;
+
+        if (!currentPrice || currentPrice <= 0) {
+          continue;
+        }
+
+        const currentValueUsd = qtyRemaining * currentPrice;
+
+        // Se valor >= US$ 5.00, não é resíduo
+        if (currentValueUsd >= 5.00) {
+          continue;
+        }
+
+        dustCandidates.push({
+          positionId: position.id,
+          symbol: position.symbol,
+          exchangeAccountId: position.exchange_account_id,
+          qtyRemaining,
+          qtyTotal,
+          percentage,
+          currentValueUsd,
+          currentPrice,
+        });
+      } catch (error: any) {
+        console.warn(`[PositionService] Erro ao buscar preço para posição ${position.id}: ${error.message}`);
+        continue;
+      }
+    }
+
+    return dustCandidates;
+  }
+
+  /**
+   * Converte uma posição para resíduo
+   * Cria nova posição resíduo e fecha a posição original
+   */
+  async convertToDustPosition(positionId: number): Promise<number> {
+    return await this.prisma.$transaction(async (tx) => {
+      const originalPosition = await tx.tradePosition.findUnique({
+        where: { id: positionId },
+        include: {
+          exchange_account: true,
+          fills: {
+            where: { side: 'BUY' },
+            orderBy: { created_at: 'asc' },
+            take: 1,
+          },
+        },
+      });
+
+      if (!originalPosition || originalPosition.status !== PositionStatus.OPEN) {
+        throw new Error('Posição não encontrada ou já fechada');
+      }
+
+      if (originalPosition.is_dust) {
+        throw new Error('Posição já é um resíduo');
+      }
+
+      const qtyRemaining = originalPosition.qty_remaining.toNumber();
+      const qtyTotal = originalPosition.qty_total.toNumber();
+      const percentage = (qtyRemaining / qtyTotal) * 100;
+
+      if (percentage >= 1) {
+        throw new Error('Posição não atende critério de porcentagem (< 1%)');
+      }
+
+      // Buscar preço atual para validar valor
+      const { AdapterFactory } = await import('@mvcashnode/exchange');
+      const ExchangeType = (await import('@mvcashnode/shared')).ExchangeType;
+      const adapter = AdapterFactory.createAdapter(
+        originalPosition.exchange_account.exchange as ExchangeType
+      );
+      const ticker = await adapter.fetchTicker(originalPosition.symbol);
+      const currentPrice = ticker.last;
+      const currentValueUsd = qtyRemaining * currentPrice;
+
+      if (currentValueUsd >= 5.00) {
+        throw new Error('Posição não atende critério de valor (< US$ 5.00)');
+      }
+
+      // Criar job temporário para a nova posição resíduo (necessário para trade_job_id_open)
+      const { TradeJobService } = await import('../trading/trade-job.service');
+      const tradeJobService = new TradeJobService(tx);
+      const dustJob = await tradeJobService.createJob({
+        exchangeAccountId: originalPosition.exchange_account_id,
+        tradeMode: originalPosition.trade_mode as TradeMode,
+        symbol: originalPosition.symbol,
+        side: 'BUY',
+        orderType: 'MARKET',
+        baseQuantity: qtyRemaining,
+        skipParameterValidation: true,
+      });
+
+      // Criar execução temporária para o fill (necessário para trade_execution_id)
+      const dustExecution = await tx.tradeExecution.create({
+        data: {
+          trade_job_id: dustJob.id,
+          exchange_account_id: originalPosition.exchange_account_id,
+          trade_mode: originalPosition.trade_mode,
+          exchange: originalPosition.exchange_account.exchange,
+          exchange_order_id: `DUST-${positionId}-${Date.now()}`,
+          client_order_id: `dust-${positionId}-${Date.now()}`,
+          status_exchange: 'FILLED',
+          executed_qty: qtyRemaining,
+          cumm_quote_qty: qtyRemaining * originalPosition.price_open.toNumber(),
+          avg_price: originalPosition.price_open,
+        },
+      });
+
+      // Criar nova posição resíduo
+      const dustPosition = await tx.tradePosition.create({
+        data: {
+          exchange_account_id: originalPosition.exchange_account_id,
+          trade_mode: originalPosition.trade_mode,
+          symbol: originalPosition.symbol,
+          side: originalPosition.side,
+          trade_job_id_open: dustJob.id,
+          qty_total: qtyRemaining,
+          qty_remaining: qtyRemaining,
+          price_open: originalPosition.price_open, // Manter preço original para cálculo de PnL
+          status: PositionStatus.OPEN,
+          is_dust: true,
+          dust_value_usd: currentValueUsd,
+          original_position_id: positionId,
+          is_grouped: false,
+          sl_enabled: false,
+          tp_enabled: false,
+          trailing_enabled: false,
+          lock_sell_by_webhook: false,
+          realized_profit_usd: 0,
+          total_fees_paid_usd: 0,
+          fees_on_buy_usd: 0,
+          fees_on_sell_usd: 0,
+        },
+      });
+
+      // Criar fill de BUY na posição resíduo
+      await tx.positionFill.create({
+        data: {
+          position_id: dustPosition.id,
+          trade_execution_id: dustExecution.id,
+          side: 'BUY',
+          qty: qtyRemaining,
+          price: originalPosition.price_open,
+        },
+      });
+
+      // "Fechar" posição original
+      await tx.tradePosition.update({
+        where: { id: positionId },
+        data: {
+          status: PositionStatus.CLOSED,
+          qty_remaining: 0,
+          close_reason: 'CONVERTED_TO_DUST',
+          closed_at: new Date(),
+        },
+      });
+
+      // Criar execução temporária de SELL para o fill da posição original
+      const sellExecution = await tx.tradeExecution.create({
+        data: {
+          trade_job_id: originalPosition.trade_job_id_open, // Usar o job original
+          exchange_account_id: originalPosition.exchange_account_id,
+          trade_mode: originalPosition.trade_mode,
+          exchange: originalPosition.exchange_account.exchange,
+          exchange_order_id: `DUST-SELL-${positionId}-${Date.now()}`,
+          client_order_id: `dust-sell-${positionId}-${Date.now()}`,
+          status_exchange: 'FILLED',
+          executed_qty: qtyRemaining,
+          cumm_quote_qty: qtyRemaining * currentPrice,
+          avg_price: currentPrice,
+        },
+      });
+
+      // Criar fill de SELL na posição original (simulando venda do resíduo)
+      await tx.positionFill.create({
+        data: {
+          position_id: positionId,
+          trade_execution_id: sellExecution.id,
+          side: 'SELL',
+          qty: qtyRemaining,
+          price: currentPrice, // Preço atual para cálculo de PnL
+        },
+      });
+
+      // Atualizar PnL realizado da posição original
+      const profitUsd = (currentPrice - originalPosition.price_open.toNumber()) * qtyRemaining;
+      await tx.tradePosition.update({
+        where: { id: positionId },
+        data: {
+          realized_profit_usd: originalPosition.realized_profit_usd.toNumber() + profitUsd,
+        },
+      });
+
+      return dustPosition.id;
+    });
+  }
+
+  /**
+   * Agrupa resíduos por símbolo e exchange_account_id
+   * Retorna grupos que somados atingem >= US$ 5.00
+   */
+  async getDustPositionsBySymbol(): Promise<Array<{
+    symbol: string;
+    exchangeAccountId: number;
+    exchange: string;
+    totalQty: number;
+    totalValueUsd: number;
+    positionCount: number;
+    positionIds: number[];
+    canClose: boolean;
+  }>> {
+    const dustPositions = await this.prisma.tradePosition.findMany({
+      where: {
+        status: PositionStatus.OPEN,
+        is_dust: true,
+        qty_remaining: { gt: 0 },
+      },
+      include: {
+        exchange_account: {
+          select: {
+            id: true,
+            exchange: true,
+          },
+        },
+      },
+    });
+
+    // Agrupar por símbolo e exchange_account_id
+    const groups = new Map<string, {
+      symbol: string;
+      exchangeAccountId: number;
+      exchange: string;
+      totalQty: number;
+      totalValueUsd: number;
+      positionIds: number[];
+    }>();
+
+    const { AdapterFactory } = await import('@mvcashnode/exchange');
+    const ExchangeType = (await import('@mvcashnode/shared')).ExchangeType;
+
+    for (const position of dustPositions) {
+      const key = `${position.exchange_account_id}:${position.symbol}`;
+      
+      if (!groups.has(key)) {
+        groups.set(key, {
+          symbol: position.symbol,
+          exchangeAccountId: position.exchange_account_id,
+          exchange: position.exchange_account.exchange,
+          totalQty: 0,
+          totalValueUsd: 0,
+          positionIds: [],
+        });
+      }
+
+      const group = groups.get(key)!;
+      const qtyRemaining = position.qty_remaining.toNumber();
+      group.totalQty += qtyRemaining;
+      group.positionIds.push(position.id);
+
+      // Buscar preço atual para calcular valor
+      try {
+        const adapter = AdapterFactory.createAdapter(
+          position.exchange_account.exchange as ExchangeType
+        );
+        const ticker = await adapter.fetchTicker(position.symbol);
+        const currentPrice = ticker.last;
+        if (currentPrice && currentPrice > 0) {
+          group.totalValueUsd += qtyRemaining * currentPrice;
+        } else if (position.dust_value_usd) {
+          // Usar valor armazenado se não conseguir buscar preço
+          group.totalValueUsd += position.dust_value_usd.toNumber();
+        }
+      } catch (error: any) {
+        // Se não conseguir buscar preço, usar valor armazenado
+        if (position.dust_value_usd) {
+          group.totalValueUsd += position.dust_value_usd.toNumber();
+        }
+      }
+    }
+
+    // Converter para array e adicionar flag canClose
+    return Array.from(groups.values()).map(group => ({
+      ...group,
+      positionCount: group.positionIds.length,
+      canClose: group.totalValueUsd >= 5.00,
+    }));
+  }
+
+  /**
+   * Fecha múltiplas posições resíduo do mesmo símbolo em uma única ordem
+   * Valida que valor total >= US$ 5.00
+   */
+  async closeDustPositions(
+    symbol: string,
+    exchangeAccountId: number,
+    positionIds: number[],
+    skipMinProfit: boolean = true
+  ): Promise<{ tradeJobId: number; totalQty: number; totalValueUsd: number }> {
+    return await this.prisma.$transaction(async (tx) => {
+      // Buscar posições resíduo
+      const dustPositions = await tx.tradePosition.findMany({
+        where: {
+          id: { in: positionIds },
+          symbol,
+          exchange_account_id: exchangeAccountId,
+          status: PositionStatus.OPEN,
+          is_dust: true,
+          qty_remaining: { gt: 0 },
+        },
+        include: {
+          exchange_account: true,
+        },
+      });
+
+      if (dustPositions.length === 0) {
+        throw new Error('Nenhuma posição resíduo encontrada');
+      }
+
+      // Somar quantidades
+      let totalQty = 0;
+      for (const position of dustPositions) {
+        totalQty += position.qty_remaining.toNumber();
+      }
+
+      // Buscar preço atual para validar valor mínimo
+      const { AdapterFactory } = await import('@mvcashnode/exchange');
+      const ExchangeType = (await import('@mvcashnode/shared')).ExchangeType;
+      const adapter = AdapterFactory.createAdapter(
+        dustPositions[0].exchange_account.exchange as ExchangeType
+      );
+      const ticker = await adapter.fetchTicker(symbol);
+      const currentPrice = ticker.last;
+      const totalValueUsd = totalQty * currentPrice;
+
+      // Validar mínimo de US$ 5.00
+      if (totalValueUsd < 5.00) {
+        throw new Error(`Valor total (US$ ${totalValueUsd.toFixed(2)}) é menor que o mínimo de US$ 5.00`);
+      }
+
+      // Criar job de venda
+      const { TradeJobService } = await import('../trading/trade-job.service');
+      const tradeJobService = new TradeJobService(tx);
+      const tradeJob = await tradeJobService.createJob({
+        exchangeAccountId,
+        tradeMode: dustPositions[0].trade_mode as TradeMode,
+        symbol,
+        side: 'SELL',
+        orderType: 'MARKET',
+        baseQuantity: totalQty,
+        skipParameterValidation: true,
+      });
+
+      // Marcar posições resíduo para ignorar validação de lucro mínimo
+      // Isso será verificado no executor/processor quando processar a venda
+      // Por enquanto, apenas criar o job - a validação será feita no executor
+
+      return {
+        tradeJobId: tradeJob.id,
+        totalQty,
+        totalValueUsd,
+      };
+    });
   }
 }
 

@@ -66,6 +66,8 @@ export default function PositionsPage() {
     const [bulkMinProfitRemove, setBulkMinProfitRemove] = useState(false)
     const [groupModalOpen, setGroupModalOpen] = useState(false)
     const [groupPreview, setGroupPreview] = useState<GroupPreview | null>(null)
+    const [dustPage, setDustPage] = useState(1)
+    const dustLimit = 20
 
     // Verificar se o usuário é admin (usando a mesma lógica dos outros componentes)
     const isAdmin = user?.roles?.some((role: any) => {
@@ -107,6 +109,22 @@ export default function PositionsPage() {
         return filters
     }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, closedPage])
 
+    // Construir filtros para posições resíduo
+    const dustFilters = useMemo(() => {
+        const filters: any = {
+            status: 'OPEN',
+            trade_mode: tradeMode,
+            is_dust: true,
+            page: dustPage,
+            limit: dustLimit,
+        }
+        if (selectedSymbol !== 'all') filters.symbol = selectedSymbol
+        if (selectedAccount !== 'all') filters.exchange_account_id = parseInt(selectedAccount)
+        if (dateFrom) filters.from = dateFrom
+        if (dateTo) filters.to = dateTo
+        return filters
+    }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, dustPage])
+
     const { data: openPositionsData, isLoading: loadingOpen } = useQuery({
         queryKey: ['positions', 'OPEN', openFilters],
         queryFn: () => positionsService.list(openFilters),
@@ -127,6 +145,14 @@ export default function PositionsPage() {
     const closedPositions = Array.isArray(closedPositionsData) 
         ? closedPositionsData 
         : (closedPositionsData as any)?.data || []
+
+    const dustPositions = Array.isArray(dustPositionsData) 
+        ? dustPositionsData 
+        : (dustPositionsData as any)?.data || []
+    
+    const dustPagination = Array.isArray(dustPositionsData) 
+        ? null 
+        : (dustPositionsData as any)?.pagination || null
     const closedPagination = (closedPositionsData as any)?.pagination
     const closedSummary = (closedPositionsData as any)?.summary
 
@@ -1004,6 +1030,9 @@ export default function PositionsPage() {
                     <TabsTrigger value="closed">
                         Fechadas ({closedPagination?.total_items || closedPositions?.length || 0})
                     </TabsTrigger>
+                    <TabsTrigger value="dust">
+                        Resíduos ({dustPagination?.total_items || dustPositions?.length || 0})
+                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="open">
@@ -1164,6 +1193,87 @@ export default function PositionsPage() {
                                             size="sm"
                                             disabled={closedPage >= closedPagination.total_pages || loadingClosed}
                                             onClick={() => setClosedPage(prev => prev + 1)}
+                                        >
+                                            Próxima
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="dust">
+                    <Card className="glass">
+                        <CardHeader>
+                            <CardTitle>
+                                Posições Resíduo - {tradeMode}
+                                {selectedSymbol !== 'all' && ` • ${selectedSymbol}`}
+                                {selectedAccount !== 'all' && accounts && ` • ${accounts.find(a => a.id.toString() === selectedAccount)?.label}`}
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <DataTable
+                                data={dustPositions || []}
+                                columns={closedColumns.map(col => {
+                                    // Adicionar badge de resíduo na coluna de símbolo
+                                    if (col.key === 'symbol') {
+                                        return {
+                                            ...col,
+                                            render: (position: Position) => (
+                                                <div className="flex items-center gap-2">
+                                                    <SymbolDisplay
+                                                        exchange={position.exchange_account_id as any}
+                                                        symbol={position.symbol}
+                                                        showExchange={false}
+                                                    />
+                                                    <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/50">
+                                                        Resíduo
+                                                    </Badge>
+                                                    {position.is_grouped && (
+                                                        <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/50">
+                                                            Agrupada
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            ),
+                                        }
+                                    }
+                                    return col
+                                })}
+                                loading={loadingDust}
+                                emptyState={
+                                    <div className="text-center py-12">
+                                        <p className="text-muted-foreground">
+                                            {hasActiveFilters
+                                                ? 'Nenhuma posição resíduo encontrada com os filtros aplicados'
+                                                : 'Nenhuma posição resíduo'}
+                                        </p>
+                                    </div>
+                                }
+                            />
+                            
+                            {/* Paginação para posições resíduo */}
+                            {dustPagination && dustPagination.total_pages > 1 && (
+                                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                                    <div className="text-sm text-muted-foreground">
+                                        Página {dustPagination.current_page} de {dustPagination.total_pages}
+                                        ({dustPagination.total_items} total)
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={dustPage <= 1 || loadingDust}
+                                            onClick={() => setDustPage(prev => Math.max(1, prev - 1))}
+                                        >
+                                            Anterior
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={dustPage >= dustPagination.total_pages || loadingDust}
+                                            onClick={() => setDustPage(prev => prev + 1)}
                                         >
                                             Próxima
                                         </Button>

@@ -457,6 +457,9 @@ model TradePosition {
   lock_sell_by_webhook  Boolean   @default(false)
   is_grouped            Boolean   @default(false)
   group_started_at      DateTime?
+  is_dust               Boolean   @default(false)
+  dust_value_usd        Decimal?  @db.Decimal(36, 18)
+  original_position_id  Int?
   close_reason          String?   @db.VarChar(50)
   closed_at             DateTime?
   created_at            DateTime  @default(now())
@@ -464,6 +467,8 @@ model TradePosition {
 
   exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
   open_job         TradeJob        @relation("PositionOpenJob", fields: [trade_job_id_open], references: [id])
+  original_position TradePosition?  @relation("DustOriginalPosition", fields: [original_position_id], references: [id])
+  dust_positions   TradePosition[] @relation("DustOriginalPosition")
   fills            PositionFill[]
   grouped_jobs     PositionGroupedJob[]
 
@@ -473,6 +478,8 @@ model TradePosition {
   @@index([status])
   @@index([trade_mode])
   @@index([created_at])
+  @@index([is_dust])
+  @@index([original_position_id])
   @@map("trade_positions")
 }
 

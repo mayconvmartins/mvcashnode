@@ -26,7 +26,8 @@ export class AdminSystemController {
   constructor(
     private adminService: AdminService,
     private prisma: PrismaService,
-    private encryptionService: EncryptionService
+    private encryptionService: EncryptionService,
+    private tradeJobQueueService: any // TradeJobQueueService - será injetado via módulo (opcional)
   ) {
     // Inicializar cache service Redis
     this.cacheService = new CacheService(
@@ -2186,6 +2187,194 @@ export class AdminSystemController {
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro ao aplicar correções:', error);
+      throw error;
+    }
+  }
+
+  @Get('system/dust-positions')
+  @ApiOperation({
+    summary: 'Listar posições resíduo',
+    description: 'Lista todas as posições marcadas como resíduo (dust), agrupadas por símbolo.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de posições resíduo',
+  })
+  async getDustPositions() {
+    console.log('[ADMIN] Buscando posições resíduo...');
+    
+    try {
+      const positionService = new PositionService(this.prisma);
+      
+      // Buscar posições resíduo abertas
+      const dustPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          is_dust: true,
+          status: 'OPEN',
+          qty_remaining: { gt: 0 },
+        },
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+            },
+          },
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+      });
+
+      // Agrupar por símbolo e exchange_account_id
+      const groups = await positionService.getDustPositionsBySymbol();
+
+      return {
+        groups,
+        positions: dustPositions.map(p => ({
+          id: p.id,
+          symbol: p.symbol,
+          exchange_account_id: p.exchange_account_id,
+          exchange_account_label: p.exchange_account.label,
+          exchange: p.exchange_account.exchange,
+          qty_remaining: p.qty_remaining.toNumber(),
+          qty_total: p.qty_total.toNumber(),
+          price_open: p.price_open.toNumber(),
+          dust_value_usd: p.dust_value_usd?.toNumber() || 0,
+          original_position_id: p.original_position_id,
+          created_at: p.created_at,
+        })),
+        total_count: dustPositions.length,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro ao buscar posições resíduo:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/identify-dust-positions')
+  @ApiOperation({
+    summary: 'Identificar posições candidatas a resíduo',
+    description: 'Identifica posições que atendem os critérios para serem convertidas em resíduo (< 1% E < US$ 5.00).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de posições candidatas',
+  })
+  async identifyDustPositions() {
+    console.log('[ADMIN] Identificando posições candidatas a resíduo...');
+    
+    try {
+      const positionService = new PositionService(this.prisma);
+      const candidates = await positionService.findDustPositions();
+
+      console.log(`[ADMIN] Encontradas ${candidates.length} posição(ões) candidata(s) a resíduo`);
+
+      return {
+        candidates,
+        total_found: candidates.length,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro ao identificar posições resíduo:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/convert-to-dust')
+  @ApiOperation({
+    summary: 'Converter posições para resíduo',
+    description: 'Converte posições selecionadas em resíduo, criando novas posições resíduo e fechando as originais.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Conversão concluída',
+  })
+  async convertToDust(@Body() body: { positionIds: number[] }) {
+    console.log('[ADMIN] Convertendo posições para resíduo...');
+    
+    const startTime = Date.now();
+    let converted = 0;
+    const errors: Array<{ positionId: number; error: string }> = [];
+    const newDustPositions: number[] = [];
+
+    try {
+      const { positionIds } = body;
+      const positionService = new PositionService(this.prisma);
+
+      console.log(`[ADMIN] Convertendo ${positionIds.length} posição(ões)`);
+
+      for (const positionId of positionIds) {
+        try {
+          const newDustPositionId = await positionService.convertToDustPosition(positionId);
+          newDustPositions.push(newDustPositionId);
+          converted++;
+          console.log(`[ADMIN] ✅ Posição ${positionId} convertida para resíduo (nova posição: ${newDustPositionId})`);
+        } catch (error: any) {
+          errors.push({
+            positionId,
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao converter posição ${positionId}:`, error.message);
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      console.log(`[ADMIN] Conversão concluída em ${duration}ms: ${converted}/${positionIds.length} convertida(s), ${errors.length} erro(s)`);
+
+      return {
+        total_requested: positionIds.length,
+        converted,
+        new_dust_positions: newDustPositions,
+        errors: errors.length,
+        error_details: errors,
+        duration_ms: duration,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro ao converter posições para resíduo:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/close-dust-by-symbol')
+  @ApiOperation({
+    summary: 'Fechar resíduos por símbolo',
+    description: 'Fecha todas as posições resíduo do mesmo símbolo em uma única ordem. Valida que valor total >= US$ 5.00.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Fechamento concluído',
+  })
+  async closeDustBySymbol(@Body() body: { symbol: string; exchangeAccountId: number; positionIds: number[] }) {
+    console.log('[ADMIN] Fechando resíduos por símbolo...');
+    
+    try {
+      const { symbol, exchangeAccountId, positionIds } = body;
+      const positionService = new PositionService(this.prisma);
+
+      const result = await positionService.closeDustPositions(symbol, exchangeAccountId, positionIds, true);
+
+      // Enfileirar job para execução
+      if (this.tradeJobQueueService && typeof this.tradeJobQueueService.enqueueTradeJob === 'function') {
+        await this.tradeJobQueueService.enqueueTradeJob(result.tradeJobId);
+      } else {
+        // Fallback: usar método direto do Prisma para atualizar status
+        // O job será processado pelo monitor de limit orders ou executor
+        console.log(`[ADMIN] Job ${result.tradeJobId} criado para fechar resíduos (será processado automaticamente)`);
+      }
+
+      console.log(`[ADMIN] ✅ Job de venda criado: ${result.tradeJobId} para fechar ${result.totalQty} de ${symbol} (US$ ${result.totalValueUsd.toFixed(2)})`);
+
+      return {
+        message: 'Job de venda criado com sucesso',
+        tradeJobId: result.tradeJobId,
+        totalQty: result.totalQty,
+        totalValueUsd: result.totalValueUsd,
+        symbol,
+        positionIds,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro ao fechar resíduos:', error);
       throw error;
     }
   }
