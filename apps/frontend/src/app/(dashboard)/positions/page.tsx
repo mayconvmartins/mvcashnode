@@ -136,6 +136,12 @@ export default function PositionsPage() {
         queryFn: () => positionsService.list(closedFilters),
     })
 
+    const { data: dustPositionsData, isLoading: loadingDust } = useQuery({
+        queryKey: ['positions', 'DUST', dustFilters],
+        queryFn: () => positionsService.list(dustFilters),
+        refetchInterval: 30000, // Refetch a cada 30s
+    })
+
     // Extrair dados, paginação e summary
     const openPositions = Array.isArray(openPositionsData) 
         ? openPositionsData 
