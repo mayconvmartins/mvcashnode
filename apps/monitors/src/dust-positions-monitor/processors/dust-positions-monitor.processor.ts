@@ -11,7 +11,7 @@ export class DustPositionsMonitorProcessor extends WorkerHost {
   private positionService: PositionService;
 
   constructor(
-    private prisma: PrismaService,
+    prisma: PrismaService,
     private cronExecutionService: CronExecutionService
   ) {
     super();
