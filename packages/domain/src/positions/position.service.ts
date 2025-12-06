@@ -1576,12 +1576,43 @@ export class PositionService {
           if (groupedJobIds.length > 0) {
             // Buscar posições que têm esses trade_job_id_open e não são a posição agrupada
             // Verificar tanto OPEN quanto CLOSED para garantir limpeza completa
+            // IMPORTANTE: Isso identifica posições que foram recriadas pelo sync mas não deveriam existir
+            // Exemplo: posição #211 foi recriada, mas o job #499 está em PositionGroupedJob da posição #195
             const orphanedPositions = await this.prisma.tradePosition.findMany({
               where: {
                 trade_job_id_open: { in: groupedJobIds },
                 id: { not: groupedPosition.id },
               },
             });
+            
+            // Também verificar posições que foram recriadas mas o job não está mais apontando para elas
+            // (position_open é null ou apontando para outra posição, mas o job está agrupado)
+            const jobsWithNullPosition = await this.prisma.tradeJob.findMany({
+              where: {
+                id: { in: groupedJobIds },
+                position_open: null,
+              },
+            });
+            
+            // Se há jobs com position_open null, verificar se há posições órfãs que foram criadas
+            // mas não estão sendo referenciadas pelo job (isso pode acontecer em casos de race condition)
+            if (jobsWithNullPosition.length > 0) {
+              const jobsWithNullPositionIds = jobsWithNullPosition.map(j => j.id);
+              const additionalOrphanedPositions = await this.prisma.tradePosition.findMany({
+                where: {
+                  trade_job_id_open: { in: jobsWithNullPositionIds },
+                  id: { not: groupedPosition.id },
+                },
+              });
+              
+              // Adicionar às posições órfãs encontradas
+              if (additionalOrphanedPositions.length > 0) {
+                orphanedPositions.push(...additionalOrphanedPositions);
+                console.log(
+                  `[POSITION-SERVICE] 🔍 Encontradas ${additionalOrphanedPositions.length} posição(ões) órfã(s) adicional(is) recriada(s) para jobs com position_open null`
+                );
+              }
+            }
 
             // Deletar posições órfãs encontradas
             if (orphanedPositions.length > 0) {
@@ -1631,8 +1662,66 @@ export class PositionService {
               console.log(
                 `[POSITION-SERVICE] ⚠️ Encontrados ${jobsWithIncorrectPosition.length} job(s) com position_open incorreto relacionado(s) à posição agrupada ${groupedPosition.id}`
               );
-              // Não corrigimos automaticamente aqui, apenas logamos
-              // A correção será feita pelo método fixJobPositionIntegrity se necessário
+              
+              // Corrigir automaticamente: verificar se há posições órfãs que foram recriadas
+              for (const job of jobsWithIncorrectPosition) {
+                const currentPositionId = job.position_open?.id;
+                
+                // Se o job tem position_open apontando para outra posição, verificar se é órfã
+                if (currentPositionId && currentPositionId !== groupedPosition.id) {
+                  const currentPosition = await this.prisma.tradePosition.findUnique({
+                    where: { id: currentPositionId },
+                    include: {
+                      fills: {
+                        select: { id: true },
+                      },
+                    },
+                  });
+
+                  if (currentPosition) {
+                    // Verificar se esta posição é órfã (não deveria existir porque o job está agrupado)
+                    // Verificar se o job não está em outro PositionGroupedJob válido
+                    const otherGroupedJobs = await this.prisma.positionGroupedJob.findMany({
+                      where: {
+                        trade_job_id: job.id,
+                        position_id: { not: groupedPosition.id },
+                      },
+                      include: {
+                        position: {
+                          select: { id: true, status: true },
+                        },
+                      },
+                    });
+
+                    // Se não há outros PositionGroupedJob válidos, ou se todos apontam para posições CLOSED,
+                    // então esta posição atual é órfã e deve ser removida
+                    const hasValidOtherGroupedJob = otherGroupedJobs.some(
+                      gj => gj.position && gj.position.status === PositionStatus.OPEN
+                    );
+
+                    if (!hasValidOtherGroupedJob) {
+                      // Esta posição é órfã, mover fills e deletar
+                      console.log(
+                        `[POSITION-SERVICE] 🔧 Corrigindo: Movendo fills da posição órfã ${currentPositionId} (job ${job.id}) para posição agrupada ${groupedPosition.id}`
+                      );
+                      
+                      await this.prisma.positionFill.updateMany({
+                        where: { position_id: currentPositionId },
+                        data: { position_id: groupedPosition.id },
+                      });
+
+                      await this.prisma.tradePosition.delete({
+                        where: { id: currentPositionId },
+                      });
+
+                      deleted++;
+                      console.log(
+                        `[POSITION-SERVICE] ✅ Posição órfã ${currentPositionId} removida e fills movidos para posição agrupada ${groupedPosition.id}`
+                      );
+                    }
+                  }
+                }
+              }
             }
           }
         } catch (error: any) {
