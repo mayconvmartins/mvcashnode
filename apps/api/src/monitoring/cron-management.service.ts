@@ -58,6 +58,7 @@ export class CronManagementService implements OnModuleInit {
       'positions-sync-missing': 'sync-missing-positions',
       'price-sync': 'sync-prices',
       'positions-params-fix': 'fix-positions-params',
+      'dust-positions-monitor': 'monitor-dust-positions',
     };
     return nameMap[jobName] || null;
   }
