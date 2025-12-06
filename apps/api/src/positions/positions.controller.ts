@@ -322,6 +322,10 @@ export class PositionsController {
             min_profit_pct: true,
             is_grouped: true,
             group_started_at: true,
+            lock_sell_by_webhook: true,
+            is_dust: true,
+            dust_value_usd: true,
+            original_position_id: true,
             created_at: true,
             exchange_account: {
               select: {
