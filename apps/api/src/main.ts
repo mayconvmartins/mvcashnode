@@ -70,6 +70,13 @@ async function bootstrap() {
     bodyParser: false, // Desabilitar body parser padrão globalmente
   });
   
+  // Configurar timeout do servidor para operações longas (auditoria, etc)
+  const server = app.getHttpServer();
+  server.timeout = 1800000; // 30 minutos
+  server.keepAliveTimeout = 1800000; // 30 minutos
+  server.headersTimeout = 1800000; // 30 minutos
+  console.log('[Server] ✅ Timeout configurado: 30 minutos para operações longas');
+  
   // Configurar WebSocket adapter (ws nativo) - DEVE ser configurado ANTES de qualquer outra coisa
   const wsAdapter = new WsAdapter(app);
   app.useWebSocketAdapter(wsAdapter);

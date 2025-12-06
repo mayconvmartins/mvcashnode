@@ -63,12 +63,13 @@ apiClient.interceptors.request.use(
         pendingRequests.set(requestKey, cancelTokenSource)
         
         // Timeout maior para operações longas (uploads, auditorias, etc)
-        if (config.data instanceof FormData || config.timeout === undefined) {
+        if (config.data instanceof FormData) {
             config.timeout = 60000 // 60 segundos para uploads
         }
-        // Se o timeout foi explicitamente definido na requisição, usar esse valor
-        if (config.timeout && config.timeout > 10000) {
-            // Timeout customizado já definido, manter
+        // Se o timeout foi explicitamente definido na requisição, usar esse valor (não sobrescrever)
+        // Caso contrário, usar o padrão de 10 segundos
+        if (config.timeout === undefined) {
+            config.timeout = 10000 // Padrão de 10 segundos
         }
         
         if (typeof window !== 'undefined') {
