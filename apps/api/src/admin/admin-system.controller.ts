@@ -14,6 +14,7 @@ import { PrismaService } from '@mvcashnode/db';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { EncryptionService } from '@mvcashnode/shared';
 import { PositionService } from '@mvcashnode/domain';
+import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 
 @ApiTags('Admin')
 @Controller('admin')
@@ -27,7 +28,7 @@ export class AdminSystemController {
     private adminService: AdminService,
     private prisma: PrismaService,
     private encryptionService: EncryptionService,
-    private tradeJobQueueService: any // TradeJobQueueService - será injetado via módulo (opcional)
+    private tradeJobQueueService: TradeJobQueueService
   ) {
     // Inicializar cache service Redis
     this.cacheService = new CacheService(
