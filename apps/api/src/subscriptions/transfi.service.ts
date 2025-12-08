@@ -678,11 +678,11 @@ export class TransFiService {
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
 
-      const queryParams = new URLSearchParams({
-        direction,
-        page: '1',
-        limit: '100',
-      });
+      // Construir query params conforme documentação
+      const queryParams = new URLSearchParams();
+      queryParams.append('direction', direction);
+      queryParams.append('page', '1');
+      queryParams.append('limit', '100');
 
       const response = await fetch(`${baseUrl}/v2/supported-currencies?${queryParams.toString()}`, {
         method: 'GET',
@@ -694,8 +694,20 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json() as { message?: string; code?: string };
-        this.logger.error('Erro ao listar moedas TransFi:', error);
+        const errorText = await response.text();
+        let error: { message?: string; code?: string } = {};
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { message: errorText || 'Erro desconhecido' };
+        }
+        
+        this.logger.error('Erro ao listar moedas TransFi:', {
+          status: response.status,
+          statusText: response.statusText,
+          error,
+        });
+        
         throw new BadRequestException(
           error?.message || `Erro ao listar moedas suportadas: ${error?.code || 'UNKNOWN'}`
         );
@@ -707,7 +719,83 @@ export class TransFiService {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Erro ao listar moedas suportadas');
+      throw new BadRequestException(
+        error?.message || 'Erro ao listar moedas suportadas'
+      );
+    }
+  }
+
+  /**
+   * Testa a conexão com a API TransFi
+   * Usa o endpoint de listar usuários business (mais simples, não requer parâmetros obrigatórios)
+   */
+  async testConnection(): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      const config = await this.getConfig();
+      const baseUrl = this.getBaseUrl(config.environment);
+
+      // Usar endpoint de listar business users (query params são opcionais)
+      // Este endpoint é mais simples e não requer parâmetros obrigatórios
+      const response = await fetch(`${baseUrl}/v2/users/business`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'MID': config.merchantId,
+          'Authorization': this.getAuthHeader(config),
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let error: { message?: string; code?: string } = {};
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { message: errorText || 'Erro desconhecido' };
+        }
+
+        // Se for 404 ou lista vazia, ainda é sucesso (significa que autenticação funcionou)
+        if (response.status === 404) {
+          return {
+            success: true,
+            message: 'Conexão bem-sucedida (nenhum usuário business encontrado)',
+            data: {
+              merchant_id: config.merchantId,
+              environment: config.environment,
+            },
+          };
+        }
+
+        this.logger.error('Erro ao testar conexão TransFi:', {
+          status: response.status,
+          statusText: response.statusText,
+          error,
+        });
+
+        throw new BadRequestException(
+          error?.message || `Erro ao testar conexão: ${error?.code || 'UNKNOWN'}`
+        );
+      }
+
+      const result = await response.json();
+      
+      return {
+        success: true,
+        message: 'Conexão bem-sucedida',
+        data: {
+          merchant_id: config.merchantId,
+          environment: config.environment,
+          users_count: result?.users?.length || result?.total || 0,
+        },
+      };
+    } catch (error: any) {
+      this.logger.error('Erro ao testar conexão TransFi:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        error?.message || 'Erro ao testar conexão com TransFi'
+      );
     }
   }
 

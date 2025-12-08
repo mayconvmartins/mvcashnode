@@ -211,19 +211,13 @@ export class AdminTransFiController {
     }
 
     try {
-      // Tentar listar moedas suportadas para testar conexão (direction obrigatório)
-      await this.transfiService.getSupportedCurrencies('deposit');
+      // Usar método específico de teste de conexão do service
+      const result = await this.transfiService.testConnection();
 
-      return {
-        success: true,
-        message: 'Conexão bem-sucedida',
-        data: {
-          merchant_id: config.merchant_id,
-          environment: config.environment,
-        },
-      };
+      return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      this.logger.error('Erro ao testar conexão TransFi:', error);
       return {
         success: false,
         message: 'Erro ao testar conexão',
