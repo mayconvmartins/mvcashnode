@@ -425,11 +425,15 @@ export class MercadoPagoService {
         statement_descriptor: 'MV Cash Assinatura',
       };
 
+      // Gerar UUID para idempotency key (requerido pelo Mercado Pago para PIX)
+      const idempotencyKey = crypto.randomUUID();
+
       const response = await fetch(`${baseUrl}/v1/payments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${config.accessToken}`,
+          'X-Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify(paymentData),
       });
