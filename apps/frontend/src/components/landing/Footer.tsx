@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 
 export function Footer() {
   return (
@@ -11,12 +10,10 @@ export function Footer() {
           {/* Logo e Descrição */}
           <div className="col-span-1 md:col-span-2">
             <div className="mb-4">
-              <Image
+              <img
                 src="/MvCash_Logo.png"
                 alt="MvCash Logo"
-                width={150}
-                height={50}
-                className="h-auto"
+                className="h-auto max-w-[150px]"
               />
             </div>
             <p className="text-muted-foreground mb-4 max-w-md">

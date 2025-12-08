@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, TrendingUp } from 'lucide-react';
 
@@ -11,13 +10,10 @@ export function Hero() {
         <div className="max-w-4xl mx-auto text-center">
           {/* Logo */}
           <div className="mb-8 flex justify-center">
-            <Image
+            <img
               src="/MvCash_Logo.png"
               alt="MvCash Logo"
-              width={300}
-              height={100}
-              className="h-auto w-auto"
-              priority
+              className="h-auto w-auto max-w-[300px]"
             />
           </div>
 

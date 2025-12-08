@@ -17,8 +17,30 @@ export function middleware(request: NextRequest) {
     }
     
     // Para a aplicação completa (porta 5010)
-    // Redirecionar rotas públicas para o site público
-    if (pathname === '/' || pathname.startsWith('/help')) {
+    // Na rota raiz, verificar se está autenticado
+    if (pathname === '/') {
+        const token = request.cookies.get('accessToken')?.value || 
+                      request.headers.get('authorization')?.replace('Bearer ', '')
+        
+        // Se não estiver autenticado, redirecionar para site público
+        if (!token) {
+            const publicUrl = new URL('/', 'https://mvcash.com.br')
+            return NextResponse.redirect(publicUrl)
+        }
+        
+        // Se estiver autenticado, redirecionar para uma rota que não conflite
+        // Como temos page.tsx na raiz (landing page), vamos usar uma rota interna
+        // Mas na verdade, o Next.js vai servir page.tsx mesmo assim
+        // A solução é não ter page.tsx na raiz quando for app mode
+        // Por enquanto, vamos redirecionar para /positions que é uma rota do dashboard
+        // Ou podemos simplesmente bloquear e forçar o usuário a usar o menu
+        // Vamos redirecionar para uma rota do dashboard que sempre existe
+        const dashboardUrl = new URL('/positions', request.url)
+        return NextResponse.redirect(dashboardUrl)
+    }
+    
+    // Redirecionar /help para site público
+    if (pathname.startsWith('/help')) {
         const publicUrl = new URL(pathname, 'https://mvcash.com.br')
         return NextResponse.redirect(publicUrl)
     }

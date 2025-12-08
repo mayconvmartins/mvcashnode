@@ -215,18 +215,10 @@ const manuals: Record<string, { title: string; content: string }> = {
 export default function ManualPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const manual = manuals[slug];
-  const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app';
 
   // Esta página só deve ser servida na porta 6010 (site público)
   // Na porta 5010, o middleware redireciona para mvcash.com.br
-  if (typeof window !== 'undefined' && siteMode === 'app') {
-    window.location.href = `https://mvcash.com.br/help/${slug}`;
-    return null;
-  }
-
-  if (siteMode === 'app') {
-    return null;
-  }
+  // Não fazer verificação no lado do cliente para evitar loops
 
   if (!manual) {
     return (
