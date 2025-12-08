@@ -92,16 +92,16 @@ export function OrderFilters({ filters, onFiltersChange, accounts = [] }: OrderF
                         <div className="space-y-1">
                             <Label htmlFor="side">Lado</Label>
                             <Select
-                                value={filters.side || ''}
+                                value={filters.side || 'all'}
                                 onValueChange={(value) =>
-                                    onFiltersChange({ ...filters, side: value as any })
+                                    onFiltersChange({ ...filters, side: value === 'all' ? undefined : (value as any) })
                                 }
                             >
                                 <SelectTrigger id="side">
                                     <SelectValue placeholder="Selecione o lado" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Todos</SelectItem>
+                                    <SelectItem value="all">Todos</SelectItem>
                                     <SelectItem value="BUY">Compra</SelectItem>
                                     <SelectItem value="SELL">Venda</SelectItem>
                                 </SelectContent>
@@ -112,16 +112,16 @@ export function OrderFilters({ filters, onFiltersChange, accounts = [] }: OrderF
                         <div className="space-y-1">
                             <Label htmlFor="status">Status</Label>
                             <Select
-                                value={filters.status || ''}
+                                value={filters.status || 'all'}
                                 onValueChange={(value) =>
-                                    onFiltersChange({ ...filters, status: value as any })
+                                    onFiltersChange({ ...filters, status: value === 'all' ? undefined : (value as any) })
                                 }
                             >
                                 <SelectTrigger id="status">
                                     <SelectValue placeholder="Selecione o status" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Todos</SelectItem>
+                                    <SelectItem value="all">Todos</SelectItem>
                                     <SelectItem value="PENDING">Pendente</SelectItem>
                                     <SelectItem value="FILLED">Executada</SelectItem>
                                     <SelectItem value="CANCELLED">Cancelada</SelectItem>
@@ -135,11 +135,11 @@ export function OrderFilters({ filters, onFiltersChange, accounts = [] }: OrderF
                             <div className="space-y-1">
                                 <Label htmlFor="account">Conta</Label>
                                 <Select
-                                    value={filters.accountId?.toString() || ''}
+                                    value={filters.accountId?.toString() || 'all'}
                                     onValueChange={(value) =>
                                         onFiltersChange({
                                             ...filters,
-                                            accountId: value ? parseInt(value) : '',
+                                            accountId: value === 'all' ? undefined : parseInt(value),
                                         })
                                     }
                                 >
@@ -147,7 +147,7 @@ export function OrderFilters({ filters, onFiltersChange, accounts = [] }: OrderF
                                         <SelectValue placeholder="Selecione a conta" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="">Todas</SelectItem>
+                                        <SelectItem value="all">Todas</SelectItem>
                                         {accounts.map((account) => (
                                             <SelectItem key={account.id} value={account.id.toString()}>
                                                 {account.label}

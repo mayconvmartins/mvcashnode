@@ -115,7 +115,7 @@ export function UserSelector() {
                 </SelectTrigger>
                 <SelectContent>
                     {users.length === 0 ? (
-                        <SelectItem value="" disabled>
+                        <SelectItem value="none" disabled>
                             Nenhum usuário encontrado
                         </SelectItem>
                     ) : (

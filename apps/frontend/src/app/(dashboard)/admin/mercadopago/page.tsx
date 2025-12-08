@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react';
+import { Loader2, Eye, EyeOff, CheckCircle, XCircle, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function MercadoPagoConfigPage() {
@@ -24,6 +24,7 @@ export default function MercadoPagoConfigPage() {
     webhook_url: '',
     is_active: false,
   });
+  const [generatedWebhookUrl, setGeneratedWebhookUrl] = useState<string>('');
 
   const { data: config, isLoading } = useQuery({
     queryKey: ['admin', 'mercadopago', 'config'],
@@ -37,9 +38,13 @@ export default function MercadoPagoConfigPage() {
         public_key: config.public_key || '',
         webhook_secret: '', // Não preencher secret por segurança
         environment: (config.environment as 'sandbox' | 'production') || 'sandbox',
-        webhook_url: config.webhook_url || '',
+        webhook_url: config.webhook_url || config.generated_webhook_url || '',
         is_active: config.is_active || false,
       });
+      setGeneratedWebhookUrl(config.generated_webhook_url || config.webhook_url || '');
+    } else if (config === null) {
+      // Se não houver config, ainda pode ter a URL gerada
+      setGeneratedWebhookUrl('');
     }
   }, [config]);
 
@@ -77,7 +82,12 @@ export default function MercadoPagoConfigPage() {
       toast.error('Public Key é obrigatória');
       return;
     }
-    updateMutation.mutate(formData);
+    // Se não houver webhook_url customizada, usar a gerada automaticamente
+    const dataToSave = {
+      ...formData,
+      webhook_url: formData.webhook_url || generatedWebhookUrl || undefined,
+    };
+    updateMutation.mutate(dataToSave);
   };
 
   if (isLoading) {
@@ -216,18 +226,68 @@ export default function MercadoPagoConfigPage() {
 
           <div className="space-y-2">
             <Label htmlFor="webhook_url">Webhook URL</Label>
-            <Input
-              id="webhook_url"
-              type="url"
-              placeholder="https://seu-dominio.com/subscriptions/webhooks/mercadopago"
-              value={formData.webhook_url}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, webhook_url: e.target.value }))
-              }
-            />
+            <div className="flex gap-2">
+              <Input
+                id="webhook_url"
+                type="url"
+                placeholder="https://seu-dominio.com/subscriptions/webhooks/mercadopago"
+                value={formData.webhook_url || generatedWebhookUrl}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, webhook_url: e.target.value }))
+                }
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={async () => {
+                  const urlToCopy = formData.webhook_url || generatedWebhookUrl;
+                  if (urlToCopy) {
+                    await navigator.clipboard.writeText(urlToCopy);
+                    toast.success('URL copiada para a área de transferência!');
+                  }
+                }}
+                disabled={!formData.webhook_url && !generatedWebhookUrl}
+                title="Copiar URL"
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground">
-              URL pública onde o Mercado Pago enviará notificações de pagamento
+              URL pública onde o Mercado Pago enviará notificações de pagamento.
             </p>
+            {generatedWebhookUrl && (
+              <div className="p-3 bg-muted rounded-md border border-border">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground mb-1">
+                      URL Gerada Automaticamente:
+                    </p>
+                    <p className="text-xs font-mono text-muted-foreground break-all">
+                      {generatedWebhookUrl}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 flex-shrink-0"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(generatedWebhookUrl);
+                      toast.success('URL copiada!');
+                    }}
+                    title="Copiar URL gerada"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                {!formData.webhook_url && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Esta URL será usada automaticamente se você não especificar uma URL customizada.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex gap-4 pt-4">

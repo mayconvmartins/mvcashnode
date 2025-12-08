@@ -25,7 +25,9 @@ import {
     ChevronRight,
     BookOpen,
     Target,
-    CreditCard
+    CreditCard,
+    Receipt,
+    Package
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -53,6 +55,9 @@ const menuItems = [
 const adminMenuItems = [
     { icon: LayoutDashboard, label: 'Painel Admin', href: '/admin' },
     { icon: Users, label: 'Usuários', href: '/admin/users' },
+    { icon: Receipt, label: 'Assinaturas', href: '/admin/subscriptions' },
+    { icon: Package, label: 'Planos', href: '/admin/subscription-plans' },
+    { icon: CreditCard, label: 'Assinantes', href: '/admin/subscribers' },
     { icon: FileText, label: 'Audit Logs', href: '/admin/audit' },
     { icon: MessageSquare, label: 'WhatsApp', href: '/admin/notifications' },
     { icon: CreditCard, label: 'Mercado Pago', href: '/admin/mercadopago' },

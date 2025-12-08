@@ -6,6 +6,7 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,11 +19,33 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SubscriptionGuard } from './guards/subscription.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { validateCpf } from '../common/utils/cpf-validation';
+import { PrismaService } from '@mvcashnode/db';
 
 @ApiTags('Subscriptions')
 @Controller('subscriptions')
 export class SubscriptionsController {
-  constructor(private subscriptionsService: SubscriptionsService) {}
+  constructor(
+    private subscriptionsService: SubscriptionsService,
+    private prisma: PrismaService
+  ) {}
+
+  @Get('mercadopago/public-key')
+  @ApiOperation({ summary: 'Obter public key do Mercado Pago (público)' })
+  @ApiResponse({ status: 200, description: 'Public key do Mercado Pago' })
+  async getMercadoPagoPublicKey(): Promise<{ public_key: string }> {
+    const config = await this.prisma.mercadoPagoConfig.findFirst({
+      where: { is_active: true },
+      orderBy: { created_at: 'desc' },
+    });
+
+    if (!config) {
+      throw new NotFoundException('Configuração do Mercado Pago não encontrada');
+    }
+
+    return {
+      public_key: config.public_key,
+    };
+  }
 
   @Get('plans')
   @ApiOperation({ summary: 'Listar planos ativos' })

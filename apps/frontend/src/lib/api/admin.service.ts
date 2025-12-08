@@ -468,6 +468,11 @@ export const adminService = {
     },
 
     // Mercado Pago Config
+    getMercadoPagoPublicKey: async (): Promise<{ public_key: string }> => {
+        const response = await apiClient.get('/subscriptions/mercadopago/public-key')
+        return response.data
+    },
+
     getMercadoPagoConfig: async (): Promise<any> => {
         const response = await apiClient.get('/admin/mercadopago/config')
         return response.data

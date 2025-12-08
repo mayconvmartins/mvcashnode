@@ -21,6 +21,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@mvcashnode/shared';
 import { MercadoPagoService } from '../subscriptions/mercadopago.service';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Admin - Mercado Pago')
 @Controller('admin/mercadopago')
@@ -31,7 +32,8 @@ export class AdminMercadoPagoController {
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService,
-    private mercadoPagoService: MercadoPagoService
+    private mercadoPagoService: MercadoPagoService,
+    private configService: ConfigService
   ) {}
 
   @Get('config')
@@ -42,8 +44,17 @@ export class AdminMercadoPagoController {
       orderBy: { created_at: 'desc' },
     });
 
+    // Gerar URL do webhook automaticamente
+    const apiBaseUrl = this.configService.get<string>('API_BASE_URL') || 
+                      this.configService.get<string>('SWAGGER_SERVER_URL') || 
+                      'https://core.mvcash.com.br';
+    const generatedWebhookUrl = `${apiBaseUrl}/subscriptions/webhooks/mercadopago`;
+
     if (!config) {
-      return null;
+      return {
+        webhook_url: generatedWebhookUrl,
+        generated_webhook_url: generatedWebhookUrl,
+      };
     }
 
     // Retornar sem dados sensíveis criptografados
@@ -51,7 +62,8 @@ export class AdminMercadoPagoController {
       id: config.id,
       public_key: config.public_key,
       environment: config.environment,
-      webhook_url: config.webhook_url,
+      webhook_url: config.webhook_url || generatedWebhookUrl,
+      generated_webhook_url: generatedWebhookUrl,
       is_active: config.is_active,
       created_at: config.created_at,
       updated_at: config.updated_at,
