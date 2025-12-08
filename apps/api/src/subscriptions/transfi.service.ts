@@ -42,6 +42,7 @@ export interface TransFiOrder {
     qrCode?: string;
     qrCodeBase64?: string;
     paymentUrl?: string;
+    walletAddress?: string; // Para pagamentos crypto
   };
   metadata?: Record<string, any>;
 }
