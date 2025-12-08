@@ -35,8 +35,8 @@ CREATE TABLE `transfi_webhook_events` (
 ALTER TABLE `subscription_payments` MODIFY `mp_payment_id` VARCHAR(255) NULL;
 
 -- AlterTable
-ALTER TABLE `subscription_payments` ADD COLUMN `transfi_payment_id` VARCHAR(255) NULL,
-    ADD COLUMN `transfi_order_id` VARCHAR(255) NULL;
+ALTER TABLE `subscription_payments` ADD COLUMN `transfi_payment_id` VARCHAR(255) NULL;
+ALTER TABLE `subscription_payments` ADD COLUMN `transfi_order_id` VARCHAR(255) NULL;
 
 -- CreateIndex
 CREATE INDEX `subscription_payments_transfi_payment_id_idx` ON `subscription_payments`(`transfi_payment_id`);
