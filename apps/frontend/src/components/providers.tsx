@@ -5,7 +5,7 @@ import { ThemeProvider } from 'next-themes'
 import { ReactNode, useState } from 'react'
 import { Toaster } from '@/components/ui/toaster'
 import { WebSocketProvider } from '@/components/websocket/WebSocketProvider'
-import { MercadoPagoProvider } from './MercadoPagoProvider'
+import { MercadoPagoProvider } from './providers/MercadoPagoProvider'
 
 export function Providers({ children }: { children: ReactNode }) {
     const [queryClient] = useState(

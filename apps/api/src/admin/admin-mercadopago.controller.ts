@@ -101,7 +101,7 @@ export class AdminMercadoPagoController {
       : null;
 
     // Buscar configuração existente
-    const existing = await this.prisma.mercadopagoConfig.findFirst({
+    const existing = await this.prisma.mercadoPagoConfig.findFirst({
       orderBy: { created_at: 'desc' },
     });
 
@@ -162,7 +162,7 @@ export class AdminMercadoPagoController {
       });
 
       if (!response.ok) {
-        const error = await response.json() as any;
+        const error = await response.json() as { message?: string };
         return {
           success: false,
           message: 'Erro ao conectar com Mercado Pago',
@@ -170,7 +170,7 @@ export class AdminMercadoPagoController {
         };
       }
 
-      const userData = await response.json() as any;
+      const userData = await response.json() as { id?: string; email?: string; nickname?: string };
       return {
         success: true,
         message: 'Conexão bem-sucedida',
@@ -180,11 +180,12 @@ export class AdminMercadoPagoController {
           nickname: userData?.nickname,
         },
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       return {
         success: false,
         message: 'Erro ao testar conexão',
-        error: error.message || 'Erro desconhecido',
+        error: errorMessage,
       };
     }
   }

@@ -146,9 +146,9 @@ export class AdminSubscribersController {
     if (body.subscriber_profile) {
       // TODO: Implementar quando subscriberProfile for criado
       // await this.prisma.subscriberProfile.updateMany({
-        where: { user_id: id },
-        data: body.subscriber_profile,
-      });
+      //   where: { user_id: id },
+      //   data: body.subscriber_profile,
+      // });
     }
 
     if (Object.keys(updates).length > 0) {
@@ -230,9 +230,9 @@ export class AdminSubscribersController {
   async getParameters(@Param('id', ParseIntPipe) id: number) {
     // TODO: Implementar quando subscriberParameters for criado
     // const parameters = await this.prisma.subscriberParameters.findUnique({
+    //   where: { user_id: id },
+    // });
     const parameters = null; // Temporário até criar modelo
-      where: { user_id: id },
-    });
 
     if (!parameters) {
       throw new NotFoundException('Parâmetros não encontrados para este assinante');
