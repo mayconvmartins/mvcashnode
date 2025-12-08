@@ -27,7 +27,7 @@ const planSchema = z.object({
   price_monthly: z.number().min(0.01, 'Preço mensal deve ser maior que zero'),
   price_quarterly: z.number().min(0.01, 'Preço trimestral deve ser maior que zero'),
   duration_days: z.number().min(1).max(365),
-  is_active: z.boolean().optional().default(true),
+  is_active: z.boolean(),
   features_json: z.any().optional(),
 });
 
@@ -59,7 +59,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
       price_monthly: plan?.price_monthly ? Number(plan.price_monthly) : 0,
       price_quarterly: plan?.price_quarterly ? Number(plan.price_quarterly) : 0,
       duration_days: plan?.duration_days || 30,
-      is_active: plan?.is_active ?? true,
+      is_active: plan?.is_active !== undefined ? Boolean(plan.is_active) : true,
       features_json: plan?.features_json || [],
     },
   });
@@ -72,7 +72,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
         price_monthly: plan.price_monthly ? Number(plan.price_monthly) : 0,
         price_quarterly: plan.price_quarterly ? Number(plan.price_quarterly) : 0,
         duration_days: plan.duration_days || 30,
-        is_active: plan.is_active ?? true,
+        is_active: plan.is_active !== undefined ? Boolean(plan.is_active) : true,
         features_json: plan.features_json || [],
       });
       setFeatures(Array.isArray(plan.features_json) ? plan.features_json : []);
