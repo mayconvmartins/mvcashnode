@@ -29,6 +29,7 @@ const planSchema = z.object({
   duration_days: z.number().min(1).max(365),
   is_active: z.boolean(),
   features_json: z.any().optional(),
+  max_exchange_accounts: z.union([z.number().min(1), z.null()]).optional(),
 });
 
 type PlanFormData = z.infer<typeof planSchema>;
@@ -61,6 +62,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
       duration_days: plan?.duration_days || 30,
       is_active: plan?.is_active !== undefined ? Boolean(plan.is_active) : true,
       features_json: plan?.features_json || [],
+      max_exchange_accounts: plan?.max_exchange_accounts !== undefined && plan?.max_exchange_accounts !== null ? Number(plan.max_exchange_accounts) : null,
     },
   });
 
@@ -74,6 +76,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
         duration_days: plan.duration_days || 30,
         is_active: plan.is_active !== undefined ? Boolean(plan.is_active) : true,
         features_json: plan.features_json || [],
+        max_exchange_accounts: plan.max_exchange_accounts !== undefined && plan.max_exchange_accounts !== null ? Number(plan.max_exchange_accounts) : null,
       });
       setFeatures(Array.isArray(plan.features_json) ? plan.features_json : []);
     } else {
@@ -85,6 +88,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
         duration_days: 30,
         is_active: true,
         features_json: [],
+        max_exchange_accounts: null,
       });
       setFeatures([]);
     }
@@ -110,6 +114,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
       const planData = {
         ...data,
         features_json: features.filter((f) => f.trim().length > 0),
+        max_exchange_accounts: data.max_exchange_accounts === null || data.max_exchange_accounts === undefined ? null : Number(data.max_exchange_accounts),
       };
 
       if (plan) {
@@ -241,6 +246,31 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
                 + Adicionar Recurso
               </Button>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="max_exchange_accounts">Limite de Contas Exchange</Label>
+            <Input
+              id="max_exchange_accounts"
+              type="number"
+              min="1"
+              {...register('max_exchange_accounts', { 
+                valueAsNumber: true,
+                setValueAs: (v) => v === '' || v === null || v === undefined ? null : Number(v)
+              })}
+              placeholder="Ilimitado (deixe vazio)"
+              value={watch('max_exchange_accounts') === null || watch('max_exchange_accounts') === undefined ? '' : watch('max_exchange_accounts')}
+              onChange={(e) => {
+                const value = e.target.value === '' ? null : Number(e.target.value);
+                setValue('max_exchange_accounts', value);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Número máximo de contas exchange que assinantes deste plano podem criar. Deixe vazio para ilimitado.
+            </p>
+            {errors.max_exchange_accounts && (
+              <p className="text-sm text-red-500">{errors.max_exchange_accounts.message}</p>
+            )}
           </div>
 
           <div className="flex items-center space-x-2">

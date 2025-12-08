@@ -386,8 +386,17 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
           this.logger.log(`Buscando pagamentos para assinatura ${subscription.id} usando preference_id: ${subscription.mp_preference_id}`);
           
           try {
-            // Buscar pagamentos por preference_id na API do Mercado Pago
-            const searchResponse = await fetch(`${baseUrl}/v1/payments/search?preference_id=${subscription.mp_preference_id}`, {
+            // A API do Mercado Pago não aceita preference_id como parâmetro de busca
+            // Vamos buscar pagamentos recentes (últimos 7 dias) e filtrar pelo preference_id
+            // Isso é mais eficiente do que buscar todos os pagamentos
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const dateFrom = sevenDaysAgo.toISOString().split('T')[0];
+            const dateTo = new Date().toISOString().split('T')[0];
+            
+            // Buscar pagamentos recentes usando range de datas
+            // A API aceita: range=date_created&begin_date=YYYY-MM-DDTHH:mm:ss.sssZ&end_date=YYYY-MM-DDTHH:mm:ss.sssZ
+            const searchResponse = await fetch(`${baseUrl}/v1/payments/search?range=date_created&begin_date=${dateFrom}T00:00:00.000-00:00&end_date=${dateTo}T23:59:59.999-00:00&limit=100`, {
               method: 'GET',
               headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -404,6 +413,13 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   preference_id?: string;
                 }>;
               };
+              
+              // Filtrar pagamentos pelo preference_id
+              if (searchResult.results) {
+                searchResult.results = searchResult.results.filter(
+                  payment => payment.preference_id === subscription.mp_preference_id
+                );
+              }
 
               if (searchResult.results && searchResult.results.length > 0) {
                 this.logger.log(`Encontrados ${searchResult.results.length} pagamentos para preference_id ${subscription.mp_preference_id}`);

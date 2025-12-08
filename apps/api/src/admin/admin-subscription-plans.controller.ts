@@ -72,6 +72,7 @@ export class AdminSubscriptionPlansController {
       duration_days?: number;
       is_active?: boolean;
       features_json?: any;
+      max_exchange_accounts?: number | null;
     }
   ): Promise<any> {
     try {
@@ -83,6 +84,13 @@ export class AdminSubscriptionPlansController {
         throw new BadRequestException('Preços devem ser maiores que zero');
       }
 
+      // Validar max_exchange_accounts: deve ser null (ilimitado) ou >= 1
+      if (body.max_exchange_accounts !== undefined && body.max_exchange_accounts !== null) {
+        if (body.max_exchange_accounts < 1) {
+          throw new BadRequestException('max_exchange_accounts deve ser maior ou igual a 1, ou null para ilimitado');
+        }
+      }
+
       return await this.prisma.subscriptionPlan.create({
         data: {
           name: body.name.trim(),
@@ -92,6 +100,7 @@ export class AdminSubscriptionPlansController {
           duration_days: body.duration_days || 30,
           is_active: body.is_active !== undefined ? body.is_active : true,
           features_json: body.features_json || {},
+          max_exchange_accounts: body.max_exchange_accounts !== undefined ? body.max_exchange_accounts : null,
         },
       });
     } catch (error: any) {
@@ -126,6 +135,7 @@ export class AdminSubscriptionPlansController {
       duration_days?: number;
       is_active?: boolean;
       features_json?: any;
+      max_exchange_accounts?: number | null;
     }
   ): Promise<any> {
     const plan = await this.prisma.subscriptionPlan.findUnique({
@@ -144,6 +154,13 @@ export class AdminSubscriptionPlansController {
       throw new BadRequestException('Preço trimestral deve ser maior que zero');
     }
 
+    // Validar max_exchange_accounts: deve ser null (ilimitado) ou >= 1
+    if (body.max_exchange_accounts !== undefined && body.max_exchange_accounts !== null) {
+      if (body.max_exchange_accounts < 1) {
+        throw new BadRequestException('max_exchange_accounts deve ser maior ou igual a 1, ou null para ilimitado');
+      }
+    }
+
     const updateData: any = {};
     
     if (body.name !== undefined) updateData.name = body.name;
@@ -153,6 +170,7 @@ export class AdminSubscriptionPlansController {
     if (body.duration_days !== undefined) updateData.duration_days = body.duration_days;
     if (body.is_active !== undefined) updateData.is_active = body.is_active;
     if (body.features_json !== undefined) updateData.features_json = body.features_json;
+    if (body.max_exchange_accounts !== undefined) updateData.max_exchange_accounts = body.max_exchange_accounts;
 
     return this.prisma.subscriptionPlan.update({
       where: { id },

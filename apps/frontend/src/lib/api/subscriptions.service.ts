@@ -9,6 +9,7 @@ export interface SubscriptionPlan {
   duration_days: number;
   is_active: boolean;
   features_json?: any;
+  max_exchange_accounts?: number | null;
   created_at: string;
   updated_at: string;
 }

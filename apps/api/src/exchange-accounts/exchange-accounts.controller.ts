@@ -186,6 +186,40 @@ export class ExchangeAccountsController {
         if (createDto.tradeMode === 'SIMULATION' || createDto.isSimulation === true) {
           throw new ForbiddenException('Assinantes não podem criar contas em modo simulação');
         }
+
+        // Validar limite de contas exchange do plano
+        const subscription = await this.prisma.subscription.findFirst({
+          where: {
+            user_id: user.userId,
+            status: 'ACTIVE',
+          },
+          include: {
+            plan: true,
+          },
+          orderBy: { created_at: 'desc' },
+        });
+
+        if (subscription && subscription.plan) {
+          // Verificar se a assinatura não expirou
+          const isExpired = subscription.end_date && subscription.end_date < new Date();
+          
+          if (!isExpired && subscription.plan.max_exchange_accounts !== null && subscription.plan.max_exchange_accounts !== undefined) {
+            // Contar contas exchange reais do usuário (não simulação)
+            const currentAccountsCount = await this.prisma.exchangeAccount.count({
+              where: {
+                user_id: user.userId,
+                is_simulation: false,
+              },
+            });
+
+            // Verificar se atingiu o limite
+            if (currentAccountsCount >= subscription.plan.max_exchange_accounts) {
+              throw new ForbiddenException(
+                `Você atingiu o limite de ${subscription.plan.max_exchange_accounts} conta(s) exchange permitidas pelo seu plano.`
+              );
+            }
+          }
+        }
       }
 
       // Mapear campos do frontend para o formato esperado pelo domain service

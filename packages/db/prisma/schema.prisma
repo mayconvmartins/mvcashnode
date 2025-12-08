@@ -803,16 +803,17 @@ model SystemSetting {
 // ============================================
 
 model SubscriptionPlan {
-  id                Int      @id @default(autoincrement())
-  name              String   @db.VarChar(255)
-  description       String?  @db.Text
-  price_monthly     Decimal  @db.Decimal(10, 2)
-  price_quarterly   Decimal  @db.Decimal(10, 2)
-  duration_days     Int      @default(30)
-  is_active         Boolean  @default(true)
-  features_json     Json?    @db.Json
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
+  id                    Int      @id @default(autoincrement())
+  name                  String   @db.VarChar(255)
+  description           String?  @db.Text
+  price_monthly         Decimal  @db.Decimal(10, 2)
+  price_quarterly       Decimal  @db.Decimal(10, 2)
+  duration_days         Int      @default(30)
+  is_active             Boolean  @default(true)
+  features_json         Json?    @db.Json
+  max_exchange_accounts Int?     // null = ilimitado, número = limite específico
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
 
   subscriptions Subscription[]
 
