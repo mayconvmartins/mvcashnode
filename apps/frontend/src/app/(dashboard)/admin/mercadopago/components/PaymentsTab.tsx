@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/shared/DataTable';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, Eye, Sync } from 'lucide-react';
+import { Loader2, RefreshCw, Eye, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDateTime } from '@/lib/utils/format';
 import {
@@ -200,7 +200,7 @@ export function PaymentsTab() {
                   </>
                 ) : (
                   <>
-                    <Sync className="h-4 w-4 mr-2" />
+                    <RotateCw className="h-4 w-4 mr-2" />
                     Sincronizar com MP
                   </>
                 )}

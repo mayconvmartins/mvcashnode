@@ -3,7 +3,6 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
-import { ConfigService } from '@nestjs/config';
 
 @Processor('mercadopago-sync')
 export class MercadoPagoSyncProcessor extends WorkerHost {
@@ -11,7 +10,6 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
 
   constructor(
     private prisma: PrismaService,
-    private configService: ConfigService,
     private encryptionService: EncryptionService
   ) {
     super();
@@ -98,7 +96,13 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             continue;
           }
 
-          const mpPayment = await response.json();
+          const mpPayment = await response.json() as {
+            id: string;
+            status: string;
+            transaction_amount: number;
+            payment_method_id: string;
+            preference_id?: string;
+          };
           synced++;
 
           // Verificar se o status mudou
@@ -164,7 +168,13 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
           });
 
           if (response.ok) {
-            const mpPayment = await response.json();
+            const mpPayment = await response.json() as {
+              id: string;
+              status: string;
+              transaction_amount: number;
+              payment_method_id: string;
+              preference_id?: string;
+            };
             
             if (mpPayment.status === 'approved' && subscription.status === 'PENDING_PAYMENT') {
               await this.processApprovedPayment(subscription.id, subscription.mp_payment_id, mpPayment);
@@ -222,7 +232,13 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
   private async processApprovedPayment(
     subscriptionId: number,
     mpPaymentId: string,
-    mpPayment: any
+    mpPayment: {
+      id: string;
+      status: string;
+      transaction_amount: number;
+      payment_method_id: string;
+      preference_id?: string;
+    }
   ): Promise<void> {
     try {
       const subscription = await this.prisma.subscription.findUnique({
