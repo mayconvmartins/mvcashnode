@@ -3,13 +3,32 @@ import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
     const pathname = request.nextUrl.pathname
+    const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app'
     
-    // Rotas públicas que não precisam de autenticação
-    const publicRoutes = ['/login', '/setup-2fa', '/subscribe', '/help']
+    // Se for o site público (porta 6010), servir apenas landing page e help
+    if (siteMode === 'public') {
+        // Permitir apenas / e /help
+        if (pathname === '/' || pathname.startsWith('/help')) {
+            return NextResponse.next()
+        }
+        // Todas as outras rotas redirecionam para app.mvcash.com.br
+        const appUrl = new URL(pathname, 'https://app.mvcash.com.br')
+        return NextResponse.redirect(appUrl)
+    }
+    
+    // Para a aplicação completa (porta 5010)
+    // Redirecionar rotas públicas para o site público
+    if (pathname === '/' || pathname.startsWith('/help')) {
+        const publicUrl = new URL(pathname, 'https://mvcash.com.br')
+        return NextResponse.redirect(publicUrl)
+    }
+    
+    // Rotas públicas que não precisam de autenticação (mas não são do site público)
+    const publicRoutes = ['/login', '/setup-2fa', '/subscribe']
     const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route))
     
-    // Permitir acesso à rota raiz (landing page) e rotas públicas
-    if (isPublicRoute || pathname === '/') {
+    // Permitir rotas públicas de autenticação
+    if (isPublicRoute) {
         return NextResponse.next()
     }
 

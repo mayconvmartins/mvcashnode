@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
@@ -241,6 +242,21 @@ const manuals = [
 ];
 
 export default function HelpPage() {
+  // Esta página só deve ser servida na porta 6010 (site público)
+  // Na porta 5010, o middleware redireciona para mvcash.com.br
+  const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app';
+  
+  useEffect(() => {
+    // Se por algum motivo esta página for acessada na porta 5010, redirecionar
+    if (siteMode === 'app') {
+      window.location.href = 'https://mvcash.com.br/help';
+    }
+  }, [siteMode]);
+
+  if (siteMode === 'app') {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
