@@ -206,46 +206,51 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   }
                 }
 
-                // Criar registro de pagamento
-                await this.prisma.subscriptionPayment.create({
-                  data: {
-                    subscription_id: subscriptionId,
-                    mp_payment_id: mpPayment.id,
-                    amount: mpPayment.transaction_amount,
-                    status: paymentStatus,
-                    payment_method: paymentMethod,
-                  },
-                });
-
-                importedCount++;
-                this.logger.log(`Pagamento ${mpPayment.id} importado (status: ${mpPayment.status}, método: ${paymentMethod})`);
-
-                // Se pagamento foi aprovado e tem assinatura, processar
-                if (mpPayment.status === 'approved' && subscriptionId) {
-                  const subscription = await this.prisma.subscription.findUnique({
-                    where: { id: subscriptionId },
-                    include: {
-                      plan: true,
-                      user: true,
+                // Criar registro de pagamento apenas se tiver subscription_id (campo obrigatório)
+                if (subscriptionId) {
+                  await this.prisma.subscriptionPayment.create({
+                    data: {
+                      subscription_id: subscriptionId,
+                      mp_payment_id: mpPayment.id,
+                      amount: mpPayment.transaction_amount,
+                      status: paymentStatus,
+                      payment_method: paymentMethod,
                     },
                   });
 
-                  if (subscription && subscription.status === 'PENDING_PAYMENT') {
-                    this.logger.log(`Processando pagamento aprovado para assinatura ${subscriptionId}`);
-                    await this.processApprovedPayment(
-                      subscriptionId,
-                      mpPayment.id,
-                      {
-                        id: mpPayment.id,
-                        status: mpPayment.status,
-                        transaction_amount: mpPayment.transaction_amount,
-                        payment_method_id: mpPayment.payment_method_id,
-                        preference_id: mpPayment.preference_id,
-                      }
-                    );
+                  importedCount++;
+                  this.logger.log(`Pagamento ${mpPayment.id} importado (status: ${mpPayment.status}, método: ${paymentMethod})`);
+
+                  // Se pagamento foi aprovado e tem assinatura, processar
+                  if (mpPayment.status === 'approved') {
+                    const subscription = await this.prisma.subscription.findUnique({
+                      where: { id: subscriptionId },
+                      include: {
+                        plan: true,
+                        user: true,
+                      },
+                    });
+
+                    if (subscription && subscription.status === 'PENDING_PAYMENT') {
+                      this.logger.log(`Processando pagamento aprovado para assinatura ${subscriptionId}`);
+                      await this.processApprovedPayment(
+                        subscriptionId,
+                        mpPayment.id,
+                        {
+                          id: mpPayment.id,
+                          status: mpPayment.status,
+                          transaction_amount: mpPayment.transaction_amount,
+                          payment_method_id: mpPayment.payment_method_id,
+                          preference_id: mpPayment.preference_id,
+                        }
+                      );
+                    }
                   }
                 }
+              } else {
+                this.logger.warn(`Pagamento ${mpPayment.id} não pôde ser importado: nenhuma assinatura encontrada (preference_id: ${mpPayment.preference_id}, external_reference: ${mpPayment.external_reference})`);
               }
+            }
             } catch (error: any) {
               this.logger.error(`Erro ao processar pagamento ${mpPayment.id}:`, error);
             }

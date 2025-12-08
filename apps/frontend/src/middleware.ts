@@ -3,12 +3,6 @@ import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
     const pathname = request.nextUrl.pathname
-    const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app'
-    
-    // Debug: log do siteMode (apenas em desenvolvimento)
-    if (process.env.NODE_ENV === 'development') {
-        console.log(`[Middleware] siteMode: ${siteMode}, pathname: ${pathname}`)
-    }
     
     // Permitir arquivos estáticos e manifest.json sem processamento
     if (
@@ -29,24 +23,8 @@ export function middleware(request: NextRequest) {
         return NextResponse.next()
     }
     
-    // Se for o site público (porta 6010), servir apenas landing page e help
-    if (siteMode === 'public') {
-        // Permitir apenas / e /help
-        if (pathname === '/' || pathname.startsWith('/help')) {
-            return NextResponse.next()
-        }
-        // Todas as outras rotas redirecionam para app.mvcash.com.br
-        const appUrl = new URL(pathname, 'https://app.mvcash.com.br')
-        return NextResponse.redirect(appUrl)
-    }
-    
-    // Se NÃO for site público (porta 5010), NUNCA redirecionar para site público
-    // Garantir que estamos na aplicação principal
-    
     // Para a aplicação completa (porta 5010)
-    // NÃO redirecionar / para site público - mostrar login se não autenticado
-    // O dashboard está em (dashboard)/page.tsx, mas como temos page.tsx na raiz,
-    // precisamos redirecionar para uma rota específica do dashboard quando autenticado
+    // Redirecionar / para dashboard se autenticado, ou login se não autenticado
     if (pathname === '/') {
         const token = request.cookies.get('accessToken')?.value || 
                       request.headers.get('authorization')?.replace('Bearer ', '')
@@ -57,12 +35,12 @@ export function middleware(request: NextRequest) {
             return NextResponse.redirect(dashboardUrl)
         }
         
-        // Se não estiver autenticado, redirecionar para /login (não para site público)
+        // Se não estiver autenticado, redirecionar para /login
         const loginUrl = new URL('/login', request.url)
         return NextResponse.redirect(loginUrl)
     }
     
-    // Redirecionar /help para site público apenas se não for site público
+    // Redirecionar /help para site público
     if (pathname.startsWith('/help')) {
         const publicUrl = new URL(pathname, 'https://mvcash.com.br')
         return NextResponse.redirect(publicUrl)
