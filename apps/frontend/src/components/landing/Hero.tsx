@@ -18,7 +18,7 @@ export function Hero() {
           </div>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Automatize suas operações de trading na Binance com webhooks, gestão inteligente de posições e análise de performance em tempo real.
+            Automatize suas operações de trading na Binance com operações automatizadas, gestão inteligente de posições e análise de performance em tempo real.
           </p>
 
           {/* CTA Buttons */}
@@ -48,7 +48,7 @@ export function Hero() {
               <TrendingUp className="h-8 w-8 text-primary mb-3" />
               <h3 className="font-semibold mb-2">Automação Completa</h3>
               <p className="text-sm text-muted-foreground">
-                Execute operações automaticamente via webhooks
+                Execute operações automatizadas de forma inteligente
               </p>
             </div>
             <div className="p-6 rounded-lg border bg-card/50 backdrop-blur-sm">

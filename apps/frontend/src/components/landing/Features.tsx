@@ -1,11 +1,10 @@
 'use client';
 
 import { 
-  Webhook, 
+  Zap, 
   Target, 
   BarChart3, 
   Shield, 
-  Zap, 
   TrendingUp,
   Settings,
   Bell,
@@ -14,9 +13,9 @@ import {
 
 const features = [
   {
-    icon: Webhook,
-    title: 'Webhooks Inteligentes',
-    description: 'Configure webhooks personalizados para executar operações automaticamente baseadas em sinais externos.',
+    icon: Zap,
+    title: 'Operações Automatizadas',
+    description: 'Configure operações automatizadas personalizadas para executar trades de forma inteligente baseadas em sinais externos.',
   },
   {
     icon: Target,
