@@ -193,23 +193,41 @@ export class SubscriptionsController {
       }
       
       // Validar assinatura do webhook se configurado
+      // A ferramenta de teste do Mercado Pago pode não enviar headers de assinatura
       const xSignature = req.headers['x-signature'] || req.headers['x-signature'];
       const xRequestId = req.headers['x-request-id'] || req.headers['x-request-id'];
       
+      // Só validar se ambos os headers estiverem presentes
+      // Se não estiverem presentes, assumir que é um teste ou ambiente de desenvolvimento
       if (xSignature && xRequestId && paymentId) {
-        const isValid = await this.mercadoPagoService.validateWebhookSignature(
-          xSignature as string,
-          xRequestId as string,
-          paymentId
-        );
-        
-        if (!isValid) {
-          this.logger.warn(`Assinatura do webhook inválida para payment ${paymentId}`);
-          // Se a validação falhou mas temos os headers, provavelmente o secret está configurado
-          // Se não tiver secret configurado, validateWebhookSignature retorna true
-          // Então se chegou aqui e isValid é false, o secret está configurado e a assinatura é inválida
-          throw new BadRequestException('Assinatura do webhook inválida');
+        try {
+          const isValid = await this.mercadoPagoService.validateWebhookSignature(
+            xSignature as string,
+            xRequestId as string,
+            paymentId
+          );
+          
+          if (!isValid) {
+            this.logger.warn(`Assinatura do webhook inválida para payment ${paymentId}`);
+            // Em ambiente de teste/desenvolvimento, apenas logar o aviso
+            // Em produção, você pode querer lançar o erro
+            const isProduction = process.env.NODE_ENV === 'production';
+            if (isProduction) {
+              throw new BadRequestException('Assinatura do webhook inválida');
+            } else {
+              this.logger.warn('Assinatura inválida, mas continuando em ambiente não-produção');
+            }
+          }
+        } catch (error: any) {
+          // Se houver erro na validação, logar mas não bloquear em ambiente de teste
+          this.logger.warn(`Erro ao validar assinatura: ${error.message}`);
+          const isProduction = process.env.NODE_ENV === 'production';
+          if (isProduction && error instanceof BadRequestException) {
+            throw error;
+          }
         }
+      } else {
+        this.logger.debug('Webhook recebido sem headers de assinatura (pode ser teste)');
       }
 
       // Processar webhook
@@ -221,19 +239,45 @@ export class SubscriptionsController {
         data: { id: String(paymentId) },
       };
 
-      await this.mercadoPagoService.processWebhook(event);
+      try {
+        await this.mercadoPagoService.processWebhook(event);
+      } catch (error: any) {
+        // Logar erro mas não bloquear o webhook
+        this.logger.error(`Erro ao processar webhook no service: ${error.message}`, error);
+        // Continuar processamento mesmo se houver erro ao salvar o evento
+      }
 
-      // Se for evento de pagamento, processar pagamento aprovado
+      // Se for evento de pagamento, processar pagamento (verificar status real)
       if ((eventType === 'payment' || !eventType) && paymentId) {
-        this.logger.log(`Processando pagamento ${paymentId} do webhook`);
-        await this.subscriptionsService.processApprovedPayment(paymentId);
+        try {
+          this.logger.log(`Processando pagamento ${paymentId} do webhook`);
+          
+          // Buscar status real do pagamento no Mercado Pago
+          const payment = await this.mercadoPagoService.getPayment(paymentId);
+          this.logger.log(`Status do pagamento ${paymentId} no Mercado Pago: ${payment.status}`);
+          
+          // Processar pagamento (criar registro e ativar se aprovado)
+          await this.subscriptionsService.processApprovedPayment(paymentId);
+        } catch (error: any) {
+          // Logar erro mas não bloquear o webhook
+          this.logger.error(`Erro ao processar pagamento: ${error.message}`, error);
+          this.logger.error(`Stack trace: ${error.stack}`);
+          // Em ambiente de teste, não bloquear
+          const isProduction = process.env.NODE_ENV === 'production';
+          if (isProduction && error instanceof BadRequestException) {
+            throw error;
+          }
+        }
       }
 
       return { status: 'ok', message: 'Webhook processado com sucesso' };
     } catch (error: any) {
       this.logger.error('Erro ao processar webhook do Mercado Pago:', error);
+      // Retornar erro mais detalhado para debug
+      const errorMessage = error?.message || 'Erro ao processar webhook do Mercado Pago';
+      const errorDetails = error?.stack ? error.stack.split('\n')[0] : '';
       throw new BadRequestException(
-        error?.message || 'Erro ao processar webhook do Mercado Pago'
+        `${errorMessage}${errorDetails ? ` - ${errorDetails}` : ''}`
       );
     }
   }

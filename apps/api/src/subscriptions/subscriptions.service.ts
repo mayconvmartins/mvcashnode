@@ -437,7 +437,9 @@ export class SubscriptionsService {
    */
   async processApprovedPayment(paymentId: string) {
     try {
+      this.logger.log(`Iniciando processamento do pagamento ${paymentId}`);
       const payment = await this.mercadoPagoService.getPayment(paymentId);
+      this.logger.log(`Pagamento ${paymentId} - Status: ${payment.status}, Preference ID: ${payment.preference_id}`);
 
       // Buscar assinatura pelo preference_id ou payment_id
       let subscription = await this.prisma.subscription.findFirst({
@@ -454,12 +456,54 @@ export class SubscriptionsService {
       });
 
       if (!subscription) {
-        this.logger.warn(`Assinatura não encontrada para pagamento ${paymentId}`);
+        this.logger.warn(`Assinatura não encontrada para pagamento ${paymentId} (preference_id: ${payment.preference_id})`);
+        // Tentar buscar todas as assinaturas pendentes para debug
+        const pendingSubs = await this.prisma.subscription.findMany({
+          where: { status: 'PENDING_PAYMENT' },
+          take: 5,
+        });
+        this.logger.warn(`Assinaturas pendentes encontradas: ${pendingSubs.length}`);
+        pendingSubs.forEach(sub => {
+          this.logger.warn(`  - Subscription ${sub.id}: mp_preference_id=${sub.mp_preference_id}, mp_payment_id=${sub.mp_payment_id}`);
+        });
         return;
+      }
+
+      this.logger.log(`Assinatura ${subscription.id} encontrada para pagamento ${paymentId}`);
+
+      // Criar ou atualizar registro de pagamento independente do status
+      const existingPayment = await this.getPaymentByMpId(paymentId);
+      const paymentStatus = this.mapMpStatusToDbStatus(payment.status);
+      
+      if (!existingPayment) {
+        this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id}`);
+        await this.prisma.subscriptionPayment.create({
+          data: {
+            subscription_id: subscription.id,
+            mp_payment_id: paymentId,
+            amount: payment.transaction_amount,
+            status: paymentStatus,
+            payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
+          },
+        });
+        this.logger.log(`Registro de pagamento criado com status: ${paymentStatus}`);
+      } else {
+        this.logger.log(`Atualizando registro de pagamento ${existingPayment.id} para status: ${paymentStatus}`);
+        await this.updatePaymentStatus(existingPayment.id, paymentStatus);
+      }
+
+      // Atualizar mp_payment_id na assinatura se ainda não estiver setado
+      if (!subscription.mp_payment_id) {
+        this.logger.log(`Atualizando mp_payment_id na assinatura ${subscription.id}`);
+        await this.prisma.subscription.update({
+          where: { id: subscription.id },
+          data: { mp_payment_id: paymentId },
+        });
       }
 
       // Se pagamento foi aprovado, ativar assinatura
       if (payment.status === 'approved') {
+        this.logger.log(`Pagamento ${paymentId} está aprovado, ativando assinatura ${subscription.id}`);
         const startDate = new Date();
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + subscription.plan.duration_days);
@@ -480,22 +524,7 @@ export class SubscriptionsService {
           },
         });
 
-        // Verificar se pagamento já existe, se não, criar
-        const existingPayment = await this.getPaymentByMpId(paymentId);
-        if (!existingPayment) {
-          await this.prisma.subscriptionPayment.create({
-            data: {
-              subscription_id: subscription.id,
-              mp_payment_id: paymentId,
-              amount: payment.transaction_amount,
-              status: 'APPROVED',
-              payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
-            },
-          });
-        } else {
-          // Atualizar status do pagamento existente
-          await this.updatePaymentStatus(existingPayment.id, 'APPROVED');
-        }
+        // Pagamento já foi criado/atualizado acima
 
         // Ativar usuário e adicionar role de subscriber
         await this.prisma.user.update({
@@ -535,21 +564,48 @@ export class SubscriptionsService {
           },
         });
 
-        // Criar registro de pagamento rejeitado
-        await this.prisma.subscriptionPayment.create({
-          data: {
-            subscription_id: subscription.id,
-            mp_payment_id: paymentId,
-            amount: payment.transaction_amount,
-            status: payment.status === 'rejected' ? 'REJECTED' : 'CANCELLED',
-            payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
-          },
-        });
+        // Criar registro de pagamento rejeitado (se ainda não existe)
+        const existingPayment = await this.getPaymentByMpId(paymentId);
+        if (!existingPayment) {
+          await this.prisma.subscriptionPayment.create({
+            data: {
+              subscription_id: subscription.id,
+              mp_payment_id: paymentId,
+              amount: payment.transaction_amount,
+              status: payment.status === 'rejected' ? 'REJECTED' : 'CANCELLED',
+              payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
+            },
+          });
+        }
+      } else {
+        // Para outros status (pending, in_process, etc), apenas logar
+        this.logger.log(`Pagamento ${paymentId} com status ${payment.status}, aguardando aprovação`);
       }
     } catch (error: any) {
       this.logger.error('Erro ao processar pagamento aprovado:', error);
       throw error;
     }
+  }
+
+  /**
+   * Mapeia status do Mercado Pago para status do banco de dados
+   */
+  private mapMpStatusToDbStatus(mpStatus: string): string {
+    const statusMap: Record<string, string> = {
+      pending: 'PENDING',
+      approved: 'APPROVED',
+      authorized: 'APPROVED',
+      in_process: 'PENDING',
+      in_mediation: 'PENDING',
+      rejected: 'REJECTED',
+      cancelled: 'CANCELLED',
+      refunded: 'REFUNDED',
+      charged_back: 'REJECTED',
+      refunded_partially: 'REFUNDED',
+      cancelled_by_user: 'CANCELLED',
+      cancelled_by_admin: 'CANCELLED',
+    };
+    return statusMap[mpStatus.toLowerCase()] || 'PENDING';
   }
 
   /**

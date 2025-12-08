@@ -117,7 +117,7 @@ async function bootstrap() {
   const bodyParser = require('body-parser');
   
   // Para rotas de webhook, usar parser que captura raw body
-  // Aplicar diretamente na rota /webhooks
+  // Aplicar em /webhooks e /subscriptions/webhooks para capturar todas as rotas de webhook
   app.use('/webhooks', bodyParser.raw({ 
     type: '*/*',
     limit: '10mb',
@@ -160,7 +160,57 @@ async function bootstrap() {
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: true }));
   
-  console.log('[WEBHOOK-MIDDLEWARE] ✅ Middleware de raw body configurado para /webhooks/*');
+  // Também aplicar para rotas de subscriptions/webhooks
+  app.use('/subscriptions/webhooks', bodyParser.raw({ 
+    type: '*/*',
+    limit: '10mb',
+    verify: (req: any, res: any, buf: Buffer) => {
+      req.rawBody = buf;
+      const contentType = req.headers['content-type'] || '';
+      const bodyStr = buf.toString('utf8');
+      
+      if (contentType.includes('application/json')) {
+        try {
+          req.body = JSON.parse(bodyStr);
+        } catch (e) {
+          req.body = bodyStr;
+        }
+      } else {
+        try {
+          req.body = JSON.parse(bodyStr);
+        } catch (e) {
+          req.body = bodyStr;
+        }
+      }
+    }
+  }));
+  
+  // Também aplicar para rotas de subscriptions/webhook (singular)
+  app.use('/subscriptions/webhook', bodyParser.raw({ 
+    type: '*/*',
+    limit: '10mb',
+    verify: (req: any, res: any, buf: Buffer) => {
+      req.rawBody = buf;
+      const contentType = req.headers['content-type'] || '';
+      const bodyStr = buf.toString('utf8');
+      
+      if (contentType.includes('application/json')) {
+        try {
+          req.body = JSON.parse(bodyStr);
+        } catch (e) {
+          req.body = bodyStr;
+        }
+      } else {
+        try {
+          req.body = JSON.parse(bodyStr);
+        } catch (e) {
+          req.body = bodyStr;
+        }
+      }
+    }
+  }));
+  
+  console.log('[WEBHOOK-MIDDLEWARE] ✅ Middleware de raw body configurado para /webhooks/*, /subscriptions/webhooks/* e /subscriptions/webhook/*');
 
   // Configuração de CORS
   const corsDisabled = process.env.CORS_DISABLED === 'true' || process.env.CORS_DISABLED === '1';
