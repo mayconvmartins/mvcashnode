@@ -81,6 +81,8 @@ function SuccessForm() {
   );
 }
 
+export const dynamic = 'force-dynamic';
+
 export default function SuccessPage() {
   return (
     <Suspense fallback={
