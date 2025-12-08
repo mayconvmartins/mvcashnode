@@ -27,7 +27,7 @@ const planSchema = z.object({
   price_monthly: z.number().min(0.01, 'Preço mensal deve ser maior que zero'),
   price_quarterly: z.number().min(0.01, 'Preço trimestral deve ser maior que zero'),
   duration_days: z.number().min(1).max(365),
-  is_active: z.boolean().default(true),
+  is_active: z.boolean().optional().default(true),
   features_json: z.any().optional(),
 });
 
