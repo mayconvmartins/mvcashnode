@@ -5,6 +5,25 @@ export function middleware(request: NextRequest) {
     const pathname = request.nextUrl.pathname
     const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app'
     
+    // Permitir arquivos estáticos e manifest.json sem processamento
+    if (
+        pathname.startsWith('/_next/') ||
+        pathname.startsWith('/api/') ||
+        pathname === '/manifest.json' ||
+        pathname === '/sw.js' ||
+        pathname.match(/\.(ico|png|jpg|jpeg|svg|gif|webp|woff|woff2|ttf|otf|eot)$/)
+    ) {
+        // Adicionar headers CORS para manifest.json
+        if (pathname === '/manifest.json') {
+            const response = NextResponse.next()
+            response.headers.set('Access-Control-Allow-Origin', '*')
+            response.headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
+            response.headers.set('Access-Control-Allow-Headers', 'Content-Type')
+            return response
+        }
+        return NextResponse.next()
+    }
+    
     // Se for o site público (porta 6010), servir apenas landing page e help
     if (siteMode === 'public') {
         // Permitir apenas / e /help
@@ -17,26 +36,23 @@ export function middleware(request: NextRequest) {
     }
     
     // Para a aplicação completa (porta 5010)
-    // Na rota raiz, verificar se está autenticado
+    // NÃO redirecionar / para site público - mostrar login se não autenticado
+    // O dashboard está em (dashboard)/page.tsx, mas como temos page.tsx na raiz,
+    // precisamos redirecionar para uma rota específica do dashboard quando autenticado
     if (pathname === '/') {
         const token = request.cookies.get('accessToken')?.value || 
                       request.headers.get('authorization')?.replace('Bearer ', '')
         
-        // Se não estiver autenticado, redirecionar para site público
-        if (!token) {
-            const publicUrl = new URL('/', 'https://mvcash.com.br')
-            return NextResponse.redirect(publicUrl)
+        // Se estiver autenticado, redirecionar para dashboard
+        if (token) {
+            const dashboardUrl = new URL('/positions', request.url)
+            return NextResponse.redirect(dashboardUrl)
         }
         
-        // Se estiver autenticado, redirecionar para uma rota que não conflite
-        // Como temos page.tsx na raiz (landing page), vamos usar uma rota interna
-        // Mas na verdade, o Next.js vai servir page.tsx mesmo assim
-        // A solução é não ter page.tsx na raiz quando for app mode
-        // Por enquanto, vamos redirecionar para /positions que é uma rota do dashboard
-        // Ou podemos simplesmente bloquear e forçar o usuário a usar o menu
-        // Vamos redirecionar para uma rota do dashboard que sempre existe
-        const dashboardUrl = new URL('/positions', request.url)
-        return NextResponse.redirect(dashboardUrl)
+        // Se não estiver autenticado, permitir acesso (vai para login ou página inicial)
+        // Mas como temos page.tsx na raiz que é a landing page, vamos redirecionar para /login
+        const loginUrl = new URL('/login', request.url)
+        return NextResponse.redirect(loginUrl)
     }
     
     // Redirecionar /help para site público
@@ -76,8 +92,9 @@ export const config = {
          * - _next/static (static files)
          * - _next/image (image optimization files)
          * - favicon.ico (favicon file)
+         * - static files (images, fonts, etc)
          */
-        '/((?!api|_next/static|_next/image|favicon.ico).*)',
+        '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(ico|png|jpg|jpeg|svg|gif|webp|woff|woff2|ttf|otf|eot)$).*)',
     ],
 }
 

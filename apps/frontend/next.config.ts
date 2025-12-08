@@ -12,6 +12,28 @@ const nextConfig: NextConfig = {
   // Headers de cache APENAS para assets estáticos
   headers: async () => [
     {
+      // Manifest.json - CORS headers
+      source: '/manifest.json',
+      headers: [
+        {
+          key: 'Access-Control-Allow-Origin',
+          value: '*',
+        },
+        {
+          key: 'Access-Control-Allow-Methods',
+          value: 'GET, OPTIONS',
+        },
+        {
+          key: 'Access-Control-Allow-Headers',
+          value: 'Content-Type',
+        },
+        {
+          key: 'Cache-Control',
+          value: 'public, max-age=86400, must-revalidate',
+        },
+      ],
+    },
+    {
       // Service Worker - sem cache
       source: '/sw.js',
       headers: [

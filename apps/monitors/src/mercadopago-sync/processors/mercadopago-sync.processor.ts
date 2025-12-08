@@ -206,8 +206,11 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             transaction_amount: number;
             payment_method_id: string;
             preference_id?: string;
+            status_detail?: string;
           };
           synced++;
+          
+          this.logger.debug(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Status: ${mpPayment.status}, Status Detail: ${mpPayment.status_detail || 'N/A'}`);
 
           this.logger.debug(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Status no MP: ${mpPayment.status}, Status no DB: ${payment.status}`);
 
@@ -221,26 +224,35 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             payment_method: mpPayment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
           };
 
-          // Verificar se houve mudança de status
+          // Verificar se houve mudança de status ou se precisa atualizar
           const statusChanged = newStatus !== payment.status;
+          const needsUpdate = statusChanged || 
+                             Number(payment.amount) !== mpPayment.transaction_amount ||
+                             payment.payment_method !== (mpPayment.payment_method_id === 'pix' ? 'PIX' : 'CARD');
           
-          if (statusChanged) {
+          if (needsUpdate) {
             // Atualizar status e outras informações do pagamento
             await this.prisma.subscriptionPayment.update({
               where: { id: payment.id },
               data: updateData,
             });
 
-            this.logger.log(
-              `Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) atualizado: ${payment.status} -> ${newStatus}`
-            );
+            if (statusChanged) {
+              this.logger.log(
+                `Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) atualizado: ${payment.status} -> ${newStatus}`
+              );
+            } else {
+              this.logger.debug(
+                `Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) atualizado (sem mudança de status)`
+              );
+            }
 
             // Se pagamento foi aprovado, processar assinatura
             if (newStatus === 'APPROVED' && payment.subscription && payment.mp_payment_id) {
               // Só processar se a assinatura ainda estiver pendente
               if (payment.subscription.status === 'PENDING_PAYMENT') {
                 this.logger.log(`Processando pagamento aprovado para assinatura ${payment.subscription.id}`);
-              await this.processApprovedPayment(payment.subscription.id, payment.mp_payment_id, mpPayment);
+                await this.processApprovedPayment(payment.subscription.id, payment.mp_payment_id, mpPayment);
               } else {
                 this.logger.debug(`Assinatura ${payment.subscription.id} já foi processada (status: ${payment.subscription.status})`);
               }

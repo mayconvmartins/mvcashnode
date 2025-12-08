@@ -7,6 +7,7 @@ import {
   Request,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -26,6 +27,8 @@ import { PrismaService } from '@mvcashnode/db';
 @ApiTags('Subscriptions')
 @Controller('subscriptions')
 export class SubscriptionsController {
+  private readonly logger = new Logger(SubscriptionsController.name);
+
   constructor(
     private subscriptionsService: SubscriptionsService,
     private mercadoPagoService: MercadoPagoService,
@@ -150,26 +153,60 @@ export class SubscriptionsController {
   @ApiResponse({ status: 200, description: 'Webhook processado' })
   async handleMercadoPagoWebhook(
     @Request() req: any,
-    @Body() body: {
-      type: string;
-      action: string;
-      data: { id: string };
-      id?: string;
-    }
+    @Body() body: any
   ) {
     try {
-      // Validar assinatura do webhook se configurado
-      const xSignature = req.headers['x-signature'];
-      const xRequestId = req.headers['x-request-id'];
+      // Log do webhook recebido para debug
+      this.logger.log(`Webhook Mercado Pago recebido: ${JSON.stringify(body)}`);
       
-      if (xSignature && xRequestId && body.data?.id) {
+      // O Mercado Pago pode enviar webhooks em diferentes formatos
+      // Formato 1: { type: 'payment', action: 'payment.created', data: { id: '123' } }
+      // Formato 2: { action: 'payment.created', data: { id: '123' } }
+      // Formato 3: { type: 'payment', data: { id: '123' } }
+      // Formato 4: Query string com data_id
+      
+      let paymentId: string | null = null;
+      let eventType: string | null = null;
+      
+      // Tentar extrair payment_id de diferentes formatos
+      if (body.data?.id) {
+        paymentId = body.data.id;
+      } else if (body.data_id) {
+        paymentId = body.data_id;
+      } else if (req.query?.data_id) {
+        paymentId = req.query.data_id;
+      } else if (body.id && body.type === 'payment') {
+        paymentId = body.id;
+      }
+      
+      if (body.type) {
+        eventType = body.type;
+      } else if (body.action) {
+        // Extrair tipo do action (ex: 'payment.created' -> 'payment')
+        eventType = body.action.split('.')[0];
+      }
+      
+      if (!paymentId) {
+        this.logger.warn('Webhook recebido sem payment_id identificável');
+        return { status: 'ok', message: 'Webhook recebido mas sem payment_id' };
+      }
+      
+      // Validar assinatura do webhook se configurado
+      const xSignature = req.headers['x-signature'] || req.headers['x-signature'];
+      const xRequestId = req.headers['x-request-id'] || req.headers['x-request-id'];
+      
+      if (xSignature && xRequestId && paymentId) {
         const isValid = await this.mercadoPagoService.validateWebhookSignature(
-          xSignature,
-          xRequestId,
-          body.data.id
+          xSignature as string,
+          xRequestId as string,
+          paymentId
         );
         
         if (!isValid) {
+          this.logger.warn(`Assinatura do webhook inválida para payment ${paymentId}`);
+          // Se a validação falhou mas temos os headers, provavelmente o secret está configurado
+          // Se não tiver secret configurado, validateWebhookSignature retorna true
+          // Então se chegou aqui e isValid é false, o secret está configurado e a assinatura é inválida
           throw new BadRequestException('Assinatura do webhook inválida');
         }
       }
@@ -177,20 +214,22 @@ export class SubscriptionsController {
       // Processar webhook
       const event = {
         id: body.id || `event-${Date.now()}`,
-        type: body.type,
-        action: body.action,
-        data: body.data,
+        type: eventType || 'payment',
+        action: body.action || 'payment.updated',
+        data: { id: paymentId },
       };
 
       await this.mercadoPagoService.processWebhook(event);
 
       // Se for evento de pagamento, processar pagamento aprovado
-      if (body.type === 'payment' && body.data?.id) {
-        await this.subscriptionsService.processApprovedPayment(body.data.id);
+      if ((eventType === 'payment' || !eventType) && paymentId) {
+        this.logger.log(`Processando pagamento ${paymentId} do webhook`);
+        await this.subscriptionsService.processApprovedPayment(paymentId);
       }
 
       return { status: 'ok', message: 'Webhook processado com sucesso' };
     } catch (error: any) {
+      this.logger.error('Erro ao processar webhook do Mercado Pago:', error);
       throw new BadRequestException(
         error?.message || 'Erro ao processar webhook do Mercado Pago'
       );
