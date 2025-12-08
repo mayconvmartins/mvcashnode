@@ -116,8 +116,8 @@ export class TransFiSyncProcessor extends WorkerHost {
           // A resposta vem no formato { data: { ... }, status: string }
           const responseData = await response.json() as {
             data: {
-              orderId: string;
-              status: string;
+            orderId: string;
+            status: string;
               depositAmount?: number;
               depositCurrency?: string;
               withdrawAmount?: number;
@@ -216,13 +216,13 @@ export class TransFiSyncProcessor extends WorkerHost {
             // A resposta vem no formato { data: { ... }, status: string }
             const responseData = await response.json() as {
               data: {
-                orderId: string;
-                status: string;
+              orderId: string;
+              status: string;
                 depositAmount?: number;
                 depositCurrency?: string;
                 withdrawAmount?: number;
                 withdrawCurrency?: string;
-              };
+            };
               status: string;
             };
 

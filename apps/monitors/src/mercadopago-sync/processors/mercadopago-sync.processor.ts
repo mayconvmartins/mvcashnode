@@ -240,7 +240,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
               // Só processar se a assinatura ainda estiver pendente
               if (payment.subscription.status === 'PENDING_PAYMENT') {
                 this.logger.log(`Processando pagamento aprovado para assinatura ${payment.subscription.id}`);
-                await this.processApprovedPayment(payment.subscription.id, payment.mp_payment_id, mpPayment);
+              await this.processApprovedPayment(payment.subscription.id, payment.mp_payment_id, mpPayment);
               } else {
                 this.logger.debug(`Assinatura ${payment.subscription.id} já foi processada (status: ${payment.subscription.status})`);
               }

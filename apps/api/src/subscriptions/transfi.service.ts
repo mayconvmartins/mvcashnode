@@ -172,8 +172,12 @@ export class TransFiService {
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
 
+      this.logger.debug(`🔍 [TransFi] Buscando customer por email: ${email}`);
+      
       const queryParams = new URLSearchParams({ email });
-      const response = await fetch(`${baseUrl}/v2/users/individuals?${queryParams.toString()}`, {
+      const url = `${baseUrl}/v2/users/individuals?${queryParams.toString()}`;
+      
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -182,16 +186,26 @@ export class TransFiService {
         },
       });
 
+      this.logger.debug(`🔍 [TransFi] Resposta da busca de customer: ${response.status} ${response.statusText}`);
+
       if (response.ok) {
         const result = await response.json() as { users?: Array<{ userId: string }>; total?: number };
         if (result.users && result.users.length > 0) {
-          this.logger.debug(`Customer TransFi encontrado: ${result.users[0].userId}`);
+          this.logger.log(`✅ [TransFi] Customer encontrado: ${result.users[0].userId}`);
           return result.users[0].userId;
+        } else {
+          this.logger.debug(`🔍 [TransFi] Customer não encontrado para email: ${email}`);
         }
+      } else {
+        const errorText = await response.text();
+        this.logger.warn(`⚠️ [TransFi] Erro ao buscar customer: ${response.status} - ${errorText}`);
       }
       return null;
-    } catch (error) {
-      this.logger.debug('Erro ao buscar customer por email:', error);
+    } catch (error: any) {
+      this.logger.error('❌ [TransFi] Erro ao buscar customer por email:', {
+        email,
+        error: error?.message || error,
+      });
       return null;
     }
   }
@@ -277,7 +291,7 @@ export class TransFiService {
         };
       }
 
-      this.logger.debug('Criando customer TransFi:', {
+      this.logger.log('🔵 [TransFi] Criando customer TransFi:', {
         endpoint: `${baseUrl}/v2/users/individual`,
         email: customerData.email,
         firstName: customerData.firstName,
@@ -299,24 +313,30 @@ export class TransFiService {
         'Authorization': this.getAuthHeader(config),
       };
 
+      this.logger.log(`📤 [TransFi] Enviando requisição para criar customer: ${baseUrl}/v2/users/individual`);
+      
       const response = await fetch(`${baseUrl}/v2/users/individual`, {
         method: 'POST',
         headers,
         body: JSON.stringify(customerData),
       });
 
+      this.logger.log(`📥 [TransFi] Resposta da criação de customer: ${response.status} ${response.statusText}`);
+
       if (response.ok) {
         const result = await response.json() as { userId: string };
-        this.logger.log(`Customer TransFi criado: ${result.userId}`);
+        this.logger.log(`✅ [TransFi] Customer criado com sucesso: ${result.userId}`);
         return result.userId;
       } else if (response.status === 409) {
         // Customer já existe - buscar userId por email
-        this.logger.debug(`Customer TransFi já existe para email: ${data.email}, buscando userId...`);
+        this.logger.log(`⚠️ [TransFi] Customer já existe (409) para email: ${data.email}, buscando userId...`);
         const existingUserId = await this.findCustomerByEmail(data.email);
         if (existingUserId) {
+          this.logger.log(`✅ [TransFi] Customer encontrado após 409: ${existingUserId}`);
           return existingUserId;
         }
         // Se não conseguir buscar, retornar null - o payin deve funcionar com email
+        this.logger.warn(`⚠️ [TransFi] Customer existe mas não foi possível obter userId`);
         return null;
       } else {
         const errorText = await response.text();
@@ -327,7 +347,7 @@ export class TransFiService {
           error = { message: errorText };
         }
         
-        this.logger.warn(`Erro ao criar customer TransFi:`, {
+        this.logger.error(`❌ [TransFi] Erro ao criar customer:`, {
           status: response.status,
           statusText: response.statusText,
           error,
@@ -338,12 +358,14 @@ export class TransFiService {
             country: customerData.country,
             date: customerData.date,
           },
+          endpoint: `${baseUrl}/v2/users/individual`,
+          merchantId: config.merchantId,
         });
         
         // Se for CUSTOMER_NOT_FOUND, pode ser que o customer precisa ser criado de outra forma
         // ou que o payin pode criar automaticamente
         if (error.code === 'CUSTOMER_NOT_FOUND') {
-          this.logger.warn('Customer não encontrado - tentando criar payin sem userId');
+          this.logger.error('❌ [TransFi] CUSTOMER_NOT_FOUND - Verifique MID, username e password');
         }
         
         return null;
@@ -372,7 +394,16 @@ export class TransFiService {
       // O erro CUSTOMER_NOT_FOUND sugere que o customer precisa existir antes
       let customerUserId: string | null = null;
       try {
-        this.logger.debug('Criando customer antes do payin...');
+        this.logger.log('🔵 [TransFi] Criando customer antes do payin...', {
+          email: data.customerData.email,
+          firstName,
+          lastName,
+          hasBirthDate: !!data.customerData.birthDate,
+          country: 'BR',
+          hasPhone: !!data.customerData.phone,
+          hasAddress: !!data.customerData.address,
+        });
+        
         customerUserId = await this.createOrGetCustomer({
           email: data.customerData.email,
           firstName,
@@ -387,14 +418,25 @@ export class TransFiService {
             state: data.customerData.address.state,
           } : undefined,
         });
+        
         if (customerUserId) {
-          this.logger.debug(`Customer criado/encontrado: ${customerUserId}`);
+          this.logger.log(`✅ [TransFi] Customer criado/encontrado com sucesso: ${customerUserId}`);
         } else {
-          this.logger.warn('Customer não foi criado/encontrado, mas continuando com payin...');
+          this.logger.error('❌ [TransFi] Customer NÃO foi criado/encontrado! O payin pode falhar.');
+          // Não continuar se o customer não foi criado - o payin vai falhar mesmo
+          throw new BadRequestException('Não foi possível criar ou encontrar o customer no TransFi. Verifique as credenciais e permissões.');
         }
-      } catch (error) {
-        // Continuar mesmo se falhar - o payin pode funcionar sem userId
-        this.logger.warn('Erro ao criar customer antes do payin (continuando):', error);
+      } catch (error: any) {
+        // Se for BadRequestException, re-lançar
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
+        // Outros erros: logar e lançar
+        this.logger.error('❌ [TransFi] Erro ao criar customer antes do payin:', {
+          error: error?.message || error,
+          stack: error?.stack,
+        });
+        throw new BadRequestException(`Erro ao criar customer no TransFi: ${error?.message || 'Erro desconhecido'}`);
       }
 
       // Mapear paymentMethod para paymentCode e paymentType
@@ -757,7 +799,7 @@ export class TransFiService {
         // Se não conseguir buscar, usar dados fornecidos
         originalOrder = {
           id: data.orderId,
-          orderId: data.orderId,
+        orderId: data.orderId,
           status: 'UNKNOWN',
           amount: data.amount || 0,
           currency: data.originalCurrency || 'BRL',
