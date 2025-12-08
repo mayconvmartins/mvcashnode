@@ -101,7 +101,7 @@ export class AdminMercadoPagoController {
       : null;
 
     // Buscar configuração existente
-    const existing = await this.prisma.mercadopagoConfig.findFirst({
+    const existing = await this.prisma.mercadoPagoConfig.findFirst({
       orderBy: { created_at: 'desc' },
     });
 
