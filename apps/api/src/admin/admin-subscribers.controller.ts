@@ -402,4 +402,78 @@ export class AdminSubscriberParametersController {
       },
     });
   }
+
+  @Post()
+  @ApiOperation({ summary: 'Criar parâmetros para um assinante' })
+  @ApiResponse({ status: 201, description: 'Parâmetros criados' })
+  async create(
+    @Body() body: {
+      user_id: number;
+      default_exchange_account_id?: number;
+      max_orders_per_hour?: number;
+      min_interval_sec?: number;
+      default_order_type?: string;
+      slippage_bps?: number;
+      default_sl_enabled?: boolean;
+      default_sl_pct?: number;
+      default_tp_enabled?: boolean;
+      default_tp_pct?: number;
+      trailing_stop_enabled?: boolean;
+      trailing_distance_pct?: number;
+      min_profit_pct?: number;
+    }
+  ): Promise<any> {
+    // Verificar se usuário existe e é assinante
+    const user = await this.prisma.user.findUnique({
+      where: { id: body.user_id },
+      include: {
+        roles: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    const isSubscriber = user.roles.some(r => r.role === 'subscriber');
+    if (!isSubscriber) {
+      throw new BadRequestException('Usuário não é um assinante');
+    }
+
+    // Verificar se já existem parâmetros
+    const existing = await this.prisma.subscriberParameters.findUnique({
+      where: { user_id: body.user_id },
+    });
+
+    if (existing) {
+      throw new BadRequestException('Parâmetros já existem para este assinante. Use PUT para atualizar.');
+    }
+
+    // Criar parâmetros
+    return this.prisma.subscriberParameters.create({
+      data: {
+        user_id: body.user_id,
+        default_exchange_account_id: body.default_exchange_account_id,
+        max_orders_per_hour: body.max_orders_per_hour,
+        min_interval_sec: body.min_interval_sec,
+        default_order_type: body.default_order_type || 'MARKET',
+        slippage_bps: body.slippage_bps ?? 0,
+        default_sl_enabled: body.default_sl_enabled ?? false,
+        default_sl_pct: body.default_sl_pct,
+        default_tp_enabled: body.default_tp_enabled ?? false,
+        default_tp_pct: body.default_tp_pct,
+        trailing_stop_enabled: body.trailing_stop_enabled ?? false,
+        trailing_distance_pct: body.trailing_distance_pct,
+        min_profit_pct: body.min_profit_pct,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+          },
+        },
+      },
+    });
+  }
 }

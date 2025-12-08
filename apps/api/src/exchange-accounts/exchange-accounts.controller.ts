@@ -243,11 +243,11 @@ export class ExchangeAccountsController {
         }
 
         // Vincular webhooks padrão de assinantes automaticamente
-        // Webhooks padrão são identificados por: is_shared = true AND admin_locked = true
+        // Webhooks padrão de assinantes são identificados por: is_subscriber_webhook = true AND is_shared = true
         const defaultSubscriberWebhooks = await this.prisma.webhookSource.findMany({
           where: {
+            is_subscriber_webhook: true,
             is_shared: true,
-            admin_locked: true,
             is_active: true,
             trade_mode: 'REAL', // Assinantes só usam REAL
           },

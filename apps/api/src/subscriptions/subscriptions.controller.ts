@@ -15,6 +15,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { SubscriptionsService } from './subscriptions.service';
+import { MercadoPagoService } from './mercadopago.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SubscriptionGuard } from './guards/subscription.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -26,6 +27,7 @@ import { PrismaService } from '@mvcashnode/db';
 export class SubscriptionsController {
   constructor(
     private subscriptionsService: SubscriptionsService,
+    private mercadoPagoService: MercadoPagoService,
     private prisma: PrismaService
   ) {}
 
@@ -139,5 +141,57 @@ export class SubscriptionsController {
   @ApiResponse({ status: 200, description: 'Registro concluído' })
   async completeRegistration(@Body() dto: { token: string; password: string; email: string }) {
     return this.subscriptionsService.completeRegistration(dto.token, dto.password, dto.email);
+  }
+
+  @Post('webhooks/mercadopago')
+  @ApiOperation({ summary: 'Webhook do Mercado Pago para notificações de pagamento' })
+  @ApiResponse({ status: 200, description: 'Webhook processado' })
+  async handleMercadoPagoWebhook(
+    @Request() req: any,
+    @Body() body: {
+      type: string;
+      action: string;
+      data: { id: string };
+      id?: string;
+    }
+  ) {
+    try {
+      // Validar assinatura do webhook se configurado
+      const xSignature = req.headers['x-signature'];
+      const xRequestId = req.headers['x-request-id'];
+      
+      if (xSignature && xRequestId && body.data?.id) {
+        const isValid = await this.mercadoPagoService.validateWebhookSignature(
+          xSignature,
+          xRequestId,
+          body.data.id
+        );
+        
+        if (!isValid) {
+          throw new BadRequestException('Assinatura do webhook inválida');
+        }
+      }
+
+      // Processar webhook
+      const event = {
+        id: body.id || `event-${Date.now()}`,
+        type: body.type,
+        action: body.action,
+        data: body.data,
+      };
+
+      await this.mercadoPagoService.processWebhook(event);
+
+      // Se for evento de pagamento, processar pagamento aprovado
+      if (body.type === 'payment' && body.data?.id) {
+        await this.subscriptionsService.processApprovedPayment(body.data.id);
+      }
+
+      return { status: 'ok', message: 'Webhook processado com sucesso' };
+    } catch (error: any) {
+      throw new BadRequestException(
+        error?.message || 'Erro ao processar webhook do Mercado Pago'
+      );
+    }
   }
 }

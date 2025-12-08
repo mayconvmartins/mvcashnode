@@ -45,11 +45,11 @@ export class AdminSubscriberWebhooksController {
   @ApiOperation({ summary: 'Listar webhooks padrão de assinantes' })
   @ApiResponse({ status: 200, description: 'Lista de webhooks padrão' })
   async list(): Promise<any[]> {
-    // Webhooks padrão: is_shared = true AND admin_locked = true
+    // Webhooks padrão de assinantes: is_subscriber_webhook = true AND is_shared = true
     const webhooks = await this.prisma.webhookSource.findMany({
       where: {
+        is_subscriber_webhook: true,
         is_shared: true,
-        admin_locked: true,
       },
       include: {
         user: {
@@ -92,8 +92,8 @@ export class AdminSubscriberWebhooksController {
     const webhook = await this.prisma.webhookSource.findFirst({
       where: {
         id,
+        is_subscriber_webhook: true,
         is_shared: true,
-        admin_locked: true,
       },
       include: {
         user: {
@@ -185,6 +185,7 @@ export class AdminSubscriberWebhooksController {
           is_active: true,
           is_shared: true, // Compartilhado
           admin_locked: true, // Bloqueado pelo admin (padrão de assinantes)
+          is_subscriber_webhook: true, // Webhook específico para assinantes
         },
         include: {
           user: {
@@ -236,8 +237,8 @@ export class AdminSubscriberWebhooksController {
       const existing = await this.prisma.webhookSource.findFirst({
         where: {
           id,
+          is_subscriber_webhook: true,
           is_shared: true,
-          admin_locked: true,
         },
       });
 
@@ -314,8 +315,8 @@ export class AdminSubscriberWebhooksController {
     const existing = await this.prisma.webhookSource.findFirst({
       where: {
         id,
+        is_subscriber_webhook: true,
         is_shared: true,
-        admin_locked: true,
       },
     });
 

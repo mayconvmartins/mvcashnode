@@ -1,16 +1,19 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminService } from '@/lib/api/admin.service';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable } from '@/components/shared/DataTable';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { SubscriberParametersForm } from './components/SubscriberParametersForm';
 
 export default function AdminSubscriberParametersPage() {
   const router = useRouter();
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const { data: parameters, isLoading } = useQuery({
     queryKey: ['admin', 'subscriber-parameters'],
@@ -78,10 +81,18 @@ export default function AdminSubscriberParametersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Lista de Parâmetros</CardTitle>
-          <CardDescription>
-            {parameters?.length || 0} configuração(ões) encontrada(s)
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Lista de Parâmetros</CardTitle>
+              <CardDescription>
+                {parameters?.length || 0} configuração(ões) encontrada(s)
+              </CardDescription>
+            </div>
+            <Button onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Criar Parâmetros
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -90,6 +101,8 @@ export default function AdminSubscriberParametersPage() {
           />
         </CardContent>
       </Card>
+
+      <SubscriberParametersForm open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
     </div>
   );
 }

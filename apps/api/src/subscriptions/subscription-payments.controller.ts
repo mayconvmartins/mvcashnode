@@ -98,6 +98,7 @@ export class SubscriptionPaymentsController {
         };
       };
       subscription_id?: number;
+      mp_preference_id?: string;
     }
   ): Promise<MercadoPagoPayment & { point_of_interaction?: { transaction_data?: { qr_code?: string; qr_code_base64?: string } } }> {
     try {
@@ -107,14 +108,49 @@ export class SubscriptionPaymentsController {
         payer: body.payer,
       });
 
-      // Se pagamento foi aprovado imediatamente, processar
-      if (payment.status === 'approved') {
-        if (body.subscription_id) {
-          await this.subscriptionsService.processApprovedPayment(payment.id);
-        } else {
-          // Tentar encontrar assinatura pela preferência
-          await this.subscriptionsService.processApprovedPayment(payment.id);
+      // Buscar assinatura relacionada
+      let subscription = null;
+      if (body.subscription_id) {
+        subscription = await this.subscriptionsService.getSubscriptionById(body.subscription_id);
+      } else if (body.mp_preference_id) {
+        subscription = await this.subscriptionsService.getSubscriptionByPreferenceId(body.mp_preference_id);
+      }
+
+      if (!subscription) {
+        // Se não encontrar assinatura, tentar buscar pela preferência do pagamento
+        if (payment.preference_id) {
+          subscription = await this.subscriptionsService.getSubscriptionByPreferenceId(payment.preference_id);
         }
+      }
+
+      // Salvar pagamento no banco imediatamente
+      if (subscription) {
+        // Verificar se pagamento já existe
+        const existingPayment = await this.subscriptionsService.getPaymentByMpId(payment.id);
+        
+        if (!existingPayment) {
+          // Criar registro de pagamento
+          await this.subscriptionsService.createPaymentRecord({
+            subscription_id: subscription.id,
+            mp_payment_id: payment.id,
+            amount: payment.transaction_amount,
+            status: payment.status === 'approved' ? 'APPROVED' : payment.status === 'pending' ? 'PENDING' : 'REJECTED',
+            payment_method: 'PIX',
+          });
+
+          // Atualizar mp_payment_id na assinatura
+          await this.subscriptionsService.updateSubscriptionPaymentId(subscription.id, payment.id);
+        } else {
+          // Atualizar status do pagamento existente
+          await this.subscriptionsService.updatePaymentStatus(existingPayment.id, 
+            payment.status === 'approved' ? 'APPROVED' : payment.status === 'pending' ? 'PENDING' : 'REJECTED'
+          );
+        }
+      }
+
+      // Se pagamento foi aprovado imediatamente, processar
+      if (payment.status === 'approved' && subscription) {
+        await this.subscriptionsService.processApprovedPayment(payment.id);
       }
 
       return payment;

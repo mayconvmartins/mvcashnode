@@ -2,19 +2,39 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
+import { EmailService } from '@mvcashnode/notifications';
 import { MercadoPagoService } from './mercadopago.service';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class SubscriptionsService {
   private readonly logger = new Logger(SubscriptionsService.name);
+  private emailService: EmailService | null = null;
 
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
     private encryptionService: EncryptionService,
     private mercadoPagoService: MercadoPagoService
-  ) {}
+  ) {
+    // Inicializar EmailService se configurado
+    const smtpHost = this.configService.get<string>('SMTP_HOST');
+    const smtpUser = this.configService.get<string>('SMTP_USER');
+    const smtpPass = this.configService.get<string>('SMTP_PASS');
+    
+    if (smtpHost && smtpUser && smtpPass) {
+      this.emailService = new EmailService(this.prisma as any, {
+        host: smtpHost,
+        port: parseInt(this.configService.get<string>('SMTP_PORT') || '2525'),
+        user: smtpUser,
+        password: smtpPass,
+        from: this.configService.get<string>('SMTP_FROM') || 'noreply.mvcash@mvmdev.com',
+      });
+      this.logger.log('EmailService configurado com sucesso');
+    } else {
+      this.logger.warn('EmailService não configurado - variáveis SMTP não encontradas');
+    }
+  }
 
   /**
    * Lista todos os planos ativos
@@ -226,16 +246,22 @@ export class SubscriptionsService {
           },
         });
 
-        // Criar registro de pagamento
-        await this.prisma.subscriptionPayment.create({
-          data: {
-            subscription_id: subscription.id,
-            mp_payment_id: paymentId,
-            amount: payment.transaction_amount,
-            status: 'APPROVED',
-            payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
-          },
-        });
+        // Verificar se pagamento já existe, se não, criar
+        const existingPayment = await this.getPaymentByMpId(paymentId);
+        if (!existingPayment) {
+          await this.prisma.subscriptionPayment.create({
+            data: {
+              subscription_id: subscription.id,
+              mp_payment_id: paymentId,
+              amount: payment.transaction_amount,
+              status: 'APPROVED',
+              payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
+            },
+          });
+        } else {
+          // Atualizar status do pagamento existente
+          await this.updatePaymentStatus(existingPayment.id, 'APPROVED');
+        }
 
         // Ativar usuário e adicionar role de subscriber
         await this.prisma.user.update({
@@ -263,6 +289,9 @@ export class SubscriptionsService {
         }
 
         this.logger.log(`Assinatura ${subscription.id} ativada para usuário ${subscription.user.email}`);
+
+        // Enviar email de confirmação de pagamento
+        await this.sendPaymentConfirmationEmail(subscription, payment);
       } else if (payment.status === 'rejected' || payment.status === 'cancelled') {
         // Atualizar assinatura para status apropriado
         await this.prisma.subscription.update({
@@ -523,5 +552,154 @@ export class SubscriptionsService {
    */
   private async decryptCpf(encryptedCpf: string): Promise<string> {
     return await this.encryptionService.decrypt(encryptedCpf);
+  }
+
+  /**
+   * Busca assinatura por ID
+   */
+  async getSubscriptionById(subscriptionId: number): Promise<any> {
+    return await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      include: {
+        plan: true,
+        user: true,
+      },
+    });
+  }
+
+  /**
+   * Busca assinatura por preference_id do Mercado Pago
+   */
+  async getSubscriptionByPreferenceId(preferenceId: string): Promise<any> {
+    return await this.prisma.subscription.findFirst({
+      where: { mp_preference_id: preferenceId },
+      include: {
+        plan: true,
+        user: true,
+      },
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  /**
+   * Busca pagamento por mp_payment_id
+   */
+  async getPaymentByMpId(mpPaymentId: string): Promise<any> {
+    return await this.prisma.subscriptionPayment.findFirst({
+      where: { mp_payment_id: mpPaymentId },
+    });
+  }
+
+  /**
+   * Cria registro de pagamento
+   */
+  async createPaymentRecord(data: {
+    subscription_id: number;
+    mp_payment_id: string;
+    amount: number;
+    status: string;
+    payment_method: string;
+  }): Promise<any> {
+    return await this.prisma.subscriptionPayment.create({
+      data: {
+        subscription_id: data.subscription_id,
+        mp_payment_id: data.mp_payment_id,
+        amount: data.amount,
+        status: data.status,
+        payment_method: data.payment_method,
+      },
+    });
+  }
+
+  /**
+   * Atualiza status do pagamento
+   */
+  async updatePaymentStatus(paymentId: number, status: string): Promise<any> {
+    return await this.prisma.subscriptionPayment.update({
+      where: { id: paymentId },
+      data: { status },
+    });
+  }
+
+  /**
+   * Atualiza mp_payment_id na assinatura
+   */
+  async updateSubscriptionPaymentId(subscriptionId: number, mpPaymentId: string): Promise<any> {
+    return await this.prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: { mp_payment_id: mpPaymentId },
+    });
+  }
+
+  /**
+   * Envia email de confirmação de pagamento
+   */
+  private async sendPaymentConfirmationEmail(subscription: any, payment: any): Promise<void> {
+    if (!this.emailService) {
+      this.logger.warn('EmailService não configurado, pulando envio de email de confirmação');
+      return;
+    }
+
+    try {
+      const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
+      const registrationUrl = `${baseUrl}/subscribe/register?email=${encodeURIComponent(subscription.user.email)}`;
+      
+      const subject = 'Pagamento Aprovado - Sua Assinatura está Ativa!';
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+            .content { background-color: #f9f9f9; padding: 20px; border-radius: 0 0 5px 5px; }
+            .button { display: inline-block; padding: 12px 24px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+            .info-box { background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4CAF50; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Pagamento Aprovado!</h1>
+            </div>
+            <div class="content">
+              <p>Olá,</p>
+              <p>Seu pagamento foi aprovado com sucesso e sua assinatura está agora ativa!</p>
+              
+              <div class="info-box">
+                <strong>Detalhes da Assinatura:</strong><br>
+                Plano: ${subscription.plan.name}<br>
+                Valor: R$ ${payment.transaction_amount.toFixed(2)}<br>
+                Método: ${payment.payment_method_id === 'pix' ? 'PIX' : 'Cartão'}<br>
+                Status: Ativa<br>
+                Válida até: ${subscription.end_date ? new Date(subscription.end_date).toLocaleDateString('pt-BR') : 'N/A'}
+              </div>
+
+              <p>Para acessar sua conta e começar a usar a plataforma, você precisa completar seu cadastro definindo uma senha.</p>
+              
+              <p>
+                <a href="${registrationUrl}" class="button">Completar Cadastro</a>
+              </p>
+
+              <p>Ou copie e cole este link no seu navegador:</p>
+              <p style="word-break: break-all; color: #666;">${registrationUrl}</p>
+
+              <p>Se você não solicitou esta assinatura, entre em contato conosco imediatamente.</p>
+
+              <p>Atenciosamente,<br>Equipe MV Cash</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.emailService.sendEmail(subscription.user.email, subject, html);
+      this.logger.log(`Email de confirmação enviado para ${subscription.user.email}`);
+    } catch (error: any) {
+      this.logger.error(`Erro ao enviar email de confirmação para ${subscription.user.email}:`, error);
+      // Não lançar erro para não interromper o fluxo de pagamento
+    }
   }
 }
