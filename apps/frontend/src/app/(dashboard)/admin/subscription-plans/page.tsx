@@ -122,7 +122,7 @@ export default function AdminSubscriptionPlansPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <DataTable data={plans || []} columns={columns} searchKey="name" />
+          <DataTable data={plans || []} columns={columns} />
         </CardContent>
       </Card>
 

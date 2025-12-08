@@ -100,7 +100,6 @@ export default function AdminSubscriptionsPage() {
           <DataTable
             data={subscriptions || []}
             columns={columns}
-            searchKey="user.email"
           />
         </CardContent>
       </Card>
