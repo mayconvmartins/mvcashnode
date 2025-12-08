@@ -94,7 +94,13 @@ export const config = {
          * - favicon.ico (favicon file)
          * - static files (images, fonts, etc)
          */
-        '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(ico|png|jpg|jpeg|svg|gif|webp|woff|woff2|ttf|otf|eot)$).*)',
+        {
+            source: '/:path*',
+            missing: [
+                { type: 'header', key: 'next-router-prefetch' },
+                { type: 'header', key: 'purpose', value: 'prefetch' },
+            ],
+        },
     ],
 }
 
