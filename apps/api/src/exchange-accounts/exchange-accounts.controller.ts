@@ -228,20 +228,19 @@ export class ExchangeAccountsController {
       const createdAccount = await this.exchangeAccountsService.getDomainService().createAccount(mappedDto);
       
       if (isSubscriber) {
-        // TODO: Modelos Subscription ainda não foram criados no schema Prisma
         // Buscar parâmetros padrão do assinante
-        // const subscriberParams = await this.prisma.subscriberParameters.findUnique({
-        //   where: { user_id: user.userId },
-        // });
-        // if (subscriberParams) {
-        //   // Se tiver default_exchange_account_id configurado, atualizar
-        //   if (!subscriberParams.default_exchange_account_id) {
-        //     await this.prisma.subscriberParameters.update({
-        //       where: { user_id: user.userId },
-        //       data: { default_exchange_account_id: createdAccount.id },
-        //     });
-        //   }
-        // }
+        const subscriberParams = await this.prisma.subscriberParameters.findUnique({
+          where: { user_id: user.userId },
+        });
+        if (subscriberParams) {
+          // Se tiver default_exchange_account_id configurado, atualizar
+          if (!subscriberParams.default_exchange_account_id) {
+            await this.prisma.subscriberParameters.update({
+              where: { user_id: user.userId },
+              data: { default_exchange_account_id: createdAccount.id },
+            });
+          }
+        }
       }
 
       return createdAccount;

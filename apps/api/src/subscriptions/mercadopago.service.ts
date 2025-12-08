@@ -270,27 +270,26 @@ export class MercadoPagoService {
     data: { id: string };
   }): Promise<void> {
     try {
-      // TODO: Modelos Subscription ainda não foram criados no schema Prisma
       // Salvar evento no banco
-      // await this.prisma.subscriptionWebhookEvent.create({
-      //   data: {
-      //     mp_event_id: event.id,
-      //     mp_event_type: event.type,
-      //     mp_resource_id: event.data.id,
-      //     raw_payload_json: event as any,
-      //     processed: false,
-      //   },
-      // });
+      await this.prisma.subscriptionWebhookEvent.create({
+        data: {
+          mp_event_id: event.id,
+          mp_event_type: event.type,
+          mp_resource_id: event.data.id,
+          raw_payload_json: event as any,
+          processed: false,
+        },
+      });
 
       // Se for evento de pagamento, buscar detalhes
       if (event.type === 'payment') {
         const payment = await this.getPayment(event.data.id);
         
-        // TODO: Atualizar evento como processado
-        // await this.prisma.subscriptionWebhookEvent.updateMany({
-        //   where: { mp_event_id: event.id },
-        //   data: { processed: true, processed_at: new Date() },
-        // });
+        // Atualizar evento como processado
+        await this.prisma.subscriptionWebhookEvent.updateMany({
+          where: { mp_event_id: event.id },
+          data: { processed: true, processed_at: new Date() },
+        });
 
         // Processar pagamento (será feito no SubscriptionService)
         this.logger.log(`Pagamento ${payment.id} processado: ${payment.status}`);

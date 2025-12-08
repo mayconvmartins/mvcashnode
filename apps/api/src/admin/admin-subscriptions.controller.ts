@@ -42,9 +42,30 @@ export class AdminSubscriptionsController {
     @Query('status') status?: string,
     @Query('plan_id') planId?: string
   ) {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    // Criar migration com modelos: SubscriptionPlan, Subscription, SubscriptionPayment, SubscriberProfile, SubscriberParameters
-    return []; // Temporário até criar modelos no schema
+    const where: any = {};
+    
+    if (status) {
+      where.status = status;
+    }
+    
+    if (planId) {
+      where.plan_id = parseInt(planId);
+    }
+
+    return this.prisma.subscription.findMany({
+      where,
+      include: {
+        plan: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            is_active: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
   }
 
   @Get(':id')
@@ -52,8 +73,29 @@ export class AdminSubscriptionsController {
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Detalhes da assinatura' })
   async get(@Param('id', ParseIntPipe) id: number) {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id },
+      include: {
+        plan: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            is_active: true,
+            created_at: true,
+          },
+        },
+        payments: {
+          orderBy: { created_at: 'desc' },
+        },
+      },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    return subscription;
   }
 
   @Put(':id')
@@ -69,8 +111,46 @@ export class AdminSubscriptionsController {
       auto_renew?: boolean;
     }
   ) {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    const updateData: any = {};
+    
+    if (body.status !== undefined) {
+      updateData.status = body.status;
+    }
+    
+    if (body.start_date !== undefined) {
+      updateData.start_date = body.start_date ? new Date(body.start_date) : null;
+    }
+    
+    if (body.end_date !== undefined) {
+      updateData.end_date = body.end_date ? new Date(body.end_date) : null;
+    }
+    
+    if (body.auto_renew !== undefined) {
+      updateData.auto_renew = body.auto_renew;
+    }
+
+    return this.prisma.subscription.update({
+      where: { id },
+      data: updateData,
+      include: {
+        plan: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            is_active: true,
+          },
+        },
+      },
+    });
   }
 
   @Post(':id/cancel')
@@ -78,8 +158,31 @@ export class AdminSubscriptionsController {
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Assinatura cancelada' })
   async cancel(@Param('id', ParseIntPipe) id: number) {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    return this.prisma.subscription.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        auto_renew: false,
+      },
+      include: {
+        plan: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            is_active: true,
+          },
+        },
+      },
+    });
   }
 
   @Post(':id/extend')
@@ -94,8 +197,35 @@ export class AdminSubscriptionsController {
       throw new BadRequestException('Número de dias deve ser maior que zero');
     }
 
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    const currentEndDate = subscription.end_date || new Date();
+    const newEndDate = new Date(currentEndDate);
+    newEndDate.setDate(newEndDate.getDate() + body.days);
+
+    return this.prisma.subscription.update({
+      where: { id },
+      data: {
+        end_date: newEndDate,
+        status: subscription.status === 'EXPIRED' ? 'ACTIVE' : subscription.status,
+      },
+      include: {
+        plan: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            is_active: true,
+          },
+        },
+      },
+    });
   }
 
   @Get(':id/payments')
@@ -103,7 +233,17 @@ export class AdminSubscriptionsController {
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Histórico de pagamentos' })
   async getPayments(@Param('id', ParseIntPipe) id: number) {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { id },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    return this.prisma.subscriptionPayment.findMany({
+      where: { subscription_id: id },
+      orderBy: { created_at: 'desc' },
+    });
   }
 }

@@ -34,6 +34,9 @@ model User {
   webhook_sources   WebhookSource[]
   trade_parameters  TradeParameter[]
   password_reset_tokens PasswordResetToken[]
+  subscriptions     Subscription[]
+  subscriber_profile SubscriberProfile?
+  subscriber_parameters SubscriberParameters?
 
   @@index([email])
   @@index([is_active])
@@ -753,4 +756,129 @@ model MercadoPagoConfig {
   updated_at          DateTime @updatedAt
 
   @@map("mercadopago_config")
+}
+
+// ============================================
+// SUBSCRIPTIONS
+// ============================================
+
+model SubscriptionPlan {
+  id                Int      @id @default(autoincrement())
+  name              String   @db.VarChar(255)
+  description       String?  @db.Text
+  price_monthly     Decimal  @db.Decimal(10, 2)
+  price_quarterly   Decimal  @db.Decimal(10, 2)
+  duration_days     Int      @default(30)
+  is_active         Boolean  @default(true)
+  features_json     Json?    @db.Json
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@index([is_active])
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id                Int      @id @default(autoincrement())
+  user_id           Int
+  plan_id            Int
+  status            String   @db.VarChar(50) // 'ACTIVE' | 'CANCELLED' | 'EXPIRED' | 'PENDING_PAYMENT'
+  start_date        DateTime?
+  end_date          DateTime?
+  auto_renew        Boolean  @default(false)
+  payment_method    String?  @db.VarChar(20) // 'CARD' | 'PIX'
+  mp_payment_id     String?  @db.VarChar(255)
+  mp_preference_id  String?  @db.VarChar(255)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  user             User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  plan             SubscriptionPlan     @relation(fields: [plan_id], references: [id], onDelete: Restrict)
+  payments         SubscriptionPayment[]
+
+  @@index([user_id])
+  @@index([plan_id])
+  @@index([status])
+  @@index([user_id, status])
+  @@map("subscriptions")
+}
+
+model SubscriberProfile {
+  id                      Int      @id @default(autoincrement())
+  user_id                 Int      @unique
+  cpf_enc                 String?  @db.Text // CPF criptografado
+  birth_date              DateTime?
+  address_street          String?  @db.VarChar(255)
+  address_number          String?  @db.VarChar(20)
+  address_complement      String?  @db.VarChar(100)
+  address_neighborhood    String?  @db.VarChar(100)
+  address_city            String?  @db.VarChar(100)
+  address_state           String?  @db.VarChar(2)
+  address_zipcode         String?  @db.VarChar(10)
+  created_at              DateTime @default(now())
+  updated_at              DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("subscriber_profiles")
+}
+
+model SubscriberParameters {
+  id                        Int      @id @default(autoincrement())
+  user_id                   Int      @unique
+  default_exchange_account_id Int?
+  max_orders_per_hour       Int?
+  min_interval_sec          Int?
+  default_order_type        String   @default("MARKET") @db.VarChar(20)
+  slippage_bps              Int      @default(0)
+  default_sl_enabled        Boolean  @default(false)
+  default_sl_pct            Decimal? @db.Decimal(5, 2)
+  default_tp_enabled        Boolean  @default(false)
+  default_tp_pct            Decimal? @db.Decimal(5, 2)
+  trailing_stop_enabled     Boolean  @default(false)
+  trailing_distance_pct     Decimal? @db.Decimal(5, 2)
+  min_profit_pct            Decimal? @db.Decimal(5, 2)
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("subscriber_parameters")
+}
+
+model SubscriptionPayment {
+  id              Int      @id @default(autoincrement())
+  subscription_id  Int
+  mp_payment_id    String  @db.VarChar(255)
+  amount           Decimal  @db.Decimal(10, 2)
+  status           String   @db.VarChar(50) // 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'REFUNDED'
+  payment_method   String   @db.VarChar(20) // 'CARD' | 'PIX'
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  subscription Subscription @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
+
+  @@index([subscription_id])
+  @@index([mp_payment_id])
+  @@index([status])
+  @@map("subscription_payments")
+}
+
+model SubscriptionWebhookEvent {
+  id                Int      @id @default(autoincrement())
+  mp_event_id       String   @db.VarChar(255)
+  mp_event_type     String   @db.VarChar(50)
+  mp_resource_id    String   @db.VarChar(255)
+  raw_payload_json  Json?    @db.Json
+  processed         Boolean  @default(false)
+  processed_at      DateTime?
+  created_at        DateTime @default(now())
+
+  @@unique([mp_event_id])
+  @@index([mp_resource_id])
+  @@index([processed])
+  @@index([created_at])
+  @@map("subscription_webhook_events")
 }

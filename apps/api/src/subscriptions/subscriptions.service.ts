@@ -20,27 +20,23 @@ export class SubscriptionsService {
    * Lista todos os planos ativos
    */
   async getActivePlans() {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    // return this.prisma.subscriptionPlan.findMany({
-    //   where: { is_active: true },
-    //   orderBy: { price_monthly: 'asc' },
-    // });
-    return []; // Temporário até criar modelos no schema
+    return this.prisma.subscriptionPlan.findMany({
+      where: { is_active: true },
+      orderBy: { price_monthly: 'asc' },
+    });
   }
 
   /**
    * Busca um plano por ID
    */
   async getPlanById(planId: number) {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    // const plan = await this.prisma.subscriptionPlan.findUnique({
-    //   where: { id: planId },
-    // });
-    // if (!plan) {
-    //   throw new NotFoundException('Plano não encontrado');
-    // }
-    // return plan;
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
+    const plan = await this.prisma.subscriptionPlan.findUnique({
+      where: { id: planId },
+    });
+    if (!plan) {
+      throw new NotFoundException('Plano não encontrado');
+    }
+    return plan;
   }
 
   /**
@@ -131,33 +127,53 @@ export class SubscriptionsService {
       });
     }
 
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
     // Criar assinatura com status PENDING_PAYMENT
-    // const subscription = await this.prisma.subscription.create({
-    //   data: {
-    //     user_id: user.id,
-    //     plan_id: plan.id,
-    //     status: 'PENDING_PAYMENT',
-    //     start_date: null,
-    //     end_date: null,
-    //     auto_renew: false,
-    //     mp_preference_id: preference.id,
-    //   },
-    // });
+    const subscription = await this.prisma.subscription.create({
+      data: {
+        user_id: user.id,
+        plan_id: plan.id,
+        status: 'PENDING_PAYMENT',
+        start_date: null,
+        end_date: null,
+        auto_renew: false,
+        mp_preference_id: preference.id,
+      },
+    });
 
-    // TODO: Salvar dados do assinante (temporário, será confirmado após pagamento)
-    // await this.prisma.subscriberProfile.upsert({
-    //   where: { user_id: user.id },
-    //   create: { ... },
-    //   update: { ... },
-    // });
+    // Salvar dados do assinante (temporário, será confirmado após pagamento)
+    await this.prisma.subscriberProfile.upsert({
+      where: { user_id: user.id },
+      create: {
+        user_id: user.id,
+        cpf_enc: this.encryptCpf(data.subscriberData.cpf),
+        birth_date: data.subscriberData.birthDate,
+        address_street: data.subscriberData.address.street,
+        address_number: data.subscriberData.address.number,
+        address_complement: data.subscriberData.address.complement,
+        address_neighborhood: data.subscriberData.address.neighborhood,
+        address_city: data.subscriberData.address.city,
+        address_state: data.subscriberData.address.state,
+        address_zipcode: data.subscriberData.address.zipcode,
+      },
+      update: {
+        cpf_enc: this.encryptCpf(data.subscriberData.cpf),
+        birth_date: data.subscriberData.birthDate,
+        address_street: data.subscriberData.address.street,
+        address_number: data.subscriberData.address.number,
+        address_complement: data.subscriberData.address.complement,
+        address_neighborhood: data.subscriberData.address.neighborhood,
+        address_city: data.subscriberData.address.city,
+        address_state: data.subscriberData.address.state,
+        address_zipcode: data.subscriberData.address.zipcode,
+      },
+    });
 
     return {
       preference_id: preference.id,
       init_point: this.configService.get<string>('MERCADOPAGO_ENVIRONMENT') === 'sandbox'
         ? preference.sandbox_init_point
         : preference.init_point,
-      subscription_id: 0, // Temporário até criar modelos
+      subscription_id: subscription.id,
     };
   }
 
@@ -168,12 +184,104 @@ export class SubscriptionsService {
     try {
       const payment = await this.mercadoPagoService.getPayment(paymentId);
 
-      // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-      // Todo o código abaixo precisa ser descomentado quando os modelos forem criados
-      this.logger.warn(`Processamento de pagamento ${paymentId} - Modelos de subscription ainda não foram criados no schema`);
-      // TODO: Descomentar quando modelos forem criados
-      // let subscription = await this.prisma.subscription.findFirst({ ... });
-      // ... resto do código comentado
+      // Buscar assinatura pelo preference_id ou payment_id
+      let subscription = await this.prisma.subscription.findFirst({
+        where: {
+          OR: [
+            { mp_preference_id: payment.preference_id },
+            { mp_payment_id: paymentId },
+          ],
+        },
+        include: {
+          plan: true,
+          user: true,
+        },
+      });
+
+      if (!subscription) {
+        this.logger.warn(`Assinatura não encontrada para pagamento ${paymentId}`);
+        return;
+      }
+
+      // Se pagamento foi aprovado, ativar assinatura
+      if (payment.status === 'approved') {
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + subscription.plan.duration_days);
+
+        // Atualizar assinatura
+        subscription = await this.prisma.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: 'ACTIVE',
+            start_date: startDate,
+            end_date: endDate,
+            mp_payment_id: paymentId,
+            payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
+          },
+          include: {
+            plan: true,
+            user: true,
+          },
+        });
+
+        // Criar registro de pagamento
+        await this.prisma.subscriptionPayment.create({
+          data: {
+            subscription_id: subscription.id,
+            mp_payment_id: paymentId,
+            amount: payment.transaction_amount,
+            status: 'APPROVED',
+            payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
+          },
+        });
+
+        // Ativar usuário e adicionar role de subscriber
+        await this.prisma.user.update({
+          where: { id: subscription.user_id },
+          data: {
+            is_active: true,
+          },
+        });
+
+        // Verificar se já tem role de subscriber
+        const hasSubscriberRole = await this.prisma.userRole.findFirst({
+          where: {
+            user_id: subscription.user_id,
+            role: 'subscriber',
+          },
+        });
+
+        if (!hasSubscriberRole) {
+          await this.prisma.userRole.create({
+            data: {
+              user_id: subscription.user_id,
+              role: 'subscriber',
+            },
+          });
+        }
+
+        this.logger.log(`Assinatura ${subscription.id} ativada para usuário ${subscription.user.email}`);
+      } else if (payment.status === 'rejected' || payment.status === 'cancelled') {
+        // Atualizar assinatura para status apropriado
+        await this.prisma.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: 'CANCELLED',
+          },
+        });
+
+        // Criar registro de pagamento rejeitado
+        await this.prisma.subscriptionPayment.create({
+          data: {
+            subscription_id: subscription.id,
+            mp_payment_id: paymentId,
+            amount: payment.transaction_amount,
+            status: payment.status === 'rejected' ? 'REJECTED' : 'CANCELLED',
+            payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
+          },
+        });
+      }
     } catch (error: any) {
       this.logger.error('Erro ao processar pagamento aprovado:', error);
       throw error;
@@ -184,79 +292,134 @@ export class SubscriptionsService {
    * Busca assinatura do usuário atual
    */
   async getMySubscription(userId: number) {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    // const subscription = await this.prisma.subscription.findUnique({
-    //   where: { user_id: userId },
-    //   include: {
-    //     plan: true,
-    //     payments: {
-    //       orderBy: { created_at: 'desc' },
-    //       take: 10,
-    //     },
-    //   },
-    // });
-    // if (!subscription) {
-    //   throw new NotFoundException('Assinatura não encontrada');
-    // }
-    // return subscription;
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { user_id: userId },
+      include: {
+        plan: true,
+        payments: {
+          orderBy: { created_at: 'desc' },
+          take: 10,
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+    return subscription;
   }
 
   /**
    * Verifica se assinatura está ativa
    */
   async isSubscriptionActive(userId: number): Promise<boolean> {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    // const subscription = await this.prisma.subscription.findUnique({
-    //   where: { user_id: userId },
-    // });
-    // if (!subscription) {
-    //   return false;
-    // }
-    // if (subscription.status !== 'ACTIVE') {
-    //   return false;
-    // }
-    // if (subscription.end_date && subscription.end_date < new Date()) {
-    //   await this.prisma.subscription.update({
-    //     where: { id: subscription.id },
-    //     data: { status: 'EXPIRED' },
-    //   });
-    //   return false;
-    // }
-    // return true;
-    return false; // Temporário até criar modelos
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { user_id: userId },
+      orderBy: { created_at: 'desc' },
+    });
+    if (!subscription) {
+      return false;
+    }
+    if (subscription.status !== 'ACTIVE') {
+      return false;
+    }
+    if (subscription.end_date && subscription.end_date < new Date()) {
+      await this.prisma.subscription.update({
+        where: { id: subscription.id },
+        data: { status: 'EXPIRED' },
+      });
+      return false;
+    }
+    return true;
   }
 
   /**
    * Cancela assinatura
    */
   async cancelSubscription(userId: number) {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    // const subscription = await this.prisma.subscription.findUnique({
-    //   where: { user_id: userId },
-    // });
-    // if (!subscription) {
-    //   throw new NotFoundException('Assinatura não encontrada');
-    // }
-    // return this.prisma.subscription.update({
-    //   where: { id: subscription.id },
-    //   data: {
-    //     status: 'CANCELLED',
-    //     auto_renew: false,
-    //   },
-    // });
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { user_id: userId },
+      orderBy: { created_at: 'desc' },
+    });
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+    return this.prisma.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        status: 'CANCELLED',
+        auto_renew: false,
+      },
+    });
   }
 
   /**
    * Renova assinatura
    */
   async renewSubscription(userId: number, billingPeriod: 'monthly' | 'quarterly') {
-    // TODO: Modelos Subscription ainda não foram criados no schema Prisma
-    // Todo o código abaixo precisa ser descomentado quando os modelos forem criados
-    throw new NotFoundException('Modelos de subscription ainda não foram criados no schema. Execute a migration primeiro.');
-    // const subscription = await this.prisma.subscription.findUnique({ ... });
-    // ... resto do código comentado
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { user_id: userId },
+      include: { 
+        plan: true,
+        user: true,
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    if (subscription.status !== 'ACTIVE' && subscription.status !== 'EXPIRED') {
+      throw new BadRequestException('Apenas assinaturas ativas ou expiradas podem ser renovadas');
+    }
+
+    const amount = billingPeriod === 'monthly' 
+      ? Number(subscription.plan.price_monthly) 
+      : Number(subscription.plan.price_quarterly);
+
+    const durationDays = billingPeriod === 'monthly' ? 30 : 90;
+
+    // Buscar dados do assinante
+    const subscriberProfile = await this.prisma.subscriberProfile.findUnique({
+      where: { user_id: userId },
+    });
+
+    if (!subscriberProfile) {
+      throw new BadRequestException('Perfil do assinante não encontrado');
+    }
+
+    // Criar preferência no Mercado Pago
+    const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
+    const preference = await this.mercadoPagoService.createPreference({
+      planId: subscription.plan_id,
+      planName: subscription.plan.name,
+      amount,
+      billingPeriod,
+      subscriberData: {
+        email: subscription.user.email,
+        fullName: subscriberProfile.address_street || 'Assinante', // Usar nome do perfil se disponível
+        cpf: subscriberProfile.cpf_enc ? this.decryptCpf(subscriberProfile.cpf_enc) : '',
+      },
+      backUrls: {
+        success: `${baseUrl}/subscribe/success?preference_id={preference_id}`,
+        failure: `${baseUrl}/subscribe/failure`,
+        pending: `${baseUrl}/subscribe/pending`,
+      },
+    });
+
+    // Criar nova assinatura com status PENDING_PAYMENT
+    await this.prisma.subscription.create({
+      data: {
+        user_id: userId,
+        plan_id: subscription.plan_id,
+        status: 'PENDING_PAYMENT',
+        start_date: null,
+        end_date: null,
+        auto_renew: false,
+        mp_preference_id: preference.id,
+      },
+    });
 
     return {
       preference_id: preference.id,
@@ -287,10 +450,12 @@ export class SubscriptionsService {
             },
           },
         },
-        // TODO: include subscription quando modelo for criado
-        // include: {
-        //   subscription: true,
-        // },
+        include: {
+          subscriptions: {
+            orderBy: { created_at: 'desc' },
+            take: 1,
+          },
+        },
       });
     } else {
       // Buscar por token (por enquanto, busca qualquer assinante pendente)
@@ -305,26 +470,25 @@ export class SubscriptionsService {
             },
           },
         },
-        // TODO: include subscription quando modelo for criado
-        // include: {
-        //   subscription: true,
-        // },
+        include: {
+          subscriptions: {
+            orderBy: { created_at: 'desc' },
+            take: 1,
+          },
+        },
         orderBy: {
           created_at: 'desc',
         },
       });
     }
 
-    // TODO: Verificar subscription quando modelo for criado
-    // if (!user || !user.subscription) {
-    //   throw new BadRequestException('Token inválido ou assinatura não encontrada');
-    // }
-    // if (user.subscription.status !== 'ACTIVE') {
-    //   throw new BadRequestException('Assinatura não está ativa');
-    // }
-
-    if (!user) {
+    if (!user || !user.subscriptions || user.subscriptions.length === 0) {
       throw new BadRequestException('Token inválido ou assinatura não encontrada');
+    }
+
+    const subscription = user.subscriptions[0];
+    if (subscription.status !== 'ACTIVE') {
+      throw new BadRequestException('Assinatura não está ativa');
     }
 
     // Atualizar senha

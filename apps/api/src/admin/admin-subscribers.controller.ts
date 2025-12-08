@@ -95,10 +95,29 @@ export class AdminSubscribersController {
       throw new NotFoundException('Usuário não é um assinante');
     }
 
+    // Buscar perfil do assinante
+    const subscriberProfile = await this.prisma.subscriberProfile.findUnique({
+      where: { user_id: id },
+    });
+
     // Descriptografar CPF se existir
-    // TODO: Descriptografar CPF quando subscriber_profile for implementado no schema
-    // Por enquanto, retornar usuário sem modificações
-    return user;
+    let decryptedCpf = null;
+    if (subscriberProfile?.cpf_enc) {
+      try {
+        decryptedCpf = this.encryptionService.decrypt(subscriberProfile.cpf_enc);
+      } catch (error) {
+        this.logger.warn(`Erro ao descriptografar CPF do usuário ${id}`);
+      }
+    }
+
+    return {
+      ...user,
+      subscriber_profile: subscriberProfile ? {
+        ...subscriberProfile,
+        cpf: decryptedCpf,
+        cpf_enc: undefined, // Não retornar CPF criptografado
+      } : null,
+    };
   }
 
   @Put(':id')
@@ -144,11 +163,28 @@ export class AdminSubscribersController {
     }
 
     if (body.subscriber_profile) {
-      // TODO: Implementar quando subscriberProfile for criado
-      // await this.prisma.subscriberProfile.updateMany({
-      //   where: { user_id: id },
-      //   data: body.subscriber_profile,
-      // });
+      await this.prisma.subscriberProfile.upsert({
+        where: { user_id: id },
+        create: {
+          user_id: id,
+          address_street: body.subscriber_profile.address_street,
+          address_number: body.subscriber_profile.address_number,
+          address_complement: body.subscriber_profile.address_complement,
+          address_neighborhood: body.subscriber_profile.address_neighborhood,
+          address_city: body.subscriber_profile.address_city,
+          address_state: body.subscriber_profile.address_state,
+          address_zipcode: body.subscriber_profile.address_zipcode,
+        },
+        update: {
+          address_street: body.subscriber_profile.address_street,
+          address_number: body.subscriber_profile.address_number,
+          address_complement: body.subscriber_profile.address_complement,
+          address_neighborhood: body.subscriber_profile.address_neighborhood,
+          address_city: body.subscriber_profile.address_city,
+          address_state: body.subscriber_profile.address_state,
+          address_zipcode: body.subscriber_profile.address_zipcode,
+        },
+      });
     }
 
     if (Object.keys(updates).length > 0) {
@@ -228,16 +264,139 @@ export class AdminSubscribersController {
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Parâmetros do assinante' })
   async getParameters(@Param('id', ParseIntPipe) id: number) {
-    // TODO: Implementar quando subscriberParameters for criado
-    // const parameters = await this.prisma.subscriberParameters.findUnique({
-    //   where: { user_id: id },
-    // });
-    const parameters = null; // Temporário até criar modelo
+    const parameters = await this.prisma.subscriberParameters.findUnique({
+      where: { user_id: id },
+    });
 
     if (!parameters) {
       throw new NotFoundException('Parâmetros não encontrados para este assinante');
     }
 
     return parameters;
+  }
+}
+
+@ApiTags('Admin - Subscriber Parameters')
+@Controller('admin/subscriber-parameters')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
+@ApiBearerAuth()
+export class AdminSubscriberParametersController {
+  constructor(private prisma: PrismaService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Listar todos os parâmetros de assinantes' })
+  @ApiResponse({ status: 200, description: 'Lista de parâmetros' })
+  async list() {
+    return this.prisma.subscriberParameters.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            is_active: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  @Get(':userId')
+  @ApiOperation({ summary: 'Obter parâmetros de um assinante' })
+  @ApiParam({ name: 'userId', type: 'number' })
+  @ApiResponse({ status: 200, description: 'Parâmetros do assinante' })
+  async get(@Param('userId', ParseIntPipe) userId: number) {
+    const parameters = await this.prisma.subscriberParameters.findUnique({
+      where: { user_id: userId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            is_active: true,
+          },
+        },
+      },
+    });
+
+    if (!parameters) {
+      throw new NotFoundException('Parâmetros não encontrados para este assinante');
+    }
+
+    return parameters;
+  }
+
+  @Put(':userId')
+  @ApiOperation({ summary: 'Atualizar parâmetros de um assinante' })
+  @ApiParam({ name: 'userId', type: 'number' })
+  @ApiResponse({ status: 200, description: 'Parâmetros atualizados' })
+  async update(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() body: {
+      default_exchange_account_id?: number;
+      max_orders_per_hour?: number;
+      min_interval_sec?: number;
+      default_order_type?: string;
+      slippage_bps?: number;
+      default_sl_enabled?: boolean;
+      default_sl_pct?: number;
+      default_tp_enabled?: boolean;
+      default_tp_pct?: number;
+      trailing_stop_enabled?: boolean;
+      trailing_distance_pct?: number;
+      min_profit_pct?: number;
+    }
+  ) {
+    // Verificar se usuário existe e é assinante
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        roles: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    const isSubscriber = user.roles.some(r => r.role === 'subscriber');
+    if (!isSubscriber) {
+      throw new BadRequestException('Usuário não é um assinante');
+    }
+
+    // Upsert parâmetros
+    return this.prisma.subscriberParameters.upsert({
+      where: { user_id: userId },
+      create: {
+        user_id: userId,
+        default_exchange_account_id: body.default_exchange_account_id,
+        max_orders_per_hour: body.max_orders_per_hour,
+        min_interval_sec: body.min_interval_sec,
+        default_order_type: body.default_order_type || 'MARKET',
+        slippage_bps: body.slippage_bps ?? 0,
+        default_sl_enabled: body.default_sl_enabled ?? false,
+        default_sl_pct: body.default_sl_pct,
+        default_tp_enabled: body.default_tp_enabled ?? false,
+        default_tp_pct: body.default_tp_pct,
+        trailing_stop_enabled: body.trailing_stop_enabled ?? false,
+        trailing_distance_pct: body.trailing_distance_pct,
+        min_profit_pct: body.min_profit_pct,
+      },
+      update: {
+        default_exchange_account_id: body.default_exchange_account_id,
+        max_orders_per_hour: body.max_orders_per_hour,
+        min_interval_sec: body.min_interval_sec,
+        default_order_type: body.default_order_type,
+        slippage_bps: body.slippage_bps,
+        default_sl_enabled: body.default_sl_enabled,
+        default_sl_pct: body.default_sl_pct,
+        default_tp_enabled: body.default_tp_enabled,
+        default_tp_pct: body.default_tp_pct,
+        trailing_stop_enabled: body.trailing_stop_enabled,
+        trailing_distance_pct: body.trailing_distance_pct,
+        min_profit_pct: body.min_profit_pct,
+      },
+    });
   }
 }

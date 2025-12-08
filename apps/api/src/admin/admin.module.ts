@@ -4,7 +4,8 @@ import { AdminSystemController } from './admin-system.controller';
 import { AdminAuditController } from './admin-audit.controller';
 import { AdminNotificationsController } from './admin-notifications.controller';
 import { AdminSubscriptionsController } from './admin-subscriptions.controller';
-import { AdminSubscribersController } from './admin-subscribers.controller';
+import { AdminSubscribersController, AdminSubscriberParametersController } from './admin-subscribers.controller';
+import { AdminSubscriptionPlansController } from './admin-subscription-plans.controller';
 import { AdminMercadoPagoController } from './admin-mercadopago.controller';
 import { AdminService } from './admin.service';
 import { PrismaService } from '@mvcashnode/db';
@@ -30,6 +31,8 @@ import { MercadoPagoService } from '../subscriptions/mercadopago.service';
     AdminNotificationsController,
     AdminSubscriptionsController,
     AdminSubscribersController,
+    AdminSubscriberParametersController,
+    AdminSubscriptionPlansController,
     AdminMercadoPagoController,
   ],
   providers: [
