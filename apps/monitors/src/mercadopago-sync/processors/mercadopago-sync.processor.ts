@@ -116,7 +116,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             });
 
             // Se pagamento foi aprovado, processar assinatura
-            if (newStatus === 'APPROVED' && payment.subscription) {
+            if (newStatus === 'APPROVED' && payment.subscription && payment.mp_payment_id) {
               await this.processApprovedPayment(payment.subscription.id, payment.mp_payment_id, mpPayment);
             }
 

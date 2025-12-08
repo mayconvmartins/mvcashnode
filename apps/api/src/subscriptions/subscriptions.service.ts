@@ -805,11 +805,11 @@ export class SubscriptionsService {
         <p>Obrigado por escolher nosso serviço!</p>
       `;
 
-      await this.emailService.sendEmail({
-        to: subscription.user.email,
+      await this.emailService.sendEmail(
+        subscription.user.email,
         subject,
-        html,
-      });
+        html
+      );
 
       this.logger.log(`Email de confirmação TransFi enviado para ${subscription.user.email}`);
     } catch (error: any) {

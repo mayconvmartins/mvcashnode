@@ -175,7 +175,7 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json() as { message?: string; error?: string };
         this.logger.error('Erro ao criar payin TransFi:', error);
         throw new BadRequestException(
           error?.message || error?.error || 'Erro ao criar pagamento TransFi'
@@ -231,7 +231,7 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json() as { message?: string; error?: string };
         this.logger.error('Erro ao criar crypto payin TransFi:', error);
         throw new BadRequestException(
           error?.message || error?.error || 'Erro ao criar pagamento crypto TransFi'
@@ -267,7 +267,7 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json() as { message?: string; error?: string };
         this.logger.error('Erro ao buscar pedido TransFi:', error);
         throw new BadRequestException(
           error?.message || error?.error || 'Erro ao buscar pedido TransFi'
@@ -315,7 +315,7 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json() as { message?: string; error?: string };
         this.logger.error('Erro ao estornar pagamento TransFi:', error);
         throw new BadRequestException(
           error?.message || error?.error || 'Erro ao estornar pagamento TransFi'
@@ -419,7 +419,7 @@ export class TransFiService {
   /**
    * Lista moedas suportadas
    */
-  async getSupportedCurrencies(): Promise<any[]> {
+  async getSupportedCurrencies(): Promise<any> {
     try {
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
@@ -434,7 +434,7 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json() as { message?: string; error?: string };
         this.logger.error('Erro ao listar moedas TransFi:', error);
         throw new BadRequestException('Erro ao listar moedas suportadas');
       }

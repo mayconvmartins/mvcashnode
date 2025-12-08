@@ -199,12 +199,12 @@ export class PositionsController {
     @CurrentUser() user: any,
     @Query('status') status?: string,
     @Query('trade_mode') tradeMode?: string,
-    @Query('exchange_account_id', new ParseIntPipe({ optional: true })) exchangeAccountId?: number,
+    @Query('exchange_account_id') exchangeAccountId?: string,
     @Query('symbol') symbol?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     @Query('include_fills') includeFills?: boolean,
     @Query('is_dust') isDust?: string
   ): Promise<any> {
@@ -264,11 +264,15 @@ export class PositionsController {
       }
 
       if (exchangeAccountId) {
-        // Validar que a conta pertence ao usuário
-        if (!accountIds.includes(exchangeAccountId)) {
+        // Converter para número e validar que a conta pertence ao usuário
+        const accountIdNum = parseInt(exchangeAccountId, 10);
+        if (isNaN(accountIdNum)) {
+          throw new BadRequestException('ID da conta de exchange inválido');
+        }
+        if (!accountIds.includes(accountIdNum)) {
           throw new BadRequestException('Conta de exchange não encontrada ou não pertence ao usuário');
         }
-        where.exchange_account_id = exchangeAccountId;
+        where.exchange_account_id = accountIdNum;
       }
 
       if (symbol) {
@@ -292,9 +296,21 @@ export class PositionsController {
         where.is_dust = isDustBool;
       }
 
-      // Paginação
-      const pageNum = page || 1;
-      const limitNum = limit || 20;
+      // Paginação - converter strings para números de forma segura
+      const pageNum = page ? parseInt(page, 10) : 1;
+      const limitNum = limit ? parseInt(limit, 10) : 20;
+      
+      // Validar valores numéricos
+      if (isNaN(pageNum) || pageNum < 1) {
+        throw new BadRequestException('Parâmetro "page" deve ser um número maior que 0');
+      }
+      if (isNaN(limitNum) || limitNum < 1) {
+        throw new BadRequestException('Parâmetro "limit" deve ser um número maior que 0');
+      }
+      if (limitNum > 100) {
+        throw new BadRequestException('Parâmetro "limit" não pode ser maior que 100');
+      }
+      
       const skip = (pageNum - 1) * limitNum;
 
       // Determinar se deve incluir fills (apenas se solicitado explicitamente)
