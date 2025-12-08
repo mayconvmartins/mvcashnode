@@ -38,7 +38,7 @@ export default function AdminSubscriptionsPage() {
       key: 'status',
       label: 'Status',
       render: (row: any) => {
-        const statusColors: Record<string, string> = {
+        const statusColors: Record<string, "default" | "success" | "warning" | "outline" | "destructive" | "secondary"> = {
           ACTIVE: 'default',
           CANCELLED: 'secondary',
           EXPIRED: 'destructive',
