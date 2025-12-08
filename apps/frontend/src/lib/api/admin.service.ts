@@ -580,5 +580,77 @@ export const adminService = {
         const response = await apiClient.post('/admin/mercadopago/sync-payments')
         return response.data
     },
+
+    // TransFi Config
+    getTransFiConfig: async (): Promise<any> => {
+        const response = await apiClient.get('/admin/transfi/config')
+        return response.data
+    },
+
+    updateTransFiConfig: async (data: {
+        merchant_id: string;
+        authorization_token: string;
+        webhook_secret?: string;
+        environment: 'sandbox' | 'production';
+        webhook_url?: string;
+        is_active?: boolean;
+    }): Promise<any> => {
+        const response = await apiClient.put('/admin/transfi/config', data)
+        return response.data
+    },
+
+    testTransFiConnection: async (): Promise<any> => {
+        const response = await apiClient.post('/admin/transfi/test-connection')
+        return response.data
+    },
+
+    // TransFi Payments
+    listTransFiPayments: async (filters?: {
+        status?: string;
+        payment_method?: string;
+        page?: number;
+        limit?: number;
+    }): Promise<any[]> => {
+        const response = await apiClient.get('/admin/transfi/payments', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getTransFiPayment: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/transfi/payments/${id}`)
+        return response.data
+    },
+
+    refundTransFiPayment: async (id: number, cancelSubscription: boolean, reason?: string): Promise<any> => {
+        const response = await apiClient.post(`/admin/transfi/payments/${id}/refund`, {
+            cancel_subscription: cancelSubscription,
+            reason: reason,
+        })
+        return response.data
+    },
+
+    // TransFi Webhook Logs
+    listTransFiWebhookLogs: async (filters?: {
+        transfi_event_type?: string;
+        processed?: boolean;
+        page?: number;
+        limit?: number;
+    }): Promise<any[]> => {
+        const response = await apiClient.get('/admin/transfi/webhook-logs', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getTransFiWebhookLog: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/transfi/webhook-logs/${id}`)
+        return response.data
+    },
+
+    syncTransFiPayments: async (): Promise<any> => {
+        const response = await apiClient.post('/admin/transfi/sync-payments')
+        return response.data
+    },
 }
 

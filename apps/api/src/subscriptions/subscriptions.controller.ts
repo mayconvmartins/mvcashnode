@@ -16,6 +16,7 @@ import {
 } from '@nestjs/swagger';
 import { SubscriptionsService } from './subscriptions.service';
 import { MercadoPagoService } from './mercadopago.service';
+import { TransFiService } from './transfi.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SubscriptionGuard } from './guards/subscription.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -28,6 +29,7 @@ export class SubscriptionsController {
   constructor(
     private subscriptionsService: SubscriptionsService,
     private mercadoPagoService: MercadoPagoService,
+    private transfiService: TransFiService,
     private prisma: PrismaService
   ) {}
 
@@ -191,6 +193,73 @@ export class SubscriptionsController {
     } catch (error: any) {
       throw new BadRequestException(
         error?.message || 'Erro ao processar webhook do Mercado Pago'
+      );
+    }
+  }
+
+  @Post('webhooks/transfi')
+  @ApiOperation({ summary: 'Webhook do TransFi para notificações de pagamento' })
+  @ApiResponse({ status: 200, description: 'Webhook processado' })
+  async handleTransFiWebhook(
+    @Request() req: any,
+    @Body() body: {
+      id: string;
+      type: string;
+      orderId: string;
+      status: string;
+      data?: any;
+    }
+  ) {
+    try {
+      // Validar assinatura do webhook se configurado
+      const signature = req.headers['x-transfi-signature'] || req.headers['x-signature'];
+      const rawBody = JSON.stringify(body);
+      
+      if (signature) {
+        const config = await this.prisma.transFiConfig.findFirst({
+          where: { is_active: true },
+          orderBy: { created_at: 'desc' },
+        });
+
+        if (config?.webhook_secret_enc) {
+          const encryptionService = new (await import('@mvcashnode/shared')).EncryptionService(
+            process.env.ENCRYPTION_KEY || ''
+          );
+          const webhookSecret = await encryptionService.decrypt(config.webhook_secret_enc);
+          
+          const isValid = await this.transfiService.validateWebhookSignature(
+            signature,
+            rawBody,
+            webhookSecret
+          );
+          
+          if (!isValid) {
+            throw new BadRequestException('Assinatura do webhook inválida');
+          }
+        }
+      }
+
+      // Processar webhook
+      const event = {
+        id: body.id || `event-${Date.now()}`,
+        type: body.type,
+        orderId: body.orderId,
+        status: body.status,
+        data: body.data,
+      };
+
+      await this.transfiService.processWebhook(event);
+
+      // Se for evento de pagamento aprovado, processar pagamento
+      if ((body.type === 'order.status_changed' || body.type === 'payment.completed') && 
+          (body.status === 'completed' || body.status === 'approved')) {
+        await this.subscriptionsService.processApprovedTransFiPayment(body.orderId);
+      }
+
+      return { status: 'ok', message: 'Webhook processado com sucesso' };
+    } catch (error: any) {
+      throw new BadRequestException(
+        error?.message || 'Erro ao processar webhook do TransFi'
       );
     }
   }

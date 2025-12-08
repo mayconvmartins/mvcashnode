@@ -7,6 +7,7 @@ import { AdminSubscriptionsController } from './admin-subscriptions.controller';
 import { AdminSubscribersController, AdminSubscriberParametersController } from './admin-subscribers.controller';
 import { AdminSubscriptionPlansController } from './admin-subscription-plans.controller';
 import { AdminMercadoPagoController } from './admin-mercadopago.controller';
+import { AdminTransFiController } from './admin-transfi.controller';
 import { AdminSubscriberWebhooksController } from './admin-subscriber-webhooks.controller';
 import { AdminService } from './admin.service';
 import { PrismaService } from '@mvcashnode/db';
@@ -17,6 +18,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { BullModule } from '@nestjs/bullmq';
 import { MercadoPagoService } from '../subscriptions/mercadopago.service';
+import { TransFiService } from '../subscriptions/transfi.service';
 
 @Module({
   imports: [
@@ -35,6 +37,7 @@ import { MercadoPagoService } from '../subscriptions/mercadopago.service';
     AdminSubscriberParametersController,
     AdminSubscriptionPlansController,
     AdminMercadoPagoController,
+    AdminTransFiController,
     AdminSubscriberWebhooksController,
   ],
   providers: [
@@ -42,6 +45,7 @@ import { MercadoPagoService } from '../subscriptions/mercadopago.service';
     PrismaService,
     TradeJobQueueService,
     MercadoPagoService,
+    TransFiService,
     {
       provide: EncryptionService,
       useFactory: (configService: ConfigService) => {

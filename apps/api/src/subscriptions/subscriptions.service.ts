@@ -4,6 +4,7 @@ import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
 import { EmailService } from '@mvcashnode/notifications';
 import { MercadoPagoService } from './mercadopago.service';
+import { TransFiService } from './transfi.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -15,7 +16,8 @@ export class SubscriptionsService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private encryptionService: EncryptionService,
-    private mercadoPagoService: MercadoPagoService
+    private mercadoPagoService: MercadoPagoService,
+    private transfiService: TransFiService
   ) {
     // Inicializar EmailService se configurado
     const smtpHost = this.configService.get<string>('SMTP_HOST');
@@ -196,6 +198,147 @@ export class SubscriptionsService {
         : preference.init_point,
       subscription_id: subscription.id,
     };
+  }
+
+  /**
+   * Processa pagamento aprovado do TransFi
+   */
+  async processApprovedTransFiPayment(orderId: string) {
+    try {
+      const order = await this.transfiService.getOrderDetails(orderId);
+
+      // Buscar assinatura pelo order_id
+      let subscription = await this.prisma.subscription.findFirst({
+        where: {
+          payments: {
+            some: {
+              transfi_order_id: orderId,
+            },
+          },
+        },
+        include: {
+          plan: true,
+          user: true,
+        },
+      });
+
+      if (!subscription) {
+        this.logger.warn(`Assinatura não encontrada para pedido TransFi ${orderId}`);
+        return;
+      }
+
+      // Se pedido foi aprovado/completado, ativar assinatura
+      if (order.status === 'completed' || order.status === 'approved') {
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + subscription.plan.duration_days);
+
+        // Determinar método de pagamento
+        let paymentMethod = 'CARD';
+        if (order.paymentMethod?.toLowerCase().includes('pix')) {
+          paymentMethod = 'PIX';
+        } else if (order.paymentMethod?.toLowerCase().includes('crypto')) {
+          paymentMethod = 'CRYPTO';
+        }
+
+        // Atualizar assinatura
+        subscription = await this.prisma.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: 'ACTIVE',
+            start_date: startDate,
+            end_date: endDate,
+            payment_method: paymentMethod,
+          },
+          include: {
+            plan: true,
+            user: true,
+          },
+        });
+
+        // Verificar se pagamento já existe, se não, criar
+        const existingPayment = await this.prisma.subscriptionPayment.findFirst({
+          where: { transfi_order_id: orderId },
+        });
+
+        if (!existingPayment) {
+          await this.prisma.subscriptionPayment.create({
+            data: {
+              subscription_id: subscription.id,
+              transfi_order_id: orderId,
+              transfi_payment_id: order.id,
+              amount: order.amount,
+              status: 'APPROVED',
+              payment_method: paymentMethod,
+            },
+          });
+        } else {
+          // Atualizar status do pagamento existente
+          await this.prisma.subscriptionPayment.update({
+            where: { id: existingPayment.id },
+            data: {
+              status: 'APPROVED',
+              transfi_payment_id: order.id,
+            },
+          });
+        }
+
+        // Ativar usuário e adicionar role de subscriber
+        await this.prisma.user.update({
+          where: { id: subscription.user_id },
+          data: {
+            is_active: true,
+          },
+        });
+
+        // Verificar se já tem role de subscriber
+        const hasSubscriberRole = await this.prisma.userRole.findFirst({
+          where: {
+            user_id: subscription.user_id,
+            role: 'subscriber',
+          },
+        });
+
+        if (!hasSubscriberRole) {
+          await this.prisma.userRole.create({
+            data: {
+              user_id: subscription.user_id,
+              role: 'subscriber',
+            },
+          });
+        }
+
+        this.logger.log(`Assinatura ${subscription.id} ativada para usuário ${subscription.user.email} via TransFi`);
+
+        // Enviar email de confirmação de pagamento
+        await this.sendTransFiPaymentConfirmationEmail(subscription, order);
+      } else if (order.status === 'failed' || order.status === 'rejected' || order.status === 'cancelled') {
+        // Atualizar assinatura para status apropriado
+        await this.prisma.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: 'PENDING_PAYMENT',
+          },
+        });
+
+        // Atualizar status do pagamento
+        const payment = await this.prisma.subscriptionPayment.findFirst({
+          where: { transfi_order_id: orderId },
+        });
+
+        if (payment) {
+          await this.prisma.subscriptionPayment.update({
+            where: { id: payment.id },
+            data: {
+              status: order.status === 'cancelled' ? 'CANCELLED' : 'REJECTED',
+            },
+          });
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(`Erro ao processar pagamento TransFi ${orderId}:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -629,6 +772,50 @@ export class SubscriptionsService {
       where: { id: subscriptionId },
       data: { mp_payment_id: mpPaymentId },
     });
+  }
+
+  /**
+   * Envia email de confirmação de pagamento TransFi
+   */
+  private async sendTransFiPaymentConfirmationEmail(subscription: any, order: any): Promise<void> {
+    if (!this.emailService) {
+      this.logger.warn('EmailService não configurado, pulando envio de email de confirmação');
+      return;
+    }
+
+    try {
+      const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
+      const registrationUrl = `${baseUrl}/subscribe/register?email=${encodeURIComponent(subscription.user.email)}`;
+      
+      const subject = 'Pagamento Aprovado - Sua Assinatura está Ativa!';
+      const html = `
+        <h2>Pagamento Aprovado!</h2>
+        <p>Olá,</p>
+        <p>Seu pagamento via TransFi foi aprovado com sucesso!</p>
+        <p><strong>Detalhes do Pagamento:</strong></p>
+        <ul>
+          <li>Pedido: ${order.orderId}</li>
+          <li>Valor: ${order.amount} ${order.currency}</li>
+          <li>Método: ${order.paymentMethod}</li>
+          <li>Plano: ${subscription.plan.name}</li>
+        </ul>
+        <p>Sua assinatura está agora ativa. Para finalizar seu cadastro e definir sua senha, clique no link abaixo:</p>
+        <p><a href="${registrationUrl}">Finalizar Cadastro</a></p>
+        <p>Este link expira em 7 dias.</p>
+        <p>Obrigado por escolher nosso serviço!</p>
+      `;
+
+      await this.emailService.sendEmail({
+        to: subscription.user.email,
+        subject,
+        html,
+      });
+
+      this.logger.log(`Email de confirmação TransFi enviado para ${subscription.user.email}`);
+    } catch (error: any) {
+      this.logger.error('Erro ao enviar email de confirmação TransFi:', error);
+      // Não lançar erro para não interromper o fluxo
+    }
   }
 
   /**

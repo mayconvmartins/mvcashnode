@@ -4,6 +4,7 @@ import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
 import { SubscriptionsService } from './subscriptions.service';
 import { MercadoPagoService } from './mercadopago.service';
+import { TransFiService } from './transfi.service';
 import { SubscriptionsController } from './subscriptions.controller';
 import { SubscriptionPaymentsController } from './subscription-payments.controller';
 
@@ -16,6 +17,7 @@ import { SubscriptionPaymentsController } from './subscription-payments.controll
   providers: [
     SubscriptionsService,
     MercadoPagoService,
+    TransFiService,
     PrismaService,
     {
       provide: EncryptionService,
@@ -29,6 +31,6 @@ import { SubscriptionPaymentsController } from './subscription-payments.controll
       inject: [ConfigService],
     },
   ],
-  exports: [SubscriptionsService, MercadoPagoService],
+  exports: [SubscriptionsService, MercadoPagoService, TransFiService],
 })
 export class SubscriptionsModule {}

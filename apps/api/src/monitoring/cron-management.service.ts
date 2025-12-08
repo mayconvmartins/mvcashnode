@@ -138,6 +138,13 @@ export class CronManagementService implements OnModuleInit {
         job_id: 'dust-positions-monitor-repeat',
         interval_ms: 300000, // 5 minutos
       },
+      {
+        name: 'transfi-sync',
+        description: 'Sincronização de pagamentos do TransFi',
+        queue_name: 'transfi-sync',
+        job_id: 'transfi-sync-repeat',
+        interval_ms: 300000, // 5 minutos
+      },
     ];
 
     for (const job of defaultJobs) {

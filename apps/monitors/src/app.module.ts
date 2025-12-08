@@ -6,6 +6,7 @@ import { LimitOrdersMonitorModule } from './limit-orders-monitor/limit-orders-mo
 import { BalancesSyncModule } from './balances-sync/balances-sync.module';
 import { SystemMonitorModule } from './system-monitor/system-monitor.module';
 import { MercadoPagoSyncModule } from './mercadopago-sync/mercadopago-sync.module';
+import { TransFiSyncModule } from './transfi-sync/transfi-sync.module';
 import { PriceSyncModule } from './price-sync/price-sync.module';
 import { PositionsSyncModule } from './positions-sync/positions-sync.module';
 import { PositionsParamsFixModule } from './positions-params-fix/positions-params-fix.module';
@@ -34,6 +35,7 @@ import * as path from 'path';
     PositionsParamsFixModule,
     DustPositionsMonitorModule,
     MercadoPagoSyncModule,
+    TransFiSyncModule,
   ],
 })
 export class AppModule {}

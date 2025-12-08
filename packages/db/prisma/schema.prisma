@@ -760,6 +760,24 @@ model MercadoPagoConfig {
 }
 
 // ============================================
+// TRANSFI CONFIG
+// ============================================
+
+model TransFiConfig {
+  id                    Int      @id @default(autoincrement())
+  merchant_id           String   @db.VarChar(255)
+  authorization_token_enc String @db.Text
+  environment           String   @default("sandbox") @db.VarChar(20) // 'sandbox' | 'production'
+  webhook_url           String?  @db.VarChar(500)
+  webhook_secret_enc    String?  @db.Text
+  is_active             Boolean  @default(false)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  @@map("transfi_config")
+}
+
+// ============================================
 // SUBSCRIPTIONS
 // ============================================
 
@@ -852,10 +870,12 @@ model SubscriberParameters {
 model SubscriptionPayment {
   id              Int      @id @default(autoincrement())
   subscription_id  Int
-  mp_payment_id    String  @db.VarChar(255)
+  mp_payment_id    String?  @db.VarChar(255)
+  transfi_payment_id String? @db.VarChar(255)
+  transfi_order_id  String? @db.VarChar(255)
   amount           Decimal  @db.Decimal(10, 2)
   status           String   @db.VarChar(50) // 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'REFUNDED'
-  payment_method   String   @db.VarChar(20) // 'CARD' | 'PIX'
+  payment_method   String   @db.VarChar(20) // 'CARD' | 'PIX' | 'CRYPTO'
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt
 
@@ -863,15 +883,17 @@ model SubscriptionPayment {
 
   @@index([subscription_id])
   @@index([mp_payment_id])
+  @@index([transfi_payment_id])
+  @@index([transfi_order_id])
   @@index([status])
   @@map("subscription_payments")
 }
 
 model SubscriptionWebhookEvent {
   id                Int      @id @default(autoincrement())
-  mp_event_id       String   @db.VarChar(255)
-  mp_event_type     String   @db.VarChar(50)
-  mp_resource_id    String   @db.VarChar(255)
+  mp_event_id       String?  @db.VarChar(255)
+  mp_event_type     String?  @db.VarChar(50)
+  mp_resource_id    String?  @db.VarChar(255)
   raw_payload_json  Json?    @db.Json
   processed         Boolean  @default(false)
   processed_at      DateTime?
@@ -882,4 +904,25 @@ model SubscriptionWebhookEvent {
   @@index([processed])
   @@index([created_at])
   @@map("subscription_webhook_events")
+}
+
+// ============================================
+// TRANSFI WEBHOOK EVENTS
+// ============================================
+
+model TransFiWebhookEvent {
+  id                Int      @id @default(autoincrement())
+  transfi_event_id  String   @db.VarChar(255)
+  transfi_event_type String  @db.VarChar(50)
+  transfi_resource_id String  @db.VarChar(255)
+  raw_payload_json  Json?    @db.Json
+  processed         Boolean  @default(false)
+  processed_at      DateTime?
+  created_at        DateTime @default(now())
+
+  @@unique([transfi_event_id])
+  @@index([transfi_resource_id])
+  @@index([processed])
+  @@index([created_at])
+  @@map("transfi_webhook_events")
 }
