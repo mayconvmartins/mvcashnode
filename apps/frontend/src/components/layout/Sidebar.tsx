@@ -58,6 +58,7 @@ const adminMenuItems = [
     { icon: Receipt, label: 'Assinaturas', href: '/admin/subscriptions' },
     { icon: Package, label: 'Planos', href: '/admin/subscription-plans' },
     { icon: CreditCard, label: 'Assinantes', href: '/admin/subscribers' },
+    { icon: Settings2, label: 'Parâmetros Assinantes', href: '/admin/subscriber-parameters' },
     { icon: FileText, label: 'Audit Logs', href: '/admin/audit' },
     { icon: MessageSquare, label: 'WhatsApp', href: '/admin/notifications' },
     { icon: CreditCard, label: 'Mercado Pago', href: '/admin/mercadopago' },

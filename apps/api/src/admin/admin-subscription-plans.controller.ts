@@ -95,7 +95,14 @@ export class AdminSubscriptionPlansController {
         },
       });
     } catch (error: any) {
-      console.error('[AdminSubscriptionPlans] Erro ao criar plano:', error);
+      this.logger.error('[AdminSubscriptionPlans] Erro ao criar plano:', error);
+      // Log detalhado do erro
+      console.error('[AdminSubscriptionPlans] Erro completo:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name,
+        body: body,
+      });
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }

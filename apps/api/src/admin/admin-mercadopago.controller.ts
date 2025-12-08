@@ -7,6 +7,7 @@ import {
   UseGuards,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -29,6 +30,8 @@ import { ConfigService } from '@nestjs/config';
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth()
 export class AdminMercadoPagoController {
+  private readonly logger = new Logger(AdminMercadoPagoController.name);
+
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService,
@@ -124,17 +127,23 @@ export class AdminMercadoPagoController {
       });
 
       if (existing) {
-        // Atualizar existente
+        // Atualizar existente - construir objeto de dados dinamicamente
+        const updateData: any = {
+          access_token_enc: accessTokenEnc,
+          public_key: body.public_key,
+          environment: body.environment,
+          webhook_url: webhookUrl,
+          is_active: body.is_active ?? existing.is_active,
+        };
+        
+        // Só atualizar webhook_secret_enc se foi fornecido um novo valor
+        if (body.webhook_secret && body.webhook_secret.trim() !== '') {
+          updateData.webhook_secret_enc = webhookSecretEnc;
+        }
+        
         return this.prisma.mercadoPagoConfig.update({
           where: { id: existing.id },
-          data: {
-            access_token_enc: accessTokenEnc,
-            public_key: body.public_key,
-            webhook_secret_enc: webhookSecretEnc !== null ? webhookSecretEnc : undefined,
-            environment: body.environment,
-            webhook_url: webhookUrl,
-            is_active: body.is_active ?? existing.is_active,
-          },
+          data: updateData,
         });
       } else {
         // Criar nova
@@ -150,10 +159,16 @@ export class AdminMercadoPagoController {
         });
       }
     } catch (error: any) {
-      console.error('[AdminMercadoPago] Erro ao salvar configuração:', error);
-      if (error instanceof BadRequestException) {
+      this.logger.error('[AdminMercadoPago] Erro ao salvar configuração:', error);
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }
+      // Log detalhado do erro
+      console.error('[AdminMercadoPago] Erro completo:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name,
+      });
       throw new BadRequestException(
         error?.message || 'Erro ao salvar configuração do Mercado Pago'
       );
