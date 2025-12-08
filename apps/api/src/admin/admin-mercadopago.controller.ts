@@ -525,4 +525,46 @@ export class AdminMercadoPagoController {
       raw_payload_json: event.raw_payload_json,
     };
   }
+
+  @Post('sync-payments')
+  @ApiOperation({ summary: 'Sincronizar pagamentos com Mercado Pago (manual)' })
+  @ApiResponse({ status: 200, description: 'Sincronização iniciada' })
+  async syncPayments(): Promise<any> {
+    try {
+      // Disparar job de sincronização no BullMQ
+      // Usar import dinâmico para evitar dependência direta
+      const bullmq = await import('bullmq');
+      const Queue = bullmq.Queue;
+      
+      const queue = new Queue('mercadopago-sync', {
+        connection: {
+          host: this.configService.get<string>('REDIS_HOST') || 'localhost',
+          port: parseInt(this.configService.get<string>('REDIS_PORT') || '16379'),
+          password: this.configService.get<string>('REDIS_PASSWORD') || 'redispassword',
+        },
+      });
+
+      const job = await queue.add('sync-mercadopago-payments', {}, {
+        jobId: `manual-sync-${Date.now()}`,
+        removeOnComplete: true,
+        removeOnFail: false,
+      });
+
+      this.logger.log(`Job de sincronização manual criado: ${job.id}`);
+
+      // Fechar conexão após adicionar job
+      await queue.close();
+
+      return {
+        success: true,
+        message: 'Sincronização iniciada. Os pagamentos serão atualizados em alguns instantes.',
+        job_id: job.id,
+      };
+    } catch (error: any) {
+      this.logger.error('Erro ao iniciar sincronização manual:', error);
+      throw new BadRequestException(
+        error?.message || 'Erro ao iniciar sincronização de pagamentos'
+      );
+    }
+  }
 }

@@ -575,5 +575,10 @@ export const adminService = {
         const response = await apiClient.get(`/admin/mercadopago/webhook-logs/${id}`)
         return response.data
     },
+
+    syncMercadoPagoPayments: async (): Promise<any> => {
+        const response = await apiClient.post('/admin/mercadopago/sync-payments')
+        return response.data
+    },
 }
 

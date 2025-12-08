@@ -5,6 +5,7 @@ import { SLTPMonitorModule } from './sltp-monitor/sltp-monitor.module';
 import { LimitOrdersMonitorModule } from './limit-orders-monitor/limit-orders-monitor.module';
 import { BalancesSyncModule } from './balances-sync/balances-sync.module';
 import { SystemMonitorModule } from './system-monitor/system-monitor.module';
+import { MercadoPagoSyncModule } from './mercadopago-sync/mercadopago-sync.module';
 import { PriceSyncModule } from './price-sync/price-sync.module';
 import { PositionsSyncModule } from './positions-sync/positions-sync.module';
 import { PositionsParamsFixModule } from './positions-params-fix/positions-params-fix.module';
@@ -32,6 +33,7 @@ import * as path from 'path';
     PositionsSyncModule,
     PositionsParamsFixModule,
     DustPositionsMonitorModule,
+    MercadoPagoSyncModule,
   ],
 })
 export class AppModule {}

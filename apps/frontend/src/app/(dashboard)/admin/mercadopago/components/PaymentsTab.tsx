@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/shared/DataTable';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, Eye } from 'lucide-react';
+import { Loader2, RefreshCw, Eye, Sync } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDateTime } from '@/lib/utils/format';
 import {
@@ -56,6 +56,21 @@ export function PaymentsTab() {
     },
     onError: (error: any) => {
       toast.error(error?.response?.data?.message || 'Erro ao estornar pagamento');
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => adminService.syncMercadoPagoPayments(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'mercadopago', 'payments'] });
+      toast.success(data.message || 'Sincronização iniciada! Verifique os pagamentos em alguns instantes.');
+      // Aguardar 3 segundos e atualizar lista
+      setTimeout(() => {
+        refetch();
+      }, 3000);
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.message || 'Erro ao iniciar sincronização');
     },
   });
 
@@ -171,10 +186,30 @@ export function PaymentsTab() {
                 {payments?.length || 0} pagamento(s) encontrado(s)
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Atualizar
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Sincronizando...
+                  </>
+                ) : (
+                  <>
+                    <Sync className="h-4 w-4 mr-2" />
+                    Sincronizar com MP
+                  </>
+                )}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Atualizar
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

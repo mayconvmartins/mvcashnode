@@ -228,6 +228,22 @@ async function bootstrap() {
   );
   console.log('✅ Dust Positions Monitor configurado (a cada 5min)');
 
+  // Configurar Mercado Pago Sync - executa a cada 10 minutos
+  const mercadoPagoSyncQueue = app.get<Queue>(getQueueToken('mercadopago-sync'));
+  await mercadoPagoSyncQueue.add(
+    'sync-mercadopago-payments',
+    {},
+    {
+      repeat: {
+        every: 600000, // 10 minutos
+      },
+      jobId: 'mercadopago-sync-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Mercado Pago Sync configurado (a cada 10min)');
+
   console.log('🎉 Todos os monitores configurados e rodando!');
 }
 
