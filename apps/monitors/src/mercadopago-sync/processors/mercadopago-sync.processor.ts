@@ -383,99 +383,98 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
       for (const subscription of pendingSubscriptions) {
         // Se tem preference_id mas não tem payment_id, buscar pagamentos por preference_id
         if (subscription.mp_preference_id && !subscription.mp_payment_id) {
+          this.logger.log(`Buscando pagamentos para assinatura ${subscription.id} usando preference_id: ${subscription.mp_preference_id}`);
+          
           try {
-            this.logger.log(`Buscando pagamentos para assinatura ${subscription.id} usando preference_id: ${subscription.mp_preference_id}`);
-            
-            try {
-              // Buscar pagamentos por preference_id na API do Mercado Pago
-              const searchResponse = await fetch(`${baseUrl}/v1/payments/search?preference_id=${subscription.mp_preference_id}`, {
-                method: 'GET',
-                headers: {
-                  'Authorization': `Bearer ${accessToken}`,
-                },
-              });
+            // Buscar pagamentos por preference_id na API do Mercado Pago
+            const searchResponse = await fetch(`${baseUrl}/v1/payments/search?preference_id=${subscription.mp_preference_id}`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
 
-              if (searchResponse.ok) {
-                const searchResult = await searchResponse.json() as {
-                  results?: Array<{
-                    id: string;
-                    status: string;
-                    transaction_amount: number;
-                    payment_method_id: string;
-                    preference_id?: string;
-                  }>;
-                };
+            if (searchResponse.ok) {
+              const searchResult = await searchResponse.json() as {
+                results?: Array<{
+                  id: string;
+                  status: string;
+                  transaction_amount: number;
+                  payment_method_id: string;
+                  preference_id?: string;
+                }>;
+              };
 
-                if (searchResult.results && searchResult.results.length > 0) {
-                  this.logger.log(`Encontrados ${searchResult.results.length} pagamentos para preference_id ${subscription.mp_preference_id}`);
-                  
-                  // Processar cada pagamento encontrado
-                  for (const mpPayment of searchResult.results) {
-                    // Verificar se já existe registro de pagamento
-                    const existingPayment = await this.prisma.subscriptionPayment.findFirst({
-                      where: {
+              if (searchResult.results && searchResult.results.length > 0) {
+                this.logger.log(`Encontrados ${searchResult.results.length} pagamentos para preference_id ${subscription.mp_preference_id}`);
+                
+                // Processar cada pagamento encontrado
+                for (const mpPayment of searchResult.results) {
+                  // Verificar se já existe registro de pagamento
+                  const existingPayment = await this.prisma.subscriptionPayment.findFirst({
+                    where: {
+                      mp_payment_id: mpPayment.id,
+                    },
+                  });
+
+                  if (!existingPayment) {
+                    this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPayment.id})`);
+                    const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
+                    await this.prisma.subscriptionPayment.create({
+                      data: {
+                        subscription_id: subscription.id,
                         mp_payment_id: mpPayment.id,
+                        amount: mpPayment.transaction_amount,
+                        status: paymentStatus,
+                        payment_method: mpPayment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
                       },
                     });
-
-                    if (!existingPayment) {
-                      this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPayment.id})`);
-                      const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
-                      await this.prisma.subscriptionPayment.create({
-                        data: {
-                          subscription_id: subscription.id,
-                          mp_payment_id: mpPayment.id,
-                          amount: mpPayment.transaction_amount,
-                          status: paymentStatus,
-                          payment_method: mpPayment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
-                        },
-                      });
-                      synced++;
-                    }
-
-                    // Atualizar mp_payment_id na assinatura se ainda não estiver setado
-                    if (!subscription.mp_payment_id) {
-                      await this.prisma.subscription.update({
-                        where: { id: subscription.id },
-                        data: { mp_payment_id: mpPayment.id },
-                      });
-                      subscription.mp_payment_id = mpPayment.id;
-                    }
-
-                    // Se pagamento foi aprovado, processar assinatura
-                    // Verificar status atual da assinatura antes de processar (pode ter mudado)
-                    const currentSubscription = await this.prisma.subscription.findUnique({
-                      where: { id: subscription.id },
-                    });
-                    
-                    if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status === 'PENDING_PAYMENT') {
-                      this.logger.log(`✅ Pagamento aprovado encontrado! Processando assinatura ${subscription.id} com pagamento ${mpPayment.id} (encontrado via preference_id)`);
-                      await this.processApprovedPayment(
-                        subscription.id, 
-                        mpPayment.id, 
-                        {
-                          id: mpPayment.id,
-                          status: mpPayment.status,
-                          transaction_amount: mpPayment.transaction_amount,
-                          payment_method_id: mpPayment.payment_method_id,
-                          preference_id: mpPayment.preference_id,
-                        }
-                      );
-                      updated++;
-                      this.logger.log(`✅ Assinatura ${subscription.id} ativada com sucesso!`);
-                    } else if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status !== 'PENDING_PAYMENT') {
-                      this.logger.log(`Assinatura ${subscription.id} já está com status ${currentSubscription.status}, não precisa processar`);
-                    } else {
-                      this.logger.log(`Pagamento ${mpPayment.id} ainda não está aprovado (status: ${mpPayment.status}), aguardando...`);
-                    }
+                    synced++;
                   }
-                } else {
-                  this.logger.debug(`Nenhum pagamento encontrado para preference_id ${subscription.mp_preference_id}`);
+
+                  // Atualizar mp_payment_id na assinatura se ainda não estiver setado
+                  if (!subscription.mp_payment_id) {
+                    await this.prisma.subscription.update({
+                      where: { id: subscription.id },
+                      data: { mp_payment_id: mpPayment.id },
+                    });
+                    subscription.mp_payment_id = mpPayment.id;
+                  }
+
+                  // Se pagamento foi aprovado, processar assinatura
+                  // Verificar status atual da assinatura antes de processar (pode ter mudado)
+                  const currentSubscription = await this.prisma.subscription.findUnique({
+                    where: { id: subscription.id },
+                  });
+                  
+                  if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status === 'PENDING_PAYMENT') {
+                    this.logger.log(`✅ Pagamento aprovado encontrado! Processando assinatura ${subscription.id} com pagamento ${mpPayment.id} (encontrado via preference_id)`);
+                    await this.processApprovedPayment(
+                      subscription.id, 
+                      mpPayment.id, 
+                      {
+                        id: mpPayment.id,
+                        status: mpPayment.status,
+                        transaction_amount: mpPayment.transaction_amount,
+                        payment_method_id: mpPayment.payment_method_id,
+                        preference_id: mpPayment.preference_id,
+                      }
+                    );
+                    updated++;
+                    this.logger.log(`✅ Assinatura ${subscription.id} ativada com sucesso!`);
+                  } else if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status !== 'PENDING_PAYMENT') {
+                    this.logger.log(`Assinatura ${subscription.id} já está com status ${currentSubscription.status}, não precisa processar`);
+                  } else {
+                    this.logger.log(`Pagamento ${mpPayment.id} ainda não está aprovado (status: ${mpPayment.status}), aguardando...`);
+                  }
                 }
               } else {
-                const error = await searchResponse.json();
-                this.logger.warn(`Erro ao buscar pagamentos por preference_id ${subscription.mp_preference_id}:`, error);
+                this.logger.debug(`Nenhum pagamento encontrado para preference_id ${subscription.mp_preference_id}`);
               }
+            } else {
+              const error = await searchResponse.json();
+              this.logger.warn(`Erro ao buscar pagamentos por preference_id ${subscription.mp_preference_id}:`, error);
+            }
           } catch (error: any) {
             this.logger.error(`Erro ao buscar pagamentos por preference_id para assinatura ${subscription.id}:`, error);
           }
