@@ -249,9 +249,10 @@ export class MercadoPagoService {
       if (!response.ok) {
         const error = await response.json();
         this.logger.error('Erro ao estornar pagamento MP:', error);
-        throw new BadRequestException(
-          error?.message || 'Erro ao estornar pagamento no Mercado Pago'
-        );
+        const errorMessage = (error && typeof error === 'object' && 'message' in error)
+          ? String(error.message)
+          : 'Erro ao estornar pagamento no Mercado Pago';
+        throw new BadRequestException(errorMessage);
       }
 
       const refundResult = await response.json();
@@ -259,7 +260,7 @@ export class MercadoPagoService {
       return refundResult;
     } catch (error: unknown) {
       this.logger.error('Erro ao estornar pagamento Mercado Pago:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Erro ao estornar pagamento';
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao estornar pagamento no Mercado Pago';
       throw new BadRequestException(errorMessage);
     }
   }
