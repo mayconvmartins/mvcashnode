@@ -114,7 +114,7 @@ export default function PositionsPage() {
         if (dateFrom) filters.from = dateFrom
         if (dateTo) filters.to = dateTo
         return filters
-    }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, closedPage])
+    }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, closedPage, closedLimit])
 
     // Construir filtros para posições resíduo
     const dustFilters = useMemo(() => {
@@ -130,7 +130,7 @@ export default function PositionsPage() {
         if (dateFrom) filters.from = dateFrom
         if (dateTo) filters.to = dateTo
         return filters
-    }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, dustPage])
+    }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, dustPage, dustLimit])
 
     const { data: openPositionsData, isLoading: loadingOpen } = useQuery({
         queryKey: ['positions', 'OPEN', openFilters],

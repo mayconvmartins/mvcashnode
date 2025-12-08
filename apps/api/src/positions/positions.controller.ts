@@ -199,12 +199,12 @@ export class PositionsController {
     @CurrentUser() user: any,
     @Query('status') status?: string,
     @Query('trade_mode') tradeMode?: string,
-    @Query('exchange_account_id') exchangeAccountId?: number,
+    @Query('exchange_account_id', new ParseIntPipe({ optional: true })) exchangeAccountId?: number,
     @Query('symbol') symbol?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
     @Query('include_fills') includeFills?: boolean,
     @Query('is_dust') isDust?: string
   ): Promise<any> {
