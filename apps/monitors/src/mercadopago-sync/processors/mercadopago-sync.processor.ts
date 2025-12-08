@@ -318,19 +318,20 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
 
       // Buscar também assinaturas que têm mp_preference_id mas não têm mp_payment_id
       // Essas assinaturas podem ter pagamentos associados que precisam ser sincronizados
+      // IMPORTANTE: Buscar TODAS as assinaturas pendentes com preference_id, não apenas as mais recentes
       const subscriptionsWithPreference = await this.prisma.subscription.findMany({
         where: {
           mp_preference_id: {
             not: null,
           },
           mp_payment_id: null, // Não tem payment_id ainda
-          status: 'PENDING_PAYMENT',
+          status: 'PENDING_PAYMENT', // Apenas pendentes
         },
         include: {
           plan: true,
           user: true,
         },
-        take: 50,
+        // Remover limite para buscar todas as assinaturas pendentes
         orderBy: {
           created_at: 'desc',
         },
@@ -380,9 +381,9 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
       }
 
       for (const subscription of pendingSubscriptions) {
-        try {
-          // Se tem preference_id mas não tem payment_id, buscar pagamentos por preference_id
-          if (subscription.mp_preference_id && !subscription.mp_payment_id) {
+        // Se tem preference_id mas não tem payment_id, buscar pagamentos por preference_id
+        if (subscription.mp_preference_id && !subscription.mp_payment_id) {
+          try {
             this.logger.log(`Buscando pagamentos para assinatura ${subscription.id} usando preference_id: ${subscription.mp_preference_id}`);
             
             try {
@@ -442,8 +443,13 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                     }
 
                     // Se pagamento foi aprovado, processar assinatura
-                    if (mpPayment.status === 'approved' && subscription.status === 'PENDING_PAYMENT') {
-                      this.logger.log(`Processando assinatura ${subscription.id} com pagamento aprovado (encontrado via preference_id)`);
+                    // Verificar status atual da assinatura antes de processar (pode ter mudado)
+                    const currentSubscription = await this.prisma.subscription.findUnique({
+                      where: { id: subscription.id },
+                    });
+                    
+                    if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status === 'PENDING_PAYMENT') {
+                      this.logger.log(`✅ Pagamento aprovado encontrado! Processando assinatura ${subscription.id} com pagamento ${mpPayment.id} (encontrado via preference_id)`);
                       await this.processApprovedPayment(
                         subscription.id, 
                         mpPayment.id, 
@@ -456,6 +462,11 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                         }
                       );
                       updated++;
+                      this.logger.log(`✅ Assinatura ${subscription.id} ativada com sucesso!`);
+                    } else if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status !== 'PENDING_PAYMENT') {
+                      this.logger.log(`Assinatura ${subscription.id} já está com status ${currentSubscription.status}, não precisa processar`);
+                    } else {
+                      this.logger.log(`Pagamento ${mpPayment.id} ainda não está aprovado (status: ${mpPayment.status}), aguardando...`);
                     }
                   }
                 } else {
@@ -465,17 +476,17 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                 const error = await searchResponse.json();
                 this.logger.warn(`Erro ao buscar pagamentos por preference_id ${subscription.mp_preference_id}:`, error);
               }
-            } catch (error: any) {
-              this.logger.error(`Erro ao buscar pagamentos por preference_id para assinatura ${subscription.id}:`, error);
-            }
-            continue; // Pular para próxima assinatura
+          } catch (error: any) {
+            this.logger.error(`Erro ao buscar pagamentos por preference_id para assinatura ${subscription.id}:`, error);
           }
+          continue; // Pular para próxima assinatura
+        }
 
-          // Se não tem payment_id, pular
-          if (!subscription.mp_payment_id) {
-            this.logger.debug(`Assinatura ${subscription.id} não tem mp_payment_id nem preference_id, pulando...`);
-            continue;
-          }
+        // Se não tem payment_id, pular
+        if (!subscription.mp_payment_id) {
+          this.logger.debug(`Assinatura ${subscription.id} não tem mp_payment_id nem preference_id, pulando...`);
+          continue;
+        }
 
         try {
           this.logger.debug(`Verificando assinatura ${subscription.id} com pagamento MP: ${subscription.mp_payment_id}`);
