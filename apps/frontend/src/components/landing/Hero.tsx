@@ -17,11 +17,6 @@ export function Hero() {
             />
           </div>
 
-          {/* Headline */}
-          <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold mb-6 bg-gradient-to-r from-primary via-blue-500 to-purple-500 bg-clip-text text-transparent">
-            Trading Automation
-          </h1>
-
           <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto">
             Automatize suas operações de trading na Binance com webhooks, gestão inteligente de posições e análise de performance em tempo real.
           </p>
