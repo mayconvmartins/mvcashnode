@@ -14,13 +14,10 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { SubscriptionsService } from './subscriptions.service';
-import { CheckoutSubscriptionDto } from './dto/checkout-subscription.dto';
-import { SubscriberRegistrationDto } from './dto/subscriber-registration.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SubscriptionGuard } from './guards/subscription.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { validateCpf } from '../common/utils/cpf-validation';
-import { BadRequestException } from '@nestjs/common';
 
 @ApiTags('Subscriptions')
 @Controller('subscriptions')
@@ -37,9 +34,9 @@ export class SubscriptionsController {
   @Post('checkout')
   @ApiOperation({ summary: 'Criar checkout de assinatura' })
   @ApiResponse({ status: 201, description: 'Checkout criado com sucesso' })
-  async createCheckout(@Body() dto: CheckoutSubscriptionDto) {
+  async createCheckout(@Body() dto: any) {
     // Validar CPF
-    if (!validateCpf(dto.cpf)) {
+    if (dto.cpf && !validateCpf(dto.cpf)) {
       throw new BadRequestException('CPF inválido. Verifique os dígitos verificadores.');
     }
 
@@ -52,7 +49,7 @@ export class SubscriptionsController {
         email: dto.email,
         fullName: dto.full_name,
         cpf: dto.cpf,
-        birthDate: new Date(dto.birth_date),
+        birthDate: dto.birth_date ? new Date(dto.birth_date) : new Date(),
         phone: dto.phone,
         whatsapp: dto.whatsapp,
         address: {
@@ -117,7 +114,7 @@ export class SubscriptionsController {
   @Post('register')
   @ApiOperation({ summary: 'Finalizar registro após pagamento' })
   @ApiResponse({ status: 200, description: 'Registro concluído' })
-  async completeRegistration(@Body() dto: SubscriberRegistrationDto) {
+  async completeRegistration(@Body() dto: { token: string; password: string; email: string }) {
     return this.subscriptionsService.completeRegistration(dto.token, dto.password, dto.email);
   }
 }

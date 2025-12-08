@@ -87,7 +87,6 @@ export default function AdminSubscriberParametersPage() {
           <DataTable
             data={parameters || []}
             columns={columns}
-            searchKey="user.email"
           />
         </CardContent>
       </Card>

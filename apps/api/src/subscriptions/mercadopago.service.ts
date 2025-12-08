@@ -183,7 +183,7 @@ export class MercadoPagoService {
         throw new BadRequestException('Erro ao criar preferência de pagamento');
       }
 
-      const preference = await response.json();
+      const preference = await response.json() as { id: string; init_point: string; sandbox_init_point?: string };
       return {
         id: preference.id,
         init_point: preference.init_point,
@@ -216,10 +216,11 @@ export class MercadoPagoService {
         throw new BadRequestException('Erro ao buscar pagamento');
       }
 
-      return await response.json();
-    } catch (error: any) {
+      return await response.json() as MercadoPagoPayment;
+    } catch (error: unknown) {
       this.logger.error('Erro ao buscar pagamento Mercado Pago:', error);
-      throw new BadRequestException(error.message || 'Erro ao buscar pagamento');
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao buscar pagamento';
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -269,26 +270,27 @@ export class MercadoPagoService {
     data: { id: string };
   }): Promise<void> {
     try {
+      // TODO: Modelos Subscription ainda não foram criados no schema Prisma
       // Salvar evento no banco
-      await this.prisma.subscriptionWebhookEvent.create({
-        data: {
-          mp_event_id: event.id,
-          mp_event_type: event.type,
-          mp_resource_id: event.data.id,
-          raw_payload_json: event as any,
-          processed: false,
-        },
-      });
+      // await this.prisma.subscriptionWebhookEvent.create({
+      //   data: {
+      //     mp_event_id: event.id,
+      //     mp_event_type: event.type,
+      //     mp_resource_id: event.data.id,
+      //     raw_payload_json: event as any,
+      //     processed: false,
+      //   },
+      // });
 
       // Se for evento de pagamento, buscar detalhes
       if (event.type === 'payment') {
         const payment = await this.getPayment(event.data.id);
         
-        // Atualizar evento como processado
-        await this.prisma.subscriptionWebhookEvent.updateMany({
-          where: { mp_event_id: event.id },
-          data: { processed: true, processed_at: new Date() },
-        });
+        // TODO: Atualizar evento como processado
+        // await this.prisma.subscriptionWebhookEvent.updateMany({
+        //   where: { mp_event_id: event.id },
+        //   data: { processed: true, processed_at: new Date() },
+        // });
 
         // Processar pagamento (será feito no SubscriptionService)
         this.logger.log(`Pagamento ${payment.id} processado: ${payment.status}`);
@@ -342,15 +344,16 @@ export class MercadoPagoService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json() as { message?: string };
         this.logger.error('Erro ao criar pagamento com cartão:', error);
         throw new BadRequestException(error.message || 'Erro ao processar pagamento');
       }
 
-      return await response.json();
-    } catch (error: any) {
+      return await response.json() as MercadoPagoPayment;
+    } catch (error: unknown) {
       this.logger.error('Erro ao criar pagamento com cartão:', error);
-      throw new BadRequestException(error.message || 'Erro ao processar pagamento');
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao processar pagamento';
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -392,15 +395,16 @@ export class MercadoPagoService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json() as { message?: string };
         this.logger.error('Erro ao criar pagamento PIX:', error);
         throw new BadRequestException(error.message || 'Erro ao processar pagamento PIX');
       }
 
-      return await response.json();
-    } catch (error: any) {
+      return await response.json() as MercadoPagoPayment & { point_of_interaction?: { transaction_data?: { qr_code?: string; qr_code_base64?: string } } };
+    } catch (error: unknown) {
       this.logger.error('Erro ao criar pagamento PIX:', error);
-      throw new BadRequestException(error.message || 'Erro ao processar pagamento PIX');
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao processar pagamento PIX';
+      throw new BadRequestException(errorMessage);
     }
   }
 

@@ -1,22 +1,16 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
 import { SubscriptionsService } from './subscriptions.service';
 import { MercadoPagoService } from './mercadopago.service';
 import { SubscriptionsController } from './subscriptions.controller';
-import { SubscriptionPlansController } from './subscription-plans.controller';
-import { SubscriberParametersController } from './subscriber-parameters.controller';
-import { SubscriptionWebhooksController } from './subscription-webhooks.controller';
 import { SubscriptionPaymentsController } from './subscription-payments.controller';
 
 @Module({
   imports: [ConfigModule],
   controllers: [
     SubscriptionsController,
-    SubscriptionPlansController,
-    SubscriberParametersController,
-    SubscriptionWebhooksController,
     SubscriptionPaymentsController,
   ],
   providers: [
@@ -35,7 +29,6 @@ import { SubscriptionPaymentsController } from './subscription-payments.controll
       inject: [ConfigService],
     },
   ],
-  imports: [ConfigModule],
   exports: [SubscriptionsService, MercadoPagoService],
 })
 export class SubscriptionsModule {}
