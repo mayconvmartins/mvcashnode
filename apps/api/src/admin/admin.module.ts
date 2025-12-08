@@ -3,6 +3,9 @@ import { AdminUsersController } from './admin-users.controller';
 import { AdminSystemController } from './admin-system.controller';
 import { AdminAuditController } from './admin-audit.controller';
 import { AdminNotificationsController } from './admin-notifications.controller';
+import { AdminSubscriptionsController } from './admin-subscriptions.controller';
+import { AdminSubscribersController } from './admin-subscribers.controller';
+import { AdminMercadoPagoController } from './admin-mercadopago.controller';
 import { AdminService } from './admin.service';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
@@ -11,6 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { BullModule } from '@nestjs/bullmq';
+import { MercadoPagoService } from '../subscriptions/mercadopago.service';
 
 @Module({
   imports: [
@@ -24,11 +28,15 @@ import { BullModule } from '@nestjs/bullmq';
     AdminSystemController,
     AdminAuditController,
     AdminNotificationsController,
+    AdminSubscriptionsController,
+    AdminSubscribersController,
+    AdminMercadoPagoController,
   ],
   providers: [
     AdminService,
     PrismaService,
     TradeJobQueueService,
+    MercadoPagoService,
     {
       provide: EncryptionService,
       useFactory: (configService: ConfigService) => {

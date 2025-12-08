@@ -1,0 +1,123 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  UseGuards,
+  Request,
+  BadRequestException,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
+import { SubscriptionsService } from './subscriptions.service';
+import { CheckoutSubscriptionDto } from './dto/checkout-subscription.dto';
+import { SubscriberRegistrationDto } from './dto/subscriber-registration.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { SubscriptionGuard } from './guards/subscription.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { validateCpf } from '../common/utils/cpf-validation';
+import { BadRequestException } from '@nestjs/common';
+
+@ApiTags('Subscriptions')
+@Controller('subscriptions')
+export class SubscriptionsController {
+  constructor(private subscriptionsService: SubscriptionsService) {}
+
+  @Get('plans')
+  @ApiOperation({ summary: 'Listar planos ativos' })
+  @ApiResponse({ status: 200, description: 'Lista de planos disponíveis' })
+  async getPlans() {
+    return this.subscriptionsService.getActivePlans();
+  }
+
+  @Post('checkout')
+  @ApiOperation({ summary: 'Criar checkout de assinatura' })
+  @ApiResponse({ status: 201, description: 'Checkout criado com sucesso' })
+  async createCheckout(@Body() dto: CheckoutSubscriptionDto) {
+    // Validar CPF
+    if (!validateCpf(dto.cpf)) {
+      throw new BadRequestException('CPF inválido. Verifique os dígitos verificadores.');
+    }
+
+    const billingPeriod = dto.billing_period as 'monthly' | 'quarterly';
+    
+    return this.subscriptionsService.createCheckout({
+      planId: dto.plan_id,
+      billingPeriod,
+      subscriberData: {
+        email: dto.email,
+        fullName: dto.full_name,
+        cpf: dto.cpf,
+        birthDate: new Date(dto.birth_date),
+        phone: dto.phone,
+        whatsapp: dto.whatsapp,
+        address: {
+          street: dto.address_street,
+          number: dto.address_number,
+          complement: dto.address_complement,
+          neighborhood: dto.address_neighborhood,
+          city: dto.address_city,
+          state: dto.address_state,
+          zipcode: dto.address_zipcode,
+        },
+      },
+    });
+  }
+
+  @Get('my-subscription')
+  @UseGuards(JwtAuthGuard, SubscriptionGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Obter minha assinatura' })
+  @ApiResponse({ status: 200, description: 'Detalhes da assinatura do usuário' })
+  async getMySubscription(@CurrentUser() user: any) {
+    return this.subscriptionsService.getMySubscription(user.userId);
+  }
+
+  @Get('my-plan')
+  @UseGuards(JwtAuthGuard, SubscriptionGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Obter detalhes do meu plano' })
+  @ApiResponse({ status: 200, description: 'Detalhes do plano atual' })
+  async getMyPlan(@CurrentUser() user: any) {
+    const subscription = await this.subscriptionsService.getMySubscription(user.userId);
+    return {
+      plan: subscription.plan,
+      status: subscription.status,
+      start_date: subscription.start_date,
+      end_date: subscription.end_date,
+      auto_renew: subscription.auto_renew,
+    };
+  }
+
+  @Post('cancel')
+  @UseGuards(JwtAuthGuard, SubscriptionGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cancelar assinatura' })
+  @ApiResponse({ status: 200, description: 'Assinatura cancelada com sucesso' })
+  async cancelSubscription(@CurrentUser() user: any) {
+    return this.subscriptionsService.cancelSubscription(user.userId);
+  }
+
+  @Post('renew')
+  @UseGuards(JwtAuthGuard, SubscriptionGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Renovar assinatura' })
+  @ApiResponse({ status: 200, description: 'Renovação iniciada' })
+  async renewSubscription(
+    @CurrentUser() user: any,
+    @Body() body: { billing_period: 'monthly' | 'quarterly' }
+  ) {
+    return this.subscriptionsService.renewSubscription(user.userId, body.billing_period);
+  }
+
+  @Post('register')
+  @ApiOperation({ summary: 'Finalizar registro após pagamento' })
+  @ApiResponse({ status: 200, description: 'Registro concluído' })
+  async completeRegistration(@Body() dto: SubscriberRegistrationDto) {
+    return this.subscriptionsService.completeRegistration(dto.token, dto.password, dto.email);
+  }
+}

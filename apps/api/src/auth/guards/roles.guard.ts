@@ -19,6 +19,11 @@ export class RolesGuard implements CanActivate {
       return false;
     }
 
+    // Admin tem acesso a tudo
+    if (user.roles.includes(UserRole.ADMIN)) {
+      return true;
+    }
+
     return requiredRoles.some((role) => user.roles.includes(role));
   }
 }

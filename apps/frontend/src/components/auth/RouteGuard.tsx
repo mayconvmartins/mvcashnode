@@ -7,6 +7,7 @@ import { authService } from '@/lib/api/auth.service'
 import { apiClient } from '@/lib/api/client'
 import { Spinner } from '@/components/ui/spinner'
 import { UserRole } from '@/lib/types'
+import { subscriptionsService } from '@/lib/api/subscriptions.service'
 
 interface RouteGuardProps {
     children: React.ReactNode
@@ -22,6 +23,7 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
     const [isLoading, setIsLoading] = useState(true)
     const [hasToken, setHasToken] = useState(false)
     const [processingImpersonation, setProcessingImpersonation] = useState(false)
+    const [subscriptionStatus, setSubscriptionStatus] = useState<'checking' | 'active' | 'inactive' | null>(null)
 
     useEffect(() => {
         // Verificar se há token de impersonation na URL
@@ -238,6 +240,49 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
         return () => clearTimeout(timer)
     }, [isAuthenticated, setTokens, setUser, getRememberMe, router, searchParams])
 
+    // Verificar assinatura ativa para assinantes
+    useEffect(() => {
+        if (isLoading || processingImpersonation || !isAuthenticated || !user) return
+
+        const isSubscriber = user.roles?.some((role: any) => {
+            const roleValue = typeof role === 'object' && role !== null ? role.role : role
+            return roleValue === UserRole.SUBSCRIBER || roleValue === 'subscriber'
+        })
+
+        // Se não é assinante, não precisa verificar
+        if (!isSubscriber) {
+            setSubscriptionStatus('active') // Considerar ativo para não-assinantes
+            return
+        }
+
+        // Se é admin, não precisa verificar assinatura
+        const isAdmin = user.roles?.some((role: any) => {
+            const roleValue = typeof role === 'object' && role !== null ? role.role : role
+            return roleValue === UserRole.ADMIN || roleValue === 'admin'
+        })
+        if (isAdmin) {
+            setSubscriptionStatus('active')
+            return
+        }
+
+        // Verificar assinatura ativa
+        setSubscriptionStatus('checking')
+        subscriptionsService.getMySubscription()
+            .then((subscription) => {
+                const isActive = subscription.status === 'ACTIVE' && 
+                    (!subscription.end_date || new Date(subscription.end_date) > new Date())
+                setSubscriptionStatus(isActive ? 'active' : 'inactive')
+                
+                if (!isActive && pathname !== '/my-plan' && !pathname.startsWith('/subscribe')) {
+                    router.push('/my-plan?expired=true')
+                }
+            })
+            .catch(() => {
+                setSubscriptionStatus('inactive')
+                // Se não conseguir verificar, permitir acesso mas mostrar aviso
+            })
+    }, [isLoading, processingImpersonation, isAuthenticated, user, pathname, router])
+
     useEffect(() => {
         if (isLoading || processingImpersonation) return
 
@@ -252,7 +297,7 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
         }
     }, [isLoading, processingImpersonation, isAuthenticated, hasToken, user, requireAuth, requireAdmin, router, pathname])
 
-    if (isLoading || processingImpersonation) {
+    if (isLoading || processingImpersonation || subscriptionStatus === 'checking') {
         return (
             <div className="flex min-h-screen items-center justify-center">
                 <div className="text-center">
@@ -260,6 +305,11 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
                     {processingImpersonation && (
                         <p className="mt-4 text-sm text-muted-foreground">
                             Fazendo login como outro usuário...
+                        </p>
+                    )}
+                    {subscriptionStatus === 'checking' && (
+                        <p className="mt-4 text-sm text-muted-foreground">
+                            Verificando assinatura...
                         </p>
                     )}
                 </div>

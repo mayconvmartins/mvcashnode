@@ -263,7 +263,18 @@ export class TradeParametersController {
         throw new BadRequestException('Intervalo de agrupamento (group_positions_interval_minutes) é obrigatório e deve ser maior que zero quando agrupamento de posições estiver habilitado');
       }
 
+      // Verificar se é assinante e buscar parâmetros padrão
+      const isSubscriber = user.roles && user.roles.includes('subscriber');
+      let subscriberParams = null;
+      
+      if (isSubscriber) {
+        subscriberParams = await this.prisma.subscriberParameters.findUnique({
+          where: { user_id: user.userId },
+        });
+      }
+
       // Mapear campos do frontend para o formato esperado
+      // Aplicar parâmetros padrão de assinante se não especificados
       const mappedDto = {
         userId: user.userId,
         exchangeAccountId: accountId,
@@ -273,20 +284,26 @@ export class TradeParametersController {
           createDto.orderSizeType === 'FIXED' ? createDto.orderSizeValue : undefined,
         quoteAmountPctBalance: 
           createDto.orderSizeType === 'PERCENT_BALANCE' ? createDto.orderSizeValue : undefined,
-        maxOrdersPerHour: createDto.maxOrdersPerHour,
-        minIntervalSec: createDto.minIntervalSec,
-        orderTypeDefault: createDto.orderType || 'MARKET',
+        maxOrdersPerHour: createDto.maxOrdersPerHour ?? subscriberParams?.max_orders_per_hour,
+        minIntervalSec: createDto.minIntervalSec ?? subscriberParams?.min_interval_sec,
+        orderTypeDefault: createDto.orderType || subscriberParams?.default_order_type || 'MARKET',
         slippageBps: createDto.slippageBps,
-        defaultSlEnabled: createDto.stopLoss !== undefined || createDto.stopLossPercent !== undefined,
-        defaultSlPct: createDto.stopLossPercent || createDto.stopLoss,
-        defaultTpEnabled: createDto.takeProfit !== undefined || createDto.takeProfitPercent !== undefined,
-        defaultTpPct: createDto.takeProfitPercent || createDto.takeProfit,
+        defaultSlEnabled: createDto.stopLoss !== undefined || createDto.stopLossPercent !== undefined 
+          ? (createDto.stopLoss !== undefined || createDto.stopLossPercent !== undefined)
+          : (subscriberParams?.default_sl_pct !== null && subscriberParams?.default_sl_pct !== undefined),
+        defaultSlPct: createDto.stopLossPercent || createDto.stopLoss || subscriberParams?.default_sl_pct,
+        defaultTpEnabled: createDto.takeProfit !== undefined || createDto.takeProfitPercent !== undefined
+          ? (createDto.takeProfit !== undefined || createDto.takeProfitPercent !== undefined)
+          : (subscriberParams?.default_tp_pct !== null && subscriberParams?.default_tp_pct !== undefined),
+        defaultTpPct: createDto.takeProfitPercent || createDto.takeProfit || subscriberParams?.default_tp_pct,
         trailingStopEnabled: createDto.trailingStop || false,
         trailingDistancePct: createDto.trailingDistancePct,
         minProfitPct: createDto.minProfitPct ?? createDto.min_profit_pct,
         groupPositionsEnabled: groupPositionsEnabled,
         groupPositionsIntervalMinutes: groupPositionsIntervalMinutes ? Number(groupPositionsIntervalMinutes) : undefined,
-        vaultId: createDto.vaultId ? Number(createDto.vaultId) : undefined,
+        vaultId: createDto.vaultId 
+          ? Number(createDto.vaultId) 
+          : (subscriberParams?.default_vault_id || undefined),
       };
 
       return this.tradeParametersService.getDomainService().createParameter(mappedDto);

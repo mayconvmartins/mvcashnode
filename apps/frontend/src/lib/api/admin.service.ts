@@ -356,5 +356,131 @@ export const adminService = {
         })
         return response.data
     },
+
+    // Subscriptions
+    listSubscriptions: async (filters?: { status?: string; plan_id?: number }): Promise<any[]> => {
+        const response = await apiClient.get('/admin/subscriptions', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getSubscription: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/subscriptions/${id}`)
+        return response.data
+    },
+
+    updateSubscription: async (id: number, data: any): Promise<any> => {
+        const response = await apiClient.put(`/admin/subscriptions/${id}`, data)
+        return response.data
+    },
+
+    cancelSubscription: async (id: number): Promise<any> => {
+        const response = await apiClient.post(`/admin/subscriptions/${id}/cancel`)
+        return response.data
+    },
+
+    extendSubscription: async (id: number, days: number): Promise<any> => {
+        const response = await apiClient.post(`/admin/subscriptions/${id}/extend`, { days })
+        return response.data
+    },
+
+    getSubscriptionPayments: async (id: number): Promise<any[]> => {
+        const response = await apiClient.get(`/admin/subscriptions/${id}/payments`)
+        return response.data
+    },
+
+    // Subscribers
+    listSubscribers: async (filters?: { email?: string; is_active?: boolean }): Promise<any[]> => {
+        const response = await apiClient.get('/admin/subscribers', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getSubscriber: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/subscribers/${id}`)
+        return response.data
+    },
+
+    updateSubscriber: async (id: number, data: any): Promise<any> => {
+        const response = await apiClient.put(`/admin/subscribers/${id}`, data)
+        return response.data
+    },
+
+    deactivateSubscriber: async (id: number): Promise<any> => {
+        const response = await apiClient.post(`/admin/subscribers/${id}/deactivate`)
+        return response.data
+    },
+
+    changeSubscriberPassword: async (id: number, newPassword: string): Promise<any> => {
+        const response = await apiClient.post(`/admin/subscribers/${id}/change-password`, {
+            new_password: newPassword,
+        })
+        return response.data
+    },
+
+    getSubscriberParameters: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/subscribers/${id}/parameters`)
+        return response.data
+    },
+
+    // Subscription Plans
+    listSubscriptionPlans: async (): Promise<any[]> => {
+        const response = await apiClient.get('/admin/subscription-plans')
+        return response.data
+    },
+
+    getSubscriptionPlan: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/subscription-plans/${id}`)
+        return response.data
+    },
+
+    createSubscriptionPlan: async (data: any): Promise<any> => {
+        const response = await apiClient.post('/admin/subscription-plans', data)
+        return response.data
+    },
+
+    updateSubscriptionPlan: async (id: number, data: any): Promise<any> => {
+        const response = await apiClient.put(`/admin/subscription-plans/${id}`, data)
+        return response.data
+    },
+
+    deleteSubscriptionPlan: async (id: number): Promise<any> => {
+        const response = await apiClient.delete(`/admin/subscription-plans/${id}`)
+        return response.data
+    },
+
+    // Subscriber Parameters
+    listSubscriberParameters: async (): Promise<any[]> => {
+        const response = await apiClient.get('/admin/subscriber-parameters')
+        return response.data
+    },
+
+    getSubscriberParametersByUser: async (userId: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/subscriber-parameters/${userId}`)
+        return response.data
+    },
+
+    updateSubscriberParameters: async (userId: number, data: any): Promise<any> => {
+        const response = await apiClient.put(`/admin/subscriber-parameters/${userId}`, data)
+        return response.data
+    },
+
+    // Mercado Pago Config
+    getMercadoPagoConfig: async (): Promise<any> => {
+        const response = await apiClient.get('/admin/mercadopago/config')
+        return response.data
+    },
+
+    updateMercadoPagoConfig: async (data: any): Promise<any> => {
+        const response = await apiClient.put('/admin/mercadopago/config', data)
+        return response.data
+    },
+
+    testMercadoPagoConnection: async (): Promise<any> => {
+        const response = await apiClient.post('/admin/mercadopago/test-connection')
+        return response.data
+    },
 }
 

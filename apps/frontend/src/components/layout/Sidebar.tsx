@@ -24,7 +24,8 @@ import {
     ChevronDown,
     ChevronRight,
     BookOpen,
-    Target
+    Target,
+    CreditCard
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -54,6 +55,7 @@ const adminMenuItems = [
     { icon: Users, label: 'Usuários', href: '/admin/users' },
     { icon: FileText, label: 'Audit Logs', href: '/admin/audit' },
     { icon: MessageSquare, label: 'WhatsApp', href: '/admin/notifications' },
+    { icon: CreditCard, label: 'Mercado Pago', href: '/admin/mercadopago' },
     { icon: BookOpen, label: 'API Docs', href: '/api-docs', external: true },
 ]
 
@@ -141,6 +143,12 @@ export function Sidebar() {
         return roleValue === 'admin' || roleValue === 'ADMIN' || roleValue?.toLowerCase?.() === 'admin'
     })
 
+    // Verificar se o usuário é assinante
+    const isSubscriber = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === 'subscriber' || roleValue === 'SUBSCRIBER' || roleValue?.toLowerCase?.() === 'subscriber'
+    })
+
     return (
         <>
             {/* Mobile Menu Button */}
@@ -190,6 +198,23 @@ export function Sidebar() {
                                 </Link>
                             )
                         })}
+
+                        {/* Meu Plano - apenas para assinantes */}
+                        {isSubscriber && (
+                            <Link
+                                href="/my-plan"
+                                className={cn(
+                                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                                    pathname === '/my-plan'
+                                        ? "bg-primary/10 text-primary"
+                                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                )}
+                                onClick={() => setIsOpen(false)}
+                            >
+                                <CreditCard className={cn("h-5 w-5", pathname === '/my-plan' ? "text-primary" : "text-muted-foreground")} />
+                                Meu Plano
+                            </Link>
+                        )}
 
                         {/* Admin Dropdown */}
                         {isAdmin && (

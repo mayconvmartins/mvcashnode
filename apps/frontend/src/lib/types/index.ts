@@ -58,6 +58,7 @@ export enum WebhookAction {
 export enum UserRole {
     ADMIN = 'admin',
     USER = 'user',
+    SUBSCRIBER = 'subscriber',
 }
 
 // ============================================

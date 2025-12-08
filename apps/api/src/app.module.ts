@@ -19,6 +19,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { InternalModule } from './internal/internal.module';
 import { WebSocketModule } from './websocket/websocket.module';
 import { CommonModule } from './common/common.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import * as path from 'path';
 
 @Module({
@@ -70,6 +71,7 @@ import * as path from 'path';
     InternalModule,
     WebSocketModule,
     CommonModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [

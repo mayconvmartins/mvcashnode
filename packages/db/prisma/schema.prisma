@@ -736,3 +736,21 @@ model CronJobExecution {
   @@index([status])
   @@map("cron_job_executions")
 }
+
+// ============================================
+// MERCADO PAGO CONFIG
+// ============================================
+
+model MercadoPagoConfig {
+  id                  Int      @id @default(autoincrement())
+  access_token_enc    String   @db.Text
+  public_key          String   @db.VarChar(255)
+  webhook_secret_enc  String?  @db.Text
+  environment         String   @default("sandbox") @db.VarChar(20) // 'sandbox' | 'production'
+  webhook_url         String?  @db.VarChar(500)
+  is_active           Boolean  @default(false)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  @@map("mercadopago_config")
+}

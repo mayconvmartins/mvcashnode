@@ -54,7 +54,8 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.1.13",
-    "zustand": "^5.0.9"
+    "zustand": "^5.0.9",
+    "@mercadopago/sdk-react": "^1.0.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",

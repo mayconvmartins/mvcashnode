@@ -178,6 +178,16 @@ export class ExchangeAccountsController {
     @Body() createDto: CreateExchangeAccountDto
   ) {
     try {
+      // Verificar se é assinante
+      const isSubscriber = user.roles && user.roles.includes('subscriber');
+      
+      // Assinantes não podem usar modo simulação
+      if (isSubscriber) {
+        if (createDto.tradeMode === 'SIMULATION' || createDto.isSimulation === true) {
+          throw new ForbiddenException('Assinantes não podem criar contas em modo simulação');
+        }
+      }
+
       // Mapear campos do frontend para o formato esperado pelo domain service
       const mappedDto: any = {
         exchange: createDto.exchange,
@@ -196,6 +206,7 @@ export class ExchangeAccountsController {
         mappedDto.isSimulation = createDto.isSimulation;
       } else {
         // Default: se não especificado, assume REAL (não simulação)
+        // Para assinantes, sempre REAL
         mappedDto.isSimulation = false;
       }
 
@@ -213,7 +224,27 @@ export class ExchangeAccountsController {
         mappedDto.isActive = createDto.isActive;
       }
 
-      return await this.exchangeAccountsService.getDomainService().createAccount(mappedDto);
+      // Aplicar parâmetros padrão de assinantes se for assinante
+      const createdAccount = await this.exchangeAccountsService.getDomainService().createAccount(mappedDto);
+      
+      if (isSubscriber) {
+        // Buscar parâmetros padrão do assinante
+        const subscriberParams = await this.prisma.subscriberParameters.findUnique({
+          where: { user_id: user.userId },
+        });
+
+        if (subscriberParams) {
+          // Se tiver default_exchange_account_id configurado, atualizar
+          if (!subscriberParams.default_exchange_account_id) {
+            await this.prisma.subscriberParameters.update({
+              where: { user_id: user.userId },
+              data: { default_exchange_account_id: createdAccount.id },
+            });
+          }
+        }
+      }
+
+      return createdAccount;
     } catch (error: any) {
       const errorMessage = error?.message || 'Erro ao criar conta';
       

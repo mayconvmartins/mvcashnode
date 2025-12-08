@@ -5,6 +5,7 @@ import { ThemeProvider } from 'next-themes'
 import { ReactNode, useState } from 'react'
 import { Toaster } from '@/components/ui/toaster'
 import { WebSocketProvider } from '@/components/websocket/WebSocketProvider'
+import { MercadoPagoProvider } from './MercadoPagoProvider'
 
 export function Providers({ children }: { children: ReactNode }) {
     const [queryClient] = useState(
@@ -30,8 +31,10 @@ export function Providers({ children }: { children: ReactNode }) {
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
             <QueryClientProvider client={queryClient}>
                 <WebSocketProvider>
-                    {children}
-                    <Toaster />
+                    <MercadoPagoProvider>
+                        {children}
+                        <Toaster />
+                    </MercadoPagoProvider>
                 </WebSocketProvider>
             </QueryClientProvider>
         </ThemeProvider>
