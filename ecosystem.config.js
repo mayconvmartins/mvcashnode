@@ -51,13 +51,13 @@ module.exports = {
     {
       name: 'mvcashnode-frontend',
       script: 'pnpm',
-      args: 'exec next start -p 5010',
+      args: 'exec next start -p 6010',
       cwd: './apps/frontend',
       instances: 1,
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
-        PORT: '5010',
+        PORT: '6010',
       },
       error_file: './logs/frontend-error.log',
       out_file: './logs/frontend-out.log',

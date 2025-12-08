@@ -5,11 +5,10 @@ export function middleware(request: NextRequest) {
     const pathname = request.nextUrl.pathname
     
     // Rotas públicas que não precisam de autenticação
-    const publicRoutes = ['/login', '/setup-2fa', '/subscribe']
+    const publicRoutes = ['/login', '/setup-2fa', '/subscribe', '/help']
     const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route))
     
-    // Permitir acesso à rota raiz (dashboard principal)
-    // A proteção será feita no lado do cliente
+    // Permitir acesso à rota raiz (landing page) e rotas públicas
     if (isPublicRoute || pathname === '/') {
         return NextResponse.next()
     }
