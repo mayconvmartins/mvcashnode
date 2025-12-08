@@ -368,20 +368,55 @@ export class TransFiService {
       const firstName = fullNameParts[0] || data.customerData.email.split('@')[0];
       const lastName = fullNameParts.slice(1).join(' ') || firstName;
 
-      // O payin do TransFi cria o customer automaticamente com os dados fornecidos
-      // Não precisamos criar o customer antes - o payin faz isso automaticamente
-      // quando recebe email, firstName, lastName, country
+      // Criar customer explicitamente antes do payin
+      // O erro CUSTOMER_NOT_FOUND sugere que o customer precisa existir antes
+      let customerUserId: string | null = null;
+      try {
+        this.logger.debug('Criando customer antes do payin...');
+        customerUserId = await this.createOrGetCustomer({
+          email: data.customerData.email,
+          firstName,
+          lastName,
+          date: data.customerData.birthDate,
+          country: 'BR',
+          phone: data.customerData.phone,
+          address: data.customerData.address ? {
+            city: data.customerData.address.city,
+            postalCode: data.customerData.address.zipcode,
+            street: data.customerData.address.street,
+            state: data.customerData.address.state,
+          } : undefined,
+        });
+        if (customerUserId) {
+          this.logger.debug(`Customer criado/encontrado: ${customerUserId}`);
+        } else {
+          this.logger.warn('Customer não foi criado/encontrado, mas continuando com payin...');
+        }
+      } catch (error) {
+        // Continuar mesmo se falhar - o payin pode funcionar sem userId
+        this.logger.warn('Erro ao criar customer antes do payin (continuando):', error);
+      }
 
-      // Mapear paymentMethod para paymentCode
-      // PIX -> pix, CARD -> card, etc
+      // Mapear paymentMethod para paymentCode e paymentType
+      // PIX -> pix/local_wallet, CARD -> card, BANK_TRANSFER -> bank_transfer
       const paymentCodeMap: Record<string, string> = {
         'PIX': 'pix',
         'CARD': 'card',
         'BANK_TRANSFER': 'bank_transfer',
       };
+      const paymentTypeMap: Record<string, string> = {
+        'PIX': 'local_wallet', // PIX é considerado local_wallet
+        'CARD': 'card',
+        'BANK_TRANSFER': 'bank_transfer',
+      };
       const paymentCode = paymentCodeMap[data.paymentMethod] || data.paymentMethod.toLowerCase();
+      const paymentType = paymentTypeMap[data.paymentMethod] || 'bank_transfer';
 
-      // Construir body conforme documentação - apenas campos obrigatórios primeiro
+      // Campos obrigatórios conforme documentação
+      const redirectUrl = config.redirectUrl || 'https://www.mvcash.com.br';
+      const sourceUrl = config.redirectUrl || 'https://www.mvcash.com.br';
+
+      // Construir body conforme documentação - campos obrigatórios
       const payinData: any = {
         amount: data.amount,
         currency: data.currency,
@@ -389,15 +424,14 @@ export class TransFiService {
         firstName,
         lastName,
         country: 'BR', // Brasil por padrão
-        paymentCode,
+        paymentType, // OBRIGATÓRIO: bank_transfer, local_wallet, card
+        purposeCode: 'subscription_payment', // OBRIGATÓRIO: Purpose of the Payment
+        redirectUrl, // OBRIGATÓRIO
+        sourceUrl, // OBRIGATÓRIO: Merchant website URL
+        paymentCode, // Nome do método de pagamento (pix, card, etc)
         balanceCurrency: 'USDT', // Sempre receber em USDT
+        type: 'individual', // Tipo de usuário (conforme exemplo da documentação)
       };
-
-      // Campos opcionais
-      if (config.redirectUrl) {
-        payinData.redirectUrl = config.redirectUrl;
-        payinData.sourceUrl = config.redirectUrl;
-      }
 
       // additionalDetails com phone se disponível
       if (data.customerData.phone) {
@@ -424,10 +458,14 @@ export class TransFiService {
         firstName: payinData.firstName,
         lastName: payinData.lastName,
         country: payinData.country,
+        paymentType: payinData.paymentType,
         paymentCode: payinData.paymentCode,
+        purposeCode: payinData.purposeCode,
         balanceCurrency: payinData.balanceCurrency,
+        redirectUrl: payinData.redirectUrl,
+        sourceUrl: payinData.sourceUrl,
+        type: payinData.type,
         hasPhone: !!payinData.additionalDetails?.phone,
-        hasRedirectUrl: !!payinData.redirectUrl,
         merchantId: config.merchantId,
         environment: config.environment,
       });
