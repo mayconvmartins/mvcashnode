@@ -83,9 +83,10 @@ export default function MercadoPagoConfigPage() {
       return;
     }
     // Se não houver webhook_url customizada, usar a gerada automaticamente
+    const webhookUrl = formData.webhook_url || generatedWebhookUrl || '';
     const dataToSave = {
       ...formData,
-      webhook_url: formData.webhook_url || generatedWebhookUrl || undefined,
+      webhook_url: webhookUrl,
     };
     updateMutation.mutate(dataToSave);
   };
