@@ -102,46 +102,61 @@ export class AdminMercadoPagoController {
       is_active?: boolean;
     }
   ) {
-    if (!body.access_token || !body.public_key) {
-      throw new BadRequestException('Access Token e Public Key são obrigatórios');
-    }
+    try {
+      if (!body.access_token || !body.public_key) {
+        throw new BadRequestException('Access Token e Public Key são obrigatórios');
+      }
 
-    // Criptografar dados sensíveis
-    const accessTokenEnc = await this.encryptionService.encrypt(body.access_token);
-    const webhookSecretEnc = body.webhook_secret
-      ? await this.encryptionService.encrypt(body.webhook_secret)
-      : null;
+      // Criptografar dados sensíveis
+      const accessTokenEnc = await this.encryptionService.encrypt(body.access_token);
+      const webhookSecretEnc = body.webhook_secret && body.webhook_secret.trim() !== ''
+        ? await this.encryptionService.encrypt(body.webhook_secret)
+        : null;
 
-    // Buscar configuração existente
-    const existing = await this.prisma.mercadoPagoConfig.findFirst({
-      orderBy: { created_at: 'desc' },
-    });
+      // Normalizar webhook_url (null se vazio)
+      const webhookUrl = body.webhook_url && body.webhook_url.trim() !== ''
+        ? body.webhook_url.trim()
+        : null;
 
-    if (existing) {
-      // Atualizar existente
-      return this.prisma.mercadoPagoConfig.update({
-        where: { id: existing.id },
-        data: {
-          access_token_enc: accessTokenEnc,
-          public_key: body.public_key,
-          webhook_secret_enc: webhookSecretEnc,
-          environment: body.environment,
-          webhook_url: body.webhook_url,
-          is_active: body.is_active ?? existing.is_active,
-        },
+      // Buscar configuração existente
+      const existing = await this.prisma.mercadoPagoConfig.findFirst({
+        orderBy: { created_at: 'desc' },
       });
-    } else {
-      // Criar nova
-      return this.prisma.mercadoPagoConfig.create({
-        data: {
-          access_token_enc: accessTokenEnc,
-          public_key: body.public_key,
-          webhook_secret_enc: webhookSecretEnc,
-          environment: body.environment,
-          webhook_url: body.webhook_url,
-          is_active: body.is_active ?? false,
-        },
-      });
+
+      if (existing) {
+        // Atualizar existente
+        return this.prisma.mercadoPagoConfig.update({
+          where: { id: existing.id },
+          data: {
+            access_token_enc: accessTokenEnc,
+            public_key: body.public_key,
+            webhook_secret_enc: webhookSecretEnc !== null ? webhookSecretEnc : undefined,
+            environment: body.environment,
+            webhook_url: webhookUrl,
+            is_active: body.is_active ?? existing.is_active,
+          },
+        });
+      } else {
+        // Criar nova
+        return this.prisma.mercadoPagoConfig.create({
+          data: {
+            access_token_enc: accessTokenEnc,
+            public_key: body.public_key,
+            webhook_secret_enc: webhookSecretEnc,
+            environment: body.environment,
+            webhook_url: webhookUrl,
+            is_active: body.is_active ?? false,
+          },
+        });
+      }
+    } catch (error: any) {
+      console.error('[AdminMercadoPago] Erro ao salvar configuração:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        error?.message || 'Erro ao salvar configuração do Mercado Pago'
+      );
     }
   }
 

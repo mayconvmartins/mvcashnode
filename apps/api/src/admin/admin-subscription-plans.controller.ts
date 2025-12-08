@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -30,6 +31,8 @@ import { UserRole } from '@mvcashnode/shared';
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth()
 export class AdminSubscriptionPlansController {
+  private readonly logger = new Logger(AdminSubscriptionPlansController.name);
+
   constructor(private prisma: PrismaService) {}
 
   @Get()
@@ -71,25 +74,35 @@ export class AdminSubscriptionPlansController {
       features_json?: any;
     }
   ): Promise<any> {
-    if (!body.name || !body.price_monthly || !body.price_quarterly) {
-      throw new BadRequestException('Nome, preço mensal e preço trimestral são obrigatórios');
-    }
+    try {
+      if (!body.name || body.price_monthly === undefined || body.price_quarterly === undefined) {
+        throw new BadRequestException('Nome, preço mensal e preço trimestral são obrigatórios');
+      }
 
-    if (body.price_monthly <= 0 || body.price_quarterly <= 0) {
-      throw new BadRequestException('Preços devem ser maiores que zero');
-    }
+      if (body.price_monthly <= 0 || body.price_quarterly <= 0) {
+        throw new BadRequestException('Preços devem ser maiores que zero');
+      }
 
-    return this.prisma.subscriptionPlan.create({
-      data: {
-        name: body.name,
-        description: body.description,
-        price_monthly: body.price_monthly,
-        price_quarterly: body.price_quarterly,
-        duration_days: body.duration_days || 30,
-        is_active: body.is_active !== undefined ? body.is_active : true,
-        features_json: body.features_json || {},
-      },
-    });
+      return await this.prisma.subscriptionPlan.create({
+        data: {
+          name: body.name.trim(),
+          description: body.description?.trim() || null,
+          price_monthly: Number(body.price_monthly),
+          price_quarterly: Number(body.price_quarterly),
+          duration_days: body.duration_days || 30,
+          is_active: body.is_active !== undefined ? body.is_active : true,
+          features_json: body.features_json || {},
+        },
+      });
+    } catch (error: any) {
+      console.error('[AdminSubscriptionPlans] Erro ao criar plano:', error);
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        error?.message || 'Erro ao criar plano de assinatura'
+      );
+    }
   }
 
   @Put(':id')
