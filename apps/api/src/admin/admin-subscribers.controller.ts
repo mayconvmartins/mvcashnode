@@ -144,11 +144,11 @@ export class AdminSubscribersController {
     }
 
     if (body.subscriber_profile) {
-      // TODO: Implementar quando subscriberProfile for criado no schema
+      // TODO: Implementar quando subscriberProfile for criado
       // await this.prisma.subscriberProfile.updateMany({
-      //   where: { user_id: id },
-      //   data: body.subscriber_profile,
-      // });
+        where: { user_id: id },
+        data: body.subscriber_profile,
+      });
     }
 
     if (Object.keys(updates).length > 0) {
