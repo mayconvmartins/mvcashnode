@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ import { PaymentStatus } from '@/components/subscriptions/PaymentStatus';
 import { subscriptionsService } from '@/lib/api/subscriptions.service';
 import { apiClient } from '@/lib/api/client';
 
-export default function PaymentPage() {
+function PaymentForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preferenceId = searchParams.get('preference_id');
@@ -276,5 +276,17 @@ export default function PaymentPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function PaymentPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted py-12 px-4 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    }>
+      <PaymentForm />
+    </Suspense>
   );
 }

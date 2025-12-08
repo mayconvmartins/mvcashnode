@@ -4,9 +4,10 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+import { Loader2 } from 'lucide-react';
 
-export default function SuccessPage() {
+function SuccessForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const preferenceId = searchParams.get('preference_id');
@@ -77,5 +78,17 @@ export default function SuccessPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function SuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted py-12 px-4 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    }>
+      <SuccessForm />
+    </Suspense>
   );
 }
