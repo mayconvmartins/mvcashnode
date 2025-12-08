@@ -27,7 +27,7 @@ export class SubscriptionsController {
   @Get('plans')
   @ApiOperation({ summary: 'Listar planos ativos' })
   @ApiResponse({ status: 200, description: 'Lista de planos disponíveis' })
-  async getPlans() {
+  async getPlans(): Promise<any[]> {
     return this.subscriptionsService.getActivePlans();
   }
 
@@ -70,7 +70,7 @@ export class SubscriptionsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Obter minha assinatura' })
   @ApiResponse({ status: 200, description: 'Detalhes da assinatura do usuário' })
-  async getMySubscription(@CurrentUser() user: any) {
+  async getMySubscription(@CurrentUser() user: any): Promise<any> {
     return this.subscriptionsService.getMySubscription(user.userId);
   }
 
@@ -79,7 +79,7 @@ export class SubscriptionsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Obter detalhes do meu plano' })
   @ApiResponse({ status: 200, description: 'Detalhes do plano atual' })
-  async getMyPlan(@CurrentUser() user: any) {
+  async getMyPlan(@CurrentUser() user: any): Promise<any> {
     const subscription = await this.subscriptionsService.getMySubscription(user.userId);
     return {
       plan: subscription.plan,

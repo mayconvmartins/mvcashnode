@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -33,6 +34,8 @@ import * as bcrypt from 'bcrypt';
 @Roles(UserRole.ADMIN)
 @ApiBearerAuth()
 export class AdminSubscribersController {
+  private readonly logger = new Logger(AdminSubscribersController.name);
+
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService
@@ -104,7 +107,7 @@ export class AdminSubscribersController {
     let decryptedCpf = null;
     if (subscriberProfile?.cpf_enc) {
       try {
-        decryptedCpf = this.encryptionService.decrypt(subscriberProfile.cpf_enc);
+        decryptedCpf = await this.encryptionService.decrypt(subscriberProfile.cpf_enc);
       } catch (error) {
         this.logger.warn(`Erro ao descriptografar CPF do usuário ${id}`);
       }
@@ -263,7 +266,7 @@ export class AdminSubscribersController {
   @ApiOperation({ summary: 'Ver parâmetros do assinante' })
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Parâmetros do assinante' })
-  async getParameters(@Param('id', ParseIntPipe) id: number) {
+  async getParameters(@Param('id', ParseIntPipe) id: number): Promise<any> {
     const parameters = await this.prisma.subscriberParameters.findUnique({
       where: { user_id: id },
     });
@@ -287,7 +290,7 @@ export class AdminSubscriberParametersController {
   @Get()
   @ApiOperation({ summary: 'Listar todos os parâmetros de assinantes' })
   @ApiResponse({ status: 200, description: 'Lista de parâmetros' })
-  async list() {
+  async list(): Promise<any[]> {
     return this.prisma.subscriberParameters.findMany({
       include: {
         user: {
@@ -306,7 +309,7 @@ export class AdminSubscriberParametersController {
   @ApiOperation({ summary: 'Obter parâmetros de um assinante' })
   @ApiParam({ name: 'userId', type: 'number' })
   @ApiResponse({ status: 200, description: 'Parâmetros do assinante' })
-  async get(@Param('userId', ParseIntPipe) userId: number) {
+  async get(@Param('userId', ParseIntPipe) userId: number): Promise<any> {
     const parameters = await this.prisma.subscriberParameters.findUnique({
       where: { user_id: userId },
       include: {
@@ -347,7 +350,7 @@ export class AdminSubscriberParametersController {
       trailing_distance_pct?: number;
       min_profit_pct?: number;
     }
-  ) {
+  ): Promise<any> {
     // Verificar se usuário existe e é assinante
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

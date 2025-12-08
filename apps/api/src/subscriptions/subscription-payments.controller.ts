@@ -16,7 +16,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { SubscriptionsService } from './subscriptions.service';
-import { MercadoPagoService } from './mercadopago.service';
+import { MercadoPagoService, MercadoPagoPayment } from './mercadopago.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
@@ -99,7 +99,7 @@ export class SubscriptionPaymentsController {
       };
       subscription_id?: number;
     }
-  ) {
+  ): Promise<MercadoPagoPayment & { point_of_interaction?: { transaction_data?: { qr_code?: string; qr_code_base64?: string } } }> {
     try {
       const payment = await this.mercadoPagoService.createPixPayment({
         transactionAmount: body.transaction_amount,

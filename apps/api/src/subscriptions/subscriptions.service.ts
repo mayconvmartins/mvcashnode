@@ -19,7 +19,7 @@ export class SubscriptionsService {
   /**
    * Lista todos os planos ativos
    */
-  async getActivePlans() {
+  async getActivePlans(): Promise<any[]> {
     return this.prisma.subscriptionPlan.findMany({
       where: { is_active: true },
       orderBy: { price_monthly: 'asc' },
@@ -29,7 +29,7 @@ export class SubscriptionsService {
   /**
    * Busca um plano por ID
    */
-  async getPlanById(planId: number) {
+  async getPlanById(planId: number): Promise<any> {
     const plan = await this.prisma.subscriptionPlan.findUnique({
       where: { id: planId },
     });
@@ -141,11 +141,12 @@ export class SubscriptionsService {
     });
 
     // Salvar dados do assinante (temporário, será confirmado após pagamento)
+    const encryptedCpf = await this.encryptCpf(data.subscriberData.cpf);
     await this.prisma.subscriberProfile.upsert({
       where: { user_id: user.id },
       create: {
         user_id: user.id,
-        cpf_enc: this.encryptCpf(data.subscriberData.cpf),
+        cpf_enc: encryptedCpf,
         birth_date: data.subscriberData.birthDate,
         address_street: data.subscriberData.address.street,
         address_number: data.subscriberData.address.number,
@@ -156,7 +157,7 @@ export class SubscriptionsService {
         address_zipcode: data.subscriberData.address.zipcode,
       },
       update: {
-        cpf_enc: this.encryptCpf(data.subscriberData.cpf),
+        cpf_enc: encryptedCpf,
         birth_date: data.subscriberData.birthDate,
         address_street: data.subscriberData.address.street,
         address_number: data.subscriberData.address.number,
@@ -291,7 +292,7 @@ export class SubscriptionsService {
   /**
    * Busca assinatura do usuário atual
    */
-  async getMySubscription(userId: number) {
+  async getMySubscription(userId: number): Promise<any> {
     const subscription = await this.prisma.subscription.findFirst({
       where: { user_id: userId },
       include: {
@@ -399,7 +400,7 @@ export class SubscriptionsService {
       subscriberData: {
         email: subscription.user.email,
         fullName: subscriberProfile.address_street || 'Assinante', // Usar nome do perfil se disponível
-        cpf: subscriberProfile.cpf_enc ? this.decryptCpf(subscriberProfile.cpf_enc) : '',
+        cpf: subscriberProfile.cpf_enc ? await this.decryptCpf(subscriberProfile.cpf_enc) : '',
       },
       backUrls: {
         success: `${baseUrl}/subscribe/success?preference_id={preference_id}`,
@@ -513,14 +514,14 @@ export class SubscriptionsService {
   /**
    * Criptografa CPF
    */
-  private encryptCpf(cpf: string): string {
-    return this.encryptionService.encrypt(cpf.replace(/\D/g, ''));
+  private async encryptCpf(cpf: string): Promise<string> {
+    return await this.encryptionService.encrypt(cpf.replace(/\D/g, ''));
   }
 
   /**
    * Descriptografa CPF
    */
-  private decryptCpf(encryptedCpf: string): string {
-    return this.encryptionService.decrypt(encryptedCpf);
+  private async decryptCpf(encryptedCpf: string): Promise<string> {
+    return await this.encryptionService.decrypt(encryptedCpf);
   }
 }

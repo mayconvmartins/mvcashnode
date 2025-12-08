@@ -5,13 +5,13 @@ import { EncryptionService } from '@mvcashnode/shared';
 import * as crypto from 'crypto';
 
 // Tipos para o Mercado Pago (simplificados)
-interface MercadoPagoPreference {
+export interface MercadoPagoPreference {
   id: string;
   init_point: string;
   sandbox_init_point?: string;
 }
 
-interface MercadoPagoPayment {
+export interface MercadoPagoPayment {
   id: string;
   status: string;
   status_detail: string;

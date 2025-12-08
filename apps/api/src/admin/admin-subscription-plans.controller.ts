@@ -35,7 +35,7 @@ export class AdminSubscriptionPlansController {
   @Get()
   @ApiOperation({ summary: 'Listar todos os planos de assinatura' })
   @ApiResponse({ status: 200, description: 'Lista de planos' })
-  async list() {
+  async list(): Promise<any[]> {
     return this.prisma.subscriptionPlan.findMany({
       orderBy: { price_monthly: 'asc' },
     });
@@ -45,7 +45,7 @@ export class AdminSubscriptionPlansController {
   @ApiOperation({ summary: 'Obter detalhes de um plano' })
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Detalhes do plano' })
-  async get(@Param('id', ParseIntPipe) id: number) {
+  async get(@Param('id', ParseIntPipe) id: number): Promise<any> {
     const plan = await this.prisma.subscriptionPlan.findUnique({
       where: { id },
     });
@@ -70,7 +70,7 @@ export class AdminSubscriptionPlansController {
       is_active?: boolean;
       features_json?: any;
     }
-  ) {
+  ): Promise<any> {
     if (!body.name || !body.price_monthly || !body.price_quarterly) {
       throw new BadRequestException('Nome, preço mensal e preço trimestral são obrigatórios');
     }
@@ -107,7 +107,7 @@ export class AdminSubscriptionPlansController {
       is_active?: boolean;
       features_json?: any;
     }
-  ) {
+  ): Promise<any> {
     const plan = await this.prisma.subscriptionPlan.findUnique({
       where: { id },
     });
@@ -144,7 +144,7 @@ export class AdminSubscriptionPlansController {
   @ApiOperation({ summary: 'Desativar plano de assinatura' })
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Plano desativado' })
-  async delete(@Param('id', ParseIntPipe) id: number) {
+  async delete(@Param('id', ParseIntPipe) id: number): Promise<any> {
     const plan = await this.prisma.subscriptionPlan.findUnique({
       where: { id },
     });

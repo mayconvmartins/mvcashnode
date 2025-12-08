@@ -41,7 +41,7 @@ export class AdminSubscriptionsController {
   async list(
     @Query('status') status?: string,
     @Query('plan_id') planId?: string
-  ) {
+  ): Promise<any[]> {
     const where: any = {};
     
     if (status) {
@@ -72,7 +72,7 @@ export class AdminSubscriptionsController {
   @ApiOperation({ summary: 'Obter detalhes de uma assinatura' })
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Detalhes da assinatura' })
-  async get(@Param('id', ParseIntPipe) id: number) {
+  async get(@Param('id', ParseIntPipe) id: number): Promise<any> {
     const subscription = await this.prisma.subscription.findUnique({
       where: { id },
       include: {
@@ -110,7 +110,7 @@ export class AdminSubscriptionsController {
       end_date?: string;
       auto_renew?: boolean;
     }
-  ) {
+  ): Promise<any> {
     const subscription = await this.prisma.subscription.findUnique({
       where: { id },
     });
@@ -157,7 +157,7 @@ export class AdminSubscriptionsController {
   @ApiOperation({ summary: 'Cancelar assinatura' })
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Assinatura cancelada' })
-  async cancel(@Param('id', ParseIntPipe) id: number) {
+  async cancel(@Param('id', ParseIntPipe) id: number): Promise<any> {
     const subscription = await this.prisma.subscription.findUnique({
       where: { id },
     });
@@ -192,7 +192,7 @@ export class AdminSubscriptionsController {
   async extend(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { days: number }
-  ) {
+  ): Promise<any> {
     if (!body.days || body.days <= 0) {
       throw new BadRequestException('Número de dias deve ser maior que zero');
     }
@@ -232,7 +232,7 @@ export class AdminSubscriptionsController {
   @ApiOperation({ summary: 'Histórico de pagamentos da assinatura' })
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Histórico de pagamentos' })
-  async getPayments(@Param('id', ParseIntPipe) id: number) {
+  async getPayments(@Param('id', ParseIntPipe) id: number): Promise<any[]> {
     const subscription = await this.prisma.subscription.findUnique({
       where: { id },
     });
