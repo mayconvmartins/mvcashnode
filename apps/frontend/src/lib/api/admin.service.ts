@@ -513,5 +513,48 @@ export const adminService = {
         const response = await apiClient.delete(`/admin/subscriber-webhooks/${id}`)
         return response.data
     },
+
+    // Mercado Pago Payments
+    listMercadoPagoPayments: async (filters?: {
+        status?: string;
+        payment_method?: string;
+        page?: number;
+        limit?: number;
+    }): Promise<any[]> => {
+        const response = await apiClient.get('/admin/mercadopago/payments', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getMercadoPagoPayment: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/mercadopago/payments/${id}`)
+        return response.data
+    },
+
+    refundMercadoPagoPayment: async (id: number, cancelSubscription: boolean): Promise<any> => {
+        const response = await apiClient.post(`/admin/mercadopago/payments/${id}/refund`, {
+            cancel_subscription: cancelSubscription,
+        })
+        return response.data
+    },
+
+    // Mercado Pago Webhook Logs
+    listMercadoPagoWebhookLogs: async (filters?: {
+        mp_event_type?: string;
+        processed?: boolean;
+        page?: number;
+        limit?: number;
+    }): Promise<any[]> => {
+        const response = await apiClient.get('/admin/mercadopago/webhook-logs', {
+            params: filters,
+        })
+        return response.data
+    },
+
+    getMercadoPagoWebhookLog: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/mercadopago/webhook-logs/${id}`)
+        return response.data
+    },
 }
 

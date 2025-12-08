@@ -225,6 +225,46 @@ export class MercadoPagoService {
   }
 
   /**
+   * Estorna um pagamento no Mercado Pago
+   */
+  async refundPayment(paymentId: string, amount?: number): Promise<any> {
+    try {
+      const config = await this.getConfig();
+      const baseUrl = 'https://api.mercadopago.com';
+
+      const refundData: any = {};
+      if (amount !== undefined && amount > 0) {
+        refundData.amount = amount;
+      }
+
+      const response = await fetch(`${baseUrl}/v1/payments/${paymentId}/refunds`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(refundData),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        this.logger.error('Erro ao estornar pagamento MP:', error);
+        throw new BadRequestException(
+          error?.message || 'Erro ao estornar pagamento no Mercado Pago'
+        );
+      }
+
+      const refundResult = await response.json();
+      this.logger.log(`Pagamento ${paymentId} estornado com sucesso`);
+      return refundResult;
+    } catch (error: unknown) {
+      this.logger.error('Erro ao estornar pagamento Mercado Pago:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao estornar pagamento';
+      throw new BadRequestException(errorMessage);
+    }
+  }
+
+  /**
    * Valida a assinatura do webhook do Mercado Pago
    */
   async validateWebhookSignature(xSignature: string, xRequestId: string, dataId: string): Promise<boolean> {

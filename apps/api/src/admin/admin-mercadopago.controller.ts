@@ -4,16 +4,20 @@ import {
   Put,
   Post,
   Body,
+  Param,
+  ParseIntPipe,
   UseGuards,
   BadRequestException,
   NotFoundException,
   Logger,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiParam,
 } from '@nestjs/swagger';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
@@ -230,5 +234,295 @@ export class AdminMercadoPagoController {
         error: errorMessage,
       };
     }
+  }
+
+  @Get('payments')
+  @ApiOperation({ summary: 'Listar pagamentos do Mercado Pago' })
+  @ApiResponse({ status: 200, description: 'Lista de pagamentos' })
+  async listPayments(
+    @Query('status') status?: string,
+    @Query('payment_method') payment_method?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ): Promise<any[]> {
+    const pageNum = page ? parseInt(page) : 1;
+    const limitNum = limit ? parseInt(limit) : 50;
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+    if (payment_method) {
+      where.payment_method = payment_method;
+    }
+
+    const payments = await this.prisma.subscriptionPayment.findMany({
+      where,
+      include: {
+        subscription: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                profile: {
+                  select: {
+                    full_name: true,
+                  },
+                },
+              },
+            },
+            plan: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+      skip,
+      take: limitNum,
+    });
+
+    return payments.map((p) => ({
+      id: p.id,
+      mp_payment_id: p.mp_payment_id,
+      amount: p.amount.toNumber(),
+      status: p.status,
+      payment_method: p.payment_method,
+      subscription: {
+        id: p.subscription.id,
+        status: p.subscription.status,
+        user: p.subscription.user,
+        plan: p.subscription.plan,
+      },
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+    }));
+  }
+
+  @Get('payments/:id')
+  @ApiOperation({ summary: 'Obter detalhes de um pagamento' })
+  @ApiResponse({ status: 200, description: 'Detalhes do pagamento' })
+  async getPayment(@Param('id', ParseIntPipe) id: number): Promise<any> {
+    const payment = await this.prisma.subscriptionPayment.findUnique({
+      where: { id },
+      include: {
+        subscription: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                profile: {
+                  select: {
+                    full_name: true,
+                  },
+                },
+              },
+            },
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                price_monthly: true,
+                price_quarterly: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!payment) {
+      throw new NotFoundException('Pagamento não encontrado');
+    }
+
+    // Buscar informações atualizadas do Mercado Pago
+    let mpPaymentData = null;
+    try {
+      mpPaymentData = await this.mercadoPagoService.getPayment(payment.mp_payment_id);
+    } catch (error) {
+      this.logger.warn(`Não foi possível buscar dados atualizados do MP para pagamento ${payment.mp_payment_id}`);
+    }
+
+    return {
+      id: payment.id,
+      mp_payment_id: payment.mp_payment_id,
+      amount: payment.amount.toNumber(),
+      status: payment.status,
+      payment_method: payment.payment_method,
+      subscription: {
+        id: payment.subscription.id,
+        status: payment.subscription.status,
+        start_date: payment.subscription.start_date,
+        end_date: payment.subscription.end_date,
+        user: payment.subscription.user,
+        plan: payment.subscription.plan,
+      },
+      mp_data: mpPaymentData,
+      created_at: payment.created_at,
+      updated_at: payment.updated_at,
+    };
+  }
+
+  @Post('payments/:id/refund')
+  @ApiOperation({ summary: 'Estornar pagamento no Mercado Pago' })
+  @ApiParam({ name: 'id', type: 'number' })
+  @ApiResponse({ status: 200, description: 'Pagamento estornado' })
+  async refundPayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { cancel_subscription?: boolean }
+  ): Promise<any> {
+    const payment = await this.prisma.subscriptionPayment.findUnique({
+      where: { id },
+      include: {
+        subscription: true,
+      },
+    });
+
+    if (!payment) {
+      throw new NotFoundException('Pagamento não encontrado');
+    }
+
+    if (payment.status === 'REFUNDED') {
+      throw new BadRequestException('Pagamento já foi estornado');
+    }
+
+    try {
+      // Estornar no Mercado Pago
+      const refundResult = await this.mercadoPagoService.refundPayment(
+        payment.mp_payment_id,
+        payment.amount.toNumber()
+      );
+
+      // Atualizar status do pagamento
+      await this.prisma.subscriptionPayment.update({
+        where: { id },
+        data: {
+          status: 'REFUNDED',
+        },
+      });
+
+      // Se solicitado, cancelar assinatura
+      if (body.cancel_subscription) {
+        await this.prisma.subscription.update({
+          where: { id: payment.subscription_id },
+          data: {
+            status: 'CANCELLED',
+            auto_renew: false,
+          },
+        });
+
+        // Desativar usuário e remover role de subscriber
+        const subscription = await this.prisma.subscription.findUnique({
+          where: { id: payment.subscription_id },
+          include: { user: true },
+        });
+
+        if (subscription) {
+          await this.prisma.user.update({
+            where: { id: subscription.user_id },
+            data: {
+              is_active: false,
+            },
+          });
+
+          // Remover role de subscriber
+          await this.prisma.userRole.deleteMany({
+            where: {
+              user_id: subscription.user_id,
+              role: 'subscriber',
+            },
+          });
+
+          this.logger.log(`Assinatura ${subscription.id} cancelada e usuário ${subscription.user.email} desativado após estorno`);
+        }
+      }
+
+      return {
+        success: true,
+        message: 'Pagamento estornado com sucesso',
+        refund: refundResult,
+        subscription_cancelled: body.cancel_subscription || false,
+      };
+    } catch (error: any) {
+      this.logger.error('[AdminMercadoPago] Erro ao estornar pagamento:', error);
+      throw new BadRequestException(
+        error?.message || 'Erro ao estornar pagamento no Mercado Pago'
+      );
+    }
+  }
+
+  @Get('webhook-logs')
+  @ApiOperation({ summary: 'Listar logs de webhook do Mercado Pago' })
+  @ApiResponse({ status: 200, description: 'Lista de eventos de webhook' })
+  async listWebhookLogs(
+    @Query('mp_event_type') mp_event_type?: string,
+    @Query('processed') processed?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ): Promise<any[]> {
+    const pageNum = page ? parseInt(page) : 1;
+    const limitNum = limit ? parseInt(limit) : 50;
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {};
+    if (mp_event_type) {
+      where.mp_event_type = mp_event_type;
+    }
+    if (processed !== undefined) {
+      where.processed = processed === 'true';
+    }
+
+    const events = await this.prisma.subscriptionWebhookEvent.findMany({
+      where,
+      orderBy: {
+        created_at: 'desc',
+      },
+      skip,
+      take: limitNum,
+    });
+
+    return events.map((e) => ({
+      id: e.id,
+      mp_event_id: e.mp_event_id,
+      mp_event_type: e.mp_event_type,
+      mp_resource_id: e.mp_resource_id,
+      processed: e.processed,
+      processed_at: e.processed_at,
+      created_at: e.created_at,
+      raw_payload: e.raw_payload_json,
+    }));
+  }
+
+  @Get('webhook-logs/:id')
+  @ApiOperation({ summary: 'Obter detalhes de um evento de webhook' })
+  @ApiParam({ name: 'id', type: 'number' })
+  @ApiResponse({ status: 200, description: 'Detalhes do evento' })
+  async getWebhookLog(@Param('id', ParseIntPipe) id: number): Promise<any> {
+    const event = await this.prisma.subscriptionWebhookEvent.findUnique({
+      where: { id },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Evento de webhook não encontrado');
+    }
+
+    return {
+      id: event.id,
+      mp_event_id: event.mp_event_id,
+      mp_event_type: event.mp_event_type,
+      mp_resource_id: event.mp_resource_id,
+      processed: event.processed,
+      processed_at: event.processed_at,
+      created_at: event.created_at,
+      raw_payload_json: event.raw_payload_json,
+    };
   }
 }
