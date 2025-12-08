@@ -246,11 +246,10 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                       );
                     }
                   }
+                } else {
+                  this.logger.warn(`Pagamento ${mpPayment.id} não pôde ser importado: nenhuma assinatura encontrada (preference_id: ${mpPayment.preference_id}, external_reference: ${mpPayment.external_reference})`);
                 }
-              } else {
-                this.logger.warn(`Pagamento ${mpPayment.id} não pôde ser importado: nenhuma assinatura encontrada (preference_id: ${mpPayment.preference_id}, external_reference: ${mpPayment.external_reference})`);
               }
-            }
             } catch (error: any) {
               this.logger.error(`Erro ao processar pagamento ${mpPayment.id}:`, error);
             }
