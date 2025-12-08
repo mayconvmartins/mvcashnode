@@ -278,6 +278,7 @@ export class TransFiService {
       }
 
       this.logger.debug('Criando customer TransFi:', {
+        endpoint: `${baseUrl}/v2/users/individual`,
         email: customerData.email,
         firstName: customerData.firstName,
         lastName: customerData.lastName,
@@ -285,16 +286,22 @@ export class TransFiService {
         date: customerData.date,
         hasPhone: !!customerData.phone,
         hasAddress: !!customerData.address,
+        merchantId: config.merchantId,
+        environment: config.environment,
+        hasAuth: !!this.getAuthHeader(config),
       });
+
+      // Headers conforme documentação: MID, Content-Type, Accept, Authorization (Basic Auth)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'MID': config.merchantId,
+        'Authorization': this.getAuthHeader(config),
+      };
 
       const response = await fetch(`${baseUrl}/v2/users/individual`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'MID': config.merchantId,
-          'Authorization': this.getAuthHeader(config),
-        },
+        headers,
         body: JSON.stringify(customerData),
       });
 
@@ -361,37 +368,9 @@ export class TransFiService {
       const firstName = fullNameParts[0] || data.customerData.email.split('@')[0];
       const lastName = fullNameParts.slice(1).join(' ') || firstName;
 
-      // Criar customer ANTES do payin (obrigatório para TransFi)
-      // O payin precisa que o customer exista, identificado por email
-      let userId: string | null = null;
-      try {
-        // Converter birthDate se fornecido
-        let birthDateStr: string | undefined;
-        if (data.customerData.birthDate) {
-          const date = data.customerData.birthDate instanceof Date 
-            ? data.customerData.birthDate 
-            : new Date(data.customerData.birthDate);
-          birthDateStr = date.toISOString().split('T')[0];
-        }
-
-        userId = await this.createOrGetCustomer({
-          email: data.customerData.email,
-          firstName,
-          lastName,
-          date: birthDateStr,
-          country: 'BR',
-          phone: data.customerData.phone,
-          address: data.customerData.address ? {
-            city: data.customerData.address.city,
-            postalCode: data.customerData.address.zipcode,
-            street: data.customerData.address.street,
-            state: data.customerData.address.state,
-          } : undefined,
-        });
-      } catch (error) {
-        this.logger.error('Erro ao criar customer antes do payin:', error);
-        // Continuar mesmo assim - pode ser que o payin crie automaticamente
-      }
+      // O payin do TransFi cria o customer automaticamente com os dados fornecidos
+      // Não precisamos criar o customer antes - o payin faz isso automaticamente
+      // quando recebe email, firstName, lastName, country
 
       // Mapear paymentMethod para paymentCode
       // PIX -> pix, CARD -> card, etc
@@ -438,11 +417,19 @@ export class TransFiService {
 
       // Log do payload para debug (sem dados sensíveis)
       this.logger.debug('Criando payin TransFi:', {
+        endpoint: `${baseUrl}/v2/orders/deposit`,
         amount: payinData.amount,
         currency: payinData.currency,
         email: payinData.email,
+        firstName: payinData.firstName,
+        lastName: payinData.lastName,
+        country: payinData.country,
         paymentCode: payinData.paymentCode,
+        balanceCurrency: payinData.balanceCurrency,
         hasPhone: !!payinData.additionalDetails?.phone,
+        hasRedirectUrl: !!payinData.redirectUrl,
+        merchantId: config.merchantId,
+        environment: config.environment,
       });
 
       const response = await fetch(`${baseUrl}/v2/orders/deposit`, {
@@ -477,32 +464,21 @@ export class TransFiService {
           },
         });
 
-        // Se for CUSTOMER_NOT_FOUND, tentar criar customer novamente
+        // Se for CUSTOMER_NOT_FOUND, pode ser:
+        // 1. Problema de autenticação/MID (credenciais incorretas)
+        // 2. Campos obrigatórios faltando no payin
+        // 3. O customer precisa existir antes (mas o payin deveria criar automaticamente)
         if (error.code === 'CUSTOMER_NOT_FOUND') {
-          this.logger.warn('Customer não encontrado no payin - tentando criar novamente...');
-          try {
-            await this.createOrGetCustomer({
-              email: data.customerData.email,
-              firstName,
-              lastName,
-              date: data.customerData.birthDate 
-                ? (data.customerData.birthDate instanceof Date 
-                    ? data.customerData.birthDate.toISOString().split('T')[0]
-                    : new Date(data.customerData.birthDate).toISOString().split('T')[0])
-                : undefined,
-              country: 'BR',
-              phone: data.customerData.phone,
-              address: data.customerData.address ? {
-                city: data.customerData.address.city,
-                postalCode: data.customerData.address.zipcode,
-                street: data.customerData.address.street,
-                state: data.customerData.address.state,
-              } : undefined,
-            });
-            this.logger.log('Customer criado com sucesso - tente criar o payin novamente');
-          } catch (customerError) {
-            this.logger.error('Erro ao criar customer na segunda tentativa:', customerError);
-          }
+          this.logger.error('Customer não encontrado no payin. Possíveis causas:', {
+            email: payinData.email,
+            firstName: payinData.firstName,
+            lastName: payinData.lastName,
+            country: payinData.country,
+            hasPhone: !!payinData.additionalDetails?.phone,
+            merchantId: config.merchantId,
+            environment: config.environment,
+            suggestion: 'Verifique se MID, username e password estão corretos. O payin deveria criar o customer automaticamente.',
+          });
         }
 
         throw new BadRequestException(
