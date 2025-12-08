@@ -41,11 +41,6 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
       const accessToken = await this.encryptionService.decrypt(config.access_token_enc);
       const baseUrl = 'https://api.mercadopago.com';
 
-      // Buscar TODOS os pagamentos para sincronização (não apenas pendentes)
-      // Verificar pagamentos dos últimos 7 dias
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
       // Debug: verificar quantos pagamentos existem no total
       const totalPayments = await this.prisma.subscriptionPayment.count();
       const paymentsWithMpId = await this.prisma.subscriptionPayment.count({
@@ -55,24 +50,20 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
           },
         },
       });
-      const recentPayments = await this.prisma.subscriptionPayment.count({
+      const paymentsWithoutMpId = await this.prisma.subscriptionPayment.count({
         where: {
-          created_at: {
-            gte: sevenDaysAgo,
-          },
+          mp_payment_id: null,
         },
       });
       
-      this.logger.log(`Debug: Total de pagamentos no banco: ${totalPayments}, com mp_payment_id: ${paymentsWithMpId}, dos últimos 7 dias: ${recentPayments}`);
+      this.logger.log(`Debug: Total de pagamentos no banco: ${totalPayments}, com mp_payment_id: ${paymentsWithMpId}, sem mp_payment_id: ${paymentsWithoutMpId}`);
 
-      // Buscar todos os pagamentos dos últimos 7 dias (qualquer status)
+      // Buscar TODOS os pagamentos SEM FILTRO NENHUM (como solicitado pelo usuário)
+      // Primeiro, buscar todos os pagamentos que têm mp_payment_id
       let allPayments = await this.prisma.subscriptionPayment.findMany({
         where: {
           mp_payment_id: {
-            not: null, // Apenas pagamentos que têm ID do Mercado Pago
-          },
-          created_at: {
-            gte: sevenDaysAgo,
+            not: null,
           },
         },
         include: {
@@ -83,25 +74,19 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             },
           },
         },
-        take: 100, // Limitar a 100 por execução para não sobrecarregar
         orderBy: {
           created_at: 'desc', // Buscar os mais recentes primeiro
         },
       });
 
-      this.logger.log(`Encontrados ${allPayments.length} pagamentos dos últimos 7 dias para sincronizar`);
+      this.logger.log(`Encontrados ${allPayments.length} pagamentos com mp_payment_id para sincronizar`);
 
-      // Se não encontrou nenhum pagamento recente, buscar TODOS os pagamentos com mp_payment_id (sem limite de data)
-      // para garantir que não perdemos nenhum pagamento
+      // Se não encontrou nenhum com mp_payment_id, buscar TODOS os pagamentos (mesmo sem mp_payment_id)
+      // para verificar se há pagamentos que precisam ser vinculados
       if (allPayments.length === 0) {
-        this.logger.log('Nenhum pagamento encontrado nos últimos 7 dias. Buscando todos os pagamentos com mp_payment_id...');
+        this.logger.log('Nenhum pagamento com mp_payment_id encontrado. Buscando TODOS os pagamentos...');
         
-        const allPaymentsWithMpId = await this.prisma.subscriptionPayment.findMany({
-          where: {
-            mp_payment_id: {
-              not: null,
-            },
-          },
+        const allPaymentsNoFilter = await this.prisma.subscriptionPayment.findMany({
           include: {
             subscription: {
               include: {
@@ -110,55 +95,15 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
               },
             },
           },
-          take: 100, // Limitar a 100 para não sobrecarregar
           orderBy: {
             created_at: 'desc',
           },
+          take: 200, // Limitar a 200 para não sobrecarregar
         });
         
-        if (allPaymentsWithMpId.length > 0) {
-          this.logger.log(`Encontrados ${allPaymentsWithMpId.length} pagamentos com mp_payment_id (sem filtro de data)`);
-          allPayments = allPaymentsWithMpId;
-        }
-      }
-
-      // Se não encontrou muitos, buscar também pagamentos mais antigos (até 30 dias)
-      // mas priorizar pendentes e aprovados que podem ter mudado
-      if (allPayments.length < 50) {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        
-        const olderPayments = await this.prisma.subscriptionPayment.findMany({
-          where: {
-            mp_payment_id: {
-              not: null,
-            },
-            created_at: {
-              gte: thirtyDaysAgo,
-              lt: sevenDaysAgo,
-            },
-            // Priorizar pendentes e aprovados que podem ter mudado
-            status: {
-              in: ['PENDING', 'APPROVED'],
-            },
-          },
-          include: {
-            subscription: {
-              include: {
-                user: true,
-                plan: true,
-              },
-            },
-          },
-          take: 50, // Limitar a 50 para não sobrecarregar
-          orderBy: {
-            created_at: 'desc',
-          },
-        });
-
-        if (olderPayments.length > 0) {
-          this.logger.log(`Adicionando ${olderPayments.length} pagamentos mais antigos (7-30 dias) para sincronizar`);
-          allPayments = [...allPayments, ...olderPayments];
+        if (allPaymentsNoFilter.length > 0) {
+          this.logger.log(`Encontrados ${allPaymentsNoFilter.length} pagamentos (sem filtro de mp_payment_id)`);
+          allPayments = allPaymentsNoFilter;
         }
       }
 
@@ -312,8 +257,8 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         }
       }
 
-      // Também verificar assinaturas pendentes que podem ter pagamentos aprovados
-      // Buscar assinaturas dos últimos 7 dias (reutilizar a variável já declarada acima)
+      // Também verificar assinaturas que podem ter pagamentos aprovados
+      // Buscar TODAS as assinaturas SEM FILTRO (como solicitado)
 
       // Debug: verificar quantas assinaturas existem
       const totalSubscriptions = await this.prisma.subscription.count();
@@ -327,114 +272,57 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
       const pendingSubscriptionsCount = await this.prisma.subscription.count({
         where: {
           status: 'PENDING_PAYMENT',
-          mp_payment_id: {
-            not: null,
-          },
         },
       });
       
-      this.logger.log(`Debug: Total de assinaturas: ${totalSubscriptions}, com mp_payment_id: ${subscriptionsWithMpId}, pendentes com mp_payment_id: ${pendingSubscriptionsCount}`);
+      this.logger.log(`Debug: Total de assinaturas: ${totalSubscriptions}, com mp_payment_id: ${subscriptionsWithMpId}, pendentes: ${pendingSubscriptionsCount}`);
 
+      // Buscar TODAS as assinaturas com mp_payment_id (sem filtro de status ou data)
       let pendingSubscriptions = await this.prisma.subscription.findMany({
         where: {
-          status: 'PENDING_PAYMENT',
           mp_payment_id: {
             not: null,
-          },
-          created_at: {
-            gte: sevenDaysAgo,
           },
         },
         include: {
           plan: true,
           user: true,
         },
-        take: 50,
+        orderBy: {
+          created_at: 'desc',
+        },
+        take: 200, // Limitar a 200 para não sobrecarregar
       });
 
-      this.logger.log(`Verificando ${pendingSubscriptions.length} assinaturas pendentes dos últimos 7 dias`);
+      this.logger.log(`Verificando ${pendingSubscriptions.length} assinaturas com mp_payment_id`);
 
-      // Se não encontrou nenhuma, buscar também assinaturas mais antigas (até 30 dias)
+      // Se não encontrou nenhuma com mp_payment_id, buscar TODAS as assinaturas (mesmo sem mp_payment_id)
       if (pendingSubscriptions.length === 0) {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        this.logger.log('Nenhuma assinatura com mp_payment_id encontrada. Buscando TODAS as assinaturas...');
         
         pendingSubscriptions = await this.prisma.subscription.findMany({
-          where: {
-            status: 'PENDING_PAYMENT',
-            mp_payment_id: {
-              not: null,
-            },
-            created_at: {
-              gte: thirtyDaysAgo,
-            },
-          },
           include: {
             plan: true,
             user: true,
           },
-          take: 30,
-          orderBy: {
-            created_at: 'desc', // Buscar as mais recentes primeiro
-          },
-        });
-
-        this.logger.log(`Verificando ${pendingSubscriptions.length} assinaturas pendentes dos últimos 30 dias`);
-      }
-
-      // Se ainda não encontrou nenhuma, buscar TODAS as assinaturas pendentes com mp_payment_id (sem limite de data)
-      if (pendingSubscriptions.length === 0) {
-        this.logger.log('Nenhuma assinatura pendente encontrada nos últimos 30 dias. Buscando todas as assinaturas pendentes com mp_payment_id...');
-        
-        pendingSubscriptions = await this.prisma.subscription.findMany({
-          where: {
-            status: 'PENDING_PAYMENT',
-            mp_payment_id: {
-              not: null,
-            },
-          },
-          include: {
-            plan: true,
-            user: true,
-          },
-          take: 50,
           orderBy: {
             created_at: 'desc',
           },
+          take: 200,
         });
 
         if (pendingSubscriptions.length > 0) {
-          this.logger.log(`Encontradas ${pendingSubscriptions.length} assinaturas pendentes com mp_payment_id (sem filtro de data)`);
+          this.logger.log(`Encontradas ${pendingSubscriptions.length} assinaturas (sem filtro de mp_payment_id)`);
         }
       }
 
       // Buscar também assinaturas que têm mp_payment_id mas não têm registro de pagamento correspondente
       // Isso pode acontecer se o pagamento foi criado mas o registro não foi salvo no banco
-      if (pendingSubscriptions.length === 0 && pendingPayments.length === 0) {
-        this.logger.log('Buscando assinaturas com mp_payment_id mas sem registro de pagamento...');
+      if (pendingSubscriptions.length > 0) {
+        this.logger.log('Verificando assinaturas com mp_payment_id mas sem registro de pagamento...');
         
-        const subscriptionsWithPaymentId = await this.prisma.subscription.findMany({
-          where: {
-            status: 'PENDING_PAYMENT',
-            mp_payment_id: {
-              not: null,
-            },
-            created_at: {
-              gte: sevenDaysAgo,
-            },
-          },
-          include: {
-            plan: true,
-            user: true,
-          },
-          take: 20,
-          orderBy: {
-            created_at: 'desc',
-          },
-        });
-
-        // Verificar quais não têm registro de pagamento
-        for (const sub of subscriptionsWithPaymentId) {
+        const subscriptionsWithoutPayment = [];
+        for (const sub of pendingSubscriptions) {
           if (!sub.mp_payment_id) continue;
           
           const existingPayment = await this.prisma.subscriptionPayment.findFirst({
@@ -445,12 +333,19 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
 
           if (!existingPayment) {
             this.logger.log(`Assinatura ${sub.id} tem mp_payment_id (${sub.mp_payment_id}) mas não tem registro de pagamento. Adicionando à lista de verificação.`);
-            pendingSubscriptions.push(sub);
+            subscriptionsWithoutPayment.push(sub);
           }
         }
 
-        if (pendingSubscriptions.length > 0) {
-          this.logger.log(`Encontradas ${pendingSubscriptions.length} assinaturas com mp_payment_id mas sem registro de pagamento`);
+        if (subscriptionsWithoutPayment.length > 0) {
+          this.logger.log(`Encontradas ${subscriptionsWithoutPayment.length} assinaturas com mp_payment_id mas sem registro de pagamento`);
+          // Adicionar à lista de assinaturas para verificar (evitar duplicatas)
+          const existingIds = new Set(pendingSubscriptions.map(s => s.id));
+          for (const sub of subscriptionsWithoutPayment) {
+            if (!existingIds.has(sub.id)) {
+              pendingSubscriptions.push(sub);
+            }
+          }
         }
       }
 

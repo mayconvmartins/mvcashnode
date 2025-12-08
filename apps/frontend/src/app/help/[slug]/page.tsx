@@ -234,7 +234,7 @@ export default function ManualPage({ params }: { params: Promise<{ slug: string 
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-white">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-4xl mx-auto">
           {/* Back Button */}
@@ -246,14 +246,14 @@ export default function ManualPage({ params }: { params: Promise<{ slug: string 
           </Link>
 
           {/* Manual Content */}
-          <Card>
+          <Card className="border-gray-200">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3 mb-6">
                 <BookOpen className="h-8 w-8 text-primary" />
-                <h1 className="text-3xl font-bold">{manual.title}</h1>
+                <h1 className="text-3xl font-bold text-gray-900">{manual.title}</h1>
               </div>
               <div
-                className="prose prose-invert max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-a:text-primary prose-strong:text-foreground prose-ul:text-muted-foreground prose-ol:text-muted-foreground prose-li:text-muted-foreground"
+                className="prose max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-a:text-primary prose-strong:text-gray-900 prose-ul:text-gray-700 prose-ol:text-gray-700 prose-li:text-gray-700"
                 dangerouslySetInnerHTML={{ __html: manual.content }}
                 style={{
                   lineHeight: '1.75',

@@ -5,7 +5,7 @@ import { ArrowRight, TrendingUp } from 'lucide-react';
 
 export function Hero() {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-b from-background via-background to-muted">
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-white">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="max-w-4xl mx-auto text-center">
           {/* Logo */}
@@ -17,7 +17,7 @@ export function Hero() {
             />
           </div>
 
-          <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto">
+          <p className="text-xl md:text-2xl text-gray-600 mb-8 max-w-2xl mx-auto">
             Automatize suas operações de trading na Binance com operações automatizadas, gestão inteligente de posições e análise de performance em tempo real.
           </p>
 
@@ -44,24 +44,24 @@ export function Hero() {
 
           {/* Features Preview */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
-            <div className="p-6 rounded-lg border bg-card/50 backdrop-blur-sm">
+            <div className="p-6 rounded-lg border border-gray-200 bg-gray-50">
               <TrendingUp className="h-8 w-8 text-primary mb-3" />
-              <h3 className="font-semibold mb-2">Automação Completa</h3>
-              <p className="text-sm text-muted-foreground">
+              <h3 className="font-semibold mb-2 text-gray-900">Automação Completa</h3>
+              <p className="text-sm text-gray-600">
                 Execute operações automatizadas de forma inteligente
               </p>
             </div>
-            <div className="p-6 rounded-lg border bg-card/50 backdrop-blur-sm">
+            <div className="p-6 rounded-lg border border-gray-200 bg-gray-50">
               <TrendingUp className="h-8 w-8 text-primary mb-3" />
-              <h3 className="font-semibold mb-2">Gestão Inteligente</h3>
-              <p className="text-sm text-muted-foreground">
+              <h3 className="font-semibold mb-2 text-gray-900">Gestão Inteligente</h3>
+              <p className="text-sm text-gray-600">
                 Controle SL/TP e monitore posições em tempo real
               </p>
             </div>
-            <div className="p-6 rounded-lg border bg-card/50 backdrop-blur-sm">
+            <div className="p-6 rounded-lg border border-gray-200 bg-gray-50">
               <TrendingUp className="h-8 w-8 text-primary mb-3" />
-              <h3 className="font-semibold mb-2">Análise Avançada</h3>
-              <p className="text-sm text-muted-foreground">
+              <h3 className="font-semibold mb-2 text-gray-900">Análise Avançada</h3>
+              <p className="text-sm text-gray-600">
                 Relatórios detalhados de performance e PnL
               </p>
             </div>

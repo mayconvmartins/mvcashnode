@@ -11,7 +11,7 @@ export default function HomePage() {
   // Não fazer verificação no lado do cliente para evitar loops
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-white">
       <Hero />
       <Features />
       <Pricing />

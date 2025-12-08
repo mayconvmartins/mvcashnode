@@ -28,7 +28,7 @@ export function Pricing() {
   }
 
   return (
-    <section className="py-24 bg-muted/50" id="pricing">
+    <section className="py-24 bg-white" id="pricing">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold mb-4">
@@ -40,13 +40,13 @@ export function Pricing() {
 
           {/* Toggle Mensal/Trimestral */}
           <div className="flex justify-center">
-            <div className="inline-flex rounded-lg border p-1 bg-background">
+            <div className="inline-flex rounded-lg border border-gray-200 p-1 bg-white">
               <button
                 onClick={() => setBillingPeriod('monthly')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   billingPeriod === 'monthly'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
                 Mensal
@@ -55,8 +55,8 @@ export function Pricing() {
                 onClick={() => setBillingPeriod('quarterly')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   billingPeriod === 'quarterly'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
                 Trimestral
@@ -84,14 +84,14 @@ export function Pricing() {
                 className="relative flex flex-col"
               >
                 <CardHeader>
-                  <CardTitle className="text-2xl">{plan.name}</CardTitle>
-                  <CardDescription>{plan.description}</CardDescription>
+                  <CardTitle className="text-2xl text-gray-900">{plan.name}</CardTitle>
+                  <CardDescription className="text-gray-600">{plan.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col">
                   <div className="mb-6">
                     <div className="flex items-baseline">
-                      <span className="text-4xl font-bold">R$ {price.toFixed(2)}</span>
-                      <span className="text-muted-foreground ml-2">
+                      <span className="text-4xl font-bold text-gray-900">R$ {price.toFixed(2)}</span>
+                      <span className="text-gray-600 ml-2">
                         /{billingPeriod === 'monthly' ? 'mês' : 'trimestre'}
                       </span>
                     </div>

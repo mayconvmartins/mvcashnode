@@ -4,7 +4,7 @@ import Link from 'next/link';
 
 export function Footer() {
   return (
-    <footer className="border-t bg-background">
+    <footer className="border-t bg-white">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Logo e Descrição */}
@@ -24,25 +24,25 @@ export function Footer() {
 
           {/* Links Rápidos */}
           <div>
-            <h3 className="font-semibold mb-4">Links Rápidos</h3>
+            <h3 className="font-semibold mb-4 text-gray-900">Links Rápidos</h3>
             <ul className="space-y-2">
               <li>
-                <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="/" className="text-gray-600 hover:text-gray-900 transition-colors">
                   Início
                 </Link>
               </li>
               <li>
-                <Link href="/#pricing" className="text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="/#pricing" className="text-gray-600 hover:text-gray-900 transition-colors">
                   Planos
                 </Link>
               </li>
               <li>
-                <Link href="/help" className="text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="/help" className="text-gray-600 hover:text-gray-900 transition-colors">
                   Ajuda
                 </Link>
               </li>
               <li>
-                <Link href="/subscribe" className="text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="/subscribe" className="text-gray-600 hover:text-gray-900 transition-colors">
                   Assinar
                 </Link>
               </li>
@@ -51,20 +51,20 @@ export function Footer() {
 
           {/* Acesso */}
           <div>
-            <h3 className="font-semibold mb-4">Acesso</h3>
+            <h3 className="font-semibold mb-4 text-gray-900">Acesso</h3>
             <ul className="space-y-2">
               <li>
                 <a
                   href="https://app.mvcash.com.br"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-gray-600 hover:text-gray-900 transition-colors"
                 >
                   Login
                 </a>
               </li>
               <li>
-                <Link href="/subscribe" className="text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="/subscribe" className="text-gray-600 hover:text-gray-900 transition-colors">
                   Criar Conta
                 </Link>
               </li>
@@ -72,7 +72,7 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-8 pt-8 border-t text-center text-sm text-muted-foreground">
+        <div className="mt-8 pt-8 border-t border-gray-200 text-center text-sm text-gray-600">
           <p>&copy; {new Date().getFullYear()} MvCash. Todos os direitos reservados.</p>
         </div>
       </div>

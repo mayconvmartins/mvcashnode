@@ -61,7 +61,7 @@ const features = [
 
 export function Features() {
   return (
-    <section className="py-24 bg-background">
+    <section className="py-24 bg-white">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold mb-4">
@@ -78,15 +78,15 @@ export function Features() {
             return (
               <div
                 key={index}
-                className="p-6 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                className="p-6 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center gap-4 mb-4">
                   <div className="p-3 rounded-lg bg-primary/10">
                     <Icon className="h-6 w-6 text-primary" />
                   </div>
-                  <h3 className="text-xl font-semibold">{feature.title}</h3>
+                  <h3 className="text-xl font-semibold text-gray-900">{feature.title}</h3>
                 </div>
-                <p className="text-muted-foreground">{feature.description}</p>
+                <p className="text-gray-600">{feature.description}</p>
               </div>
             );
           })}

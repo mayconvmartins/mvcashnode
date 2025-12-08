@@ -27,8 +27,12 @@ export function Providers({ children }: { children: ReactNode }) {
             })
     )
 
+    // Verificar se é site público para usar tema claro
+    const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app';
+    const defaultTheme = siteMode === 'public' ? 'light' : 'dark';
+
     return (
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+        <ThemeProvider attribute="class" defaultTheme={defaultTheme} enableSystem={false} forcedTheme={siteMode === 'public' ? 'light' : undefined}>
             <QueryClientProvider client={queryClient}>
                 <WebSocketProvider>
                     <MercadoPagoProvider>

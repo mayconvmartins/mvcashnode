@@ -51,8 +51,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Verificar se é site público (porta 6010) para usar tema claro
+  const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app';
+  const themeClass = siteMode === 'public' ? 'light' : 'dark';
+  
   return (
-    <html lang="pt-BR" suppressHydrationWarning className="dark">
+    <html lang="pt-BR" suppressHydrationWarning className={themeClass}>
       <head>
         {/* Apple Touch Icons - iOS requer 180x180 como padrão */}
         <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180x180.png" />

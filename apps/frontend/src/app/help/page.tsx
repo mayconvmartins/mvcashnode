@@ -246,7 +246,7 @@ export default function HelpPage() {
   // Não fazer verificação no lado do cliente para evitar loops
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-white">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
@@ -266,15 +266,15 @@ export default function HelpPage() {
               const Icon = manual.icon;
               return (
                 <Link key={manual.slug} href={`/help/${manual.slug}`}>
-                  <Card className="h-full hover:bg-accent/50 transition-colors cursor-pointer">
+                  <Card className="h-full hover:bg-gray-50 transition-colors cursor-pointer border-gray-200">
                     <CardHeader>
                       <div className="flex items-center gap-3 mb-2">
                         <div className="p-2 rounded-lg bg-primary/10">
                           <Icon className="h-6 w-6 text-primary" />
                         </div>
-                        <CardTitle>{manual.title}</CardTitle>
+                        <CardTitle className="text-gray-900">{manual.title}</CardTitle>
                       </div>
-                      <CardDescription>{manual.description}</CardDescription>
+                      <CardDescription className="text-gray-600">{manual.description}</CardDescription>
                     </CardHeader>
                   </Card>
                 </Link>
@@ -283,8 +283,8 @@ export default function HelpPage() {
           </div>
 
           {/* Quick Links */}
-          <div className="mt-12 p-6 rounded-lg border bg-muted/50">
-            <h2 className="text-2xl font-semibold mb-4">Precisa de mais ajuda?</h2>
+          <div className="mt-12 p-6 rounded-lg border border-gray-200 bg-gray-50">
+            <h2 className="text-2xl font-semibold mb-4 text-gray-900">Precisa de mais ajuda?</h2>
             <div className="flex flex-col sm:flex-row gap-4">
               <a
                 href="https://app.mvcash.com.br"

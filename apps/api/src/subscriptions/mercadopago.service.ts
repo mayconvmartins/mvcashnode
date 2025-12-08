@@ -305,18 +305,19 @@ export class MercadoPagoService {
    * Processa um webhook do Mercado Pago
    */
   async processWebhook(event: {
-    id: string;
+    id: string | number;
     type: string;
     action: string;
-    data: { id: string };
+    data: { id: string | number };
   }): Promise<void> {
     try {
       // Salvar evento no banco
+      // Converter IDs para string (o banco espera String)
       await this.prisma.subscriptionWebhookEvent.create({
         data: {
-          mp_event_id: event.id,
+          mp_event_id: String(event.id),
           mp_event_type: event.type,
-          mp_resource_id: event.data.id,
+          mp_resource_id: String(event.data.id),
           raw_payload_json: event as any,
           processed: false,
         },
@@ -324,11 +325,11 @@ export class MercadoPagoService {
 
       // Se for evento de pagamento, buscar detalhes
       if (event.type === 'payment') {
-        const payment = await this.getPayment(event.data.id);
+        const payment = await this.getPayment(String(event.data.id));
         
         // Atualizar evento como processado
         await this.prisma.subscriptionWebhookEvent.updateMany({
-          where: { mp_event_id: event.id },
+          where: { mp_event_id: String(event.id) },
           data: { processed: true, processed_at: new Date() },
         });
 

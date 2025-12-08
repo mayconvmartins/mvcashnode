@@ -169,14 +169,15 @@ export class SubscriptionsController {
       let eventType: string | null = null;
       
       // Tentar extrair payment_id de diferentes formatos
+      // O Mercado Pago pode enviar como número, então converter para string
       if (body.data?.id) {
-        paymentId = body.data.id;
+        paymentId = String(body.data.id);
       } else if (body.data_id) {
-        paymentId = body.data_id;
+        paymentId = String(body.data_id);
       } else if (req.query?.data_id) {
-        paymentId = req.query.data_id;
+        paymentId = String(req.query.data_id);
       } else if (body.id && body.type === 'payment') {
-        paymentId = body.id;
+        paymentId = String(body.id);
       }
       
       if (body.type) {
@@ -212,11 +213,12 @@ export class SubscriptionsController {
       }
 
       // Processar webhook
+      // Garantir que IDs sejam strings (o Mercado Pago pode enviar como número)
       const event = {
-        id: body.id || `event-${Date.now()}`,
+        id: body.id ? String(body.id) : `event-${Date.now()}`,
         type: eventType || 'payment',
         action: body.action || 'payment.updated',
-        data: { id: paymentId },
+        data: { id: String(paymentId) },
       };
 
       await this.mercadoPagoService.processWebhook(event);
@@ -234,6 +236,17 @@ export class SubscriptionsController {
         error?.message || 'Erro ao processar webhook do Mercado Pago'
       );
     }
+  }
+
+  @Post('webhook/mercadopago')
+  @ApiOperation({ summary: 'Webhook do Mercado Pago para notificações de pagamento (rota alternativa)' })
+  @ApiResponse({ status: 200, description: 'Webhook processado' })
+  async handleMercadoPagoWebhookAlt(
+    @Request() req: any,
+    @Body() body: any
+  ) {
+    // Chamar o mesmo handler
+    return this.handleMercadoPagoWebhook(req, body);
   }
 
   @Post('webhooks/transfi')
@@ -301,5 +314,22 @@ export class SubscriptionsController {
         error?.message || 'Erro ao processar webhook do TransFi'
       );
     }
+  }
+
+  @Post('webhook/transfi')
+  @ApiOperation({ summary: 'Webhook do TransFi para notificações de pagamento (rota alternativa)' })
+  @ApiResponse({ status: 200, description: 'Webhook processado' })
+  async handleTransFiWebhookAlt(
+    @Request() req: any,
+    @Body() body: {
+      id: string;
+      type: string;
+      orderId: string;
+      status: string;
+      data?: any;
+    }
+  ) {
+    // Chamar o mesmo handler
+    return this.handleTransFiWebhook(req, body);
   }
 }
