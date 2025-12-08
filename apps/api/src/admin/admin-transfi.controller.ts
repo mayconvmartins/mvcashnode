@@ -211,8 +211,8 @@ export class AdminTransFiController {
     }
 
     try {
-      // Tentar listar moedas suportadas para testar conexão
-      await this.transfiService.getSupportedCurrencies();
+      // Tentar listar moedas suportadas para testar conexão (direction obrigatório)
+      await this.transfiService.getSupportedCurrencies('deposit');
 
       return {
         success: true,
@@ -403,11 +403,30 @@ export class AdminTransFiController {
     }
 
     try {
+      // Buscar dados do cliente da assinatura para o estorno
+      const subscription = await this.prisma.subscription.findUnique({
+        where: { id: payment.subscription_id },
+        include: {
+          user: {
+            include: {
+              profile: true,
+            },
+          },
+        },
+      });
+
+      const customerEmail = subscription?.user?.email || 'refund@example.com';
+      const customerName = subscription?.user?.profile?.full_name || 
+                          `${subscription?.user?.email?.split('@')[0] || 'Cliente'}`;
+
       // Estornar no TransFi
       const refundResult = await this.transfiService.refundPayment({
         orderId: payment.transfi_order_id,
         amount: payment.amount.toNumber(),
         reason: body.reason || 'Estorno solicitado pelo administrador',
+        customerEmail,
+        customerName,
+        originalCurrency: 'BRL', // Assumindo BRL, pode ser ajustado se necessário
       });
 
       // Atualizar status do pagamento

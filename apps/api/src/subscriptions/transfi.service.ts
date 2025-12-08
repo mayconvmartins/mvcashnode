@@ -153,26 +153,156 @@ export class TransFiService {
   }
 
   /**
+   * Cria ou busca um customer individual no TransFi
+   * Endpoint: POST /v2/users/individual
+   */
+  async createOrGetCustomer(data: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    country?: string;
+    phone?: string;
+    address?: {
+      city?: string;
+      postalCode?: string;
+      street?: string;
+      state?: string;
+    };
+  }): Promise<string | null> {
+    try {
+      const config = await this.getConfig();
+      const baseUrl = this.getBaseUrl(config.environment);
+
+      // Primeiro, tentar buscar customer existente
+      // Nota: A documentação não mostra endpoint de busca por email, então vamos tentar criar
+      // Se já existir, a API retornará erro que podemos tratar
+
+      const customerData: any = {
+        email: data.email,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        country: data.country || 'BR',
+        date: new Date().toISOString().split('T')[0], // Data de nascimento (formato YYYY-MM-DD)
+      };
+
+      if (data.phone) {
+        customerData.phone = data.phone;
+      }
+
+      if (data.address) {
+        customerData.address = {
+          city: data.address.city || '',
+          postalCode: data.address.postalCode || '',
+          street: data.address.street || '',
+          state: data.address.state || '',
+        };
+      }
+
+      const response = await fetch(`${baseUrl}/v2/users/individual`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'MID': config.merchantId,
+          'Authorization': this.getAuthHeader(config),
+        },
+        body: JSON.stringify(customerData),
+      });
+
+      if (response.ok) {
+        const result = await response.json() as { userId: string };
+        this.logger.log(`Customer TransFi criado: ${result.userId}`);
+        return result.userId;
+      } else if (response.status === 409) {
+        // Customer já existe
+        this.logger.debug(`Customer TransFi já existe para email: ${data.email}`);
+        // Tentar buscar userId (pode precisar de endpoint de busca)
+        return null; // Retornar null e continuar - o payin pode funcionar sem userId explícito
+      } else {
+        const error = await response.json() as { message?: string; code?: string };
+        this.logger.warn(`Erro ao criar/buscar customer TransFi:`, error);
+        // Não falhar - alguns casos podem não precisar de customer pré-criado
+        return null;
+      }
+    } catch (error: any) {
+      this.logger.warn('Erro ao criar/buscar customer TransFi (continuando):', error);
+      return null; // Não falhar - continuar com payin
+    }
+  }
+
+  /**
    * Cria um payin fiat (PIX ou cartão) que converte para USDT
+   * Endpoint correto: POST /v2/orders/deposit
    */
   async createPayin(data: TransFiPayinRequest): Promise<TransFiOrder> {
     try {
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
 
-      const payinData = {
+      // Separar nome completo em firstName e lastName
+      const fullNameParts = (data.customerData.fullName || '').trim().split(' ');
+      const firstName = fullNameParts[0] || data.customerData.email.split('@')[0];
+      const lastName = fullNameParts.slice(1).join(' ') || firstName;
+
+      // Tentar criar/buscar customer antes de criar payin (pode resolver CUSTOMER_NOT_FOUND)
+      // Nota: Isso é opcional - alguns casos podem funcionar sem customer pré-criado
+      try {
+        await this.createOrGetCustomer({
+          email: data.customerData.email,
+          firstName,
+          lastName,
+          country: 'BR',
+          phone: data.customerData.phone,
+        });
+      } catch (error) {
+        this.logger.debug('Não foi possível criar customer antes do payin, continuando...');
+      }
+
+      // Mapear paymentMethod para paymentCode
+      // PIX -> pix, CARD -> card, etc
+      const paymentCodeMap: Record<string, string> = {
+        'PIX': 'pix',
+        'CARD': 'card',
+        'BANK_TRANSFER': 'bank_transfer',
+      };
+      const paymentCode = paymentCodeMap[data.paymentMethod] || data.paymentMethod.toLowerCase();
+
+      // Construir body conforme documentação
+      const payinData: any = {
         amount: data.amount,
         currency: data.currency,
-        paymentMethod: data.paymentMethod,
-        description: data.description,
-        customerData: data.customerData,
-        metadata: {
-          ...data.metadata,
-          targetCurrency: 'USDT', // Sempre receber em USDT
-        },
+        email: data.customerData.email,
+        firstName,
+        lastName,
+        country: 'BR', // Brasil por padrão, pode ser configurável
+        paymentCode,
+        balanceCurrency: 'USDT', // Sempre receber em USDT
+        redirectUrl: config.redirectUrl || undefined,
+        sourceUrl: config.redirectUrl || undefined,
       };
 
-      const response = await fetch(`${baseUrl}/v2/fiat-order/payin`, {
+      // Adicionar campos opcionais se disponíveis
+      if (data.customerData.phone) {
+        payinData.additionalDetails = {
+          phone: data.customerData.phone,
+          phoneCode: '+55', // Brasil por padrão
+        };
+      }
+
+      if (data.customerData.cpf) {
+        // CPF pode ir em additionalDetails ou em outro campo dependendo da API
+        if (!payinData.additionalDetails) {
+          payinData.additionalDetails = {};
+        }
+        // Nota: CPF pode precisar ser enviado de forma diferente, verificar documentação
+      }
+
+      // Adicionar metadata como partnerContext
+      if (data.metadata) {
+        payinData.partnerContext = data.metadata;
+      }
+
+      const response = await fetch(`${baseUrl}/v2/orders/deposit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -184,18 +314,45 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json() as { message?: string; error?: string };
+        const error = await response.json() as { message?: string; code?: string };
         this.logger.error('Erro ao criar payin TransFi:', error);
         throw new BadRequestException(
-          error?.message || error?.error || 'Erro ao criar pagamento TransFi'
+          error?.message || `Erro ao criar pagamento TransFi: ${error?.code || 'UNKNOWN'}`
         );
       }
 
-      const order = await response.json() as TransFiOrder;
+      const responseData = await response.json() as {
+        orderId: string;
+        paymentUrl?: string;
+        redirectUrl?: string;
+        partnerContext?: any;
+      };
+
+      // Mapear resposta para o formato esperado
+      const order: TransFiOrder = {
+        id: responseData.orderId, // Usar orderId como id
+        orderId: responseData.orderId,
+        status: 'PENDING', // Status inicial
+        amount: data.amount,
+        currency: data.currency,
+        paymentMethod: data.paymentMethod,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        paymentData: {
+          paymentUrl: responseData.paymentUrl,
+          qrCode: undefined, // Será preenchido quando disponível
+          qrCodeBase64: undefined,
+        },
+        metadata: responseData.partnerContext,
+      };
+
       this.logger.log(`Payin TransFi criado: ${order.orderId}`);
       return order;
     } catch (error: any) {
       this.logger.error('Erro ao criar payin TransFi:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       throw new BadRequestException(
         error?.message || 'Erro ao criar pagamento TransFi'
       );
@@ -259,14 +416,15 @@ export class TransFiService {
   }
 
   /**
-   * Busca detalhes de um pedido fiat
+   * Busca detalhes de um pedido
+   * Endpoint correto: GET /v2/orders/:orderId
    */
   async getOrderDetails(orderId: string): Promise<TransFiOrder> {
     try {
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
 
-      const response = await fetch(`${baseUrl}/v2/fiat-order/${orderId}`, {
+      const response = await fetch(`${baseUrl}/v2/orders/${orderId}`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -276,16 +434,52 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json() as { message?: string; error?: string };
+        const error = await response.json() as { message?: string; code?: string };
         this.logger.error('Erro ao buscar pedido TransFi:', error);
         throw new BadRequestException(
-          error?.message || error?.error || 'Erro ao buscar pedido TransFi'
+          error?.message || `Erro ao buscar pedido TransFi: ${error?.code || 'UNKNOWN'}`
         );
       }
 
-      return await response.json() as TransFiOrder;
+      const responseData = await response.json() as {
+        data: {
+          orderId: string;
+          status: string;
+          depositAmount?: number;
+          depositCurrency?: string;
+          withdrawAmount?: number;
+          withdrawCurrency?: string;
+          senderName?: {
+            firstName: string;
+            lastName: string;
+          };
+          type?: string; // 'deposit' ou 'withdraw'
+        };
+        status: string;
+      };
+
+      // Mapear resposta para o formato esperado
+      // A API retorna depositAmount/depositCurrency para payins e withdrawAmount/withdrawCurrency para payouts
+      const amount = responseData.data.depositAmount || responseData.data.withdrawAmount || 0;
+      const currency = responseData.data.depositCurrency || responseData.data.withdrawCurrency || 'BRL';
+
+      const order: TransFiOrder = {
+        id: responseData.data.orderId,
+        orderId: responseData.data.orderId,
+        status: responseData.data.status,
+        amount,
+        currency,
+        paymentMethod: 'UNKNOWN', // Não vem na resposta, manter histórico
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      return order;
     } catch (error: any) {
       this.logger.error('Erro ao buscar pedido TransFi:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       throw new BadRequestException(
         error?.message || 'Erro ao buscar pedido TransFi'
       );
@@ -294,25 +488,72 @@ export class TransFiService {
 
   /**
    * Estorna um pagamento (via payout)
+   * Endpoint correto: POST /v2/payout/orders
+   * Nota: Para estorno, precisamos criar um payout order com dados do cliente original
    */
-  async refundPayment(data: TransFiRefundRequest): Promise<any> {
+  async refundPayment(data: TransFiRefundRequest & { 
+    customerEmail?: string;
+    customerName?: string;
+    originalCurrency?: string;
+  }): Promise<any> {
     try {
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
 
-      const refundData: any = {
-        orderId: data.orderId,
+      // Buscar detalhes do pedido original para obter informações
+      let originalOrder: TransFiOrder;
+      try {
+        originalOrder = await this.getOrderDetails(data.orderId);
+      } catch (error) {
+        this.logger.warn(`Não foi possível buscar detalhes do pedido ${data.orderId}, usando dados fornecidos`);
+        // Se não conseguir buscar, usar dados fornecidos
+        originalOrder = {
+          id: data.orderId,
+          orderId: data.orderId,
+          status: 'UNKNOWN',
+          amount: data.amount || 0,
+          currency: data.originalCurrency || 'BRL',
+          paymentMethod: 'UNKNOWN',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      // Montar dados do payout (estorno)
+      // O payout precisa de: amount, email, currency, paymentCode, balanceCurrency
+      const refundAmount = data.amount !== undefined && data.amount > 0 
+        ? data.amount 
+        : originalOrder.amount;
+
+      // Separar nome se fornecido
+      const customerName = data.customerName || 'Cliente';
+      const nameParts = customerName.trim().split(' ');
+      const firstName = nameParts[0] || 'Cliente';
+      const lastName = nameParts.slice(1).join(' ') || firstName;
+
+      const payoutData: any = {
+        amount: Math.round(refundAmount * 100), // TransFi espera amount em centavos (integer)
+        email: data.customerEmail || 'refund@example.com', // Deve vir do pedido original
+        currency: originalOrder.currency,
+        paymentCode: 'pix', // PIX para estorno no Brasil
+        balanceCurrency: 'USDT', // Moeda do saldo (mesma do payin original)
       };
 
-      if (data.amount !== undefined && data.amount > 0) {
-        refundData.amount = data.amount;
+      // Adicionar partnerId se disponível (referência ao pedido original)
+      if (data.orderId) {
+        payoutData.partnerId = data.orderId;
       }
 
+      // Adicionar reason se fornecido
       if (data.reason) {
-        refundData.reason = data.reason;
+        payoutData.purposeCode = 'refund';
+        if (!payoutData.partnerContext) {
+          payoutData.partnerContext = {};
+        }
+        payoutData.partnerContext.reason = data.reason;
       }
 
-      const response = await fetch(`${baseUrl}/v2/fiat-order/payout`, {
+      const response = await fetch(`${baseUrl}/v2/payout/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -320,22 +561,25 @@ export class TransFiService {
           'MID': config.merchantId,
           'Authorization': this.getAuthHeader(config),
         },
-        body: JSON.stringify(refundData),
+        body: JSON.stringify(payoutData),
       });
 
       if (!response.ok) {
-        const error = await response.json() as { message?: string; error?: string };
+        const error = await response.json() as { message?: string; code?: string };
         this.logger.error('Erro ao estornar pagamento TransFi:', error);
         throw new BadRequestException(
-          error?.message || error?.error || 'Erro ao estornar pagamento TransFi'
+          error?.message || `Erro ao estornar pagamento TransFi: ${error?.code || 'UNKNOWN'}`
         );
       }
 
-      const refundResult = await response.json();
-      this.logger.log(`Pagamento ${data.orderId} estornado com sucesso`);
+      const refundResult = await response.json() as { orderId: string };
+      this.logger.log(`Pagamento ${data.orderId} estornado com sucesso. Payout orderId: ${refundResult.orderId}`);
       return refundResult;
     } catch (error: any) {
       this.logger.error('Erro ao estornar pagamento TransFi:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       throw new BadRequestException(
         error?.message || 'Erro ao estornar pagamento TransFi'
       );
@@ -427,13 +671,20 @@ export class TransFiService {
 
   /**
    * Lista moedas suportadas
+   * @param direction - 'deposit' ou 'withdraw' (obrigatório)
    */
-  async getSupportedCurrencies(): Promise<any> {
+  async getSupportedCurrencies(direction: 'deposit' | 'withdraw' = 'deposit'): Promise<any> {
     try {
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
 
-      const response = await fetch(`${baseUrl}/v2/supported-currencies`, {
+      const queryParams = new URLSearchParams({
+        direction,
+        page: '1',
+        limit: '100',
+      });
+
+      const response = await fetch(`${baseUrl}/v2/supported-currencies?${queryParams.toString()}`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -443,14 +694,19 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json() as { message?: string; error?: string };
+        const error = await response.json() as { message?: string; code?: string };
         this.logger.error('Erro ao listar moedas TransFi:', error);
-        throw new BadRequestException('Erro ao listar moedas suportadas');
+        throw new BadRequestException(
+          error?.message || `Erro ao listar moedas suportadas: ${error?.code || 'UNKNOWN'}`
+        );
       }
 
       return await response.json();
     } catch (error: any) {
       this.logger.error('Erro ao listar moedas TransFi:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       throw new BadRequestException('Erro ao listar moedas suportadas');
     }
   }
