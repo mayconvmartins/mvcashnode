@@ -15,6 +15,16 @@ export interface TransFiPayinRequest {
     fullName?: string;
     cpf?: string;
     phone?: string;
+    birthDate?: Date | string;
+    address?: {
+      street?: string;
+      number?: string;
+      complement?: string;
+      neighborhood?: string;
+      city?: string;
+      state?: string;
+      zipcode?: string;
+    };
   };
   metadata?: Record<string, any>;
 }
@@ -153,13 +163,48 @@ export class TransFiService {
   }
 
   /**
+   * Busca um customer individual por email
+   * Endpoint: GET /v2/users/individuals?email=...
+   */
+  async findCustomerByEmail(email: string): Promise<string | null> {
+    try {
+      const config = await this.getConfig();
+      const baseUrl = this.getBaseUrl(config.environment);
+
+      const queryParams = new URLSearchParams({ email });
+      const response = await fetch(`${baseUrl}/v2/users/individuals?${queryParams.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'MID': config.merchantId,
+          'Authorization': this.getAuthHeader(config),
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json() as { users?: Array<{ userId: string }>; total?: number };
+        if (result.users && result.users.length > 0) {
+          this.logger.debug(`Customer TransFi encontrado: ${result.users[0].userId}`);
+          return result.users[0].userId;
+        }
+      }
+      return null;
+    } catch (error) {
+      this.logger.debug('Erro ao buscar customer por email:', error);
+      return null;
+    }
+  }
+
+  /**
    * Cria ou busca um customer individual no TransFi
    * Endpoint: POST /v2/users/individual
+   * Campos obrigatórios: email, firstName, lastName, date, country
    */
   async createOrGetCustomer(data: {
     email: string;
     firstName: string;
     lastName: string;
+    date?: string; // Data de nascimento YYYY-MM-DD
     country?: string;
     phone?: string;
     address?: {
@@ -170,21 +215,48 @@ export class TransFiService {
     };
   }): Promise<string | null> {
     try {
+      // Primeiro, tentar buscar customer existente por email
+      const existingUserId = await this.findCustomerByEmail(data.email);
+      if (existingUserId) {
+        this.logger.debug(`Customer TransFi já existe: ${existingUserId}`);
+        return existingUserId;
+      }
+
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
 
-      // Primeiro, tentar buscar customer existente
-      // Nota: A documentação não mostra endpoint de busca por email, então vamos tentar criar
-      // Se já existir, a API retornará erro que podemos tratar
+      // Campos obrigatórios conforme documentação
+      // date é obrigatório - formato YYYY-MM-DD
+      let birthDate = data.date;
+      if (!birthDate) {
+        // Se não fornecido, usar data padrão (18 anos atrás)
+        const defaultDate = new Date();
+        defaultDate.setFullYear(defaultDate.getFullYear() - 18);
+        birthDate = defaultDate.toISOString().split('T')[0];
+      } else if (birthDate instanceof Date) {
+        birthDate = birthDate.toISOString().split('T')[0];
+      } else if (typeof birthDate === 'string' && !birthDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Se for string mas não estiver no formato correto, converter
+        const dateObj = new Date(birthDate);
+        if (!isNaN(dateObj.getTime())) {
+          birthDate = dateObj.toISOString().split('T')[0];
+        } else {
+          // Fallback para data padrão se inválida
+          const defaultDate = new Date();
+          defaultDate.setFullYear(defaultDate.getFullYear() - 18);
+          birthDate = defaultDate.toISOString().split('T')[0];
+        }
+      }
 
       const customerData: any = {
         email: data.email,
         firstName: data.firstName,
         lastName: data.lastName,
         country: data.country || 'BR',
-        date: new Date().toISOString().split('T')[0], // Data de nascimento (formato YYYY-MM-DD)
+        date: birthDate,
       };
 
+      // Campos opcionais
       if (data.phone) {
         customerData.phone = data.phone;
       }
@@ -197,6 +269,16 @@ export class TransFiService {
           state: data.address.state || '',
         };
       }
+
+      this.logger.debug('Criando customer TransFi:', {
+        email: customerData.email,
+        firstName: customerData.firstName,
+        lastName: customerData.lastName,
+        country: customerData.country,
+        date: customerData.date,
+        hasPhone: !!customerData.phone,
+        hasAddress: !!customerData.address,
+      });
 
       const response = await fetch(`${baseUrl}/v2/users/individual`, {
         method: 'POST',
@@ -214,19 +296,47 @@ export class TransFiService {
         this.logger.log(`Customer TransFi criado: ${result.userId}`);
         return result.userId;
       } else if (response.status === 409) {
-        // Customer já existe
-        this.logger.debug(`Customer TransFi já existe para email: ${data.email}`);
-        // Tentar buscar userId (pode precisar de endpoint de busca)
-        return null; // Retornar null e continuar - o payin pode funcionar sem userId explícito
+        // Customer já existe - buscar userId por email
+        this.logger.debug(`Customer TransFi já existe para email: ${data.email}, buscando userId...`);
+        const existingUserId = await this.findCustomerByEmail(data.email);
+        if (existingUserId) {
+          return existingUserId;
+        }
+        // Se não conseguir buscar, retornar null - o payin deve funcionar com email
+        return null;
       } else {
-        const error = await response.json() as { message?: string; code?: string };
-        this.logger.warn(`Erro ao criar/buscar customer TransFi:`, error);
-        // Não falhar - alguns casos podem não precisar de customer pré-criado
+        const errorText = await response.text();
+        let error: { message?: string; code?: string } = {};
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { message: errorText };
+        }
+        
+        this.logger.warn(`Erro ao criar customer TransFi:`, {
+          status: response.status,
+          statusText: response.statusText,
+          error,
+          customerData: {
+            email: customerData.email,
+            firstName: customerData.firstName,
+            lastName: customerData.lastName,
+            country: customerData.country,
+            date: customerData.date,
+          },
+        });
+        
+        // Se for CUSTOMER_NOT_FOUND, pode ser que o customer precisa ser criado de outra forma
+        // ou que o payin pode criar automaticamente
+        if (error.code === 'CUSTOMER_NOT_FOUND') {
+          this.logger.warn('Customer não encontrado - tentando criar payin sem userId');
+        }
+        
         return null;
       }
     } catch (error: any) {
-      this.logger.warn('Erro ao criar/buscar customer TransFi (continuando):', error);
-      return null; // Não falhar - continuar com payin
+      this.logger.warn('Erro ao criar customer TransFi (continuando):', error);
+      return null;
     }
   }
 
@@ -244,18 +354,36 @@ export class TransFiService {
       const firstName = fullNameParts[0] || data.customerData.email.split('@')[0];
       const lastName = fullNameParts.slice(1).join(' ') || firstName;
 
-      // Tentar criar/buscar customer antes de criar payin (pode resolver CUSTOMER_NOT_FOUND)
-      // Nota: Isso é opcional - alguns casos podem funcionar sem customer pré-criado
+      // Criar customer ANTES do payin (obrigatório para TransFi)
+      // O payin precisa que o customer exista, identificado por email
+      let userId: string | null = null;
       try {
-        await this.createOrGetCustomer({
+        // Converter birthDate se fornecido
+        let birthDateStr: string | undefined;
+        if (data.customerData.birthDate) {
+          const date = data.customerData.birthDate instanceof Date 
+            ? data.customerData.birthDate 
+            : new Date(data.customerData.birthDate);
+          birthDateStr = date.toISOString().split('T')[0];
+        }
+
+        userId = await this.createOrGetCustomer({
           email: data.customerData.email,
           firstName,
           lastName,
+          date: birthDateStr,
           country: 'BR',
           phone: data.customerData.phone,
+          address: data.customerData.address ? {
+            city: data.customerData.address.city,
+            postalCode: data.customerData.address.zipcode,
+            street: data.customerData.address.street,
+            state: data.customerData.address.state,
+          } : undefined,
         });
       } catch (error) {
-        this.logger.debug('Não foi possível criar customer antes do payin, continuando...');
+        this.logger.error('Erro ao criar customer antes do payin:', error);
+        // Continuar mesmo assim - pode ser que o payin crie automaticamente
       }
 
       // Mapear paymentMethod para paymentCode
@@ -267,40 +395,48 @@ export class TransFiService {
       };
       const paymentCode = paymentCodeMap[data.paymentMethod] || data.paymentMethod.toLowerCase();
 
-      // Construir body conforme documentação
+      // Construir body conforme documentação - apenas campos obrigatórios primeiro
       const payinData: any = {
         amount: data.amount,
         currency: data.currency,
         email: data.customerData.email,
         firstName,
         lastName,
-        country: 'BR', // Brasil por padrão, pode ser configurável
+        country: 'BR', // Brasil por padrão
         paymentCode,
         balanceCurrency: 'USDT', // Sempre receber em USDT
-        redirectUrl: config.redirectUrl || undefined,
-        sourceUrl: config.redirectUrl || undefined,
       };
 
-      // Adicionar campos opcionais se disponíveis
+      // Campos opcionais
+      if (config.redirectUrl) {
+        payinData.redirectUrl = config.redirectUrl;
+        payinData.sourceUrl = config.redirectUrl;
+      }
+
+      // additionalDetails com phone se disponível
       if (data.customerData.phone) {
         payinData.additionalDetails = {
-          phone: data.customerData.phone,
-          phoneCode: '+55', // Brasil por padrão
+          phone: data.customerData.phone.replace(/\D/g, ''), // Remover caracteres não numéricos
+          phoneCode: '+55', // Brasil
         };
       }
 
-      if (data.customerData.cpf) {
-        // CPF pode ir em additionalDetails ou em outro campo dependendo da API
-        if (!payinData.additionalDetails) {
-          payinData.additionalDetails = {};
-        }
-        // Nota: CPF pode precisar ser enviado de forma diferente, verificar documentação
+      // partnerContext para metadata
+      if (data.metadata || data.description) {
+        payinData.partnerContext = {
+          ...data.metadata,
+          description: data.description,
+        };
       }
 
-      // Adicionar metadata como partnerContext
-      if (data.metadata) {
-        payinData.partnerContext = data.metadata;
-      }
+      // Log do payload para debug (sem dados sensíveis)
+      this.logger.debug('Criando payin TransFi:', {
+        amount: payinData.amount,
+        currency: payinData.currency,
+        email: payinData.email,
+        paymentCode: payinData.paymentCode,
+        hasPhone: !!payinData.additionalDetails?.phone,
+      });
 
       const response = await fetch(`${baseUrl}/v2/orders/deposit`, {
         method: 'POST',
@@ -314,8 +450,54 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json() as { message?: string; code?: string };
-        this.logger.error('Erro ao criar payin TransFi:', error);
+        const errorText = await response.text();
+        let error: { message?: string; code?: string } = {};
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { message: errorText || 'Erro desconhecido' };
+        }
+
+        this.logger.error('Erro ao criar payin TransFi:', {
+          status: response.status,
+          statusText: response.statusText,
+          error,
+          payinData: {
+            amount: payinData.amount,
+            currency: payinData.currency,
+            email: payinData.email,
+            paymentCode: payinData.paymentCode,
+          },
+        });
+
+        // Se for CUSTOMER_NOT_FOUND, tentar criar customer novamente
+        if (error.code === 'CUSTOMER_NOT_FOUND') {
+          this.logger.warn('Customer não encontrado no payin - tentando criar novamente...');
+          try {
+            await this.createOrGetCustomer({
+              email: data.customerData.email,
+              firstName,
+              lastName,
+              date: data.customerData.birthDate 
+                ? (data.customerData.birthDate instanceof Date 
+                    ? data.customerData.birthDate.toISOString().split('T')[0]
+                    : new Date(data.customerData.birthDate).toISOString().split('T')[0])
+                : undefined,
+              country: 'BR',
+              phone: data.customerData.phone,
+              address: data.customerData.address ? {
+                city: data.customerData.address.city,
+                postalCode: data.customerData.address.zipcode,
+                street: data.customerData.address.street,
+                state: data.customerData.address.state,
+              } : undefined,
+            });
+            this.logger.log('Customer criado com sucesso - tente criar o payin novamente');
+          } catch (customerError) {
+            this.logger.error('Erro ao criar customer na segunda tentativa:', customerError);
+          }
+        }
+
         throw new BadRequestException(
           error?.message || `Erro ao criar pagamento TransFi: ${error?.code || 'UNKNOWN'}`
         );

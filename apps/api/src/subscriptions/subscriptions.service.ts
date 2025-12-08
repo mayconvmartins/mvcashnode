@@ -186,6 +186,16 @@ export class SubscriptionsService {
             fullName: data.subscriberData.fullName,
             cpf: data.subscriberData.cpf,
             phone: data.subscriberData.phone,
+            birthDate: data.subscriberData.birthDate,
+            address: {
+              street: data.subscriberData.address.street,
+              number: data.subscriberData.address.number,
+              complement: data.subscriberData.address.complement,
+              neighborhood: data.subscriberData.address.neighborhood,
+              city: data.subscriberData.address.city,
+              state: data.subscriberData.address.state,
+              zipcode: data.subscriberData.address.zipcode,
+            },
           },
         });
 
