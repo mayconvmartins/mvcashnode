@@ -302,8 +302,14 @@ export class SubscriptionsService {
         return;
       }
 
-      // Se pedido foi aprovado/completado, ativar assinatura
-      if (order.status === 'completed' || order.status === 'approved') {
+      // Mapear status do TransFi para status do banco
+      // O getOrderDetails já retorna o status mapeado, mas vamos verificar os valores originais também
+      const isApproved = order.status === 'completed' || 
+                        order.status === 'approved' || 
+                        order.status.toLowerCase() === 'completed' ||
+                        order.status.toLowerCase() === 'approved';
+      
+      if (isApproved) {
         const startDate = new Date();
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + subscription.plan.duration_days);
@@ -387,7 +393,16 @@ export class SubscriptionsService {
 
         // Enviar email de confirmação de pagamento
         await this.sendTransFiPaymentConfirmationEmail(subscription, order);
-      } else if (order.status === 'failed' || order.status === 'rejected' || order.status === 'cancelled') {
+      } else {
+        // Verificar se foi rejeitado, cancelado ou falhou
+        const isRejected = order.status === 'failed' || 
+                          order.status === 'rejected' || 
+                          order.status === 'cancelled' ||
+                          order.status.toLowerCase() === 'failed' ||
+                          order.status.toLowerCase() === 'rejected' ||
+                          order.status.toLowerCase() === 'cancelled';
+        
+        if (isRejected) {
         // Atualizar assinatura para status apropriado
         await this.prisma.subscription.update({
           where: { id: subscription.id },
@@ -405,9 +420,10 @@ export class SubscriptionsService {
           await this.prisma.subscriptionPayment.update({
             where: { id: payment.id },
             data: {
-              status: order.status === 'cancelled' ? 'CANCELLED' : 'REJECTED',
+              status: order.status.toLowerCase() === 'cancelled' ? 'CANCELLED' : 'REJECTED',
             },
           });
+        }
         }
       }
     } catch (error: any) {

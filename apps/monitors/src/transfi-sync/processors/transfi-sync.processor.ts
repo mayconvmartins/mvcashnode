@@ -86,8 +86,8 @@ export class TransFiSyncProcessor extends WorkerHost {
         if (!payment.transfi_order_id) continue;
 
         try {
-          // Buscar status atualizado do TransFi
-          const response = await fetch(`${baseUrl}/v2/fiat-order/${payment.transfi_order_id}`, {
+          // Buscar status atualizado do TransFi - endpoint correto: GET /v2/orders/:orderId
+          const response = await fetch(`${baseUrl}/v2/orders/${payment.transfi_order_id}`, {
             method: 'GET',
             headers: {
               'Accept': 'application/json',
@@ -97,25 +97,42 @@ export class TransFiSyncProcessor extends WorkerHost {
           });
 
           if (!response.ok) {
-            const error = await response.json();
+            const errorText = await response.text();
+            let error: { message?: string; code?: string } = {};
+            try {
+              error = JSON.parse(errorText);
+            } catch {
+              error = { message: errorText || 'Erro desconhecido' };
+            }
             this.logger.warn(`Erro ao buscar pedido ${payment.transfi_order_id}:`, error);
             errors++;
             errorDetails.push({
               paymentId: payment.id,
-              error: (error && typeof error === 'object' && 'message' in error)
-                ? String(error.message)
-                : 'Erro desconhecido',
+              error: error?.message || 'Erro desconhecido',
             });
             continue;
           }
 
-          const transfiOrder = await response.json() as {
-            id: string;
-            orderId: string;
+          // A resposta vem no formato { data: { ... }, status: string }
+          const responseData = await response.json() as {
+            data: {
+              orderId: string;
+              status: string;
+              depositAmount?: number;
+              depositCurrency?: string;
+              withdrawAmount?: number;
+              withdrawCurrency?: string;
+            };
             status: string;
-            amount: number;
-            currency: string;
-            paymentMethod: string;
+          };
+
+          const transfiOrder = {
+            id: responseData.data.orderId,
+            orderId: responseData.data.orderId,
+            status: responseData.data.status,
+            amount: responseData.data.depositAmount || responseData.data.withdrawAmount || 0,
+            currency: responseData.data.depositCurrency || responseData.data.withdrawCurrency || 'BRL',
+            paymentMethod: 'UNKNOWN', // Não vem na resposta
           };
           synced++;
 
@@ -185,7 +202,8 @@ export class TransFiSyncProcessor extends WorkerHost {
         if (!transfiPayment?.transfi_order_id) continue;
 
         try {
-          const response = await fetch(`${baseUrl}/v2/fiat-order/${transfiPayment.transfi_order_id}`, {
+          // Endpoint correto: GET /v2/orders/:orderId
+          const response = await fetch(`${baseUrl}/v2/orders/${transfiPayment.transfi_order_id}`, {
             method: 'GET',
             headers: {
               'Accept': 'application/json',
@@ -195,17 +213,31 @@ export class TransFiSyncProcessor extends WorkerHost {
           });
 
           if (response.ok) {
-            const transfiOrder = await response.json() as {
-              id: string;
-              orderId: string;
+            // A resposta vem no formato { data: { ... }, status: string }
+            const responseData = await response.json() as {
+              data: {
+                orderId: string;
+                status: string;
+                depositAmount?: number;
+                depositCurrency?: string;
+                withdrawAmount?: number;
+                withdrawCurrency?: string;
+              };
               status: string;
-              amount: number;
-              currency: string;
-              paymentMethod: string;
+            };
+
+            const transfiOrder = {
+              id: responseData.data.orderId,
+              orderId: responseData.data.orderId,
+              status: responseData.data.status,
+              amount: responseData.data.depositAmount || responseData.data.withdrawAmount || 0,
+              currency: responseData.data.depositCurrency || responseData.data.withdrawCurrency || 'BRL',
+              paymentMethod: 'UNKNOWN',
             };
             
-            if ((transfiOrder.status === 'completed' || transfiOrder.status === 'approved') && 
-                subscription.status === 'PENDING_PAYMENT') {
+            // Mapear status para verificar se foi aprovado
+            const mappedStatus = this.mapTransFiStatusToDbStatus(transfiOrder.status);
+            if (mappedStatus === 'APPROVED' && subscription.status === 'PENDING_PAYMENT') {
               await this.processApprovedPayment(
                 subscription.id,
                 transfiPayment.transfi_order_id,

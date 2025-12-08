@@ -204,7 +204,7 @@ export class TransFiService {
     email: string;
     firstName: string;
     lastName: string;
-    date?: string; // Data de nascimento YYYY-MM-DD
+    date?: string | Date; // Data de nascimento YYYY-MM-DD ou Date object
     country?: string;
     phone?: string;
     address?: {
@@ -227,25 +227,31 @@ export class TransFiService {
 
       // Campos obrigatórios conforme documentação
       // date é obrigatório - formato YYYY-MM-DD
-      let birthDate = data.date;
-      if (!birthDate) {
+      let birthDate: string;
+      if (!data.date) {
         // Se não fornecido, usar data padrão (18 anos atrás)
         const defaultDate = new Date();
         defaultDate.setFullYear(defaultDate.getFullYear() - 18);
         birthDate = defaultDate.toISOString().split('T')[0];
-      } else if (birthDate instanceof Date) {
-        birthDate = birthDate.toISOString().split('T')[0];
-      } else if (typeof birthDate === 'string' && !birthDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        // Se for string mas não estiver no formato correto, converter
-        const dateObj = new Date(birthDate);
-        if (!isNaN(dateObj.getTime())) {
-          birthDate = dateObj.toISOString().split('T')[0];
+      } else if (typeof data.date === 'string') {
+        // Se for string, verificar formato
+        if (data.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          birthDate = data.date;
         } else {
-          // Fallback para data padrão se inválida
-          const defaultDate = new Date();
-          defaultDate.setFullYear(defaultDate.getFullYear() - 18);
-          birthDate = defaultDate.toISOString().split('T')[0];
+          // Tentar converter string para Date
+          const dateObj = new Date(data.date);
+          if (!isNaN(dateObj.getTime())) {
+            birthDate = dateObj.toISOString().split('T')[0];
+          } else {
+            // Fallback para data padrão se inválida
+            const defaultDate = new Date();
+            defaultDate.setFullYear(defaultDate.getFullYear() - 18);
+            birthDate = defaultDate.toISOString().split('T')[0];
+          }
         }
+      } else {
+        // Se for Date object, converter
+        birthDate = data.date.toISOString().split('T')[0];
       }
 
       const customerData: any = {
@@ -558,16 +564,32 @@ export class TransFiService {
       const config = await this.getConfig();
       const baseUrl = this.getBaseUrl(config.environment);
 
-      const payinData = {
-        amount: data.amount,
-        sourceCurrency: data.sourceCurrency,
-        targetCurrency: 'USDT',
-        description: data.description,
-        customerData: data.customerData,
-        metadata: data.metadata,
+      // Estrutura conforme documentação: amount, cryptoTicker, email, purposeCode, partnerContext, country, firstName, lastName
+      const payinData: any = {
+        amount: Math.round(data.amount * 1000000), // Converter para integer (micro-units)
+        cryptoTicker: data.sourceCurrency, // Ex: BTC, ETH
+        email: data.customerData.email,
+        country: 'BR', // Brasil por padrão
+        firstName: data.customerData.email.split('@')[0], // Fallback se não tiver nome
+        lastName: 'User', // Fallback
       };
 
-      const response = await fetch(`${baseUrl}/v2/crypto-order/payin`, {
+      // Campos opcionais
+      if (data.description) {
+        payinData.purposeCode = 'subscription';
+      }
+
+      if (data.metadata) {
+        payinData.partnerContext = data.metadata;
+      }
+
+      if (data.customerData.walletAddress) {
+        // walletAddress pode ir em withdrawDetails se necessário
+        payinData.walletAddress = data.customerData.walletAddress;
+      }
+
+      // Endpoint correto: POST /v2/crypto/payin
+      const response = await fetch(`${baseUrl}/v2/crypto/payin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -586,7 +608,26 @@ export class TransFiService {
         );
       }
 
-      const order = await response.json() as TransFiOrder;
+      const responseData = await response.json() as {
+        orderId: string;
+        walletAddress?: string;
+      };
+
+      // Mapear resposta para o formato esperado
+      const order: TransFiOrder = {
+        id: responseData.orderId,
+        orderId: responseData.orderId,
+        status: 'PENDING',
+        amount: data.amount,
+        currency: data.sourceCurrency,
+        paymentMethod: 'CRYPTO',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        paymentData: {
+          walletAddress: responseData.walletAddress,
+        },
+      };
+
       this.logger.log(`Crypto payin TransFi criado: ${order.orderId}`);
       return order;
     } catch (error: any) {
@@ -616,8 +657,18 @@ export class TransFiService {
       });
 
       if (!response.ok) {
-        const error = await response.json() as { message?: string; code?: string };
-        this.logger.error('Erro ao buscar pedido TransFi:', error);
+        const errorText = await response.text();
+        let error: { message?: string; code?: string } = {};
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { message: errorText || 'Erro desconhecido' };
+        }
+        this.logger.error('Erro ao buscar pedido TransFi:', {
+          status: response.status,
+          statusText: response.statusText,
+          error,
+        });
         throw new BadRequestException(
           error?.message || `Erro ao buscar pedido TransFi: ${error?.code || 'UNKNOWN'}`
         );
@@ -959,7 +1010,11 @@ export class TransFiService {
         );
       }
 
-      const result = await response.json();
+      const result = await response.json() as {
+        users?: Array<{ userId: string }>;
+        total?: number;
+        pages?: number;
+      };
       
       return {
         success: true,
