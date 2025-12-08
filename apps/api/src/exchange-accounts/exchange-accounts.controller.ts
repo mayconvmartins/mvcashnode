@@ -241,6 +241,47 @@ export class ExchangeAccountsController {
             });
           }
         }
+
+        // Vincular webhooks padrão de assinantes automaticamente
+        // Webhooks padrão são identificados por: is_shared = true AND admin_locked = true
+        const defaultSubscriberWebhooks = await this.prisma.webhookSource.findMany({
+          where: {
+            is_shared: true,
+            admin_locked: true,
+            is_active: true,
+            trade_mode: 'REAL', // Assinantes só usam REAL
+          },
+        });
+
+        // Criar bindings para cada webhook padrão
+        for (const webhook of defaultSubscriberWebhooks) {
+          try {
+            // Verificar se já existe binding (evitar duplicatas)
+            const existingBinding = await this.prisma.accountWebhookBinding.findUnique({
+              where: {
+                webhook_source_id_exchange_account_id: {
+                  webhook_source_id: webhook.id,
+                  exchange_account_id: createdAccount.id,
+                },
+              },
+            });
+
+            if (!existingBinding) {
+              await this.prisma.accountWebhookBinding.create({
+                data: {
+                  webhook_source_id: webhook.id,
+                  exchange_account_id: createdAccount.id,
+                  is_active: true,
+                  weight: 1.0,
+                },
+              });
+              console.log(`[ExchangeAccounts] Webhook padrão "${webhook.label}" vinculado automaticamente à conta ${createdAccount.id}`);
+            }
+          } catch (error: any) {
+            // Log erro mas não falha a criação da conta
+            console.error(`[ExchangeAccounts] Erro ao vincular webhook padrão ${webhook.id} à conta ${createdAccount.id}:`, error?.message);
+          }
+        }
       }
 
       return createdAccount;

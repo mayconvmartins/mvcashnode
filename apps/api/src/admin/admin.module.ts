@@ -7,6 +7,7 @@ import { AdminSubscriptionsController } from './admin-subscriptions.controller';
 import { AdminSubscribersController, AdminSubscriberParametersController } from './admin-subscribers.controller';
 import { AdminSubscriptionPlansController } from './admin-subscription-plans.controller';
 import { AdminMercadoPagoController } from './admin-mercadopago.controller';
+import { AdminSubscriberWebhooksController } from './admin-subscriber-webhooks.controller';
 import { AdminService } from './admin.service';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
@@ -34,6 +35,7 @@ import { MercadoPagoService } from '../subscriptions/mercadopago.service';
     AdminSubscriberParametersController,
     AdminSubscriptionPlansController,
     AdminMercadoPagoController,
+    AdminSubscriberWebhooksController,
   ],
   providers: [
     AdminService,

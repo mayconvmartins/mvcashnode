@@ -487,5 +487,31 @@ export const adminService = {
         const response = await apiClient.post('/admin/mercadopago/test-connection')
         return response.data
     },
+
+    // Subscriber Default Webhooks
+    listSubscriberWebhooks: async (): Promise<any[]> => {
+        const response = await apiClient.get('/admin/subscriber-webhooks')
+        return response.data
+    },
+
+    getSubscriberWebhook: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/subscriber-webhooks/${id}`)
+        return response.data
+    },
+
+    createSubscriberWebhook: async (data: any): Promise<any> => {
+        const response = await apiClient.post('/admin/subscriber-webhooks', data)
+        return response.data
+    },
+
+    updateSubscriberWebhook: async (id: number, data: any): Promise<any> => {
+        const response = await apiClient.put(`/admin/subscriber-webhooks/${id}`, data)
+        return response.data
+    },
+
+    deleteSubscriberWebhook: async (id: number): Promise<any> => {
+        const response = await apiClient.delete(`/admin/subscriber-webhooks/${id}`)
+        return response.data
+    },
 }
 
