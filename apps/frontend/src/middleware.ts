@@ -5,6 +5,11 @@ export function middleware(request: NextRequest) {
     const pathname = request.nextUrl.pathname
     const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app'
     
+    // Debug: log do siteMode (apenas em desenvolvimento)
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`[Middleware] siteMode: ${siteMode}, pathname: ${pathname}`)
+    }
+    
     // Permitir arquivos estáticos e manifest.json sem processamento
     if (
         pathname.startsWith('/_next/') ||
@@ -35,6 +40,9 @@ export function middleware(request: NextRequest) {
         return NextResponse.redirect(appUrl)
     }
     
+    // Se NÃO for site público (porta 5010), NUNCA redirecionar para site público
+    // Garantir que estamos na aplicação principal
+    
     // Para a aplicação completa (porta 5010)
     // NÃO redirecionar / para site público - mostrar login se não autenticado
     // O dashboard está em (dashboard)/page.tsx, mas como temos page.tsx na raiz,
@@ -49,13 +57,12 @@ export function middleware(request: NextRequest) {
             return NextResponse.redirect(dashboardUrl)
         }
         
-        // Se não estiver autenticado, permitir acesso (vai para login ou página inicial)
-        // Mas como temos page.tsx na raiz que é a landing page, vamos redirecionar para /login
+        // Se não estiver autenticado, redirecionar para /login (não para site público)
         const loginUrl = new URL('/login', request.url)
         return NextResponse.redirect(loginUrl)
     }
     
-    // Redirecionar /help para site público
+    // Redirecionar /help para site público apenas se não for site público
     if (pathname.startsWith('/help')) {
         const publicUrl = new URL(pathname, 'https://mvcash.com.br')
         return NextResponse.redirect(publicUrl)

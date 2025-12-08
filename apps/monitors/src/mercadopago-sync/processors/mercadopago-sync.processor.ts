@@ -490,6 +490,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                     this.logger.log(`Pagamento ${mpPayment.id} ainda não está aprovado (status: ${mpPayment.status}), aguardando...`);
                   }
                 }
+                }
               } else {
                 this.logger.debug(`Nenhum pedido encontrado para preference_id ${subscription.mp_preference_id}`);
               }
