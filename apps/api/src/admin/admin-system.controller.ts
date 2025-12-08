@@ -1,4 +1,4 @@
-import { Controller, Get, Post, UseGuards, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, UseGuards, Body, BadRequestException } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -2378,6 +2378,43 @@ export class AdminSystemController {
       console.error('[ADMIN] Erro ao fechar resíduos:', error);
       throw error;
     }
+  }
+
+  @Get('settings/payment-gateway')
+  @ApiOperation({ summary: 'Obter gateway de pagamento padrão' })
+  @ApiResponse({ status: 200, description: 'Gateway padrão configurado' })
+  async getPaymentGateway() {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'payment_gateway' },
+    });
+
+    return {
+      gateway: setting?.value || 'mercadopago',
+      available_gateways: ['mercadopago', 'transfi'],
+    };
+  }
+
+  @Put('settings/payment-gateway')
+  @ApiOperation({ summary: 'Definir gateway de pagamento padrão' })
+  @ApiResponse({ status: 200, description: 'Gateway atualizado' })
+  async setPaymentGateway(@Body() body: { gateway: 'mercadopago' | 'transfi' }) {
+    if (!['mercadopago', 'transfi'].includes(body.gateway)) {
+      throw new BadRequestException('Gateway inválido. Use "mercadopago" ou "transfi"');
+    }
+
+    return this.prisma.systemSetting.upsert({
+      where: { key: 'payment_gateway' },
+      create: {
+        key: 'payment_gateway',
+        value: body.gateway,
+        description: 'Gateway de pagamento padrão (mercadopago ou transfi)',
+        category: 'payment',
+      },
+      update: {
+        value: body.gateway,
+        updated_at: new Date(),
+      },
+    });
   }
 }
 

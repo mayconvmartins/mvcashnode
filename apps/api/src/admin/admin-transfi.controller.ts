@@ -57,20 +57,37 @@ export class AdminTransFiController {
                       'https://core.mvcash.com.br';
     const generatedWebhookUrl = `${apiBaseUrl}/subscriptions/webhooks/transfi`;
 
+    // Gerar URL de redirect automaticamente
+    const frontendBaseUrl = this.configService.get<string>('FRONTEND_URL') || 
+                           this.configService.get<string>('API_BASE_URL')?.replace('/api', '') || 
+                           'https://mvcash.com.br';
+    const generatedRedirectUrl = `${frontendBaseUrl}/subscribe/success`;
+
     if (!config) {
       return {
         webhook_url: generatedWebhookUrl,
+        redirect_url: generatedRedirectUrl,
         generated_webhook_url: generatedWebhookUrl,
+        generated_redirect_url: generatedRedirectUrl,
       };
     }
+
+    // Gerar URL de redirect automaticamente
+    const frontendBaseUrl = this.configService.get<string>('FRONTEND_URL') || 
+                           this.configService.get<string>('API_BASE_URL')?.replace('/api', '') || 
+                           'https://mvcash.com.br';
+    const generatedRedirectUrl = `${frontendBaseUrl}/subscribe/success`;
 
     // Retornar sem dados sensíveis criptografados
     return {
       id: config.id,
       merchant_id: config.merchant_id,
+      username: config.username,
       environment: config.environment,
       webhook_url: config.webhook_url || generatedWebhookUrl,
+      redirect_url: config.redirect_url || generatedRedirectUrl,
       generated_webhook_url: generatedWebhookUrl,
+      generated_redirect_url: generatedRedirectUrl,
       is_active: config.is_active,
       created_at: config.created_at,
       updated_at: config.updated_at,
@@ -84,43 +101,60 @@ export class AdminTransFiController {
     @Body()
     body: {
       merchant_id: string;
-      authorization_token: string;
+      username: string;
+      password: string;
       webhook_secret?: string;
       environment: 'sandbox' | 'production';
       webhook_url?: string;
+      redirect_url?: string;
       is_active?: boolean;
     }
   ) {
     try {
-      if (!body.merchant_id || !body.authorization_token) {
-        throw new BadRequestException('Merchant ID e Authorization Token são obrigatórios');
+      if (!body.merchant_id || !body.username) {
+        throw new BadRequestException('Merchant ID e Username são obrigatórios');
+      }
+
+      // Buscar configuração existente primeiro
+      const existing = await this.prisma.transFiConfig.findFirst({
+        orderBy: { created_at: 'desc' },
+      });
+
+      if (!body.password && !existing) {
+        throw new BadRequestException('Password é obrigatório na primeira configuração');
       }
 
       // Criptografar dados sensíveis
-      const authorizationTokenEnc = await this.encryptionService.encrypt(body.authorization_token);
+      const passwordEnc = body.password && body.password.trim() !== ''
+        ? await this.encryptionService.encrypt(body.password)
+        : undefined;
       const webhookSecretEnc = body.webhook_secret && body.webhook_secret.trim() !== ''
         ? await this.encryptionService.encrypt(body.webhook_secret)
         : null;
 
-      // Normalizar webhook_url (null se vazio)
+      // Normalizar URLs (null se vazio)
       const webhookUrl = body.webhook_url && body.webhook_url.trim() !== ''
         ? body.webhook_url.trim()
         : null;
-
-      // Buscar configuração existente
-      const existing = await this.prisma.transFiConfig.findFirst({
-        orderBy: { created_at: 'desc' },
-      });
+      const redirectUrl = body.redirect_url && body.redirect_url.trim() !== ''
+        ? body.redirect_url.trim()
+        : null;
 
       if (existing) {
         // Atualizar existente
         const updateData: any = {
           merchant_id: body.merchant_id,
-          authorization_token_enc: authorizationTokenEnc,
+          username: body.username,
           environment: body.environment,
           webhook_url: webhookUrl,
+          redirect_url: redirectUrl,
           is_active: body.is_active ?? existing.is_active,
         };
+        
+        // Só atualizar password_enc se foi fornecido um novo valor
+        if (passwordEnc) {
+          updateData.password_enc = passwordEnc;
+        }
         
         // Só atualizar webhook_secret_enc se foi fornecido um novo valor
         if (body.webhook_secret && body.webhook_secret.trim() !== '') {
@@ -135,14 +169,20 @@ export class AdminTransFiController {
           data: updateData,
         });
       } else {
+        if (!passwordEnc) {
+          throw new BadRequestException('Password é obrigatório na primeira configuração');
+        }
+        
         // Criar nova
         const newConfig = await this.prisma.transFiConfig.create({
           data: {
             merchant_id: body.merchant_id,
-            authorization_token_enc: authorizationTokenEnc,
+            username: body.username,
+            password_enc: passwordEnc,
             webhook_secret_enc: webhookSecretEnc,
             environment: body.environment,
             webhook_url: webhookUrl,
+            redirect_url: redirectUrl,
             is_active: body.is_active ?? false,
           },
         });

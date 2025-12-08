@@ -11,20 +11,24 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Eye, EyeOff, CheckCircle, XCircle, Copy } from 'lucide-react';
 import { toast } from 'sonner';
+import { GatewaySelector } from './GatewaySelector';
 
 export function ConfigTab() {
   const queryClient = useQueryClient();
-  const [showAuthToken, setShowAuthToken] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [showWebhookSecret, setShowWebhookSecret] = useState(false);
   const [formData, setFormData] = useState({
     merchant_id: '',
-    authorization_token: '',
+    username: '',
+    password: '',
     webhook_secret: '',
     environment: 'sandbox' as 'sandbox' | 'production',
     webhook_url: '',
+    redirect_url: '',
     is_active: false,
   });
   const [generatedWebhookUrl, setGeneratedWebhookUrl] = useState<string>('');
+  const [generatedRedirectUrl, setGeneratedRedirectUrl] = useState<string>('');
 
   const { data: config, isLoading } = useQuery({
     queryKey: ['admin', 'transfi', 'config'],
@@ -35,15 +39,19 @@ export function ConfigTab() {
     if (config) {
       setFormData({
         merchant_id: config.merchant_id || '',
-        authorization_token: '',
+        username: config.username || '',
+        password: '',
         webhook_secret: '',
         environment: (config.environment as 'sandbox' | 'production') || 'sandbox',
         webhook_url: config.webhook_url || config.generated_webhook_url || '',
+        redirect_url: config.redirect_url || config.generated_redirect_url || '',
         is_active: config.is_active || false,
       });
       setGeneratedWebhookUrl(config.generated_webhook_url || config.webhook_url || '');
+      setGeneratedRedirectUrl(config.generated_redirect_url || config.redirect_url || '');
     } else if (config === null) {
       setGeneratedWebhookUrl('');
+      setGeneratedRedirectUrl('');
     }
   }, [config]);
 
@@ -77,14 +85,20 @@ export function ConfigTab() {
       toast.error('Merchant ID é obrigatório');
       return;
     }
-    if (!formData.authorization_token && !config) {
-      toast.error('Authorization Token é obrigatório na primeira configuração');
+    if (!formData.username) {
+      toast.error('Username é obrigatório');
+      return;
+    }
+    if (!formData.password && !config) {
+      toast.error('Password é obrigatório na primeira configuração');
       return;
     }
     const webhookUrl = formData.webhook_url || generatedWebhookUrl || '';
+    const redirectUrl = formData.redirect_url || generatedRedirectUrl || '';
     const dataToSave = {
       ...formData,
       webhook_url: webhookUrl,
+      redirect_url: redirectUrl,
     };
     updateMutation.mutate(dataToSave);
   };
@@ -124,30 +138,46 @@ export function ConfigTab() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="authorization_token">Authorization Token *</Label>
+          <Label htmlFor="username">Username *</Label>
+          <Input
+            id="username"
+            type="text"
+            placeholder="Seu Username do TransFi"
+            value={formData.username}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, username: e.target.value }))
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Username fornecido pelo TransFi no painel de integração
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="password">Password (Merchant Key) *</Label>
           <div className="flex gap-2">
             <Input
-              id="authorization_token"
-              type={showAuthToken ? 'text' : 'password'}
-              placeholder={config ? '••••••••••••' : 'Seu Authorization Token do TransFi'}
-              value={formData.authorization_token}
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              placeholder={config ? '••••••••••••' : 'Seu Password (Merchant Key) do TransFi'}
+              value={formData.password}
               onChange={(e) =>
-                setFormData((prev) => ({ ...prev, authorization_token: e.target.value }))
+                setFormData((prev) => ({ ...prev, password: e.target.value }))
               }
             />
             <Button
               type="button"
               variant="outline"
               size="icon"
-              onClick={() => setShowAuthToken(!showAuthToken)}
+              onClick={() => setShowPassword(!showPassword)}
             >
-              {showAuthToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
             {config
-              ? 'Deixe em branco para manter o token atual. Preencha apenas se quiser alterar.'
-              : 'Token de autorização do TransFi (obrigatório na primeira configuração)'}
+              ? 'Deixe em branco para manter o password atual. Preencha apenas se quiser alterar.'
+              : 'Password (Merchant Key) do TransFi (obrigatório na primeira configuração)'}
           </p>
         </div>
 
@@ -282,6 +312,77 @@ export function ConfigTab() {
               )}
             </div>
           )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="redirect_url">Redirect URL</Label>
+          <div className="flex gap-2">
+            <Input
+              id="redirect_url"
+              type="url"
+              placeholder="https://seu-dominio.com/subscribe/success"
+              value={formData.redirect_url || generatedRedirectUrl}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, redirect_url: e.target.value }))
+              }
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={async () => {
+                const urlToCopy = formData.redirect_url || generatedRedirectUrl;
+                if (urlToCopy) {
+                  await navigator.clipboard.writeText(urlToCopy);
+                  toast.success('URL copiada para a área de transferência!');
+                }
+              }}
+              disabled={!formData.redirect_url && !generatedRedirectUrl}
+              title="Copiar URL"
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            URL para redirecionar o usuário após conclusão do pagamento.
+          </p>
+          {generatedRedirectUrl && (
+            <div className="p-3 bg-muted rounded-md border border-border">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-foreground mb-1">
+                    URL Gerada Automaticamente:
+                  </p>
+                  <p className="text-xs font-mono text-muted-foreground break-all">
+                    {generatedRedirectUrl}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 flex-shrink-0"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(generatedRedirectUrl);
+                    toast.success('URL copiada!');
+                  }}
+                  title="Copiar URL gerada"
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+              {!formData.redirect_url && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Esta URL será usada automaticamente se você não especificar uma URL customizada.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t pt-6">
+          <h3 className="text-lg font-semibold mb-4">Gateway de Pagamento Padrão</h3>
+          <GatewaySelector />
         </div>
 
         <div className="flex gap-4 pt-4">

@@ -5,9 +5,11 @@
 CREATE TABLE IF NOT EXISTS `transfi_config` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `merchant_id` VARCHAR(255) NOT NULL,
-    `authorization_token_enc` TEXT NOT NULL,
+    `username` VARCHAR(255) NOT NULL,
+    `password_enc` TEXT NOT NULL,
     `environment` VARCHAR(20) NOT NULL DEFAULT 'sandbox',
     `webhook_url` VARCHAR(500) NULL,
+    `redirect_url` VARCHAR(500) NULL,
     `webhook_secret_enc` TEXT NULL,
     `is_active` BOOLEAN NOT NULL DEFAULT false,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -80,3 +82,24 @@ ALTER TABLE `subscription_webhook_events`
     MODIFY `mp_event_id` VARCHAR(255) NULL,
     MODIFY `mp_event_type` VARCHAR(50) NULL,
     MODIFY `mp_resource_id` VARCHAR(255) NULL;
+
+-- Criar tabela system_settings
+CREATE TABLE IF NOT EXISTS `system_settings` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `key` VARCHAR(100) NOT NULL,
+    `value` TEXT NOT NULL,
+    `description` VARCHAR(255) NULL,
+    `category` VARCHAR(50) NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    `updated_by` INTEGER NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `system_settings_key_key` (`key`),
+    KEY `system_settings_key_idx` (`key`),
+    KEY `system_settings_category_idx` (`category`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Inserir configuração padrão de gateway
+INSERT INTO `system_settings` (`key`, `value`, `description`, `category`) 
+VALUES ('payment_gateway', 'mercadopago', 'Gateway de pagamento padrão (mercadopago ou transfi)', 'payment')
+ON DUPLICATE KEY UPDATE `value` = `value`;

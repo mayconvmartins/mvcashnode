@@ -589,10 +589,12 @@ export const adminService = {
 
     updateTransFiConfig: async (data: {
         merchant_id: string;
-        authorization_token: string;
+        username: string;
+        password: string;
         webhook_secret?: string;
         environment: 'sandbox' | 'production';
         webhook_url?: string;
+        redirect_url?: string;
         is_active?: boolean;
     }): Promise<any> => {
         const response = await apiClient.put('/admin/transfi/config', data)
@@ -650,6 +652,17 @@ export const adminService = {
 
     syncTransFiPayments: async (): Promise<any> => {
         const response = await apiClient.post('/admin/transfi/sync-payments')
+        return response.data
+    },
+
+    // Payment Gateway Settings
+    getPaymentGateway: async (): Promise<{ gateway: string; available_gateways: string[] }> => {
+        const response = await apiClient.get('/admin/settings/payment-gateway')
+        return response.data
+    },
+
+    setPaymentGateway: async (gateway: 'mercadopago' | 'transfi'): Promise<any> => {
+        const response = await apiClient.put('/admin/settings/payment-gateway', { gateway })
         return response.data
     },
 }

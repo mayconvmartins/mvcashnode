@@ -63,6 +63,7 @@ const adminMenuItems = [
     { icon: FileText, label: 'Audit Logs', href: '/admin/audit' },
     { icon: MessageSquare, label: 'WhatsApp', href: '/admin/notifications' },
     { icon: CreditCard, label: 'Mercado Pago', href: '/admin/mercadopago' },
+    { icon: CreditCard, label: 'TransFi', href: '/admin/transfi' },
     { icon: BookOpen, label: 'API Docs', href: '/api-docs', external: true },
 ]
 

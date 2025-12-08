@@ -97,25 +97,6 @@ export class SubscriptionsService {
 
     const durationDays = data.billingPeriod === 'monthly' ? 30 : 90;
 
-    // Criar preferência no Mercado Pago
-    const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
-    const preference = await this.mercadoPagoService.createPreference({
-      planId: plan.id,
-      planName: plan.name,
-      amount,
-      billingPeriod: data.billingPeriod,
-      subscriberData: {
-        email: data.subscriberData.email,
-        fullName: data.subscriberData.fullName,
-        cpf: data.subscriberData.cpf,
-      },
-      backUrls: {
-        success: `${baseUrl}/subscribe/success?preference_id={preference_id}`,
-        failure: `${baseUrl}/subscribe/failure`,
-        pending: `${baseUrl}/subscribe/pending`,
-      },
-    });
-
     // Verificar se já existe usuário com este email
     let user = await this.prisma.user.findUnique({
       where: { email: data.subscriberData.email },
@@ -149,19 +130,6 @@ export class SubscriptionsService {
       });
     }
 
-    // Criar assinatura com status PENDING_PAYMENT
-    const subscription = await this.prisma.subscription.create({
-      data: {
-        user_id: user.id,
-        plan_id: plan.id,
-        status: 'PENDING_PAYMENT',
-        start_date: null,
-        end_date: null,
-        auto_renew: false,
-        mp_preference_id: preference.id,
-      },
-    });
-
     // Salvar dados do assinante (temporário, será confirmado após pagamento)
     const encryptedCpf = await this.encryptCpf(data.subscriberData.cpf);
     await this.prisma.subscriberProfile.upsert({
@@ -188,6 +156,103 @@ export class SubscriptionsService {
         address_city: data.subscriberData.address.city,
         address_state: data.subscriberData.address.state,
         address_zipcode: data.subscriberData.address.zipcode,
+      },
+    });
+
+    // Verificar qual gateway usar
+    const gatewaySetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'payment_gateway' },
+    });
+    const defaultGateway = (gatewaySetting?.value || 'mercadopago') as 'mercadopago' | 'transfi';
+
+    const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
+
+    // Usar TransFi se configurado
+    if (defaultGateway === 'transfi') {
+      const transfiConfig = await this.prisma.transFiConfig.findFirst({
+        where: { is_active: true },
+        orderBy: { created_at: 'desc' },
+      });
+
+      if (transfiConfig) {
+        // Criar payin no TransFi
+        const order = await this.transfiService.createPayin({
+          amount,
+          currency: 'BRL',
+          paymentMethod: 'PIX', // Pode ser alterado depois
+          description: `Assinatura ${plan.name} - ${data.billingPeriod === 'monthly' ? 'Mensal' : 'Trimestral'}`,
+          customerData: {
+            email: data.subscriberData.email,
+            fullName: data.subscriberData.fullName,
+            cpf: data.subscriberData.cpf,
+            phone: data.subscriberData.phone,
+          },
+        });
+
+        // Criar assinatura com status PENDING_PAYMENT
+        const subscription = await this.prisma.subscription.create({
+          data: {
+            user_id: user.id,
+            plan_id: plan.id,
+            status: 'PENDING_PAYMENT',
+            start_date: null,
+            end_date: null,
+            auto_renew: false,
+            payment_method: 'PIX',
+          },
+        });
+
+        // Criar registro de pagamento
+        await this.prisma.subscriptionPayment.create({
+          data: {
+            subscription_id: subscription.id,
+            transfi_order_id: order.orderId,
+            transfi_payment_id: order.id,
+            amount,
+            status: 'PENDING',
+            payment_method: 'PIX',
+          },
+        });
+
+        return {
+          order_id: order.orderId,
+          payment_url: order.paymentData?.paymentUrl,
+          qr_code: order.paymentData?.qrCode,
+          qr_code_base64: order.paymentData?.qrCodeBase64,
+          gateway: 'transfi',
+          subscription_id: subscription.id,
+        };
+      }
+    }
+
+    // Fallback para Mercado Pago
+    const preference = await this.mercadoPagoService.createPreference({
+      planId: plan.id,
+      planName: plan.name,
+      amount,
+      billingPeriod: data.billingPeriod,
+      subscriberData: {
+        email: data.subscriberData.email,
+        fullName: data.subscriberData.fullName,
+        cpf: data.subscriberData.cpf,
+      },
+      backUrls: {
+        success: `${baseUrl}/subscribe/success?preference_id={preference_id}`,
+        failure: `${baseUrl}/subscribe/failure`,
+        pending: `${baseUrl}/subscribe/pending`,
+      },
+    });
+
+    // Criar assinatura com status PENDING_PAYMENT
+    const subscription = await this.prisma.subscription.create({
+      data: {
+        user_id: user.id,
+        plan_id: plan.id,
+        status: 'PENDING_PAYMENT',
+        start_date: null,
+        end_date: null,
+        auto_renew: false,
+        mp_preference_id: preference.id,
       },
     });
 

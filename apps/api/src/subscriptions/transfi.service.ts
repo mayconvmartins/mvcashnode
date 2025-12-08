@@ -47,10 +47,12 @@ export class TransFiService {
   private readonly logger = new Logger(TransFiService.name);
   private configCache: {
     merchantId: string;
-    authorizationToken: string;
+    username: string;
+    password: string;
     webhookSecret: string;
     environment: 'sandbox' | 'production';
     webhookUrl?: string;
+    redirectUrl?: string;
   } | null = null;
   private cacheExpiry: number = 0;
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutos
@@ -66,10 +68,12 @@ export class TransFiService {
    */
   private async getConfig(): Promise<{
     merchantId: string;
-    authorizationToken: string;
+    username: string;
+    password: string;
     webhookSecret: string;
     environment: 'sandbox' | 'production';
     webhookUrl?: string;
+    redirectUrl?: string;
   }> {
     // Verificar cache
     if (this.configCache && Date.now() < this.cacheExpiry) {
@@ -85,33 +89,38 @@ export class TransFiService {
     if (!config) {
       // Fallback para variáveis de ambiente se não houver config no banco
       const fallbackMerchantId = this.configService.get<string>('TRANSFI_MERCHANT_ID') || '';
-      const fallbackToken = this.configService.get<string>('TRANSFI_AUTHORIZATION_TOKEN') || '';
+      const fallbackUsername = this.configService.get<string>('TRANSFI_USERNAME') || '';
+      const fallbackPassword = this.configService.get<string>('TRANSFI_PASSWORD') || '';
       const fallbackSecret = this.configService.get<string>('TRANSFI_WEBHOOK_SECRET') || '';
       const fallbackEnv = (this.configService.get<string>('TRANSFI_ENVIRONMENT') || 'sandbox') as 'sandbox' | 'production';
 
       this.configCache = {
         merchantId: fallbackMerchantId,
-        authorizationToken: fallbackToken,
+        username: fallbackUsername,
+        password: fallbackPassword,
         webhookSecret: fallbackSecret,
         environment: fallbackEnv,
         webhookUrl: this.configService.get<string>('TRANSFI_WEBHOOK_URL'),
+        redirectUrl: this.configService.get<string>('TRANSFI_REDIRECT_URL'),
       };
       this.cacheExpiry = Date.now() + this.CACHE_TTL;
       return this.configCache;
     }
 
     // Descriptografar dados
-    const authorizationToken = await this.encryptionService.decrypt(config.authorization_token_enc);
+    const password = await this.encryptionService.decrypt(config.password_enc);
     const webhookSecret = config.webhook_secret_enc
       ? await this.encryptionService.decrypt(config.webhook_secret_enc)
       : '';
 
     this.configCache = {
       merchantId: config.merchant_id,
-      authorizationToken,
+      username: config.username,
+      password,
       webhookSecret,
       environment: config.environment as 'sandbox' | 'production',
       webhookUrl: config.webhook_url || undefined,
+      redirectUrl: config.redirect_url || undefined,
     };
     this.cacheExpiry = Date.now() + this.CACHE_TTL;
 
@@ -129,8 +138,8 @@ export class TransFiService {
   /**
    * Cria autenticação Basic Auth para requisições
    */
-  private getAuthHeader(config: { merchantId: string; authorizationToken: string }): string {
-    const credentials = `${config.merchantId}:${config.authorizationToken}`;
+  private getAuthHeader(config: { merchantId: string; username: string; password: string }): string {
+    const credentials = `${config.username}:${config.password}`;
     return `Basic ${Buffer.from(credentials).toString('base64')}`;
   }
 
