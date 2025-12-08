@@ -254,12 +254,11 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
               id="max_exchange_accounts"
               type="number"
               min="1"
-              {...register('max_exchange_accounts', { 
-                valueAsNumber: true,
-                setValueAs: (v) => v === '' || v === null || v === undefined ? null : Number(v)
-              })}
               placeholder="Ilimitado (deixe vazio)"
-              value={watch('max_exchange_accounts') === null || watch('max_exchange_accounts') === undefined ? '' : watch('max_exchange_accounts')}
+              value={(() => {
+                const val = watch('max_exchange_accounts');
+                return val === null || val === undefined ? '' : String(val);
+              })()}
               onChange={(e) => {
                 const value = e.target.value === '' ? null : Number(e.target.value);
                 setValue('max_exchange_accounts', value);
