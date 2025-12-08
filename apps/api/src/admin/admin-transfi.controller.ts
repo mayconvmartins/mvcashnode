@@ -72,12 +72,6 @@ export class AdminTransFiController {
       };
     }
 
-    // Gerar URL de redirect automaticamente
-    const frontendBaseUrl = this.configService.get<string>('FRONTEND_URL') || 
-                           this.configService.get<string>('API_BASE_URL')?.replace('/api', '') || 
-                           'https://mvcash.com.br';
-    const generatedRedirectUrl = `${frontendBaseUrl}/subscribe/success`;
-
     // Retornar sem dados sensíveis criptografados
     return {
       id: config.id,

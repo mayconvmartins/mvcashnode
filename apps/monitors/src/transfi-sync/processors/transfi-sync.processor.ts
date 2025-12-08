@@ -37,8 +37,8 @@ export class TransFiSyncProcessor extends WorkerHost {
         };
       }
 
-      // Descriptografar authorization token
-      const authorizationToken = await this.encryptionService.decrypt(config.authorization_token_enc);
+      // Descriptografar password (Merchant Key)
+      const authorizationToken = await this.encryptionService.decrypt(config.password_enc);
       const baseUrl = config.environment === 'production'
         ? 'https://api.transfi.com'
         : 'https://sandbox-api.transfi.com';
