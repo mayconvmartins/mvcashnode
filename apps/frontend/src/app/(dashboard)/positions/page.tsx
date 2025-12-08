@@ -52,7 +52,7 @@ export default function PositionsPage() {
     const [datePreset, setDatePreset] = useState<DatePreset>('all')
     const [closedPage, setClosedPage] = useState(1)
     const [filtersOpen, setFiltersOpen] = useState(false)
-    const closedLimit = 20
+    const [closedLimit, setClosedLimit] = useState(20)
     const [selectedPositionIds, setSelectedPositionIds] = useState<(string | number)[]>([])
     const [bulkSLTPDialogOpen, setBulkSLTPDialogOpen] = useState(false)
     const [bulkSLEnabled, setBulkSLEnabled] = useState(false)
@@ -69,7 +69,7 @@ export default function PositionsPage() {
     const [groupModalOpen, setGroupModalOpen] = useState(false)
     const [groupPreview, setGroupPreview] = useState<GroupPreview | null>(null)
     const [dustPage, setDustPage] = useState(1)
-    const dustLimit = 20
+    const [dustLimit, setDustLimit] = useState(20)
     const [positionTypeFilter, setPositionTypeFilter] = useState<'normal' | 'todas'>('normal')
 
     // Verificar se o usuário é admin (usando a mesma lógica dos outros componentes)
@@ -1263,30 +1263,52 @@ export default function PositionsPage() {
                             />
                             
                             {/* Paginação para posições fechadas */}
-                            {closedPagination && closedPagination.total_pages > 1 && (
+                            {closedPagination && (
                                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                                    <div className="text-sm text-muted-foreground">
-                                        Página {closedPagination.current_page} de {closedPagination.total_pages} 
-                                        ({closedPagination.total_items} total)
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={closedPage <= 1 || loadingClosed}
-                                            onClick={() => setClosedPage(prev => Math.max(1, prev - 1))}
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm text-muted-foreground">Itens por página:</span>
+                                        <Select
+                                            value={closedLimit.toString()}
+                                            onValueChange={(value) => {
+                                                setClosedLimit(Number(value))
+                                                setClosedPage(1) // Resetar para primeira página
+                                            }}
                                         >
-                                            Anterior
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={closedPage >= closedPagination.total_pages || loadingClosed}
-                                            onClick={() => setClosedPage(prev => prev + 1)}
-                                        >
-                                            Próxima
-                                        </Button>
+                                            <SelectTrigger className="w-[100px]">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="10">10</SelectItem>
+                                                <SelectItem value="20">20</SelectItem>
+                                                <SelectItem value="50">50</SelectItem>
+                                                <SelectItem value="100">100</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <span className="text-sm text-muted-foreground">
+                                            Página {closedPagination.current_page} de {closedPagination.total_pages} 
+                                            ({closedPagination.total_items} total)
+                                        </span>
                                     </div>
+                                    {closedPagination.total_pages > 1 && (
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={closedPage <= 1 || loadingClosed}
+                                                onClick={() => setClosedPage(prev => Math.max(1, prev - 1))}
+                                            >
+                                                Anterior
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={closedPage >= closedPagination.total_pages || loadingClosed}
+                                                onClick={() => setClosedPage(prev => prev + 1)}
+                                            >
+                                                Próxima
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </CardContent>
@@ -1344,30 +1366,52 @@ export default function PositionsPage() {
                             />
                             
                             {/* Paginação para posições resíduo */}
-                            {dustPagination && dustPagination.total_pages > 1 && (
+                            {dustPagination && (
                                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                                    <div className="text-sm text-muted-foreground">
-                                        Página {dustPagination.current_page} de {dustPagination.total_pages}
-                                        ({dustPagination.total_items} total)
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={dustPage <= 1 || loadingDust}
-                                            onClick={() => setDustPage(prev => Math.max(1, prev - 1))}
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm text-muted-foreground">Itens por página:</span>
+                                        <Select
+                                            value={dustLimit.toString()}
+                                            onValueChange={(value) => {
+                                                setDustLimit(Number(value))
+                                                setDustPage(1) // Resetar para primeira página
+                                            }}
                                         >
-                                            Anterior
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={dustPage >= dustPagination.total_pages || loadingDust}
-                                            onClick={() => setDustPage(prev => prev + 1)}
-                                        >
-                                            Próxima
-                                        </Button>
+                                            <SelectTrigger className="w-[100px]">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="10">10</SelectItem>
+                                                <SelectItem value="20">20</SelectItem>
+                                                <SelectItem value="50">50</SelectItem>
+                                                <SelectItem value="100">100</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <span className="text-sm text-muted-foreground">
+                                            Página {dustPagination.current_page} de {dustPagination.total_pages}
+                                            ({dustPagination.total_items} total)
+                                        </span>
                                     </div>
+                                    {dustPagination.total_pages > 1 && (
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={dustPage <= 1 || loadingDust}
+                                                onClick={() => setDustPage(prev => Math.max(1, prev - 1))}
+                                            >
+                                                Anterior
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={dustPage >= dustPagination.total_pages || loadingDust}
+                                                onClick={() => setDustPage(prev => prev + 1)}
+                                            >
+                                                Próxima
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </CardContent>
