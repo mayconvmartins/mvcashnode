@@ -19,15 +19,6 @@ SET @username_exists = (
     AND COLUMN_NAME = 'username'
 );
 
--- Se authorization_token_enc existe e username também existe, remover authorization_token_enc
-SET @sql = IF(@col_exists > 0 AND @username_exists > 0,
-  'ALTER TABLE `transfi_config` DROP COLUMN `authorization_token_enc`',
-  'SELECT 1'
-);
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
 -- Se authorization_token_enc existe mas username não existe, adicionar username e password_enc primeiro
 SET @sql = IF(@col_exists > 0 AND @username_exists = 0,
   'ALTER TABLE `transfi_config` ADD COLUMN `username` VARCHAR(255) NOT NULL DEFAULT "" AFTER `merchant_id`',
@@ -69,8 +60,27 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
+-- Re-verificar se authorization_token_enc ainda existe (antes de tentar migrar dados)
+SET @col_exists_after = (
+  SELECT COUNT(*) 
+  FROM INFORMATION_SCHEMA.COLUMNS 
+  WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'transfi_config' 
+    AND COLUMN_NAME = 'authorization_token_enc'
+);
+
+-- Re-verificar se password_enc existe agora
+SET @password_exists_after = (
+  SELECT COUNT(*) 
+  FROM INFORMATION_SCHEMA.COLUMNS 
+  WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'transfi_config' 
+    AND COLUMN_NAME = 'password_enc'
+);
+
 -- Migrar dados de authorization_token_enc para password_enc se necessário
-SET @sql = IF(@col_exists > 0 AND @password_exists > 0,
+-- IMPORTANTE: Só executar se authorization_token_enc ainda existir
+SET @sql = IF(@col_exists_after > 0 AND @password_exists_after > 0,
   'UPDATE `transfi_config` SET `password_enc` = `authorization_token_enc` WHERE (`password_enc` = "" OR `password_enc` IS NULL) AND `authorization_token_enc` IS NOT NULL',
   'SELECT 1'
 );
@@ -78,8 +88,16 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Remover authorization_token_enc se ainda existir
-SET @sql = IF(@col_exists > 0,
+-- Remover authorization_token_enc se ainda existir (verificar novamente antes de remover)
+SET @col_exists_final = (
+  SELECT COUNT(*) 
+  FROM INFORMATION_SCHEMA.COLUMNS 
+  WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'transfi_config' 
+    AND COLUMN_NAME = 'authorization_token_enc'
+);
+
+SET @sql = IF(@col_exists_final > 0,
   'ALTER TABLE `transfi_config` DROP COLUMN `authorization_token_enc`',
   'SELECT 1'
 );
