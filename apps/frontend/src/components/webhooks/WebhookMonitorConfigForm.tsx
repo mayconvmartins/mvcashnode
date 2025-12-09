@@ -36,35 +36,68 @@ export function WebhookMonitorConfigForm() {
 
     const updateMutation = useMutation({
         mutationFn: webhookMonitorService.updateConfig,
-        onSuccess: () => {
+        onSuccess: (data) => {
+            // Atualizar formData com a resposta do servidor para garantir sincronização
+            setFormData(data)
             queryClient.invalidateQueries({ queryKey: ['webhook-monitor-config'] })
             toast.success('Configurações atualizadas com sucesso!')
         },
         onError: (error: any) => {
+            console.error('Erro ao atualizar configurações:', error)
             toast.error(error.response?.data?.message || 'Falha ao atualizar configurações')
         },
     })
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
-        // Garantir que todos os campos estão presentes (usar valores do formData ou do config atual)
-        const dataToSend: Partial<WebhookMonitorConfig> = {
-            monitor_enabled: formData.monitor_enabled ?? config?.monitor_enabled ?? true,
-            check_interval_sec: formData.check_interval_sec ?? config?.check_interval_sec ?? 30,
-            lateral_tolerance_pct: formData.lateral_tolerance_pct ?? config?.lateral_tolerance_pct ?? 0.3,
-            lateral_cycles_min: formData.lateral_cycles_min ?? config?.lateral_cycles_min ?? 4,
-            rise_trigger_pct: formData.rise_trigger_pct ?? config?.rise_trigger_pct ?? 0.75,
-            rise_cycles_min: formData.rise_cycles_min ?? config?.rise_cycles_min ?? 2,
-            max_fall_pct: formData.max_fall_pct ?? config?.max_fall_pct ?? 6.0,
-            max_monitoring_time_min: formData.max_monitoring_time_min ?? config?.max_monitoring_time_min ?? 60,
-            cooldown_after_execution_min: formData.cooldown_after_execution_min ?? config?.cooldown_after_execution_min ?? 30,
+        // Garantir que todos os campos estão presentes e são válidos
+        const dataToSend: Partial<WebhookMonitorConfig> = {}
+        
+        // Apenas incluir campos que têm valores válidos (não undefined, não null, não NaN)
+        if (formData.monitor_enabled !== undefined && formData.monitor_enabled !== null) {
+            dataToSend.monitor_enabled = formData.monitor_enabled
         }
-        console.log('Enviando configurações:', dataToSend)
+        if (formData.check_interval_sec !== undefined && formData.check_interval_sec !== null && !isNaN(formData.check_interval_sec)) {
+            dataToSend.check_interval_sec = formData.check_interval_sec
+        }
+        if (formData.lateral_tolerance_pct !== undefined && formData.lateral_tolerance_pct !== null && !isNaN(formData.lateral_tolerance_pct)) {
+            dataToSend.lateral_tolerance_pct = formData.lateral_tolerance_pct
+        }
+        if (formData.lateral_cycles_min !== undefined && formData.lateral_cycles_min !== null && !isNaN(formData.lateral_cycles_min)) {
+            dataToSend.lateral_cycles_min = formData.lateral_cycles_min
+        }
+        if (formData.rise_trigger_pct !== undefined && formData.rise_trigger_pct !== null && !isNaN(formData.rise_trigger_pct)) {
+            dataToSend.rise_trigger_pct = formData.rise_trigger_pct
+        }
+        if (formData.rise_cycles_min !== undefined && formData.rise_cycles_min !== null && !isNaN(formData.rise_cycles_min)) {
+            dataToSend.rise_cycles_min = formData.rise_cycles_min
+        }
+        if (formData.max_fall_pct !== undefined && formData.max_fall_pct !== null && !isNaN(formData.max_fall_pct)) {
+            dataToSend.max_fall_pct = formData.max_fall_pct
+        }
+        if (formData.max_monitoring_time_min !== undefined && formData.max_monitoring_time_min !== null && !isNaN(formData.max_monitoring_time_min)) {
+            dataToSend.max_monitoring_time_min = formData.max_monitoring_time_min
+        }
+        if (formData.cooldown_after_execution_min !== undefined && formData.cooldown_after_execution_min !== null && !isNaN(formData.cooldown_after_execution_min)) {
+            dataToSend.cooldown_after_execution_min = formData.cooldown_after_execution_min
+        }
+        
+        console.log('FormData atual:', formData)
+        console.log('Dados que serão enviados:', dataToSend)
+        console.log('Config atual:', config)
+        
+        if (Object.keys(dataToSend).length === 0) {
+            toast.error('Nenhum campo válido para atualizar')
+            return
+        }
+        
         updateMutation.mutate(dataToSend)
     }
 
     const handleChange = (key: keyof WebhookMonitorConfig, value: any) => {
-        setFormData((prev) => ({ ...prev, [key]: value }))
+        // Garantir que NaN não seja salvo
+        const cleanValue = (typeof value === 'number' && isNaN(value)) ? undefined : value
+        setFormData((prev) => ({ ...prev, [key]: cleanValue }))
     }
 
     if (isLoading) {
@@ -98,7 +131,10 @@ export function WebhookMonitorConfigForm() {
                         min="0.1"
                         max="5"
                         value={formData.lateral_tolerance_pct || 0.3}
-                        onChange={(e) => handleChange('lateral_tolerance_pct', parseFloat(e.target.value) || 0.3)}
+                        onChange={(e) => {
+                            const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
+                            handleChange('lateral_tolerance_pct', value !== undefined && !isNaN(value) ? value : undefined)
+                        }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                         Margem para considerar preço lateral (padrão: 0.3%)
@@ -113,7 +149,10 @@ export function WebhookMonitorConfigForm() {
                         min="1"
                         max="20"
                         value={formData.lateral_cycles_min || 4}
-                        onChange={(e) => handleChange('lateral_cycles_min', parseInt(e.target.value) || 4)}
+                        onChange={(e) => {
+                            const value = e.target.value === '' ? undefined : parseInt(e.target.value)
+                            handleChange('lateral_cycles_min', value !== undefined && !isNaN(value) ? value : undefined)
+                        }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                         Ciclos sem novo fundo para executar em lateral (padrão: 4)
@@ -129,7 +168,10 @@ export function WebhookMonitorConfigForm() {
                         min="0.1"
                         max="10"
                         value={formData.rise_trigger_pct || 0.75}
-                        onChange={(e) => handleChange('rise_trigger_pct', parseFloat(e.target.value) || 0.75)}
+                        onChange={(e) => {
+                            const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
+                            handleChange('rise_trigger_pct', value !== undefined && !isNaN(value) ? value : undefined)
+                        }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                         Percentual de alta a partir do mínimo para executar (padrão: 0.75%)
@@ -144,7 +186,10 @@ export function WebhookMonitorConfigForm() {
                         min="1"
                         max="10"
                         value={formData.rise_cycles_min || 2}
-                        onChange={(e) => handleChange('rise_cycles_min', parseInt(e.target.value) || 2)}
+                        onChange={(e) => {
+                            const value = e.target.value === '' ? undefined : parseInt(e.target.value)
+                            handleChange('rise_cycles_min', value !== undefined && !isNaN(value) ? value : undefined)
+                        }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                         Ciclos mínimos após alta para executar (padrão: 2)
@@ -160,7 +205,10 @@ export function WebhookMonitorConfigForm() {
                         min="1"
                         max="20"
                         value={formData.max_fall_pct || 6.0}
-                        onChange={(e) => handleChange('max_fall_pct', parseFloat(e.target.value) || 6.0)}
+                        onChange={(e) => {
+                            const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
+                            handleChange('max_fall_pct', value !== undefined && !isNaN(value) ? value : undefined)
+                        }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                         Queda máxima desde o alerta para cancelar (padrão: 6%)
@@ -175,7 +223,10 @@ export function WebhookMonitorConfigForm() {
                         min="5"
                         max="300"
                         value={formData.max_monitoring_time_min || 60}
-                        onChange={(e) => handleChange('max_monitoring_time_min', parseInt(e.target.value) || 60)}
+                        onChange={(e) => {
+                            const value = e.target.value === '' ? undefined : parseInt(e.target.value)
+                            handleChange('max_monitoring_time_min', value !== undefined && !isNaN(value) ? value : undefined)
+                        }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                         Tempo máximo de monitoramento antes de cancelar (padrão: 60min)
@@ -190,7 +241,10 @@ export function WebhookMonitorConfigForm() {
                         min="5"
                         max="300"
                         value={formData.cooldown_after_execution_min || 30}
-                        onChange={(e) => handleChange('cooldown_after_execution_min', parseInt(e.target.value) || 30)}
+                        onChange={(e) => {
+                            const value = e.target.value === '' ? undefined : parseInt(e.target.value)
+                            handleChange('cooldown_after_execution_min', value !== undefined && !isNaN(value) ? value : undefined)
+                        }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                         Tempo de cooldown antes de aceitar novo alerta no mesmo par (padrão: 30min)

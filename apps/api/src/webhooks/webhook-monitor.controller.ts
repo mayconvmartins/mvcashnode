@@ -268,10 +268,24 @@ export class WebhookMonitorController {
       if (body.max_monitoring_time_min !== undefined) updateData.max_monitoring_time_min = body.max_monitoring_time_min;
       if (body.cooldown_after_execution_min !== undefined) updateData.cooldown_after_execution_min = body.cooldown_after_execution_min;
       
-      config = await this.prisma.webhookMonitorConfig.update({
-        where: { user_id: user.userId },
-        data: updateData,
-      });
+      console.log('[WEBHOOK-MONITOR] Dados que serão atualizados:', JSON.stringify(updateData, null, 2));
+      
+      if (Object.keys(updateData).length === 0) {
+        console.log('[WEBHOOK-MONITOR] Nenhum campo para atualizar!');
+        // Buscar config atual para retornar
+        config = await this.prisma.webhookMonitorConfig.findUnique({
+          where: { user_id: user.userId },
+        });
+        if (!config) {
+          throw new BadRequestException('Configuração não encontrada');
+        }
+      } else {
+        config = await this.prisma.webhookMonitorConfig.update({
+          where: { user_id: user.userId },
+          data: updateData,
+        });
+        console.log('[WEBHOOK-MONITOR] Configuração atualizada com sucesso');
+      }
     }
 
     return {
