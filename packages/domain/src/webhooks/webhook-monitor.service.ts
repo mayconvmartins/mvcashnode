@@ -577,17 +577,36 @@ export class WebhookMonitorService {
       try {
         // Usar o side do alerta (BUY ou SELL)
         const side = (alert as any).side || 'BUY';
+        
+        // Para vendas (SELL), usar LIMIT com preço do alerta
+        let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
+        let limitPrice: number | undefined = undefined;
+        
+        if (side === 'SELL') {
+          orderType = 'LIMIT';
+          // Usar current_price ou price_alert como limitPrice
+          limitPrice = alert.current_price?.toNumber() || alert.price_alert?.toNumber();
+          
+          if (!limitPrice || limitPrice <= 0) {
+            console.error(`[WEBHOOK-MONITOR] ❌ Não foi possível obter limitPrice para venda do alerta ${alertId}. current_price: ${alert.current_price?.toNumber()}, price_alert: ${alert.price_alert?.toNumber()}`);
+            throw new Error(`Venda via webhook requer limitPrice válido. Alerta ${alertId} não tem preço disponível.`);
+          }
+          
+          console.log(`[WEBHOOK-MONITOR] Venda detectada, usando LIMIT com limitPrice=${limitPrice} (do alerta ${alertId})`);
+        }
+        
         const tradeJob = await this.tradeJobService.createJob({
           webhookEventId: alert.webhook_event_id,
           exchangeAccountId: binding.exchange_account.id,
           tradeMode: alert.trade_mode as TradeMode,
           symbol: alert.symbol,
           side: side as 'BUY' | 'SELL',
-          orderType: 'MARKET',
+          orderType,
+          limitPrice,
         });
         
         tradeJobIds.push(tradeJob.id);
-        console.log(`[WEBHOOK-MONITOR] ✅ TradeJob criado: ${tradeJob.id} para conta ${binding.exchange_account.id}`);
+        console.log(`[WEBHOOK-MONITOR] ✅ TradeJob criado: ${tradeJob.id} para conta ${binding.exchange_account.id} (${side}, ${orderType}${limitPrice ? `, limitPrice=${limitPrice}` : ''})`);
       } catch (error: any) {
         console.error(`[WEBHOOK-MONITOR] ❌ Erro ao criar TradeJob para conta ${binding.exchange_account.id}: ${error.message}`);
       }
