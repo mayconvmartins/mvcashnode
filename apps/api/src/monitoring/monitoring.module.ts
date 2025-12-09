@@ -47,6 +47,9 @@ import { PrismaService } from '@mvcashnode/db';
     BullModule.registerQueue({
       name: 'webhook-monitor',
     }),
+    BullModule.registerQueue({
+      name: 'positions-sell-sync',
+    }),
   ],
   controllers: [MonitoringController, CronManagementController],
   providers: [MonitoringService, CronManagementService, PrismaService],

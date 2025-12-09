@@ -24,6 +24,7 @@ export class CronManagementService implements OnModuleInit {
     @InjectQueue('positions-params-fix') private positionsParamsFixQueue: Queue,
     @InjectQueue('dust-positions-monitor') private dustPositionsMonitorQueue: Queue,
     @InjectQueue('webhook-monitor') private webhookMonitorQueue: Queue,
+    @InjectQueue('positions-sell-sync') private positionsSellSyncQueue: Queue,
   ) {}
 
   /**
@@ -42,6 +43,7 @@ export class CronManagementService implements OnModuleInit {
       'positions-params-fix': this.positionsParamsFixQueue,
       'dust-positions-monitor': this.dustPositionsMonitorQueue,
       'webhook-monitor': this.webhookMonitorQueue,
+      'positions-sell-sync': this.positionsSellSyncQueue,
     };
   }
 
@@ -62,6 +64,7 @@ export class CronManagementService implements OnModuleInit {
       'positions-params-fix': 'fix-positions-params',
       'dust-positions-monitor': 'monitor-dust-positions',
       'webhook-monitor': 'monitor-webhook-alerts',
+      'positions-sell-sync': 'sync-positions-sell',
     };
     return nameMap[jobName] || null;
   }
@@ -139,6 +142,13 @@ export class CronManagementService implements OnModuleInit {
         description: 'Identificação e conversão automática de posições resíduo (< 1% E < US$ 5.00)',
         queue_name: 'dust-positions-monitor',
         job_id: 'dust-positions-monitor-repeat',
+        interval_ms: 300000, // 5 minutos
+      },
+      {
+        name: 'positions-sell-sync',
+        description: 'Verificação e fechamento de posições abertas com vendas executadas',
+        queue_name: 'positions-sell-sync',
+        job_id: 'positions-sell-sync-repeat',
         interval_ms: 300000, // 5 minutos
       },
       {

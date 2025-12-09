@@ -12,6 +12,7 @@ import { PositionsSyncModule } from './positions-sync/positions-sync.module';
 import { PositionsParamsFixModule } from './positions-params-fix/positions-params-fix.module';
 import { DustPositionsMonitorModule } from './dust-positions-monitor/dust-positions-monitor.module';
 import { WebhookMonitorModule } from './webhook-monitor/webhook-monitor.module';
+import { PositionsSellSyncModule } from './positions-sell-sync/positions-sell-sync.module';
 import * as path from 'path';
 
 @Module({
@@ -38,6 +39,7 @@ import * as path from 'path';
     MercadoPagoSyncModule,
     TransFiSyncModule,
     WebhookMonitorModule,
+    PositionsSellSyncModule,
   ],
 })
 export class AppModule {}

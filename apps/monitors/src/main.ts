@@ -228,6 +228,22 @@ async function bootstrap() {
   );
   console.log('✅ Positions Params Fix configurado (a cada 1min)');
 
+  // Configurar Positions Sell Sync - executa a cada 5 minutos
+  const positionsSellSyncQueue = app.get<Queue>(getQueueToken('positions-sell-sync'));
+  await positionsSellSyncQueue.add(
+    'sync-positions-sell',
+    {},
+    {
+      repeat: {
+        every: 300000, // 5 minutos
+      },
+      jobId: 'positions-sell-sync-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Positions Sell Sync configurado (a cada 5min)');
+
   // Configurar Dust Positions Monitor - executa a cada 5 minutos
   const dustPositionsMonitorQueue = app.get<Queue>(getQueueToken('dust-positions-monitor'));
   await dustPositionsMonitorQueue.add(
