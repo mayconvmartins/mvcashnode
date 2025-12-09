@@ -457,16 +457,89 @@ export class SubscriptionsService {
 
       if (!subscription) {
         this.logger.warn(`Assinatura não encontrada para pagamento ${paymentId} (preference_id: ${payment.preference_id})`);
-        // Tentar buscar todas as assinaturas pendentes para debug
-        const pendingSubs = await this.prisma.subscription.findMany({
-          where: { status: 'PENDING_PAYMENT' },
-          take: 5,
-        });
-        this.logger.warn(`Assinaturas pendentes encontradas: ${pendingSubs.length}`);
-        pendingSubs.forEach(sub => {
-          this.logger.warn(`  - Subscription ${sub.id}: mp_preference_id=${sub.mp_preference_id}, mp_payment_id=${sub.mp_payment_id}`);
-        });
-        return;
+        
+        // Fallback: tentar vincular usando payer.email
+        if (payment.payer?.email) {
+          this.logger.log(`Tentando fallback para pagamento ${paymentId}: buscando assinaturas pendentes do usuário ${payment.payer.email}...`);
+          
+          const user = await this.prisma.user.findUnique({
+            where: { email: payment.payer.email },
+            include: {
+              subscriptions: {
+                where: {
+                  status: 'PENDING_PAYMENT',
+                },
+                include: {
+                  plan: true,
+                },
+                orderBy: {
+                  created_at: 'desc',
+                },
+              },
+            },
+          });
+
+          if (user && user.subscriptions.length > 0) {
+            // Filtrar assinaturas por valor (tolerância de R$ 0,01)
+            const paymentAmount = payment.transaction_amount;
+            const matchingSubscriptions = user.subscriptions.filter(sub => {
+              const monthlyPrice = Number(sub.plan.price_monthly);
+              const quarterlyPrice = Number(sub.plan.price_quarterly);
+              const diffMonthly = Math.abs(paymentAmount - monthlyPrice);
+              const diffQuarterly = Math.abs(paymentAmount - quarterlyPrice);
+              return diffMonthly <= 0.01 || diffQuarterly <= 0.01;
+            });
+
+            if (matchingSubscriptions.length > 0) {
+              // Filtrar por data: assinatura criada até 7 dias antes do pagamento
+              const paymentDate = new Date(payment.date_created);
+              const sevenDaysBefore = new Date(paymentDate);
+              sevenDaysBefore.setDate(sevenDaysBefore.getDate() - 7);
+              
+              const dateFilteredSubscriptions = matchingSubscriptions.filter(sub => {
+                const subDate = new Date(sub.created_at);
+                return subDate <= paymentDate && subDate >= sevenDaysBefore;
+              });
+
+              // Escolher a assinatura mais recente que corresponde aos critérios
+              const selectedSubscription = dateFilteredSubscriptions.length > 0
+                ? dateFilteredSubscriptions[0]
+                : matchingSubscriptions[0];
+
+              subscription = await this.prisma.subscription.findUnique({
+                where: { id: selectedSubscription.id },
+                include: {
+                  plan: true,
+                  user: true,
+                },
+              });
+
+              this.logger.log(`Fallback: assinatura ${selectedSubscription.id} encontrada para pagamento ${paymentId} via email ${payment.payer.email}`);
+              
+              if (matchingSubscriptions.length > 1) {
+                this.logger.warn(`Fallback: múltiplas assinaturas correspondem (${matchingSubscriptions.length}), escolhendo a mais recente: ${selectedSubscription.id}`);
+              }
+            } else {
+              this.logger.warn(`Fallback: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) para email ${payment.payer.email}`);
+            }
+          } else {
+            this.logger.warn(`Fallback: usuário não encontrado ou sem assinaturas pendentes para email ${payment.payer.email}`);
+          }
+        }
+
+        // Se ainda não encontrou assinatura, fazer log de debug e retornar
+        if (!subscription) {
+          // Tentar buscar todas as assinaturas pendentes para debug
+          const pendingSubs = await this.prisma.subscription.findMany({
+            where: { status: 'PENDING_PAYMENT' },
+            take: 5,
+          });
+          this.logger.warn(`Assinaturas pendentes encontradas: ${pendingSubs.length}`);
+          pendingSubs.forEach(sub => {
+            this.logger.warn(`  - Subscription ${sub.id}: mp_preference_id=${sub.mp_preference_id}, mp_payment_id=${sub.mp_payment_id}`);
+          });
+          return;
+        }
       }
 
       this.logger.log(`Assinatura ${subscription.id} encontrada para pagamento ${paymentId}`);

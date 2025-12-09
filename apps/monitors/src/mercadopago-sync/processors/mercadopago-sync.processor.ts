@@ -208,6 +208,102 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   }
                 }
 
+                // Fallback: se não encontrou por preference_id ou external_reference,
+                // buscar pagamento completo da API para obter payer.email e tentar vincular
+                if (!subscriptionId) {
+                  try {
+                    this.logger.log(`Tentando fallback para pagamento ${mpPaymentIdStr}: buscando pagamento completo da API...`);
+                    
+                    const paymentDetailResponse = await fetch(`${baseUrl}/v1/payments/${mpPaymentIdStr}`, {
+                      method: 'GET',
+                      headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                      },
+                    });
+
+                    if (paymentDetailResponse.ok) {
+                      const paymentDetail = await paymentDetailResponse.json() as {
+                        id: string;
+                        payer?: {
+                          email?: string;
+                        };
+                        transaction_amount: number;
+                        date_created: string;
+                      };
+
+                      if (paymentDetail.payer?.email) {
+                        const payerEmail = paymentDetail.payer.email;
+                        this.logger.log(`Fallback: pagamento ${mpPaymentIdStr} tem payer.email: ${payerEmail}`);
+                        
+                        // Buscar usuário pelo email
+                        const user = await this.prisma.user.findUnique({
+                          where: { email: payerEmail },
+                          include: {
+                            subscriptions: {
+                              where: {
+                                status: 'PENDING_PAYMENT',
+                              },
+                              include: {
+                                plan: true,
+                              },
+                              orderBy: {
+                                created_at: 'desc',
+                              },
+                            },
+                          },
+                        });
+
+                        if (user && user.subscriptions.length > 0) {
+                          // Filtrar assinaturas por valor (tolerância de R$ 0,01)
+                          const paymentAmount = paymentDetail.transaction_amount;
+                          const matchingSubscriptions = user.subscriptions.filter(sub => {
+                            const monthlyPrice = Number(sub.plan.price_monthly);
+                            const quarterlyPrice = Number(sub.plan.price_quarterly);
+                            const diffMonthly = Math.abs(paymentAmount - monthlyPrice);
+                            const diffQuarterly = Math.abs(paymentAmount - quarterlyPrice);
+                            return diffMonthly <= 0.01 || diffQuarterly <= 0.01;
+                          });
+
+                          if (matchingSubscriptions.length > 0) {
+                            // Filtrar por data: assinatura criada até 7 dias antes do pagamento
+                            const paymentDate = new Date(paymentDetail.date_created);
+                            const sevenDaysBefore = new Date(paymentDate);
+                            sevenDaysBefore.setDate(sevenDaysBefore.getDate() - 7);
+                            
+                            const dateFilteredSubscriptions = matchingSubscriptions.filter(sub => {
+                              const subDate = new Date(sub.created_at);
+                              return subDate <= paymentDate && subDate >= sevenDaysBefore;
+                            });
+
+                            // Escolher a assinatura mais recente que corresponde aos critérios
+                            const selectedSubscription = dateFilteredSubscriptions.length > 0
+                              ? dateFilteredSubscriptions[0]
+                              : matchingSubscriptions[0];
+
+                            subscriptionId = selectedSubscription.id;
+                            this.logger.log(`Fallback: assinatura ${subscriptionId} encontrada para pagamento ${mpPaymentIdStr} via email ${payerEmail}`);
+                            
+                            if (matchingSubscriptions.length > 1) {
+                              this.logger.warn(`Fallback: múltiplas assinaturas correspondem (${matchingSubscriptions.length}), escolhendo a mais recente: ${subscriptionId}`);
+                            }
+                          } else {
+                            this.logger.warn(`Fallback: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) para email ${payerEmail}`);
+                          }
+                        } else {
+                          this.logger.warn(`Fallback: usuário não encontrado ou sem assinaturas pendentes para email ${payerEmail}`);
+                        }
+                      } else {
+                        this.logger.warn(`Fallback: pagamento ${mpPaymentIdStr} não tem payer.email`);
+                      }
+                    } else {
+                      const error = await paymentDetailResponse.json();
+                      this.logger.warn(`Fallback: erro ao buscar pagamento completo ${mpPaymentIdStr}:`, error);
+                    }
+                  } catch (error: any) {
+                    this.logger.error(`Fallback: erro ao tentar vincular pagamento ${mpPaymentIdStr} via email:`, error);
+                  }
+                }
+
                 // Criar registro de pagamento apenas se tiver subscription_id (campo obrigatório)
                 if (subscriptionId) {
                   await this.prisma.subscriptionPayment.create({
