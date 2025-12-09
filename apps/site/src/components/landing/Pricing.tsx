@@ -10,7 +10,7 @@ import { useState } from 'react';
 export function Pricing() {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'quarterly'>('monthly');
 
-  const { data: plans, isLoading } = useQuery({
+  const { data: plans, isLoading, error } = useQuery({
     queryKey: ['subscription', 'plans'],
     queryFn: () => subscriptionsService.getPlans(),
   });
@@ -21,6 +21,33 @@ export function Pricing() {
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-center items-center min-h-[400px]">
             <Loader2 className="h-8 w-8 animate-spin text-gray-600" />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="py-24 bg-white" id="pricing">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <p className="text-red-600">Erro ao carregar planos. Tente novamente mais tarde.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Garantir que plans é um array
+  const plansArray = Array.isArray(plans) ? plans : [];
+
+  if (plansArray.length === 0) {
+    return (
+      <section className="py-24 bg-white" id="pricing">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <p className="text-gray-600">Nenhum plano disponível no momento.</p>
           </div>
         </div>
       </section>
@@ -45,7 +72,7 @@ export function Pricing() {
                 onClick={() => setBillingPeriod('monthly')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   billingPeriod === 'monthly'
-                    ? 'bg-primary text-white shadow-sm'
+                    ? 'bg-blue-600 text-white shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
@@ -55,7 +82,7 @@ export function Pricing() {
                 onClick={() => setBillingPeriod('quarterly')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   billingPeriod === 'quarterly'
-                    ? 'bg-primary text-white shadow-sm'
+                    ? 'bg-blue-600 text-white shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
@@ -68,7 +95,7 @@ export function Pricing() {
 
         {/* Planos */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-          {plans?.map((plan) => {
+          {plansArray.map((plan) => {
             const price =
               billingPeriod === 'monthly'
                 ? Number(plan.price_monthly)

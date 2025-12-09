@@ -128,12 +128,14 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
           // Processar cada pagamento encontrado
           for (const mpPayment of searchResult.results) {
             try {
-              importedPaymentIds.add(mpPayment.id);
+              // Garantir que mpPayment.id seja sempre string (Prisma espera String)
+              const mpPaymentIdStr = String(mpPayment.id);
+              importedPaymentIds.add(mpPaymentIdStr);
 
               // Verificar se já existe no banco
               const existingPayment = await this.prisma.subscriptionPayment.findFirst({
                 where: {
-                  mp_payment_id: mpPayment.id,
+                  mp_payment_id: mpPaymentIdStr,
                 },
                 include: {
                   subscription: true,
@@ -211,7 +213,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   await this.prisma.subscriptionPayment.create({
                     data: {
                       subscription_id: subscriptionId,
-                      mp_payment_id: mpPayment.id,
+                      mp_payment_id: mpPaymentIdStr,
                       amount: mpPayment.transaction_amount,
                       status: paymentStatus,
                       payment_method: paymentMethod,
@@ -219,7 +221,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   });
 
                   importedCount++;
-                  this.logger.log(`Pagamento ${mpPayment.id} importado (status: ${mpPayment.status}, método: ${paymentMethod})`);
+                  this.logger.log(`Pagamento ${mpPaymentIdStr} importado (status: ${mpPayment.status}, método: ${paymentMethod})`);
 
                   // Se pagamento foi aprovado e tem assinatura, processar
                   if (mpPayment.status === 'approved') {
@@ -235,9 +237,9 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                       this.logger.log(`Processando pagamento aprovado para assinatura ${subscriptionId}`);
                       await this.processApprovedPayment(
                         subscriptionId,
-                        mpPayment.id,
+                        mpPaymentIdStr,
                         {
-                          id: mpPayment.id,
+                          id: mpPaymentIdStr,
                           status: mpPayment.status,
                           transaction_amount: mpPayment.transaction_amount,
                           payment_method_id: mpPayment.payment_method_id,
@@ -247,7 +249,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                     }
                   }
                 } else {
-                  this.logger.warn(`Pagamento ${mpPayment.id} não pôde ser importado: nenhuma assinatura encontrada (preference_id: ${mpPayment.preference_id}, external_reference: ${mpPayment.external_reference})`);
+                  this.logger.warn(`Pagamento ${mpPaymentIdStr} não pôde ser importado: nenhuma assinatura encontrada (preference_id: ${mpPayment.preference_id}, external_reference: ${mpPayment.external_reference})`);
                 }
               }
             } catch (error: any) {
@@ -644,8 +646,10 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   
                   // Processar cada pagamento do pedido
                   for (const paymentData of order.payments) {
+                    // Garantir que paymentData.id seja sempre string
+                    const mpPaymentIdStr = String(paymentData.id);
                     const mpPayment = {
-                      id: paymentData.id,
+                      id: mpPaymentIdStr,
                       status: paymentData.status,
                       transaction_amount: paymentData.transaction_amount,
                       payment_method_id: paymentData.payment_method_id,
@@ -654,17 +658,17 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   // Verificar se já existe registro de pagamento
                   const existingPayment = await this.prisma.subscriptionPayment.findFirst({
                     where: {
-                      mp_payment_id: mpPayment.id,
+                      mp_payment_id: mpPaymentIdStr,
                     },
                   });
 
                   if (!existingPayment) {
-                    this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPayment.id})`);
+                    this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
                     const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
                     await this.prisma.subscriptionPayment.create({
                       data: {
                         subscription_id: subscription.id,
-                        mp_payment_id: mpPayment.id,
+                        mp_payment_id: mpPaymentIdStr,
                         amount: mpPayment.transaction_amount,
                         status: paymentStatus,
                         payment_method: mpPayment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
@@ -677,9 +681,9 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   if (!subscription.mp_payment_id) {
                     await this.prisma.subscription.update({
                       where: { id: subscription.id },
-                      data: { mp_payment_id: mpPayment.id },
+                      data: { mp_payment_id: mpPaymentIdStr },
                     });
-                    subscription.mp_payment_id = mpPayment.id;
+                    subscription.mp_payment_id = mpPaymentIdStr;
                   }
 
                   // Se pagamento foi aprovado, processar assinatura
@@ -689,12 +693,12 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   });
                   
                   if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status === 'PENDING_PAYMENT') {
-                    this.logger.log(`✅ Pagamento aprovado encontrado! Processando assinatura ${subscription.id} com pagamento ${mpPayment.id} (encontrado via preference_id)`);
+                    this.logger.log(`✅ Pagamento aprovado encontrado! Processando assinatura ${subscription.id} com pagamento ${mpPaymentIdStr} (encontrado via preference_id)`);
                     await this.processApprovedPayment(
                       subscription.id, 
-                      mpPayment.id, 
+                      mpPaymentIdStr, 
                       {
-                        id: mpPayment.id,
+                        id: mpPaymentIdStr,
                         status: mpPayment.status,
                         transaction_amount: mpPayment.transaction_amount,
                         payment_method_id: mpPayment.payment_method_id,
@@ -706,7 +710,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   } else if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status !== 'PENDING_PAYMENT') {
                     this.logger.log(`Assinatura ${subscription.id} já está com status ${currentSubscription.status}, não precisa processar`);
                   } else {
-                    this.logger.log(`Pagamento ${mpPayment.id} ainda não está aprovado (status: ${mpPayment.status}), aguardando...`);
+                    this.logger.log(`Pagamento ${mpPaymentIdStr} ainda não está aprovado (status: ${mpPayment.status}), aguardando...`);
                   }
                 }
                 }
@@ -753,20 +757,23 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                       this.logger.log(`Encontrados ${filteredPayments.length} pagamento(s) via busca alternativa`);
                       
                       for (const mpPayment of filteredPayments) {
+                        // Garantir que mpPayment.id seja sempre string
+                        const mpPaymentIdStr = String(mpPayment.id);
+                        
                         // Verificar se já existe registro de pagamento
                         const existingPayment = await this.prisma.subscriptionPayment.findFirst({
                           where: {
-                            mp_payment_id: mpPayment.id,
+                            mp_payment_id: mpPaymentIdStr,
                           },
                         });
 
                         if (!existingPayment) {
-                          this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPayment.id})`);
+                          this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
                           const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
                           await this.prisma.subscriptionPayment.create({
                             data: {
                               subscription_id: subscription.id,
-                              mp_payment_id: mpPayment.id,
+                              mp_payment_id: mpPaymentIdStr,
                               amount: mpPayment.transaction_amount,
                               status: paymentStatus,
                               payment_method: mpPayment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
@@ -779,9 +786,9 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                         if (!subscription.mp_payment_id) {
                           await this.prisma.subscription.update({
                             where: { id: subscription.id },
-                            data: { mp_payment_id: mpPayment.id },
+                            data: { mp_payment_id: mpPaymentIdStr },
                           });
-                          subscription.mp_payment_id = mpPayment.id;
+                          subscription.mp_payment_id = mpPaymentIdStr;
                         }
 
                         // Se pagamento foi aprovado, processar assinatura
@@ -790,12 +797,12 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                         });
                         
                         if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status === 'PENDING_PAYMENT') {
-                          this.logger.log(`✅ Pagamento aprovado encontrado! Processando assinatura ${subscription.id} com pagamento ${mpPayment.id} (encontrado via busca alternativa)`);
+                          this.logger.log(`✅ Pagamento aprovado encontrado! Processando assinatura ${subscription.id} com pagamento ${mpPaymentIdStr} (encontrado via busca alternativa)`);
                           await this.processApprovedPayment(
                             subscription.id, 
-                            mpPayment.id, 
+                            mpPaymentIdStr, 
                             {
-                              id: mpPayment.id,
+                              id: mpPaymentIdStr,
                               status: mpPayment.status,
                               transaction_amount: mpPayment.transaction_amount,
                               payment_method_id: mpPayment.payment_method_id,
@@ -828,9 +835,11 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         }
 
         try {
-          this.logger.debug(`Verificando assinatura ${subscription.id} com pagamento MP: ${subscription.mp_payment_id}`);
+          // Garantir que mp_payment_id seja string
+          const mpPaymentIdStr = String(subscription.mp_payment_id);
+          this.logger.debug(`Verificando assinatura ${subscription.id} com pagamento MP: ${mpPaymentIdStr}`);
           
-          const response = await fetch(`${baseUrl}/v1/payments/${subscription.mp_payment_id}`, {
+          const response = await fetch(`${baseUrl}/v1/payments/${mpPaymentIdStr}`, {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${accessToken}`,
@@ -851,17 +860,17 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             // Verificar se existe registro de pagamento, se não, criar
             const existingPayment = await this.prisma.subscriptionPayment.findFirst({
               where: {
-                mp_payment_id: subscription.mp_payment_id,
+                mp_payment_id: mpPaymentIdStr,
               },
             });
 
             if (!existingPayment) {
-              this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${subscription.mp_payment_id})`);
+              this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
               const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
               await this.prisma.subscriptionPayment.create({
                 data: {
                   subscription_id: subscription.id,
-                  mp_payment_id: subscription.mp_payment_id,
+                  mp_payment_id: mpPaymentIdStr,
                   amount: mpPayment.transaction_amount,
                   status: paymentStatus,
                   payment_method: mpPayment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
@@ -883,7 +892,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             
             if (mpPayment.status === 'approved' && subscription.status === 'PENDING_PAYMENT') {
               this.logger.log(`Processando assinatura ${subscription.id} com pagamento aprovado`);
-              await this.processApprovedPayment(subscription.id, subscription.mp_payment_id, mpPayment);
+              await this.processApprovedPayment(subscription.id, mpPaymentIdStr, mpPayment);
               updated++;
             } else if (mpPayment.status !== 'approved') {
               this.logger.debug(`Assinatura ${subscription.id} - Pagamento ainda não aprovado (status: ${mpPayment.status})`);
