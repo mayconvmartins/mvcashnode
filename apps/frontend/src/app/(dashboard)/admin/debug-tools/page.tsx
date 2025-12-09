@@ -5,6 +5,7 @@ import { SyncExecutionFees } from '@/components/monitoring/SyncExecutionFees'
 import { AuditPositions } from '@/components/monitoring/AuditPositions'
 import { DustPositions } from '@/components/monitoring/DustPositions'
 import { SuspiciousSellExecutions } from '@/components/monitoring/SuspiciousSellExecutions'
+import { AuditFifoPositions } from '@/components/monitoring/AuditFifoPositions'
 import { Wrench } from 'lucide-react'
 
 export default function DebugToolsPage() {
@@ -37,6 +38,11 @@ export default function DebugToolsPage() {
 
                 {/* Gerenciamento de Resíduos */}
                 <DustPositions />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-1">
+                {/* Auditoria FIFO de Posições */}
+                <AuditFifoPositions />
             </div>
         </div>
     )

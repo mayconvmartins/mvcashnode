@@ -274,6 +274,32 @@ export const adminService = {
         return response.data
     },
 
+    auditFifoPositions: async (hours?: number, dryRun?: boolean): Promise<{
+        totalExecutions: number
+        checkedExecutions: number
+        problemsFound: number
+        fixed: number
+        errors: string[]
+        dryRun: boolean
+        duration_ms: number
+        details: Array<{
+            executionId: number
+            executionQty: number
+            fillsSum: number
+            status: 'OK' | 'MISMATCH' | 'FIFO_ERROR' | 'MISSING_FILLS'
+            positionsBefore: Array<{ id: number; qty_remaining: number; status: string; created_at: string }>
+            positionsAfter: Array<{ id: number; qty_remaining: number; status: string }>
+            correctPositions: Array<{ id: number; qty_remaining: number }>
+            fixed: boolean
+            error?: string
+        }>
+    }> => {
+        const response = await apiClient.post('/admin/audit-fifo-positions', { hours, dryRun }, {
+            timeout: 600000, // 10 minutos para auditoria
+        })
+        return response.data
+    },
+
     identifyDustPositions: async (): Promise<{
         candidates: Array<{
             positionId: number

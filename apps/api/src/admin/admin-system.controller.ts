@@ -2416,5 +2416,350 @@ export class AdminSystemController {
       },
     });
   }
+
+  @Post('audit-fifo-positions')
+  @ApiOperation({
+    summary: 'Auditar e corrigir posições FIFO',
+    description: 'Audita vendas das últimas X horas e corrige posições que não fecharam corretamente por FIFO, comparando quantidade vendida com quantidade em aberto das posições.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Auditoria concluída',
+  })
+  async auditFifoPositions(@Body() body: { hours?: number; dryRun?: boolean }) {
+    const hours = body.hours || 24;
+    const dryRun = body.dryRun !== false; // Padrão true
+    const positionService = new PositionService(this.prisma);
+
+    console.log(`[ADMIN] Iniciando auditoria FIFO de posições (últimas ${hours}h, dry-run: ${dryRun})...`);
+
+    const startTime = Date.now();
+    const cutoffDate = new Date();
+    cutoffDate.setHours(cutoffDate.getHours() - hours);
+
+    // Buscar execuções SELL das últimas X horas
+    const sellExecutions = await this.prisma.tradeExecution.findMany({
+      where: {
+        trade_job: {
+          side: 'SELL',
+          created_at: { gte: cutoffDate },
+        },
+      },
+      include: {
+        trade_job: {
+          select: {
+            id: true,
+            side: true,
+            symbol: true,
+            exchange_account_id: true,
+            trade_mode: true,
+            position_id_to_close: true,
+            webhook_event_id: true,
+          },
+        },
+        position_fills: {
+          where: { side: 'SELL' },
+          include: {
+            position: {
+              select: {
+                id: true,
+                status: true,
+                qty_remaining: true,
+                qty_total: true,
+                created_at: true,
+                exchange_account_id: true,
+                trade_mode: true,
+                symbol: true,
+              },
+            },
+          },
+          orderBy: {
+            created_at: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    });
+
+    console.log(`[ADMIN] Encontradas ${sellExecutions.length} execuções de venda para auditar`);
+
+    const details: Array<{
+      executionId: number;
+      executionQty: number;
+      fillsSum: number;
+      status: 'OK' | 'MISMATCH' | 'FIFO_ERROR' | 'MISSING_FILLS';
+      positionsBefore: Array<{ id: number; qty_remaining: number; status: string; created_at: Date }>;
+      positionsAfter: Array<{ id: number; qty_remaining: number; status: string }>;
+      correctPositions: Array<{ id: number; qty_remaining: number }>;
+      fixed: boolean;
+      error?: string;
+    }> = [];
+
+    let problemsFound = 0;
+    let fixed = 0;
+    const errors: string[] = [];
+
+    for (const execution of sellExecutions) {
+      try {
+        const executionQty = execution.executed_qty.toNumber();
+        const fillsSum = execution.position_fills.reduce(
+          (sum, fill) => sum + fill.qty.toNumber(),
+          0
+        );
+
+        // Verificar se soma dos fills bate com executed_qty
+        const qtyMismatch = Math.abs(fillsSum - executionQty) > 0.00000001; // Tolerância para decimais
+
+        // Buscar posições que foram fechadas por esta execução (via PositionFills)
+        const positionsClosedByExecution = execution.position_fills
+          .map((fill) => fill.position)
+          .filter((pos) => pos.status === 'CLOSED');
+
+        // Buscar snapshot de posições abertas no momento da execução
+        // Usar created_at <= execution.created_at para pegar posições que existiam naquele momento
+        const executionTime = execution.created_at;
+        
+        // Se tem position_id_to_close, não precisa verificar FIFO (é fechamento específico)
+        const needsFifoCheck = !execution.trade_job.position_id_to_close;
+
+        let fifoError = false;
+        let correctPositions: Array<{ id: number; qty_remaining: number }> = [];
+
+        if (needsFifoCheck) {
+          // Buscar todas as posições criadas antes da execução com seus fills
+          const allPositionsAtTime = await this.prisma.tradePosition.findMany({
+            where: {
+              exchange_account_id: execution.trade_job.exchange_account_id,
+              trade_mode: execution.trade_job.trade_mode,
+              symbol: execution.trade_job.symbol,
+              side: 'LONG',
+              created_at: { lte: executionTime },
+            },
+            orderBy: { created_at: 'asc' },
+            include: {
+              fills: {
+                where: {
+                  side: 'SELL',
+                  execution: {
+                    created_at: { lt: executionTime },
+                  },
+                },
+              },
+            },
+          });
+
+          // Calcular quais posições deveriam ter sido fechadas (FIFO)
+          // Simular estado das posições no momento da execução
+          let remainingQty = executionQty;
+          const shouldHaveClosed: number[] = [];
+          
+          for (const pos of allPositionsAtTime) {
+            if (remainingQty <= 0) break;
+            
+            // Calcular qty_remaining no momento da execução
+            const qtyClosedBefore = pos.fills.reduce(
+              (sum, fill) => sum + fill.qty.toNumber(),
+              0
+            );
+            const qtyRemainingAtTime = pos.qty_total.toNumber() - qtyClosedBefore;
+
+            // Se a posição estava aberta no momento da execução
+            if (qtyRemainingAtTime > 0) {
+              const qtyToClose = Math.min(qtyRemainingAtTime, remainingQty);
+              shouldHaveClosed.push(pos.id);
+              remainingQty -= qtyToClose;
+            }
+          }
+
+          // Verificar se as posições fechadas são as corretas
+          const closedIds = new Set(positionsClosedByExecution.map((p) => p.id));
+          const shouldHaveClosedSet = new Set(shouldHaveClosed);
+
+          if (closedIds.size !== shouldHaveClosedSet.size) {
+            fifoError = true;
+          } else {
+            // Verificar se são exatamente as mesmas posições
+            for (const id of closedIds) {
+              if (!shouldHaveClosedSet.has(id)) {
+                fifoError = true;
+                break;
+              }
+            }
+            // Verificar ordem (primeiras posições fechadas devem ser as mais antigas)
+            const closedPositionsOrdered = positionsClosedByExecution
+              .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
+              .map((p) => p.id);
+            const shouldHaveClosedOrdered = allPositionsAtTime
+              .filter((p) => shouldHaveClosedSet.has(p.id))
+              .map((p) => p.id);
+
+            if (closedPositionsOrdered.length !== shouldHaveClosedOrdered.length) {
+              fifoError = true;
+            } else {
+              for (let i = 0; i < closedPositionsOrdered.length; i++) {
+                if (closedPositionsOrdered[i] !== shouldHaveClosedOrdered[i]) {
+                  fifoError = true;
+                  break;
+                }
+              }
+            }
+          }
+
+          correctPositions = allPositionsAtTime
+            .filter((p) => shouldHaveClosedSet.has(p.id))
+            .map((p) => ({
+              id: p.id,
+              qty_remaining: p.qty_remaining.toNumber(),
+            }));
+        }
+
+        // Determinar status
+        let status: 'OK' | 'MISMATCH' | 'FIFO_ERROR' | 'MISSING_FILLS' = 'OK';
+        if (execution.position_fills.length === 0) {
+          status = 'MISSING_FILLS';
+        } else if (qtyMismatch) {
+          status = 'MISMATCH';
+        } else if (fifoError) {
+          status = 'FIFO_ERROR';
+        }
+
+        const positionsBefore = positionsClosedByExecution.map((pos) => ({
+          id: pos.id,
+          qty_remaining: pos.qty_remaining.toNumber(),
+          status: pos.status,
+          created_at: pos.created_at,
+        }));
+
+        if (status !== 'OK') {
+          problemsFound++;
+
+          // Se não for dry-run, corrigir
+          if (!dryRun) {
+            try {
+              // Reverter execução atual
+              const revertResult = await positionService.revertSellExecution(execution.id, false);
+              
+              if (revertResult.success) {
+                // Determinar origin baseado no job
+                let origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'WEBHOOK';
+                if (execution.trade_job.position_id_to_close) {
+                  const targetPosition = await this.prisma.tradePosition.findUnique({
+                    where: { id: execution.trade_job.position_id_to_close },
+                  });
+                  if (targetPosition) {
+                    if (targetPosition.tp_triggered) origin = 'TAKE_PROFIT';
+                    else if (targetPosition.sl_triggered) origin = 'STOP_LOSS';
+                    else if (targetPosition.trailing_triggered) origin = 'TRAILING';
+                    else origin = execution.trade_job.webhook_event_id ? 'WEBHOOK' : 'MANUAL';
+                  }
+                } else {
+                  // Buscar posições abertas para determinar origin
+                  const openPositions = await this.prisma.tradePosition.findMany({
+                    where: {
+                      exchange_account_id: execution.trade_job.exchange_account_id,
+                      trade_mode: execution.trade_job.trade_mode,
+                      symbol: execution.trade_job.symbol,
+                      side: 'LONG',
+                      status: 'OPEN',
+                      qty_remaining: { gt: 0 },
+                    },
+                    orderBy: { created_at: 'asc' },
+                    take: 1,
+                  });
+
+                  if (openPositions.length > 0) {
+                    const firstPos = openPositions[0];
+                    if (firstPos.tp_triggered) origin = 'TAKE_PROFIT';
+                    else if (firstPos.sl_triggered) origin = 'STOP_LOSS';
+                    else if (firstPos.trailing_triggered) origin = 'TRAILING';
+                    else origin = execution.trade_job.webhook_event_id ? 'WEBHOOK' : 'MANUAL';
+                  }
+                }
+
+                // Re-executar onSellExecuted com FIFO correto
+                await positionService.onSellExecuted(
+                  execution.trade_job.id,
+                  execution.id,
+                  executionQty,
+                  execution.avg_price.toNumber(),
+                  origin,
+                  execution.fee_amount?.toNumber(),
+                  execution.fee_currency || undefined
+                );
+
+                fixed++;
+                console.log(`[ADMIN] ✅ Execução ${execution.id} corrigida`);
+              } else {
+                errors.push(`Erro ao reverter execução ${execution.id}: ${revertResult.message}`);
+              }
+            } catch (error: any) {
+              const errorMsg = `Erro ao corrigir execução ${execution.id}: ${error.message}`;
+              errors.push(errorMsg);
+              console.error(`[ADMIN] ❌ ${errorMsg}`);
+            }
+          }
+        }
+
+        // Buscar posições após correção (ou estado atual se dry-run)
+        const positionsAfter = await this.prisma.tradePosition.findMany({
+          where: {
+            id: { in: positionsBefore.map((p) => p.id) },
+          },
+          select: {
+            id: true,
+            qty_remaining: true,
+            status: true,
+          },
+        });
+
+        details.push({
+          executionId: execution.id,
+          executionQty,
+          fillsSum,
+          status,
+          positionsBefore,
+          positionsAfter: positionsAfter.map((p) => ({
+            id: p.id,
+            qty_remaining: p.qty_remaining.toNumber(),
+            status: p.status,
+          })),
+          correctPositions,
+          fixed: !dryRun && status !== 'OK' && fixed > 0,
+          error: status !== 'OK' && !dryRun && errors.length > 0 ? errors[errors.length - 1] : undefined,
+        });
+      } catch (error: any) {
+        const errorMsg = `Erro ao processar execução ${execution.id}: ${error.message}`;
+        errors.push(errorMsg);
+        console.error(`[ADMIN] ❌ ${errorMsg}`);
+        details.push({
+          executionId: execution.id,
+          executionQty: execution.executed_qty.toNumber(),
+          fillsSum: execution.position_fills.reduce((sum, fill) => sum + fill.qty.toNumber(), 0),
+          status: 'MISMATCH',
+          positionsBefore: [],
+          positionsAfter: [],
+          correctPositions: [],
+          fixed: false,
+          error: errorMsg,
+        });
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    console.log(`[ADMIN] Auditoria FIFO concluída em ${duration}ms: ${problemsFound} problema(s) encontrado(s), ${fixed} corrigido(s)`);
+
+    return {
+      totalExecutions: sellExecutions.length,
+      checkedExecutions: sellExecutions.length,
+      problemsFound,
+      fixed,
+      errors,
+      dryRun,
+      duration_ms: duration,
+      details,
+    };
+  }
 }
 

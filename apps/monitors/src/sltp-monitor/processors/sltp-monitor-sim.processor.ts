@@ -110,11 +110,15 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               skipParameterValidation: true,
             });
 
+            this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
+
             // Enfileirar job para execução
             await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
               jobId: `trade-job-${tradeJob.id}`,
               attempts: 3,
             });
+
+            this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job ${tradeJob.id} enfileirado na fila trade-execution-sim`);
 
             await this.prisma.tradePosition.update({
               where: { id: position.id },
@@ -156,11 +160,15 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               skipParameterValidation: true,
             });
 
+            this.logger.log(`[SL-TP-MONITOR-SIM] Take Profit - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
+
             // Enfileirar job para execução
             await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
               jobId: `trade-job-${tradeJob.id}`,
               attempts: 3,
             });
+
+            this.logger.log(`[SL-TP-MONITOR-SIM] Take Profit - Job ${tradeJob.id} enfileirado na fila trade-execution-sim`);
 
             await this.prisma.tradePosition.update({
               where: { id: position.id },
@@ -214,11 +222,15 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               skipParameterValidation: true,
             });
 
+            this.logger.log(`[SL-TP-MONITOR-SIM] Trailing Stop - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
+
             // Enfileirar job para execução
             await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
               jobId: `trade-job-${tradeJob.id}`,
               attempts: 3,
             });
+
+            this.logger.log(`[SL-TP-MONITOR-SIM] Trailing Stop - Job ${tradeJob.id} enfileirado na fila trade-execution-sim`);
 
             await this.prisma.tradePosition.update({
               where: { id: position.id },

@@ -40,6 +40,11 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         throw new Error(`Trade job ${tradeJobId} não encontrado`);
       }
 
+      // Log para debug de jobs PENDING_LIMIT
+      if (tradeJob.status === TradeJobStatus.PENDING_LIMIT) {
+        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} - Status PENDING_LIMIT detectado, processando...`);
+      }
+
       this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} - orderType=${tradeJob.order_type}, limitPrice=${tradeJob.limit_price?.toNumber() || 'NULL'}, side=${tradeJob.side}`);
 
       if (tradeJob.trade_mode !== 'SIMULATION') {

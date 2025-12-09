@@ -44,6 +44,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         throw new Error(`Trade job ${tradeJobId} não encontrado`);
       }
 
+      // Log para debug de jobs PENDING_LIMIT
+      if (tradeJob.status === TradeJobStatus.PENDING_LIMIT) {
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status PENDING_LIMIT detectado, processando...`);
+      }
+
       if (tradeJob.trade_mode !== 'REAL') {
         throw new Error(`Trade job ${tradeJobId} não é do modo REAL`);
       }
@@ -340,6 +345,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
       
       let order;
+      let orderCreatedAfterAdjustment = false;
       try {
         if (amountToUse <= 0) {
           throw new Error(`Quantidade inválida para criar ordem: baseQty=${baseQty}, quoteAmount=${quoteAmount}, amountToUse=${amountToUse}`);
@@ -382,6 +388,116 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             errorBody?.includes('insufficient balance')) {
           reasonCode = 'INSUFFICIENT_BALANCE';
           reasonMessage = 'Saldo insuficiente na exchange para executar a ordem';
+          
+          // Para ordens SELL, verificar saldo e ajustar quantidade se necessário
+          if (tradeJob.side === 'SELL' && baseQty > 0) {
+            try {
+              this.logger.log(`[EXECUTOR] Job ${tradeJobId} - SELL com erro INSUFFICIENT_BALANCE, verificando saldo disponível...`);
+              
+              // Buscar saldo disponível
+              const balance = await adapter.fetchBalance();
+              const baseAsset = tradeJob.symbol.split('/')[0];
+              const available = balance.free[baseAsset] || 0;
+              
+              this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível: ${available} ${baseAsset}, Quantidade solicitada: ${baseQty} ${baseAsset}`);
+              
+              // Quantidade mínima para evitar ordens muito pequenas
+              const MIN_AMOUNT = 0.001;
+              
+              if (available > 0 && available < baseQty && available >= MIN_AMOUNT) {
+                // Ajustar quantidade para o disponível
+                const oldBaseQty = baseQty;
+                baseQty = available;
+                
+                this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ajustando quantidade de ${oldBaseQty} para ${baseQty} ${baseAsset}`);
+                
+                // Atualizar job no banco
+                await this.prisma.tradeJob.update({
+                  where: { id: tradeJobId },
+                  data: { base_quantity: baseQty },
+                });
+                
+                // Atualizar saldo no cache
+                const accountService = new ExchangeAccountService(
+                  this.prisma,
+                  this.encryptionService
+                );
+                const balances: Record<string, { free: number; locked: number }> = {};
+                for (const [asset, amount] of Object.entries(balance.free || {})) {
+                  balances[asset] = {
+                    free: amount,
+                    locked: balance.used?.[asset] || 0,
+                  };
+                }
+                await accountService.syncBalance(
+                  tradeJob.exchange_account_id,
+                  tradeJob.trade_mode,
+                  balances
+                );
+                
+                this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Saldo atualizado no cache, tentando criar ordem novamente com quantidade ajustada...`);
+                
+                // Recalcular amountToUse com a nova quantidade
+                const newAmountToUse = baseQty;
+                
+                // Tentar criar ordem novamente com quantidade ajustada
+                try {
+                  order = await adapter.createOrder(
+                    tradeJob.symbol,
+                    orderType,
+                    tradeJob.side.toLowerCase(),
+                    newAmountToUse,
+                    tradeJob.limit_price?.toNumber()
+                  );
+                  
+                  this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada com sucesso após ajuste de quantidade: ${order.id}, status: ${order.status}`);
+                  
+                  // Marcar que a ordem foi criada com sucesso após ajuste
+                  orderCreatedAfterAdjustment = true;
+                } catch (retryError: any) {
+                  const retryErrorMessage = retryError?.message || 'Erro desconhecido';
+                  this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao criar ordem após ajuste de quantidade: ${retryErrorMessage}`);
+                  
+                  // Se ainda falhar, marcar como FAILED
+                  reasonCode = 'INSUFFICIENT_BALANCE';
+                  reasonMessage = `Saldo insuficiente mesmo após ajuste. Disponível: ${available} ${baseAsset}, Tentado: ${newAmountToUse} ${baseAsset}`;
+                  
+                  await this.prisma.tradeJob.update({
+                    where: { id: tradeJobId },
+                    data: {
+                      status: TradeJobStatus.FAILED,
+                      reason_code: reasonCode,
+                      reason_message: reasonMessage,
+                    },
+                  });
+                  
+                  throw new Error(`${reasonCode}: ${reasonMessage}`);
+                }
+              } else if (available === 0 || available < MIN_AMOUNT) {
+                // Saldo zero ou muito pequeno, marcar como FAILED
+                this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível é zero ou muito pequeno: ${available} ${baseAsset}`);
+                reasonCode = 'INSUFFICIENT_BALANCE';
+                reasonMessage = `Saldo insuficiente na exchange. Disponível: ${available} ${baseAsset}, Mínimo necessário: ${MIN_AMOUNT} ${baseAsset}`;
+                
+                await this.prisma.tradeJob.update({
+                  where: { id: tradeJobId },
+                  data: {
+                    status: TradeJobStatus.FAILED,
+                    reason_code: reasonCode,
+                    reason_message: reasonMessage,
+                  },
+                });
+                
+                throw new Error(`${reasonCode}: ${reasonMessage}`);
+              } else {
+                // available >= baseQty mas ainda deu erro - pode ser outro problema
+                this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível (${available}) >= quantidade solicitada (${baseQty}), mas ainda houve erro. Pode ser problema de precisão ou outra validação da exchange.`);
+              }
+            } catch (balanceError: any) {
+              this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao verificar/ajustar saldo: ${balanceError.message}`);
+              // Continuar com o tratamento normal de erro
+            }
+          }
         }
         // Erros de rate limit
         else if (errorMessage.includes('rate limit') || 
@@ -503,37 +619,48 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           reasonMessage = `Erro na comunicação com a exchange: ${errorMessage}`;
         }
 
-        // Marcar job como SKIPPED para saldo insuficiente, FAILED para outros erros
-        const finalStatus = reasonCode === 'INSUFFICIENT_BALANCE' ? TradeJobStatus.SKIPPED : TradeJobStatus.FAILED;
-        const statusLabel = reasonCode === 'INSUFFICIENT_BALANCE' ? 'SKIPPED' : 'FAILED';
-        
-        try {
-          await this.prisma.tradeJob.update({
-            where: { id: tradeJobId },
-            data: {
-              status: finalStatus,
-              reason_code: reasonCode,
-              reason_message: reasonMessage,
-            },
-          });
-          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
-        } catch (updateError: any) {
-          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao atualizar status: ${updateError?.message}`);
-        }
-
-        // Para saldo insuficiente, não lançar erro (já foi marcado como SKIPPED)
-        // Para outros erros, lançar erro normalmente
-        if (reasonCode !== 'INSUFFICIENT_BALANCE') {
-          throw new Error(`${reasonCode}: ${reasonMessage}`);
+        // Se a ordem foi criada com sucesso após ajuste, sair do catch e continuar processamento normal
+        if (orderCreatedAfterAdjustment && order) {
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada após ajuste, continuando processamento normal...`);
+          // Não fazer nada aqui, deixar o código continuar após o catch
         } else {
-          // Retornar sucesso mas com status SKIPPED
-          return {
-            success: false,
-            skipped: true,
-            reasonCode,
-            reasonMessage,
-          };
+          // Marcar job como SKIPPED para saldo insuficiente, FAILED para outros erros
+          const finalStatus = reasonCode === 'INSUFFICIENT_BALANCE' ? TradeJobStatus.SKIPPED : TradeJobStatus.FAILED;
+          const statusLabel = reasonCode === 'INSUFFICIENT_BALANCE' ? 'SKIPPED' : 'FAILED';
+          
+          try {
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: {
+                status: finalStatus,
+                reason_code: reasonCode,
+                reason_message: reasonMessage,
+              },
+            });
+            this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
+          } catch (updateError: any) {
+            this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao atualizar status: ${updateError?.message}`);
+          }
+
+          // Para saldo insuficiente, não lançar erro (já foi marcado como SKIPPED)
+          // Para outros erros, lançar erro normalmente
+          if (reasonCode !== 'INSUFFICIENT_BALANCE') {
+            throw new Error(`${reasonCode}: ${reasonMessage}`);
+          } else {
+            // Retornar sucesso mas com status SKIPPED
+            return {
+              success: false,
+              skipped: true,
+              reasonCode,
+              reasonMessage,
+            };
+          }
         }
+      }
+      
+      // Se a ordem foi criada após ajuste, continuar processamento normal
+      if (orderCreatedAfterAdjustment && order) {
+        // Continuar normalmente, o código abaixo processará a ordem
       }
 
       // Para ordens LIMIT, verificar se foi preenchida imediatamente
