@@ -145,12 +145,12 @@ export function AuditPositions() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Search className="h-5 w-5" />
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Search className="h-4 w-4" />
           Auditoria Completa de Posições
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="text-xs">
           Verifica todas as posições abertas, execuções e taxas na exchange via API e compara com dados do banco
         </CardDescription>
       </CardHeader>

@@ -64,16 +64,16 @@ export function SyncExecutionFees() {
 
     return (
         <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5" />
+            <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" />
                     Sincronização de Taxas
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="text-xs">
                     Busca taxas de execuções existentes na API da exchange e atualiza os registros
                 </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
                 {result && (
                     <div className="space-y-2 p-4 bg-muted rounded-lg">
                         <div className="flex items-center justify-between">

@@ -133,4 +133,36 @@ export const positionsService = {
         const response = await apiClient.post<Position>('/positions/group/confirm', { positionIds })
         return response.data
     },
+
+    findSuspiciousSells: async (days?: number): Promise<{
+        count: number
+        executions: Array<{
+            executionId: number
+            jobId: number
+            symbol: string
+            executedQty: number
+            positionsAffected: number
+            hasExactMatch: boolean
+            reason: string
+        }>
+    }> => {
+        const response = await apiClient.get('/positions/suspicious-sells', {
+            params: { days },
+        })
+        return response.data
+    },
+
+    revertSellExecution: async (executionId: number, reprocess?: boolean): Promise<{
+        success: boolean
+        positionsFixed: number
+        fillsRemoved: number
+        message: string
+        reprocessed?: boolean
+        errors?: string[]
+    }> => {
+        const response = await apiClient.post(`/positions/revert-sell-execution/${executionId}`, {}, {
+            params: { reprocess: reprocess ? 'true' : undefined },
+        })
+        return response.data
+    },
 }

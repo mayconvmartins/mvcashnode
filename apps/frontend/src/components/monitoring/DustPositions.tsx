@@ -153,12 +153,12 @@ export function DustPositions() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5" />
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="h-4 w-4" />
           Gerenciamento de Resíduos
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="text-xs">
           Identifica e gerencia posições com quantidade restante muito baixa (&lt; 1% E &lt; US$ 5.00)
         </CardDescription>
       </CardHeader>
