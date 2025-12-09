@@ -214,6 +214,7 @@ export class OperationsController {
             reason_message: true,
             vault_id: true,
             limit_order_expires_at: true,
+            position_id_to_close: true,
             webhook_event_id: true,
             created_at: true,
             updated_at: true,
