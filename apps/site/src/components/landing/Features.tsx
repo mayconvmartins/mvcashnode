@@ -80,13 +80,15 @@ export function Features() {
                 key={index}
                 className="p-6 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
               >
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="p-3 rounded-lg bg-primary/10">
-                    <Icon className="h-6 w-6 text-primary" />
+                <div className="flex items-start gap-4">
+                  <div className="p-3 rounded-lg bg-blue-100 flex-shrink-0">
+                    <Icon className="h-6 w-6 text-blue-600" />
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900">{feature.title}</h3>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">{feature.title}</h3>
+                    <p className="text-gray-600">{feature.description}</p>
+                  </div>
                 </div>
-                <p className="text-gray-600">{feature.description}</p>
               </div>
             );
           })}

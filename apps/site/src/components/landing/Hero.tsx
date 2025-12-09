@@ -45,21 +45,27 @@ export function Hero() {
           {/* Features Preview */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
             <div className="p-6 rounded-lg border border-gray-200 bg-gray-50">
-              <TrendingUp className="h-8 w-8 text-primary mb-3" />
+              <div className="p-3 rounded-lg bg-blue-100 inline-block mb-3">
+                <TrendingUp className="h-6 w-6 text-blue-600" />
+              </div>
               <h3 className="font-semibold mb-2 text-gray-900">Automação Completa</h3>
               <p className="text-sm text-gray-600">
                 Execute operações automatizadas de forma inteligente
               </p>
             </div>
             <div className="p-6 rounded-lg border border-gray-200 bg-gray-50">
-              <TrendingUp className="h-8 w-8 text-primary mb-3" />
+              <div className="p-3 rounded-lg bg-blue-100 inline-block mb-3">
+                <TrendingUp className="h-6 w-6 text-blue-600" />
+              </div>
               <h3 className="font-semibold mb-2 text-gray-900">Gestão Inteligente</h3>
               <p className="text-sm text-gray-600">
                 Controle SL/TP e monitore posições em tempo real
               </p>
             </div>
             <div className="p-6 rounded-lg border border-gray-200 bg-gray-50">
-              <TrendingUp className="h-8 w-8 text-primary mb-3" />
+              <div className="p-3 rounded-lg bg-blue-100 inline-block mb-3">
+                <TrendingUp className="h-6 w-6 text-blue-600" />
+              </div>
               <h3 className="font-semibold mb-2 text-gray-900">Análise Avançada</h3>
               <p className="text-sm text-gray-600">
                 Relatórios detalhados de performance e PnL
