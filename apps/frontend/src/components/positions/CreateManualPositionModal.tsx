@@ -258,11 +258,19 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
                                             const positions = Array.isArray(openPositions) 
                                                 ? openPositions 
                                                 : (openPositions as any)?.data || []
-                                            return positions.map((position: any) => (
-                                                <SelectItem key={position.id} value={position.id.toString()}>
-                                                    Posição #{position.id} - {position.symbol} - Qty: {position.qty_remaining?.toFixed(8) || '0'} - Preço: ${position.price_open?.toFixed(2) || '0'}
-                                                </SelectItem>
-                                            ))
+                                            return positions.map((position: any) => {
+                                                const qtyRemaining = typeof position.qty_remaining === 'number' 
+                                                    ? position.qty_remaining.toFixed(8) 
+                                                    : (position.qty_remaining ? parseFloat(position.qty_remaining)?.toFixed(8) || '0' : '0')
+                                                const priceOpen = typeof position.price_open === 'number' 
+                                                    ? position.price_open.toFixed(2) 
+                                                    : (position.price_open ? parseFloat(position.price_open)?.toFixed(2) || '0' : '0')
+                                                return (
+                                                    <SelectItem key={position.id} value={position.id.toString()}>
+                                                        Posição #{position.id} - {position.symbol} - Qty: {qtyRemaining} - Preço: ${priceOpen}
+                                                    </SelectItem>
+                                                )
+                                            })
                                         })()}
                                     </SelectContent>
                                 </Select>
