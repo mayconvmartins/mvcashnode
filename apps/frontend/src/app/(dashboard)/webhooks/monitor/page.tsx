@@ -190,6 +190,15 @@ export default function WebhookMonitorPage() {
             },
         },
         {
+            key: 'current_price',
+            label: 'Preço Atual',
+            render: (alert) => {
+                if (!alert.current_price) return <span className="font-mono">-</span>
+                const price = typeof alert.current_price === 'number' ? alert.current_price : Number(alert.current_price)
+                return <span className="font-mono">${price.toFixed(8)}</span>
+            },
+        },
+        {
             key: 'state',
             label: 'Estado',
             render: (alert) => getStateBadge(alert.state),
@@ -199,7 +208,25 @@ export default function WebhookMonitorPage() {
             label: 'Motivo',
             render: (alert) => (
                 <span className="text-sm text-muted-foreground">
-                    {alert.cancel_reason || '-'}
+                    {alert.cancel_reason || (alert.state === 'EXECUTED' ? 'Executado com sucesso' : '-')}
+                </span>
+            ),
+        },
+        {
+            key: 'webhook_source',
+            label: 'Webhook',
+            render: (alert: any) => (
+                <span className="text-sm">
+                    {alert.webhook_source?.label || alert.webhook_source?.webhook_code || '-'}
+                </span>
+            ),
+        },
+        {
+            key: 'exchange_account',
+            label: 'Conta',
+            render: (alert: any) => (
+                <span className="text-sm">
+                    {alert.exchange_account?.label || alert.exchange_account?.exchange || '-'}
                 </span>
             ),
         },

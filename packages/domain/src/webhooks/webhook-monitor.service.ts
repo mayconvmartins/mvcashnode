@@ -503,8 +503,13 @@ export class WebhookMonitorService {
       where.symbol = filters.symbol;
     }
 
+    // Se state foi especificado, usar ele; senão, mostrar apenas EXECUTED e CANCELLED (não MONITORING)
     if (filters.state) {
       where.state = filters.state;
+    } else {
+      where.state = {
+        in: [WebhookMonitorAlertState.EXECUTED, WebhookMonitorAlertState.CANCELLED],
+      };
     }
 
     if (filters.startDate || filters.endDate) {
