@@ -545,7 +545,14 @@ export default function PositionsPage() {
         {
             key: 'qty_remaining',
             label: 'Quantidade',
-            render: (position: Position) => <span className="font-mono">{Number(position.qty_remaining || 0).toFixed(4)}</span>,
+            render: (position: Position) => {
+                // Para posições fechadas, mostrar quantidade total comprada
+                // Para posições abertas, mostrar quantidade restante
+                const qty = position.status === 'CLOSED' 
+                    ? Number(position.qty_total || 0)
+                    : Number(position.qty_remaining || 0);
+                return <span className="font-mono">{qty.toFixed(4)}</span>;
+            },
         },
         {
             key: 'price_open',
@@ -582,6 +589,21 @@ export default function PositionsPage() {
             ),
         },
         {
+            key: 'sold_value_usd',
+            label: 'Valor Vendido',
+            render: (position: Position) => {
+                // Mostrar apenas para posições fechadas
+                if (position.status === 'CLOSED') {
+                    return (
+                        <span className="font-mono">
+                            {position.sold_value_usd ? formatCurrency(position.sold_value_usd) : '-'}
+                        </span>
+                    );
+                }
+                return <span className="text-muted-foreground">-</span>;
+            },
+        },
+        {
             key: 'realized_profit_usd',
             label: 'PnL Realizado',
             render: (position: Position) => {
@@ -607,6 +629,11 @@ export default function PositionsPage() {
             key: 'unrealized_pnl',
             label: 'PnL Não Realizado',
             render: (position: Position) => {
+                // Não mostrar para posições fechadas
+                if (position.status === 'CLOSED') {
+                    return <span className="text-muted-foreground">-</span>;
+                }
+                
                 const unrealizedPnl = position.unrealized_pnl || 0
                 // Calcular porcentagem: usar unrealized_pnl_pct se disponível, senão calcular
                 let pnlPct: number | null = null
@@ -754,7 +781,14 @@ export default function PositionsPage() {
         {
             key: 'qty_remaining',
             label: 'Quantidade',
-            render: (position) => <span className="font-mono">{Number(position.qty_remaining || 0).toFixed(4)}</span>,
+            render: (position) => {
+                // Para posições fechadas, mostrar quantidade total comprada
+                // Para posições abertas, mostrar quantidade restante
+                const qty = position.status === 'CLOSED' 
+                    ? Number(position.qty_total || 0)
+                    : Number(position.qty_remaining || 0);
+                return <span className="font-mono">{qty.toFixed(4)}</span>;
+            },
         },
         {
             key: 'price_open',
@@ -801,6 +835,21 @@ export default function PositionsPage() {
             ),
         },
         {
+            key: 'sold_value_usd',
+            label: 'Valor Vendido',
+            render: (position) => {
+                // Mostrar apenas para posições fechadas
+                if (position.status === 'CLOSED') {
+                    return (
+                        <span className="font-mono">
+                            {position.sold_value_usd ? formatCurrency(position.sold_value_usd) : '-'}
+                        </span>
+                    );
+                }
+                return <span className="text-muted-foreground">-</span>;
+            },
+        },
+        {
             key: 'total_fees_paid_usd',
             label: 'Taxas',
             render: (position) => (
@@ -835,6 +884,11 @@ export default function PositionsPage() {
             key: 'unrealized_pnl',
             label: 'PnL Não Realizado',
             render: (position) => {
+                // Não mostrar para posições fechadas
+                if (position.status === 'CLOSED') {
+                    return <span className="text-muted-foreground">-</span>;
+                }
+                
                 const unrealizedPnl = position.unrealized_pnl || 0
                 // Calcular porcentagem: usar unrealized_pnl_pct se disponível, senão calcular
                 let pnlPct: number | null = null

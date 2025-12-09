@@ -407,7 +407,7 @@ export class PositionsController {
               orderBy: {
                 created_at: 'desc',
               },
-              take: 1, // Apenas o fill mais recente para price_close
+              // Não limitar para poder calcular valor vendido total
             },
           },
           orderBy: {
@@ -531,15 +531,21 @@ export class PositionsController {
           // Pegar o fill de SELL mais recente (último que fechou) e usar o avg_price da execução
           if (position.fills && position.fills.length > 0) {
             // O fill mais recente é o primeiro da lista (ordenado por created_at desc)
-            const lastSellFill = position.fills[0];
-            if (lastSellFill.execution?.avg_price) {
+            const lastSellFill = position.fills.find(f => f.side === 'SELL');
+            if (lastSellFill?.execution?.avg_price) {
               priceClose = lastSellFill.execution.avg_price.toNumber();
+            } else if (lastSellFill?.price) {
+              priceClose = lastSellFill.price.toNumber();
             }
           }
           
-          // Calcular valor investido
+          // Calcular valor investido (comprado)
           investedValueUsd = qtyTotal * priceOpen;
           totalInvested += investedValueUsd;
+          
+          // Para posições fechadas, não há PnL não realizado
+          unrealizedPnl = null;
+          unrealizedPnlPct = null;
         }
 
         // PnL realizado
@@ -570,12 +576,26 @@ export class PositionsController {
           }
         }
 
+        // Calcular sold_value_usd para posições fechadas
+        let soldValueUsd: number | null = null;
+        if (position.status === 'CLOSED' && position.fills && position.fills.length > 0) {
+          soldValueUsd = position.fills.reduce((sum, fill) => {
+            if (fill.side === 'SELL') {
+              const qty = fill.qty.toNumber();
+              const price = fill.price.toNumber();
+              return sum + (qty * price);
+            }
+            return sum;
+          }, 0);
+        }
+
         return {
           ...position,
           current_price: currentPrice,
           price_close: priceClose,
           invested_value_usd: investedValueUsd,
           current_value_usd: currentValueUsd,
+          sold_value_usd: soldValueUsd,
           unrealized_pnl: unrealizedPnl,
           unrealized_pnl_pct: unrealizedPnlPct,
           ...(shouldIncludeFills ? { sell_jobs: sellJobs } : {}),

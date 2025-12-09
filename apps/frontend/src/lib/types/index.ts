@@ -396,6 +396,7 @@ export interface Position {
     price_close?: number | null
     invested_value_usd?: number | null
     current_value_usd?: number | null
+    sold_value_usd?: number | null
     unrealized_pnl?: number | null
     unrealized_pnl_pct?: number | null
     // Relacionamentos
