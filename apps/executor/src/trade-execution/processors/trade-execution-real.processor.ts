@@ -503,22 +503,37 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           reasonMessage = `Erro na comunicação com a exchange: ${errorMessage}`;
         }
 
-        // Marcar job como FAILED antes de lançar erro
+        // Marcar job como SKIPPED para saldo insuficiente, FAILED para outros erros
+        const finalStatus = reasonCode === 'INSUFFICIENT_BALANCE' ? TradeJobStatus.SKIPPED : TradeJobStatus.FAILED;
+        const statusLabel = reasonCode === 'INSUFFICIENT_BALANCE' ? 'SKIPPED' : 'FAILED';
+        
         try {
           await this.prisma.tradeJob.update({
             where: { id: tradeJobId },
             data: {
-              status: TradeJobStatus.FAILED,
+              status: finalStatus,
               reason_code: reasonCode,
               reason_message: reasonMessage,
             },
           });
-          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para FAILED com reason_code: ${reasonCode}`);
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
         } catch (updateError: any) {
           this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao atualizar status: ${updateError?.message}`);
         }
 
-        throw new Error(`${reasonCode}: ${reasonMessage}`);
+        // Para saldo insuficiente, não lançar erro (já foi marcado como SKIPPED)
+        // Para outros erros, lançar erro normalmente
+        if (reasonCode !== 'INSUFFICIENT_BALANCE') {
+          throw new Error(`${reasonCode}: ${reasonMessage}`);
+        } else {
+          // Retornar sucesso mas com status SKIPPED
+          return {
+            success: false,
+            skipped: true,
+            reasonCode,
+            reasonMessage,
+          };
+        }
       }
 
       // Para ordens LIMIT, verificar se foi preenchida imediatamente
@@ -529,9 +544,20 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const isOrderPartiallyFilled = orderStatus === 'PARTIALLY_FILLED';
 
       // Determinar quantidade executada e preço médio
-      const executedQty = order.filled || (isOrderFilled ? (order.amount || baseQty) : 0);
+      // IMPORTANTE: Para ordens LIMIT que já foram preenchidas, verificar filled primeiro
+      let executedQty = 0;
+      if (order.filled && order.filled > 0) {
+        executedQty = order.filled;
+      } else if (isOrderFilled) {
+        // Se status é FILLED mas filled não está disponível, usar amount
+        executedQty = order.amount || baseQty || 0;
+      }
+      
       const avgPrice = order.average || order.price || tradeJob.limit_price?.toNumber() || 0;
       const cummQuoteQty = order.cost || (executedQty * avgPrice);
+      
+      // Log para debug
+      this.logger.log(`[EXECUTOR] Ordem LIMIT status: ${orderStatus}, filled: ${order.filled}, amount: ${order.amount}, executedQty calculado: ${executedQty}, isOrderFilled: ${isOrderFilled}`);
 
       // VALIDAÇÃO DE SEGURANÇA: Verificar lucro mínimo antes de executar venda (apenas se ordem foi preenchida)
       if (tradeJob.side === 'SELL' && executedQty > 0) {
@@ -585,7 +611,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       }
 
       // Se é ordem LIMIT e não foi preenchida, manter como PENDING_LIMIT
-      if (isLimitOrder && isOrderNew && executedQty === 0) {
+      // IMPORTANTE: Verificar se realmente não foi preenchida (pode estar FILLED mas com dados faltando)
+      if (isLimitOrder && isOrderNew && executedQty === 0 && !isOrderFilled) {
         // Criar execution apenas para registrar o exchange_order_id
         const execution = await this.prisma.tradeExecution.create({
           data: {
@@ -935,12 +962,49 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               },
             });
 
+            // Determinar origin baseado nas posições elegíveis
+            // Verificar se alguma posição tem flags de SL/TP/Trailing ativadas
+            let sellOrigin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'WEBHOOK';
+            
+            if (positionsBefore.length > 0) {
+              // Verificar flags na primeira posição (FIFO)
+              const firstPosition = positionsBefore[0];
+              
+              if (firstPosition.tp_triggered) {
+                sellOrigin = 'TAKE_PROFIT';
+                this.logger.log(`[EXECUTOR] Origin determinado como TAKE_PROFIT (posição ${firstPosition.id} tem tp_triggered=true)`);
+              } else if (firstPosition.sl_triggered) {
+                sellOrigin = 'STOP_LOSS';
+                this.logger.log(`[EXECUTOR] Origin determinado como STOP_LOSS (posição ${firstPosition.id} tem sl_triggered=true)`);
+              } else if (firstPosition.trailing_triggered) {
+                sellOrigin = 'TRAILING';
+                this.logger.log(`[EXECUTOR] Origin determinado como TRAILING (posição ${firstPosition.id} tem trailing_triggered=true)`);
+              } else {
+                // Verificar se não há webhook_event_id no trade job (indica origem manual ou SL/TP)
+                if (!tradeJob.webhook_event_id) {
+                  // Se não tem webhook_event_id, pode ser manual ou SL/TP
+                  // Verificar reason_code ou reason_message para mais contexto
+                  if (tradeJob.reason_code?.includes('TAKE_PROFIT') || tradeJob.reason_message?.includes('Take Profit')) {
+                    sellOrigin = 'TAKE_PROFIT';
+                  } else if (tradeJob.reason_code?.includes('STOP_LOSS') || tradeJob.reason_message?.includes('Stop Loss')) {
+                    sellOrigin = 'STOP_LOSS';
+                  } else {
+                    sellOrigin = 'MANUAL';
+                  }
+                  this.logger.log(`[EXECUTOR] Origin determinado como ${sellOrigin} (sem webhook_event_id, reason_code: ${tradeJob.reason_code})`);
+                } else {
+                  sellOrigin = 'WEBHOOK';
+                  this.logger.log(`[EXECUTOR] Origin determinado como WEBHOOK (trade job tem webhook_event_id)`);
+                }
+              }
+            }
+
             await positionService.onSellExecuted(
               tradeJobId,
               execution.id,
               finalExecutedQty,
               finalAvgPrice,
-              'WEBHOOK',
+              sellOrigin,
               updatedExecution?.fee_amount?.toNumber(),
               updatedExecution?.fee_currency || undefined
             );
@@ -1077,6 +1141,21 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       } else if (errorMessage.includes('INSUFFICIENT_BALANCE') || errorMessage.includes('Saldo insuficiente')) {
         reasonCode = 'INSUFFICIENT_BALANCE';
         reasonMessage = 'Saldo insuficiente na exchange';
+        // Marcar como SKIPPED ao invés de FAILED
+        try {
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: reasonCode,
+              reason_message: reasonMessage,
+            },
+          });
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para SKIPPED (saldo insuficiente)`);
+          return; // Retornar sem lançar erro
+        } catch (updateError: any) {
+          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao atualizar status: ${updateError?.message}`);
+        }
       } else if (errorMessage.includes('RATE_LIMIT_EXCEEDED') || errorMessage.includes('rate limit')) {
         reasonCode = 'RATE_LIMIT_EXCEEDED';
         reasonMessage = 'Rate limit da exchange excedido';
@@ -1097,29 +1176,44 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         reasonMessage = errorMessage;
       }
 
-      // Update job status to FAILED (apenas se ainda não foi atualizado)
+      // Update job status to FAILED ou SKIPPED (apenas se ainda não foi atualizado)
+      // Para INSUFFICIENT_BALANCE, usar SKIPPED; para outros erros, usar FAILED
       try {
         const currentJob = await this.prisma.tradeJob.findUnique({
           where: { id: tradeJobId },
           select: { status: true },
         });
 
+        // Se já foi marcado como SKIPPED (saldo insuficiente), não fazer nada
+        if (currentJob?.status === TradeJobStatus.SKIPPED) {
+          this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já é SKIPPED, não atualizando`);
+          return; // Retornar sem lançar erro
+        }
+
         // Só atualizar se ainda não foi marcado como FAILED ou SKIPPED
         if (currentJob && currentJob.status !== TradeJobStatus.FAILED && currentJob.status !== TradeJobStatus.SKIPPED) {
+          const finalStatus = reasonCode === 'INSUFFICIENT_BALANCE' ? TradeJobStatus.SKIPPED : TradeJobStatus.FAILED;
+          const statusLabel = reasonCode === 'INSUFFICIENT_BALANCE' ? 'SKIPPED' : 'FAILED';
+          
           await this.prisma.tradeJob.update({
             where: { id: tradeJobId },
             data: {
-              status: TradeJobStatus.FAILED,
+              status: finalStatus,
               reason_code: reasonCode,
               reason_message: reasonMessage,
             },
           });
-          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para FAILED com reason_code: ${reasonCode}`);
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
+          
+          // Se for saldo insuficiente, retornar sem lançar erro
+          if (reasonCode === 'INSUFFICIENT_BALANCE') {
+            return;
+          }
         } else {
           this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já atualizado (${currentJob?.status}), não atualizando novamente`);
         }
       } catch (updateError: any) {
-        this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao atualizar status do job para FAILED: ${updateError?.message}`);
+        this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao atualizar status do job: ${updateError?.message}`);
       }
 
       throw error;
