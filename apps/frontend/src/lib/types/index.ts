@@ -451,6 +451,8 @@ export interface GroupPreview {
 export interface CreateManualPositionDto {
     method: 'EXCHANGE_ORDER' | 'MANUAL'
     exchange_account_id: number
+    side?: 'BUY' | 'SELL'
+    position_id?: number
     exchange_order_id?: string
     symbol?: string
     manual_symbol?: string

@@ -22,6 +22,26 @@ export class CreateManualPositionDto {
   @IsNumber()
   exchange_account_id: number;
 
+  @ApiProperty({
+    required: false,
+    enum: ['BUY', 'SELL'],
+    description: 'Tipo de ordem: BUY (cria nova posição) ou SELL (vincula a posição existente)',
+    example: 'BUY',
+    default: 'BUY',
+  })
+  @IsOptional()
+  @IsEnum(['BUY', 'SELL'])
+  side?: 'BUY' | 'SELL';
+
+  @ApiProperty({
+    required: false,
+    description: 'ID da posição existente (obrigatório se side = SELL)',
+    example: 123,
+  })
+  @ValidateIf((o) => o.side === 'SELL')
+  @IsNumber()
+  position_id?: number;
+
   // Campos para EXCHANGE_ORDER
   @ApiProperty({
     required: false,

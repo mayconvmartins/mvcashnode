@@ -39,6 +39,8 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
 
     // Estados para aba EXCHANGE_ORDER
     const [exchangeAccountId, setExchangeAccountId] = useState<string>('')
+    const [exchangeSide, setExchangeSide] = useState<'BUY' | 'SELL'>('BUY')
+    const [exchangePositionId, setExchangePositionId] = useState<string>('')
     const [exchangeOrderId, setExchangeOrderId] = useState('')
     const [exchangeSymbol, setExchangeSymbol] = useState('')
     const [fetchingOrder, setFetchingOrder] = useState(false)
@@ -60,16 +62,31 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
         enabled: open,
     })
 
+    // Buscar posições abertas quando for SELL
+    const { data: openPositions, isLoading: loadingPositions } = useQuery({
+        queryKey: ['positions', 'open', exchangeAccountId, exchangeSymbol],
+        queryFn: () => positionsService.list({
+            status: 'OPEN',
+            exchange_account_id: exchangeAccountId ? parseInt(exchangeAccountId) : undefined,
+            symbol: exchangeSymbol || undefined,
+            limit: 1000,
+        }),
+        enabled: open && exchangeSide === 'SELL' && !!exchangeAccountId && !!exchangeSymbol,
+    })
+
     const createMutation = useMutation({
         mutationFn: (data: CreateManualPositionDto) => positionsService.createManual(data),
-        onSuccess: () => {
+        onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ['positions'] })
             queryClient.invalidateQueries({ queryKey: ['operations'] })
-            toast.success('Posição criada com sucesso!')
+            const message = variables.side === 'SELL' 
+                ? 'Venda vinculada à posição com sucesso!' 
+                : 'Posição criada com sucesso!'
+            toast.success(message)
             handleClose()
         },
         onError: (error: any) => {
-            toast.error(error.response?.data?.message || error.message || 'Erro ao criar posição')
+            toast.error(error.response?.data?.message || error.message || 'Erro ao processar operação')
         },
     })
 
@@ -77,6 +94,8 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
         // Resetar estados
         setActiveTab('exchange')
         setExchangeAccountId('')
+        setExchangeSide('BUY')
+        setExchangePositionId('')
         setExchangeOrderId('')
         setExchangeSymbol('')
         setOrderData(null)
@@ -96,23 +115,25 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
             return
         }
 
+        if (exchangeSide === 'SELL' && !exchangePositionId) {
+            toast.error('Selecione uma posição para vincular a venda')
+            return
+        }
+
         setFetchingOrder(true)
         try {
-            // Buscar dados da ordem através do endpoint de criação
-            // Vamos fazer uma chamada de teste primeiro para validar
             const testData: CreateManualPositionDto = {
                 method: 'EXCHANGE_ORDER',
                 exchange_account_id: parseInt(exchangeAccountId),
+                side: exchangeSide,
+                position_id: exchangeSide === 'SELL' ? parseInt(exchangePositionId) : undefined,
                 exchange_order_id: exchangeOrderId,
                 symbol: exchangeSymbol,
             }
 
-            // Tentar criar para validar e obter dados
-            // Na verdade, vamos criar diretamente, mas primeiro mostrar os dados
-            // Por enquanto, vamos criar diretamente e mostrar sucesso
-            toast.info('Buscando dados da ordem na exchange...')
+            toast.info(`Buscando dados da ordem ${exchangeSide} na exchange...`)
             
-            // Criar a posição diretamente (o backend vai buscar os dados)
+            // Criar a posição/venda diretamente (o backend vai buscar os dados)
             createMutation.mutate(testData)
         } catch (error: any) {
             toast.error(error.message || 'Erro ao buscar ordem')
@@ -199,6 +220,65 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
                         </div>
 
                         <div className="space-y-2">
+                            <Label htmlFor="exchange-side">Tipo de Operação *</Label>
+                            <Select value={exchangeSide} onValueChange={(value) => {
+                                setExchangeSide(value as 'BUY' | 'SELL')
+                                setExchangePositionId('') // Resetar posição ao mudar tipo
+                            }}>
+                                <SelectTrigger id="exchange-side">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="BUY">BUY (Criar Nova Posição)</SelectItem>
+                                    <SelectItem value="SELL">SELL (Vincular a Posição Existente)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {exchangeSide === 'SELL' && (
+                            <div className="space-y-2">
+                                <Label htmlFor="exchange-position">Posição para Vincular *</Label>
+                                <Select 
+                                    value={exchangePositionId} 
+                                    onValueChange={setExchangePositionId}
+                                    disabled={loadingPositions || !exchangeAccountId || !exchangeSymbol}
+                                >
+                                    <SelectTrigger id="exchange-position">
+                                        <SelectValue placeholder={
+                                            !exchangeAccountId || !exchangeSymbol 
+                                                ? "Selecione conta e símbolo primeiro" 
+                                                : loadingPositions 
+                                                    ? "Carregando posições..." 
+                                                    : "Selecione uma posição"
+                                        } />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {(() => {
+                                            const positions = Array.isArray(openPositions) 
+                                                ? openPositions 
+                                                : (openPositions as any)?.data || []
+                                            return positions.map((position: any) => (
+                                                <SelectItem key={position.id} value={position.id.toString()}>
+                                                    Posição #{position.id} - {position.symbol} - Qty: {position.qty_remaining?.toFixed(8) || '0'} - Preço: ${position.price_open?.toFixed(2) || '0'}
+                                                </SelectItem>
+                                            ))
+                                        })()}
+                                    </SelectContent>
+                                </Select>
+                                {(() => {
+                                    const positions = Array.isArray(openPositions) 
+                                        ? openPositions 
+                                        : (openPositions as any)?.data || []
+                                    return positions.length === 0 && exchangeAccountId && exchangeSymbol && !loadingPositions && (
+                                        <p className="text-sm text-yellow-600">
+                                            ⚠️ Nenhuma posição aberta encontrada para este símbolo nesta conta
+                                        </p>
+                                    )
+                                })()}
+                            </div>
+                        )}
+
+                        <div className="space-y-2">
                             <Label htmlFor="exchange-order-id">Número da Operação na Exchange *</Label>
                             <Input
                                 id="exchange-order-id"
@@ -215,7 +295,10 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
                                 id="exchange-symbol"
                                 type="text"
                                 value={exchangeSymbol}
-                                onChange={(e) => setExchangeSymbol(e.target.value.toUpperCase())}
+                                onChange={(e) => {
+                                    setExchangeSymbol(e.target.value.toUpperCase())
+                                    setExchangePositionId('') // Resetar posição ao mudar símbolo
+                                }}
                                 placeholder="Ex: BTCUSDT"
                             />
                         </div>
@@ -244,6 +327,7 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
                                     !exchangeAccountId ||
                                     !exchangeOrderId ||
                                     !exchangeSymbol ||
+                                    (exchangeSide === 'SELL' && !exchangePositionId) ||
                                     selectedExchangeAccount?.is_simulation
                                 }
                             >
@@ -253,7 +337,7 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
                                         {createMutation.isPending ? 'Criando...' : 'Buscando...'}
                                     </>
                                 ) : (
-                                    'Buscar e Criar Posição'
+                                    exchangeSide === 'SELL' ? 'Buscar e Vincular Venda' : 'Buscar e Criar Posição'
                                 )}
                             </Button>
                         </DialogFooter>

@@ -2611,10 +2611,40 @@ export class PositionsController {
           order = await adapter.fetchOrder(createDto.exchange_order_id, createDto.symbol);
         }
 
-        // Validar que é uma ordem BUY (normalizar para case-insensitive)
+        // Validar que o side da ordem corresponde ao side solicitado
         const normalizedSide = order.side?.toUpperCase();
-        if (normalizedSide !== 'BUY') {
-          throw new BadRequestException(`A ordem deve ser do tipo BUY. Tipo recebido: ${order.side}`);
+        const requestedSide = (createDto.side || 'BUY').toUpperCase();
+        
+        if (normalizedSide !== requestedSide) {
+          throw new BadRequestException(`A ordem deve ser do tipo ${requestedSide}. Tipo recebido: ${order.side}`);
+        }
+        
+        // Se for SELL, validar que position_id foi fornecido
+        if (requestedSide === 'SELL') {
+          if (!createDto.position_id) {
+            throw new BadRequestException('position_id é obrigatório para ordens SELL');
+          }
+          
+          // Validar que a posição existe e está aberta
+          const position = await this.prisma.tradePosition.findUnique({
+            where: { id: createDto.position_id },
+          });
+          
+          if (!position) {
+            throw new BadRequestException(`Posição ${createDto.position_id} não encontrada`);
+          }
+          
+          if (position.status !== 'OPEN') {
+            throw new BadRequestException(`Posição ${createDto.position_id} não está aberta (status: ${position.status})`);
+          }
+          
+          if (position.exchange_account_id !== createDto.exchange_account_id) {
+            throw new BadRequestException(`Posição ${createDto.position_id} pertence a outra conta de exchange`);
+          }
+          
+          if (position.symbol !== createDto.symbol) {
+            throw new BadRequestException(`Posição ${createDto.position_id} é do símbolo ${position.symbol}, mas a ordem é de ${createDto.symbol}`);
+          }
         }
 
         // Validar que está FILLED
@@ -2724,16 +2754,20 @@ export class PositionsController {
         }
       }
 
-      // Criar TradeJob BUY com status FILLED
+      const side = (createDto.side || 'BUY').toUpperCase() as 'BUY' | 'SELL';
+      
+      // Criar TradeJob com status FILLED
       const tradeJob = await this.prisma.tradeJob.create({
         data: {
           exchange_account_id: createDto.exchange_account_id,
           trade_mode: tradeMode,
           symbol: symbol,
-          side: 'BUY',
-          order_type: 'MARKET',
+          side: side,
+          order_type: side === 'SELL' ? 'LIMIT' : 'MARKET',
           status: 'FILLED',
           base_quantity: executedQty,
+          position_id_to_close: side === 'SELL' ? createDto.position_id : undefined,
+          limit_price: side === 'SELL' ? avgPrice : undefined,
           created_at: createdAt,
         },
       });
@@ -2755,41 +2789,81 @@ export class PositionsController {
         },
       });
 
-      // Criar Position usando PositionService
+      // Processar usando PositionService
       const positionService = new PositionService(this.prisma);
-      const positionId = await positionService.onBuyExecuted(
-        tradeJob.id,
-        tradeExecution.id,
-        executedQty,
-        avgPrice
-      );
+      
+      if (side === 'BUY') {
+        // Criar nova posição
+        const positionId = await positionService.onBuyExecuted(
+          tradeJob.id,
+          tradeExecution.id,
+          executedQty,
+          avgPrice
+        );
 
-      // Buscar posição criada com todos os relacionamentos
-      const position = await this.prisma.tradePosition.findUnique({
-        where: { id: positionId },
-        include: {
-          exchange_account: {
-            select: {
-              id: true,
-              label: true,
-              exchange: true,
-              is_simulation: true,
+        // Buscar posição criada com todos os relacionamentos
+        const position = await this.prisma.tradePosition.findUnique({
+          where: { id: positionId },
+          include: {
+            exchange_account: {
+              select: {
+                id: true,
+                label: true,
+                exchange: true,
+                is_simulation: true,
+              },
+            },
+            open_job: {
+              select: {
+                id: true,
+                symbol: true,
+                side: true,
+                order_type: true,
+                status: true,
+                created_at: true,
+              },
             },
           },
-          open_job: {
-            select: {
-              id: true,
-              symbol: true,
-              side: true,
-              order_type: true,
-              status: true,
-              created_at: true,
+        });
+
+        return position;
+      } else {
+        // SELL: vincular à posição existente
+        await positionService.onSellExecuted(
+          tradeJob.id,
+          tradeExecution.id,
+          executedQty,
+          avgPrice,
+          'MANUAL'
+        );
+
+        // Buscar posição atualizada
+        const position = await this.prisma.tradePosition.findUnique({
+          where: { id: createDto.position_id! },
+          include: {
+            exchange_account: {
+              select: {
+                id: true,
+                label: true,
+                exchange: true,
+                is_simulation: true,
+              },
+            },
+            open_job: {
+              select: {
+                id: true,
+                symbol: true,
+                side: true,
+                order_type: true,
+                status: true,
+                created_at: true,
+              },
             },
           },
-        },
-      });
+        });
 
-      return position;
+        return position;
+      }
     } catch (error: any) {
       if (error instanceof BadRequestException) {
         throw error;
