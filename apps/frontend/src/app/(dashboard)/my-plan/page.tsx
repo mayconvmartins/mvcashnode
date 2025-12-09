@@ -133,6 +133,13 @@ export default function MyPlanPage() {
               </div>
             )}
 
+            {subscription.mp_payment_id && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">ID Pagamento:</span>
+                <span className="font-mono text-xs">{subscription.mp_payment_id}</span>
+              </div>
+            )}
+
             <div className="flex gap-2 pt-4">
               {isActive && (
                 <>

@@ -231,9 +231,15 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                         date_created: string;
                       };
 
+                      const paymentAmount = paymentDetail.transaction_amount;
+                      const paymentDate = new Date(paymentDetail.date_created);
+                      const sevenDaysBefore = new Date(paymentDate);
+                      sevenDaysBefore.setDate(sevenDaysBefore.getDate() - 7);
+                      
+                      // Fallback 1: tentar vincular usando payer.email
                       if (paymentDetail.payer?.email) {
                         const payerEmail = paymentDetail.payer.email;
-                        this.logger.log(`Fallback: pagamento ${mpPaymentIdStr} tem payer.email: ${payerEmail}`);
+                        this.logger.log(`Fallback 1: pagamento ${mpPaymentIdStr} tem payer.email: ${payerEmail}`);
                         
                         // Buscar usuário pelo email
                         const user = await this.prisma.user.findUnique({
@@ -242,6 +248,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                             subscriptions: {
                               where: {
                                 status: 'PENDING_PAYMENT',
+                                mp_payment_id: null, // Ainda não tem payment_id
                               },
                               include: {
                                 plan: true,
@@ -255,7 +262,6 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
 
                         if (user && user.subscriptions.length > 0) {
                           // Filtrar assinaturas por valor (tolerância de R$ 0,01)
-                          const paymentAmount = paymentDetail.transaction_amount;
                           const matchingSubscriptions = user.subscriptions.filter(sub => {
                             const monthlyPrice = Number(sub.plan.price_monthly);
                             const quarterlyPrice = Number(sub.plan.price_quarterly);
@@ -266,10 +272,6 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
 
                           if (matchingSubscriptions.length > 0) {
                             // Filtrar por data: assinatura criada até 7 dias antes do pagamento
-                            const paymentDate = new Date(paymentDetail.date_created);
-                            const sevenDaysBefore = new Date(paymentDate);
-                            sevenDaysBefore.setDate(sevenDaysBefore.getDate() - 7);
-                            
                             const dateFilteredSubscriptions = matchingSubscriptions.filter(sub => {
                               const subDate = new Date(sub.created_at);
                               return subDate <= paymentDate && subDate >= sevenDaysBefore;
@@ -281,19 +283,70 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                               : matchingSubscriptions[0];
 
                             subscriptionId = selectedSubscription.id;
-                            this.logger.log(`Fallback: assinatura ${subscriptionId} encontrada para pagamento ${mpPaymentIdStr} via email ${payerEmail}`);
+                            this.logger.log(`Fallback 1 (email): assinatura ${subscriptionId} encontrada para pagamento ${mpPaymentIdStr} via email ${payerEmail}`);
                             
                             if (matchingSubscriptions.length > 1) {
-                              this.logger.warn(`Fallback: múltiplas assinaturas correspondem (${matchingSubscriptions.length}), escolhendo a mais recente: ${subscriptionId}`);
+                              this.logger.warn(`Fallback 1: múltiplas assinaturas correspondem (${matchingSubscriptions.length}), escolhendo a mais recente: ${subscriptionId}`);
                             }
                           } else {
-                            this.logger.warn(`Fallback: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) para email ${payerEmail}`);
+                            this.logger.warn(`Fallback 1: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) para email ${payerEmail}`);
                           }
                         } else {
-                          this.logger.warn(`Fallback: usuário não encontrado ou sem assinaturas pendentes para email ${payerEmail}`);
+                          this.logger.warn(`Fallback 1: usuário não encontrado ou sem assinaturas pendentes para email ${payerEmail}`);
                         }
                       } else {
-                        this.logger.warn(`Fallback: pagamento ${mpPaymentIdStr} não tem payer.email`);
+                        this.logger.warn(`Fallback 1: pagamento ${mpPaymentIdStr} não tem payer.email`);
+                      }
+                      
+                      // Fallback 2: se não encontrou por email, buscar TODAS as assinaturas pendentes sem mp_payment_id
+                      // que correspondam ao valor e data (último recurso)
+                      if (!subscriptionId) {
+                        this.logger.log(`Tentando fallback 2 para pagamento ${mpPaymentIdStr}: buscando TODAS as assinaturas pendentes sem mp_payment_id que correspondam ao valor ${paymentAmount}...`);
+                        
+                        const allPendingSubscriptions = await this.prisma.subscription.findMany({
+                          where: {
+                            status: 'PENDING_PAYMENT',
+                            mp_payment_id: null, // Ainda não tem payment_id
+                            created_at: {
+                              gte: sevenDaysBefore,
+                              lte: paymentDate,
+                            },
+                          },
+                          include: {
+                            plan: true,
+                            user: true,
+                          },
+                          orderBy: {
+                            created_at: 'desc',
+                          },
+                          take: 20, // Limitar a 20 para não sobrecarregar
+                        });
+                        
+                        // Filtrar por valor
+                        const matchingByValue = allPendingSubscriptions.filter(sub => {
+                          const monthlyPrice = Number(sub.plan.price_monthly);
+                          const quarterlyPrice = Number(sub.plan.price_quarterly);
+                          const diffMonthly = Math.abs(paymentAmount - monthlyPrice);
+                          const diffQuarterly = Math.abs(paymentAmount - quarterlyPrice);
+                          return diffMonthly <= 0.01 || diffQuarterly <= 0.01;
+                        });
+                        
+                        if (matchingByValue.length > 0) {
+                          // Escolher a mais recente
+                          subscriptionId = matchingByValue[0].id;
+                          this.logger.log(`Fallback 2 (valor+data): assinatura ${subscriptionId} encontrada para pagamento ${mpPaymentIdStr} (valor: ${paymentAmount}, email pagamento: ${paymentDetail.payer?.email || 'N/A'}, email cadastro: ${matchingByValue[0].user.email})`);
+                          
+                          if (matchingByValue.length > 1) {
+                            this.logger.warn(`Fallback 2: ATENÇÃO - múltiplas assinaturas correspondem (${matchingByValue.length}), escolhendo a mais recente: ${subscriptionId}. Verifique se está correto!`);
+                          }
+                          
+                          // Se o email do pagamento for diferente do email do cadastro, alertar
+                          if (paymentDetail.payer?.email && paymentDetail.payer.email !== matchingByValue[0].user.email) {
+                            this.logger.warn(`⚠️ ATENÇÃO: Email do pagamento (${paymentDetail.payer.email}) é diferente do email do cadastro (${matchingByValue[0].user.email}). Verifique se a vinculação está correta!`);
+                          }
+                        } else {
+                          this.logger.warn(`Fallback 2: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) no período de 7 dias`);
+                        }
                       }
                     } else {
                       const error = await paymentDetailResponse.json();

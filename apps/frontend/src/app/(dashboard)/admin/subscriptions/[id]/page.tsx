@@ -183,6 +183,24 @@ export default function SubscriptionDetailsPage() {
               </div>
             )}
 
+            {subscription.mp_payment_id && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">ID Pagamento MP</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs">{subscription.mp_payment_id}</span>
+                </div>
+              </div>
+            )}
+
+            {subscription.mp_preference_id && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">ID Preferência MP</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs">{subscription.mp_preference_id}</span>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Renovação Automática</span>
               <Badge variant={subscription.auto_renew ? 'default' : 'secondary'}>

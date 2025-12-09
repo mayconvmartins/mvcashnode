@@ -123,33 +123,36 @@ export class SubscriptionPaymentsController {
         }
       }
 
-      // Salvar pagamento no banco imediatamente
-      if (subscription) {
-        // Verificar se pagamento já existe
-        const existingPayment = await this.subscriptionsService.getPaymentByMpId(payment.id);
+      // SEMPRE criar registro de pagamento no banco, independente do status e se tem assinatura
+      const existingPayment = await this.subscriptionsService.getPaymentByMpId(payment.id);
+      
+      if (!existingPayment) {
+        // Mapear status do Mercado Pago para status do banco
+        const paymentStatus = this.subscriptionsService.mapMpStatusToDbStatus(payment.status);
         
-        if (!existingPayment) {
-          // Criar registro de pagamento
-          await this.subscriptionsService.createPaymentRecord({
-            subscription_id: subscription.id,
-            mp_payment_id: payment.id,
-            amount: payment.transaction_amount,
-            status: payment.status === 'approved' ? 'APPROVED' : payment.status === 'pending' ? 'PENDING' : 'REJECTED',
-            payment_method: 'PIX',
-          });
+        // Criar registro de pagamento (subscription_id só será vinculado se aprovado)
+        await this.subscriptionsService.createPaymentRecord({
+          subscription_id: subscription?.id, // Pode ser null se não encontrou assinatura
+          mp_payment_id: payment.id,
+          amount: payment.transaction_amount,
+          status: paymentStatus,
+          payment_method: 'PIX',
+          payer_cpf: body.payer.identification?.number || null,
+          payer_email: body.payer.email || null,
+        });
 
-          // Atualizar mp_payment_id na assinatura
+        // Se encontrou assinatura, atualizar mp_payment_id imediatamente
+        if (subscription) {
           await this.subscriptionsService.updateSubscriptionPaymentId(subscription.id, payment.id);
-        } else {
-          // Atualizar status do pagamento existente
-          await this.subscriptionsService.updatePaymentStatus(existingPayment.id, 
-            payment.status === 'approved' ? 'APPROVED' : payment.status === 'pending' ? 'PENDING' : 'REJECTED'
-          );
         }
+      } else {
+        // Atualizar status do pagamento existente
+        const paymentStatus = this.subscriptionsService.mapMpStatusToDbStatus(payment.status);
+        await this.subscriptionsService.updatePaymentStatus(existingPayment.id, paymentStatus);
       }
 
-      // Se pagamento foi aprovado imediatamente, processar
-      if (payment.status === 'approved' && subscription) {
+      // Se pagamento foi aprovado, processar e vincular subscription_id
+      if (payment.status === 'approved') {
         await this.subscriptionsService.processApprovedPayment(payment.id);
       }
 

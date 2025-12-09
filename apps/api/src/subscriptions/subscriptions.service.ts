@@ -458,9 +458,14 @@ export class SubscriptionsService {
       if (!subscription) {
         this.logger.warn(`Assinatura não encontrada para pagamento ${paymentId} (preference_id: ${payment.preference_id})`);
         
-        // Fallback: tentar vincular usando payer.email
+        const paymentAmount = payment.transaction_amount;
+        const paymentDate = new Date(payment.date_created);
+        const sevenDaysBefore = new Date(paymentDate);
+        sevenDaysBefore.setDate(sevenDaysBefore.getDate() - 7);
+        
+        // Fallback 1: tentar vincular usando payer.email
         if (payment.payer?.email) {
-          this.logger.log(`Tentando fallback para pagamento ${paymentId}: buscando assinaturas pendentes do usuário ${payment.payer.email}...`);
+          this.logger.log(`Tentando fallback 1 para pagamento ${paymentId}: buscando assinaturas pendentes do usuário ${payment.payer.email}...`);
           
           const user = await this.prisma.user.findUnique({
             where: { email: payment.payer.email },
@@ -468,6 +473,7 @@ export class SubscriptionsService {
               subscriptions: {
                 where: {
                   status: 'PENDING_PAYMENT',
+                  mp_payment_id: null, // Ainda não tem payment_id
                 },
                 include: {
                   plan: true,
@@ -481,7 +487,6 @@ export class SubscriptionsService {
 
           if (user && user.subscriptions.length > 0) {
             // Filtrar assinaturas por valor (tolerância de R$ 0,01)
-            const paymentAmount = payment.transaction_amount;
             const matchingSubscriptions = user.subscriptions.filter(sub => {
               const monthlyPrice = Number(sub.plan.price_monthly);
               const quarterlyPrice = Number(sub.plan.price_quarterly);
@@ -492,10 +497,6 @@ export class SubscriptionsService {
 
             if (matchingSubscriptions.length > 0) {
               // Filtrar por data: assinatura criada até 7 dias antes do pagamento
-              const paymentDate = new Date(payment.date_created);
-              const sevenDaysBefore = new Date(paymentDate);
-              sevenDaysBefore.setDate(sevenDaysBefore.getDate() - 7);
-              
               const dateFilteredSubscriptions = matchingSubscriptions.filter(sub => {
                 const subDate = new Date(sub.created_at);
                 return subDate <= paymentDate && subDate >= sevenDaysBefore;
@@ -514,16 +515,67 @@ export class SubscriptionsService {
                 },
               });
 
-              this.logger.log(`Fallback: assinatura ${selectedSubscription.id} encontrada para pagamento ${paymentId} via email ${payment.payer.email}`);
+              this.logger.log(`Fallback 1 (email): assinatura ${selectedSubscription.id} encontrada para pagamento ${paymentId} via email ${payment.payer.email}`);
               
               if (matchingSubscriptions.length > 1) {
-                this.logger.warn(`Fallback: múltiplas assinaturas correspondem (${matchingSubscriptions.length}), escolhendo a mais recente: ${selectedSubscription.id}`);
+                this.logger.warn(`Fallback 1: múltiplas assinaturas correspondem (${matchingSubscriptions.length}), escolhendo a mais recente: ${selectedSubscription.id}`);
               }
             } else {
-              this.logger.warn(`Fallback: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) para email ${payment.payer.email}`);
+              this.logger.warn(`Fallback 1: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) para email ${payment.payer.email}`);
             }
           } else {
-            this.logger.warn(`Fallback: usuário não encontrado ou sem assinaturas pendentes para email ${payment.payer.email}`);
+            this.logger.warn(`Fallback 1: usuário não encontrado ou sem assinaturas pendentes para email ${payment.payer.email}`);
+          }
+        }
+        
+        // Fallback 2: se não encontrou por email, buscar TODAS as assinaturas pendentes sem mp_payment_id
+        // que correspondam ao valor e data (último recurso)
+        if (!subscription) {
+          this.logger.log(`Tentando fallback 2 para pagamento ${paymentId}: buscando TODAS as assinaturas pendentes sem mp_payment_id que correspondam ao valor ${paymentAmount}...`);
+          
+          const allPendingSubscriptions = await this.prisma.subscription.findMany({
+            where: {
+              status: 'PENDING_PAYMENT',
+              mp_payment_id: null, // Ainda não tem payment_id
+              created_at: {
+                gte: sevenDaysBefore,
+                lte: paymentDate,
+              },
+            },
+            include: {
+              plan: true,
+              user: true,
+            },
+            orderBy: {
+              created_at: 'desc',
+            },
+            take: 20, // Limitar a 20 para não sobrecarregar
+          });
+          
+          // Filtrar por valor
+          const matchingByValue = allPendingSubscriptions.filter(sub => {
+            const monthlyPrice = Number(sub.plan.price_monthly);
+            const quarterlyPrice = Number(sub.plan.price_quarterly);
+            const diffMonthly = Math.abs(paymentAmount - monthlyPrice);
+            const diffQuarterly = Math.abs(paymentAmount - quarterlyPrice);
+            return diffMonthly <= 0.01 || diffQuarterly <= 0.01;
+          });
+          
+          if (matchingByValue.length > 0) {
+            // Escolher a mais recente
+            subscription = matchingByValue[0];
+            this.logger.log(`Fallback 2 (valor+data): assinatura ${subscription.id} encontrada para pagamento ${paymentId} (valor: ${paymentAmount}, email pagamento: ${payment.payer?.email || 'N/A'}, email cadastro: ${subscription.user.email})`);
+            
+            if (matchingByValue.length > 1) {
+              this.logger.warn(`Fallback 2: ATENÇÃO - múltiplas assinaturas correspondem (${matchingByValue.length}), escolhendo a mais recente: ${subscription.id}. Verifique se está correto!`);
+            }
+            
+            // Se o email do pagamento for diferente do email do cadastro, alertar
+            if (payment.payer?.email && payment.payer.email !== subscription.user.email) {
+              this.logger.warn(`⚠️ ATENÇÃO: Email do pagamento (${payment.payer.email}) é diferente do email do cadastro (${subscription.user.email}). Verifique se a vinculação está correta!`);
+            }
+          } else {
+            this.logger.warn(`Fallback 2: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) no período de 7 dias`);
           }
         }
 
@@ -557,6 +609,8 @@ export class SubscriptionsService {
             amount: payment.transaction_amount,
             status: paymentStatus,
             payment_method: payment.payment_method_id === 'pix' ? 'PIX' : 'CARD',
+            payer_email: payment.payer?.email || null,
+            payer_cpf: payment.payer?.identification?.number || null,
           },
         });
         this.logger.log(`Registro de pagamento criado com status: ${paymentStatus}`);
@@ -565,13 +619,16 @@ export class SubscriptionsService {
         await this.updatePaymentStatus(existingPayment.id, paymentStatus);
       }
 
-      // Atualizar mp_payment_id na assinatura se ainda não estiver setado
-      if (!subscription.mp_payment_id) {
-        this.logger.log(`Atualizando mp_payment_id na assinatura ${subscription.id}`);
+      // SEMPRE atualizar mp_payment_id na assinatura quando o pagamento é identificado
+      // Isso garante que a assinatura tenha o payment_id para sincronização futura
+      if (subscription.mp_payment_id !== paymentId) {
+        this.logger.log(`Atualizando mp_payment_id na assinatura ${subscription.id} para ${paymentId}`);
         await this.prisma.subscription.update({
           where: { id: subscription.id },
           data: { mp_payment_id: paymentId },
         });
+        // Atualizar objeto local para refletir a mudança
+        subscription.mp_payment_id = paymentId;
       }
 
       // Se pagamento foi aprovado, ativar assinatura
@@ -663,7 +720,7 @@ export class SubscriptionsService {
   /**
    * Mapeia status do Mercado Pago para status do banco de dados
    */
-  private mapMpStatusToDbStatus(mpStatus: string): string {
+  mapMpStatusToDbStatus(mpStatus: string): string {
     const statusMap: Record<string, string> = {
       pending: 'PENDING',
       approved: 'APPROVED',
@@ -957,19 +1014,23 @@ export class SubscriptionsService {
    * Cria registro de pagamento
    */
   async createPaymentRecord(data: {
-    subscription_id: number;
+    subscription_id?: number; // Opcional: só vinculado quando aprovado
     mp_payment_id: string;
     amount: number;
     status: string;
     payment_method: string;
+    payer_cpf?: string;
+    payer_email?: string;
   }): Promise<any> {
     return await this.prisma.subscriptionPayment.create({
       data: {
-        subscription_id: data.subscription_id,
+        subscription_id: data.subscription_id || null,
         mp_payment_id: data.mp_payment_id,
         amount: data.amount,
         status: data.status,
         payment_method: data.payment_method,
+        payer_cpf: data.payer_cpf || null,
+        payer_email: data.payer_email || null,
       },
     });
   }

@@ -254,10 +254,13 @@ export class SubscriptionsController {
           
           // Buscar status real do pagamento no Mercado Pago
           const payment = await this.mercadoPagoService.getPayment(paymentId);
-          this.logger.log(`Status do pagamento ${paymentId} no Mercado Pago: ${payment.status}`);
+          this.logger.log(`Status do pagamento ${paymentId} no Mercado Pago: ${payment.status}, Preference ID: ${payment.preference_id || 'N/A'}`);
           
-          // Processar pagamento (criar registro e ativar se aprovado)
+          // Processar pagamento (criar registro, atualizar mp_payment_id na assinatura e ativar se aprovado)
+          // O método processApprovedPayment já atualiza o mp_payment_id na assinatura quando encontra
           await this.subscriptionsService.processApprovedPayment(paymentId);
+          
+          this.logger.log(`Pagamento ${paymentId} processado com sucesso do webhook`);
         } catch (error: any) {
           // Logar erro mas não bloquear o webhook
           this.logger.error(`Erro ao processar pagamento: ${error.message}`, error);

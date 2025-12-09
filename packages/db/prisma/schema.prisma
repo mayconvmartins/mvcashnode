@@ -891,23 +891,26 @@ model SubscriberParameters {
 
 model SubscriptionPayment {
   id              Int      @id @default(autoincrement())
-  subscription_id  Int
+  subscription_id  Int?     // Opcional: só vinculado quando pagamento é aprovado
   mp_payment_id    String?  @db.VarChar(255)
   transfi_payment_id String? @db.VarChar(255)
   transfi_order_id  String? @db.VarChar(255)
   amount           Decimal  @db.Decimal(10, 2)
-  status           String   @db.VarChar(50) // 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'REFUNDED'
+  status           String   @db.VarChar(50) // 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'REFUNDED' | todos os status do MP
   payment_method   String   @db.VarChar(20) // 'CARD' | 'PIX' | 'CRYPTO'
+  payer_cpf        String?  @db.VarChar(20) // CPF informado pelo usuário no pagamento
+  payer_email      String?  @db.VarChar(255) // Email informado no pagamento
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt
 
-  subscription Subscription @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
 
   @@index([subscription_id])
   @@index([mp_payment_id])
   @@index([transfi_payment_id])
   @@index([transfi_order_id])
   @@index([status])
+  @@index([payer_email])
   @@map("subscription_payments")
 }
 
