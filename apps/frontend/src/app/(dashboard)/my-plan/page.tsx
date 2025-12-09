@@ -18,16 +18,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 export default function MyPlanPage() {
   const { subscription, plan, isLoading, refetch, cancel, renew, isCancelling, isRenewing } =
     useSubscription();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
+  // Não precisa refetch, já está habilitado no hook
 
   if (isLoading) {
     return (
@@ -37,7 +35,7 @@ export default function MyPlanPage() {
     );
   }
 
-  if (!subscription || !plan) {
+  if (!subscription) {
     return (
       <Card>
         <CardContent className="pt-6">
@@ -50,6 +48,25 @@ export default function MyPlanPage() {
             <Button onClick={() => (window.location.href = '/subscribe')}>
               Assinar Agora
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Se não tem plan, usar dados da subscription
+  const planData = plan || subscription.plan;
+  
+  if (!planData) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="text-center py-8">
+            <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Plano não encontrado</h3>
+            <p className="text-muted-foreground mb-4">
+              Não foi possível carregar os detalhes do plano.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -80,7 +97,7 @@ export default function MyPlanPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle>{plan.plan?.name || 'Plano'}</CardTitle>
+              <CardTitle>{planData.name || 'Plano'}</CardTitle>
               <Badge
                 variant={
                   isActive
@@ -103,7 +120,7 @@ export default function MyPlanPage() {
                   : subscription.status}
               </Badge>
             </div>
-            <CardDescription>{plan.plan?.description}</CardDescription>
+            <CardDescription>{planData.description || ''}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-2 text-sm">

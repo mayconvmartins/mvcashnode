@@ -685,6 +685,25 @@ export class SubscriptionsService {
 
         // Enviar email de confirmação de pagamento
         await this.sendPaymentConfirmationEmail(subscription, payment);
+        
+        // Enviar email de ativação de assinatura (se usuário já tem senha definida)
+        if (this.emailService && !subscription.user.must_change_password) {
+          try {
+            const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
+            const loginUrl = `${baseUrl}/login`;
+            
+            await this.emailService.sendSubscriptionActivatedEmail(subscription.user.email, {
+              planName: subscription.plan.name,
+              loginUrl: loginUrl,
+              email: subscription.user.email,
+              endDate: endDate,
+            });
+            
+            this.logger.log(`Email de ativação de assinatura enviado para ${subscription.user.email}`);
+          } catch (error: any) {
+            this.logger.error(`Erro ao enviar email de ativação para ${subscription.user.email}:`, error);
+          }
+        }
       } else if (payment.status === 'rejected' || payment.status === 'cancelled') {
         // Atualizar assinatura para status apropriado
         await this.prisma.subscription.update({
@@ -753,8 +772,9 @@ export class SubscriptionsService {
       },
       orderBy: { created_at: 'desc' },
     });
+    // Retornar null ao invés de lançar exceção para permitir acesso à página /my-plan
     if (!subscription) {
-      throw new NotFoundException('Assinatura não encontrada');
+      return null;
     }
     return subscription;
   }
@@ -953,6 +973,26 @@ export class SubscriptionsService {
       },
     });
 
+    // Enviar email de boas-vindas com credenciais de acesso
+    if (this.emailService) {
+      try {
+        const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
+        const loginUrl = `${baseUrl}/login`;
+        
+        await this.emailService.sendSubscriptionActivatedEmail(user.email, {
+          planName: subscription.plan.name,
+          loginUrl: loginUrl,
+          email: user.email,
+          endDate: subscription.end_date || new Date(),
+        });
+        
+        this.logger.log(`Email de ativação de assinatura enviado para ${user.email}`);
+      } catch (error: any) {
+        this.logger.error(`Erro ao enviar email de ativação para ${user.email}:`, error);
+        // Não lançar erro para não interromper o fluxo
+      }
+    }
+
     return {
       message: 'Registro concluído com sucesso',
       user_id: user.id,
@@ -1068,29 +1108,14 @@ export class SubscriptionsService {
       const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
       const registrationUrl = `${baseUrl}/subscribe/register?email=${encodeURIComponent(subscription.user.email)}`;
       
-      const subject = 'Pagamento Aprovado - Sua Assinatura está Ativa!';
-      const html = `
-        <h2>Pagamento Aprovado!</h2>
-        <p>Olá,</p>
-        <p>Seu pagamento via TransFi foi aprovado com sucesso!</p>
-        <p><strong>Detalhes do Pagamento:</strong></p>
-        <ul>
-          <li>Pedido: ${order.orderId}</li>
-          <li>Valor: ${order.amount} ${order.currency}</li>
-          <li>Método: ${order.paymentMethod}</li>
-          <li>Plano: ${subscription.plan.name}</li>
-        </ul>
-        <p>Sua assinatura está agora ativa. Para finalizar seu cadastro e definir sua senha, clique no link abaixo:</p>
-        <p><a href="${registrationUrl}">Finalizar Cadastro</a></p>
-        <p>Este link expira em 7 dias.</p>
-        <p>Obrigado por escolher nosso serviço!</p>
-      `;
-
-      await this.emailService.sendEmail(
-        subscription.user.email,
-        subject,
-        html
-      );
+      // Usar método do EmailService para melhor rastreamento
+      await this.emailService.sendPaymentConfirmedEmail(subscription.user.email, {
+        planName: subscription.plan.name,
+        amount: order.amount,
+        paymentMethod: order.paymentMethod || 'TransFi',
+        registrationUrl: registrationUrl,
+        endDate: subscription.end_date || new Date(),
+      });
 
       this.logger.log(`Email de confirmação TransFi enviado para ${subscription.user.email}`);
     } catch (error: any) {
@@ -1112,58 +1137,15 @@ export class SubscriptionsService {
       const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
       const registrationUrl = `${baseUrl}/subscribe/register?email=${encodeURIComponent(subscription.user.email)}`;
       
-      const subject = 'Pagamento Aprovado - Sua Assinatura está Ativa!';
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
-            .content { background-color: #f9f9f9; padding: 20px; border-radius: 0 0 5px 5px; }
-            .button { display: inline-block; padding: 12px 24px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
-            .info-box { background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4CAF50; margin: 20px 0; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>Pagamento Aprovado!</h1>
-            </div>
-            <div class="content">
-              <p>Olá,</p>
-              <p>Seu pagamento foi aprovado com sucesso e sua assinatura está agora ativa!</p>
-              
-              <div class="info-box">
-                <strong>Detalhes da Assinatura:</strong><br>
-                Plano: ${subscription.plan.name}<br>
-                Valor: R$ ${payment.transaction_amount.toFixed(2)}<br>
-                Método: ${payment.payment_method_id === 'pix' ? 'PIX' : 'Cartão'}<br>
-                Status: Ativa<br>
-                Válida até: ${subscription.end_date ? new Date(subscription.end_date).toLocaleDateString('pt-BR') : 'N/A'}
-              </div>
-
-              <p>Para acessar sua conta e começar a usar a plataforma, você precisa completar seu cadastro definindo uma senha.</p>
-              
-              <p>
-                <a href="${registrationUrl}" class="button">Completar Cadastro</a>
-              </p>
-
-              <p>Ou copie e cole este link no seu navegador:</p>
-              <p style="word-break: break-all; color: #666;">${registrationUrl}</p>
-
-              <p>Se você não solicitou esta assinatura, entre em contato conosco imediatamente.</p>
-
-              <p>Atenciosamente,<br>Equipe MV Cash</p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `;
-
-      await this.emailService.sendEmail(subscription.user.email, subject, html);
+      // Usar método do EmailService para melhor rastreamento
+      await this.emailService.sendPaymentConfirmedEmail(subscription.user.email, {
+        planName: subscription.plan.name,
+        amount: payment.transaction_amount,
+        paymentMethod: payment.payment_method_id === 'pix' ? 'PIX' : 'Cartão de Crédito',
+        registrationUrl: registrationUrl,
+        endDate: subscription.end_date || new Date(),
+      });
+      
       this.logger.log(`Email de confirmação enviado para ${subscription.user.email}`);
     } catch (error: any) {
       this.logger.error(`Erro ao enviar email de confirmação para ${subscription.user.email}:`, error);

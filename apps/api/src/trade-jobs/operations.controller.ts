@@ -20,10 +20,11 @@ import { TradeJobsService } from './trade-jobs.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PrismaService } from '@mvcashnode/db';
+import { BlockSubscribersGuard } from '../subscriptions/guards/block-subscribers.guard';
 
 @ApiTags('Jobs & Executions')
 @Controller('operations')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, BlockSubscribersGuard)
 @ApiBearerAuth()
 export class OperationsController {
   constructor(

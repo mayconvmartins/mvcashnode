@@ -8,6 +8,7 @@ import {
   Param,
   ParseIntPipe,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,6 +16,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -22,6 +24,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@mvcashnode/shared';
 import { PrismaService } from '@mvcashnode/db';
 import { TemplateService, NotificationTemplateType } from '@mvcashnode/notifications';
+import { ConfigService } from '@nestjs/config';
 
 export interface CreateTemplateDto {
   template_type: NotificationTemplateType;
@@ -366,6 +369,143 @@ export class AdminNotificationsController {
       
       default:
         return {};
+    }
+  }
+}
+
+@ApiTags('Admin - Email')
+@Controller('admin/emails')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
+@ApiBearerAuth()
+export class AdminEmailController {
+  private emailService: any;
+
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService
+  ) {
+    // Inicializar EmailService se configurado
+    const smtpHost = this.configService.get<string>('SMTP_HOST');
+    const smtpUser = this.configService.get<string>('SMTP_USER');
+    const smtpPass = this.configService.get<string>('SMTP_PASS');
+    
+    if (smtpHost && smtpUser && smtpPass) {
+      const { EmailService } = require('@mvcashnode/notifications');
+      this.emailService = new EmailService(this.prisma as any, {
+        host: smtpHost,
+        port: parseInt(this.configService.get<string>('SMTP_PORT') || '2525'),
+        user: smtpUser,
+        password: smtpPass,
+        from: this.configService.get<string>('SMTP_FROM') || 'noreply.mvcash@mvmdev.com',
+      });
+    }
+  }
+
+  @Get('history')
+  @ApiOperation({ summary: 'Listar histórico de emails enviados' })
+  @ApiResponse({ status: 200, description: 'Histórico de emails' })
+  async getEmailHistory(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('template_type') templateType?: string,
+    @Query('status') status?: string,
+    @Query('recipient') recipient?: string
+  ): Promise<any> {
+    const pageNum = page ? parseInt(page) : 1;
+    const limitNum = limit ? parseInt(limit) : 50;
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {};
+    if (templateType) {
+      where.template_type = templateType;
+    }
+    if (status) {
+      where.status = status;
+    }
+    if (recipient) {
+      where.recipient = { contains: recipient };
+    }
+
+    const [emails, total] = await Promise.all([
+      this.prisma.emailNotificationLog.findMany({
+        where,
+        orderBy: { sent_at: 'desc' },
+        skip,
+        take: limitNum,
+      }),
+      this.prisma.emailNotificationLog.count({ where }),
+    ]);
+
+    return {
+      items: emails,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
+    };
+  }
+
+  @Get('history/stats')
+  @ApiOperation({ summary: 'Estatísticas de emails enviados' })
+  @ApiResponse({ status: 200, description: 'Estatísticas de emails' })
+  async getEmailStats(): Promise<any> {
+    const [total, sent, failed, byType] = await Promise.all([
+      this.prisma.emailNotificationLog.count(),
+      this.prisma.emailNotificationLog.count({ where: { status: 'sent' } }),
+      this.prisma.emailNotificationLog.count({ where: { status: 'failed' } }),
+      this.prisma.emailNotificationLog.groupBy({
+        by: ['template_type'],
+        _count: { template_type: true },
+      }),
+    ]);
+
+    const last24Hours = await this.prisma.emailNotificationLog.count({
+      where: {
+        sent_at: {
+          gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        },
+        status: 'sent',
+      },
+    });
+
+    return {
+      total,
+      sent,
+      failed,
+      successRate: total > 0 ? ((sent / total) * 100).toFixed(2) : '0.00',
+      byType: byType.reduce((acc, item) => {
+        acc[item.template_type] = item._count.template_type;
+        return acc;
+      }, {} as Record<string, number>),
+      last24Hours,
+    };
+  }
+
+  @Post('test')
+  @ApiOperation({ summary: 'Enviar email de teste' })
+  @ApiResponse({ status: 200, description: 'Email de teste enviado' })
+  async sendTestEmail(
+    @Body() body: { email: string; subject?: string; message?: string }
+  ): Promise<any> {
+    if (!this.emailService) {
+      return {
+        success: false,
+        message: 'EmailService não configurado. Verifique as variáveis de ambiente SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS).',
+      };
+    }
+
+    try {
+      await this.emailService.sendTestEmail(body.email, body.subject, body.message);
+      return {
+        success: true,
+        message: 'Email de teste enviado com sucesso',
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Erro ao enviar email de teste',
+      };
     }
   }
 }

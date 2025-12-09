@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminSystemController } from './admin-system.controller';
 import { AdminAuditController } from './admin-audit.controller';
-import { AdminNotificationsController } from './admin-notifications.controller';
+import { AdminNotificationsController, AdminEmailController } from './admin-notifications.controller';
 import { AdminSubscriptionsController } from './admin-subscriptions.controller';
 import { AdminSubscribersController, AdminSubscriberParametersController } from './admin-subscribers.controller';
 import { AdminSubscriptionPlansController } from './admin-subscription-plans.controller';
@@ -22,6 +23,7 @@ import { TransFiService } from '../subscriptions/transfi.service';
 
 @Module({
   imports: [
+    ConfigModule,
     BullModule.registerQueue(
       { name: 'trade-execution-real' },
       { name: 'trade-execution-sim' }
@@ -32,6 +34,7 @@ import { TransFiService } from '../subscriptions/transfi.service';
     AdminSystemController,
     AdminAuditController,
     AdminNotificationsController,
+    AdminEmailController,
     AdminSubscriptionsController,
     AdminSubscribersController,
     AdminSubscriberParametersController,

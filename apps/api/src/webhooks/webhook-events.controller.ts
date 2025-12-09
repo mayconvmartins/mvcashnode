@@ -20,10 +20,11 @@ import { WebhooksService } from './webhooks.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PrismaService } from '@mvcashnode/db';
+import { BlockSubscribersGuard } from '../subscriptions/guards/block-subscribers.guard';
 
 @ApiTags('Webhooks')
 @Controller('webhook-events')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, BlockSubscribersGuard)
 @ApiBearerAuth()
 export class WebhookEventsController {
   constructor(

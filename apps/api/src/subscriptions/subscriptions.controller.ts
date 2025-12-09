@@ -96,21 +96,29 @@ export class SubscriptionsController {
   }
 
   @Get('my-subscription')
-  @UseGuards(JwtAuthGuard, SubscriptionGuard)
+  @UseGuards(JwtAuthGuard) // Removido SubscriptionGuard para permitir acesso mesmo com assinatura inativa
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Obter minha assinatura' })
   @ApiResponse({ status: 200, description: 'Detalhes da assinatura do usuário' })
   async getMySubscription(@CurrentUser() user: any): Promise<any> {
-    return this.subscriptionsService.getMySubscription(user.userId);
+    // Permitir acesso mesmo se assinatura estiver inativa/expirada
+    // Retorna null se não encontrar assinatura
+    return await this.subscriptionsService.getMySubscription(user.userId);
   }
 
   @Get('my-plan')
-  @UseGuards(JwtAuthGuard, SubscriptionGuard)
+  @UseGuards(JwtAuthGuard) // Removido SubscriptionGuard para permitir acesso mesmo com assinatura inativa
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Obter detalhes do meu plano' })
   @ApiResponse({ status: 200, description: 'Detalhes do plano atual' })
   async getMyPlan(@CurrentUser() user: any): Promise<any> {
+    // Permitir acesso mesmo se assinatura estiver inativa/expirada
     const subscription = await this.subscriptionsService.getMySubscription(user.userId);
+    
+    if (!subscription) {
+      return null;
+    }
+    
     return {
       plan: subscription.plan,
       status: subscription.status,
@@ -121,7 +129,7 @@ export class SubscriptionsController {
   }
 
   @Post('cancel')
-  @UseGuards(JwtAuthGuard, SubscriptionGuard)
+  @UseGuards(JwtAuthGuard) // Removido SubscriptionGuard - assinante pode cancelar mesmo com assinatura inativa
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cancelar assinatura' })
   @ApiResponse({ status: 200, description: 'Assinatura cancelada com sucesso' })
@@ -130,7 +138,7 @@ export class SubscriptionsController {
   }
 
   @Post('renew')
-  @UseGuards(JwtAuthGuard, SubscriptionGuard)
+  @UseGuards(JwtAuthGuard) // Removido SubscriptionGuard - assinante pode renovar mesmo com assinatura inativa
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Renovar assinatura' })
   @ApiResponse({ status: 200, description: 'Renovação iniciada' })

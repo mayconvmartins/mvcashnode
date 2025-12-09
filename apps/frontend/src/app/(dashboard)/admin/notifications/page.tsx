@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { notificationsService, type NotificationTemplateType, type WhatsAppNotificationTemplate, type CreateTemplateDto, type UpdateTemplateDto } from '@/lib/api/notifications.service'
+import { adminService } from '@/lib/api/admin.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -485,10 +486,35 @@ export default function NotificationsConfigPage() {
 
                 {/* Email Config Tab */}
                 <TabsContent value="email">
-                    <EmailConfigTab />
+                    <EmailTabs />
                 </TabsContent>
             </Tabs>
         </div>
+    )
+}
+
+// Componente para abas de email (config, teste, histórico)
+function EmailTabs() {
+    return (
+        <Tabs defaultValue="config" className="space-y-4">
+            <TabsList>
+                <TabsTrigger value="config">Configurações</TabsTrigger>
+                <TabsTrigger value="test">Teste de Email</TabsTrigger>
+                <TabsTrigger value="history">Histórico</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="config">
+                <EmailConfigTab />
+            </TabsContent>
+
+            <TabsContent value="test">
+                <EmailTestTab />
+            </TabsContent>
+
+            <TabsContent value="history">
+                <EmailHistoryTab />
+            </TabsContent>
+        </Tabs>
     )
 }
 
@@ -642,6 +668,304 @@ function EmailConfigTab() {
                 </Button>
             </CardContent>
         </Card>
+    )
+}
+
+// Componente para teste de email
+function EmailTestTab() {
+    const [testEmail, setTestEmail] = useState('')
+    const [testSubject, setTestSubject] = useState('')
+    const [testMessage, setTestMessage] = useState('')
+
+    const sendTestMutation = useMutation({
+        mutationFn: () => adminService.sendTestEmail({
+            email: testEmail,
+            subject: testSubject || undefined,
+            message: testMessage || undefined,
+        }),
+        onSuccess: (data) => {
+            if (data.success) {
+                toast.success(data.message || 'Email de teste enviado com sucesso!')
+                setTestEmail('')
+                setTestSubject('')
+                setTestMessage('')
+            } else {
+                toast.error(data.message || 'Erro ao enviar email de teste')
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error?.response?.data?.message || 'Erro ao enviar email de teste')
+        },
+    })
+
+    return (
+        <Card className="glass">
+            <CardHeader>
+                <CardTitle>Enviar Email de Teste</CardTitle>
+                <CardDescription>
+                    Envie um email de teste para verificar se a configuração SMTP está funcionando corretamente
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="space-y-2">
+                    <Label htmlFor="test_email">Email de Destino *</Label>
+                    <Input
+                        id="test_email"
+                        type="email"
+                        placeholder="seu@email.com"
+                        value={testEmail}
+                        onChange={(e) => setTestEmail(e.target.value)}
+                    />
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="test_subject">Assunto (opcional)</Label>
+                    <Input
+                        id="test_subject"
+                        placeholder="Deixe vazio para assunto padrão"
+                        value={testSubject}
+                        onChange={(e) => setTestSubject(e.target.value)}
+                    />
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="test_message">Mensagem (opcional)</Label>
+                    <textarea
+                        id="test_message"
+                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        placeholder="Deixe vazio para mensagem padrão"
+                        value={testMessage}
+                        onChange={(e) => setTestMessage(e.target.value)}
+                    />
+                </div>
+
+                <Button 
+                    onClick={() => sendTestMutation.mutate()}
+                    disabled={sendTestMutation.isPending || !testEmail}
+                    className="w-full"
+                >
+                    {sendTestMutation.isPending ? (
+                        <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Enviando...
+                        </>
+                    ) : (
+                        <>
+                            <Send className="mr-2 h-4 w-4" />
+                            Enviar Email de Teste
+                        </>
+                    )}
+                </Button>
+            </CardContent>
+        </Card>
+    )
+}
+
+// Componente para histórico de emails
+function EmailHistoryTab() {
+    const [page, setPage] = useState(1)
+    const [filters, setFilters] = useState({
+        template_type: '',
+        status: '',
+        recipient: '',
+    })
+
+    const { data: history, isLoading } = useQuery({
+        queryKey: ['admin', 'emails', 'history', page, filters],
+        queryFn: () => adminService.getEmailHistory({
+            page,
+            limit: 50,
+            ...(filters.template_type && { template_type: filters.template_type }),
+            ...(filters.status && { status: filters.status }),
+            ...(filters.recipient && { recipient: filters.recipient }),
+        }),
+    })
+
+    const { data: stats } = useQuery({
+        queryKey: ['admin', 'emails', 'stats'],
+        queryFn: () => adminService.getEmailStats(),
+    })
+
+    if (isLoading) {
+        return (
+            <Card className="glass">
+                <CardContent className="py-12">
+                    <Skeleton className="h-8 w-64 mb-4" />
+                    <Skeleton className="h-32" />
+                </CardContent>
+            </Card>
+        )
+    }
+
+    return (
+        <div className="space-y-6">
+            {/* Estatísticas */}
+            {stats && (
+                <div className="grid gap-4 md:grid-cols-4">
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between pb-2">
+                            <CardDescription>Total de Emails</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{stats.total}</div>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between pb-2">
+                            <CardDescription>Enviados</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-green-500">{stats.sent}</div>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between pb-2">
+                            <CardDescription>Falhados</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-red-500">{stats.failed}</div>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between pb-2">
+                            <CardDescription>Taxa de Sucesso</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{stats.successRate}%</div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* Filtros */}
+            <Card className="glass">
+                <CardHeader>
+                    <CardTitle>Filtros</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2">
+                            <Label>Tipo de Template</Label>
+                            <Input
+                                placeholder="Ex: PASSWORD_RESET"
+                                value={filters.template_type}
+                                onChange={(e) => setFilters(prev => ({ ...prev, template_type: e.target.value }))}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Status</Label>
+                            <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                value={filters.status}
+                                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                            >
+                                <option value="">Todos</option>
+                                <option value="sent">Enviado</option>
+                                <option value="failed">Falhou</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Destinatário</Label>
+                            <Input
+                                placeholder="Email do destinatário"
+                                value={filters.recipient}
+                                onChange={(e) => setFilters(prev => ({ ...prev, recipient: e.target.value }))}
+                            />
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Histórico */}
+            <Card className="glass">
+                <CardHeader>
+                    <CardTitle>Histórico de Emails</CardTitle>
+                    <CardDescription>
+                        {history?.total ? `${history.total} email(s) encontrado(s)` : 'Nenhum email encontrado'}
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {history?.items && history.items.length > 0 ? (
+                        <div className="space-y-2">
+                            {history.items.map((email: any) => (
+                                <div
+                                    key={email.id}
+                                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className={`p-2 rounded-full ${
+                                            email.status === 'sent'
+                                                ? 'bg-green-500/10 text-green-500'
+                                                : 'bg-red-500/10 text-red-500'
+                                        }`}>
+                                            {email.status === 'sent' ? (
+                                                <CheckCircle className="h-4 w-4" />
+                                            ) : (
+                                                <XCircle className="h-4 w-4" />
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-sm">{email.subject}</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                {email.recipient} • {email.template_type}
+                                            </p>
+                                            {email.error_message && (
+                                                <p className="text-xs text-red-500 mt-1">
+                                                    Erro: {email.error_message}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Badge
+                                            variant={email.status === 'sent' ? 'default' : 'destructive'}
+                                            className="text-xs"
+                                        >
+                                            {email.status === 'sent' ? 'Enviado' : 'Falhou'}
+                                        </Badge>
+                                        <span className="text-xs text-muted-foreground">
+                                            {email.sent_at ? formatDateTime(email.sent_at) : 'N/A'}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-center py-12 text-muted-foreground">
+                            <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>Nenhum email encontrado</p>
+                        </div>
+                    )}
+
+                    {/* Paginação */}
+                    {history && history.totalPages > 1 && (
+                        <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                            <p className="text-sm text-muted-foreground">
+                                Página {history.page} de {history.totalPages}
+                            </p>
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                                    disabled={page === 1}
+                                >
+                                    Anterior
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(prev => Math.min(history.totalPages, prev + 1))}
+                                    disabled={page === history.totalPages}
+                                >
+                                    Próxima
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
     )
 }
 

@@ -77,14 +77,30 @@ export const subscriptionsService = {
     return response.data;
   },
 
-  getMySubscription: async (): Promise<Subscription> => {
-    const response = await apiClient.get<Subscription>('/subscriptions/my-subscription');
-    return response.data;
+  getMySubscription: async (): Promise<Subscription | null> => {
+    try {
+      const response = await apiClient.get<Subscription>('/subscriptions/my-subscription');
+      return response.data || null;
+    } catch (error: any) {
+      // Se der 404 ou qualquer erro, retornar null para permitir acesso à página
+      if (error?.response?.status === 404) {
+        return null;
+      }
+      // Para outros erros, também retornar null para não bloquear acesso
+      console.error('Erro ao buscar assinatura:', error);
+      return null;
+    }
   },
 
   getMyPlan: async (): Promise<any> => {
-    const response = await apiClient.get('/subscriptions/my-plan');
-    return response.data;
+    try {
+      const response = await apiClient.get('/subscriptions/my-plan');
+      return response.data || null;
+    } catch (error: any) {
+      // Se der erro, retornar null para permitir acesso à página
+      console.error('Erro ao buscar plano:', error);
+      return null;
+    }
   },
 
   cancelSubscription: async (): Promise<Subscription> => {

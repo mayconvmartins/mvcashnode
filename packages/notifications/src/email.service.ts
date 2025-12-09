@@ -322,6 +322,126 @@ export class EmailService {
   }
 
   /**
+   * Envia email quando usuário finaliza compra e define senha
+   */
+  async sendSubscriptionActivatedEmail(
+    email: string,
+    data: {
+      planName: string;
+      loginUrl: string;
+      email: string;
+      endDate: Date;
+    }
+  ): Promise<void> {
+    const template = await this.loadTemplate('subscription-activated');
+    const variables: TemplateVariables = {
+      'planName': data.planName,
+      'loginUrl': data.loginUrl,
+      'email': data.email,
+      'endDate': data.endDate,
+      'datetime': new Date(),
+    };
+
+    const html = this.templateService.renderTemplate(template, variables);
+    const subject = 'Bem-vindo! Sua Assinatura está Ativa - MV Cash';
+
+    try {
+      await this.sendEmail(email, subject, html);
+      await this.logEmail('SUBSCRIPTION_ACTIVATED', email, subject, 'sent');
+    } catch (error: any) {
+      await this.logEmail('SUBSCRIPTION_ACTIVATED', email, subject, 'failed', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Envia email quando pagamento é confirmado (antes de definir senha)
+   */
+  async sendPaymentConfirmedEmail(
+    email: string,
+    data: {
+      planName: string;
+      amount: number;
+      paymentMethod: string;
+      registrationUrl: string;
+      endDate: Date;
+    }
+  ): Promise<void> {
+    const template = await this.loadTemplate('payment-confirmed');
+    const variables: TemplateVariables = {
+      'planName': data.planName,
+      'amount': data.amount,
+      'paymentMethod': data.paymentMethod,
+      'registrationUrl': data.registrationUrl,
+      'endDate': data.endDate,
+      'datetime': new Date(),
+    };
+
+    const html = this.templateService.renderTemplate(template, variables);
+    const subject = 'Pagamento Confirmado - Finalize seu Cadastro - MV Cash';
+
+    try {
+      await this.sendEmail(email, subject, html);
+      await this.logEmail('PAYMENT_CONFIRMED', email, subject, 'sent');
+    } catch (error: any) {
+      await this.logEmail('PAYMENT_CONFIRMED', email, subject, 'failed', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Envia email de teste (para admin)
+   */
+  async sendTestEmail(
+    email: string,
+    subject?: string,
+    message?: string
+  ): Promise<void> {
+    const testSubject = subject || 'Email de Teste - MV Cash';
+    const testMessage = message || 'Este é um email de teste do sistema MV Cash. Se você recebeu este email, a configuração de SMTP está funcionando corretamente.';
+    
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9f9f9; padding: 20px; border-radius: 0 0 5px 5px; }
+          .test-box { background-color: #e8f5e9; padding: 15px; border-left: 4px solid #4CAF50; margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Email de Teste</h1>
+          </div>
+          <div class="content">
+            <p>Olá,</p>
+            <div class="test-box">
+              <p><strong>${testMessage}</strong></p>
+            </div>
+            <p>Este email foi enviado através do painel administrativo para testar a configuração de SMTP.</p>
+            <p>Data/Hora: ${new Date().toLocaleString('pt-BR')}</p>
+            <p>Atenciosamente,<br>Sistema MV Cash</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    try {
+      await this.sendEmail(email, testSubject, html);
+      await this.logEmail('TEST_EMAIL', email, testSubject, 'sent');
+    } catch (error: any) {
+      await this.logEmail('TEST_EMAIL', email, testSubject, 'failed', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Carrega template HTML do disco
    */
   private async loadTemplate(templateName: string): Promise<string> {

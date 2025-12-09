@@ -43,10 +43,10 @@ const menuItems = [
     { icon: Wallet, label: 'Contas', href: '/accounts' },
     { icon: Vault, label: 'Cofres', href: '/vaults' },
     { icon: Settings2, label: 'Parâmetros', href: '/parameters' },
-    { icon: Webhook, label: 'Webhooks', href: '/webhooks' },
+    { icon: Webhook, label: 'Webhooks', href: '/webhooks', subscriberBlocked: true }, // Bloqueado para assinantes
     { icon: LineChart, label: 'Posições', href: '/positions' },
     { icon: ArrowLeftRight, label: 'Ordens Limit', href: '/limit-orders' },
-    { icon: History, label: 'Operações', href: '/operations' },
+    { icon: History, label: 'Operações', href: '/operations', subscriberBlocked: true }, // Bloqueado para assinantes
     { icon: FileBarChart, label: 'Relatórios', href: '/reports' },
     { icon: Target, label: 'Monitor TP/SL', href: '/monitoring-positionstp-sl' },
     { icon: Activity, label: 'Monitoramento', href: '/monitoring', adminOnly: true },
@@ -185,7 +185,11 @@ export function Sidebar() {
                     {/* Navigation */}
                     <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
                         {menuItems.map((item) => {
+                            // Ocultar itens apenas para admin
                             if (item.adminOnly && !isAdmin) return null
+                            
+                            // Ocultar itens bloqueados para assinantes
+                            if (item.subscriberBlocked && isSubscriber && !isAdmin) return null
 
                             const isActive = pathname === item.href
 

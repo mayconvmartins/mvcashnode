@@ -9,14 +9,14 @@ export function useSubscription() {
     queryKey: ['subscription', 'my-subscription'],
     queryFn: () => subscriptionsService.getMySubscription(),
     retry: false,
-    enabled: false, // Só buscar quando explicitamente necessário
+    enabled: true, // Habilitado para buscar automaticamente
   });
 
   const planQuery = useQuery({
     queryKey: ['subscription', 'my-plan'],
     queryFn: () => subscriptionsService.getMyPlan(),
     retry: false,
-    enabled: false,
+    enabled: true, // Habilitado para buscar automaticamente
   });
 
   const cancelMutation = useMutation({

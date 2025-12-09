@@ -26,10 +26,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PrismaService } from '@mvcashnode/db';
 import { UserRole } from '@mvcashnode/shared';
+import { BlockSubscribersGuard } from '../subscriptions/guards/block-subscribers.guard';
 
 @ApiTags('Webhooks')
 @Controller('webhook-sources/:sourceId/bindings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, BlockSubscribersGuard)
 @ApiBearerAuth()
 export class WebhookBindingsController {
   constructor(

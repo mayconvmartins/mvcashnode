@@ -21,7 +21,7 @@ export class SubscriptionGuard implements CanActivate {
 
     // Usuários normais (sem role subscriber) continuam funcionando normalmente
     // Verificar se tem role 'subscriber' (string, não enum)
-    const isSubscriber = user.roles && user.roles.some((r: string) => r === 'subscriber' || r === UserRole.USER);
+    const isSubscriber = user.roles && user.roles.some((r: string) => r === 'subscriber' || r === UserRole.SUBSCRIBER);
     if (!isSubscriber) {
       // Se não é assinante, permite acesso (usuário normal)
       return true;

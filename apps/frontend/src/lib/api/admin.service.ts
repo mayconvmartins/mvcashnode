@@ -665,5 +665,44 @@ export const adminService = {
         const response = await apiClient.put('/admin/settings/payment-gateway', { gateway })
         return response.data
     },
+
+    // Email Management
+    getEmailHistory: async (filters?: {
+        page?: number;
+        limit?: number;
+        template_type?: string;
+        status?: string;
+        recipient?: string;
+    }): Promise<{
+        items: any[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+    }> => {
+        const response = await apiClient.get('/admin/emails/history', { params: filters })
+        return response.data
+    },
+
+    getEmailStats: async (): Promise<{
+        total: number;
+        sent: number;
+        failed: number;
+        successRate: string;
+        byType: Record<string, number>;
+        last24Hours: number;
+    }> => {
+        const response = await apiClient.get('/admin/emails/history/stats')
+        return response.data
+    },
+
+    sendTestEmail: async (data: {
+        email: string;
+        subject?: string;
+        message?: string;
+    }): Promise<{ success: boolean; message: string }> => {
+        const response = await apiClient.post('/admin/emails/test', data)
+        return response.data
+    },
 }
 

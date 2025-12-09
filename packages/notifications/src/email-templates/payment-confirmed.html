@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pagamento Confirmado - Finalize seu Cadastro</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f4;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #ffffff;
+    }
+    .header {
+      background-color: #4CAF50;
+      color: white;
+      padding: 30px 20px;
+      text-align: center;
+      border-radius: 5px 5px 0 0;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+    .content {
+      padding: 30px 20px;
+      background-color: #ffffff;
+    }
+    .info-box {
+      background-color: #e8f5e9;
+      padding: 20px;
+      border-left: 4px solid #4CAF50;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+    .info-box p {
+      margin: 8px 0;
+    }
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background-color: #4CAF50;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+      margin: 20px 0;
+      font-weight: bold;
+    }
+    .button:hover {
+      background-color: #45a049;
+    }
+    .footer {
+      padding: 20px;
+      text-align: center;
+      color: #666;
+      font-size: 12px;
+      border-top: 1px solid #eee;
+      margin-top: 20px;
+    }
+    .warning {
+      background-color: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>✅ Pagamento Confirmado!</h1>
+    </div>
+    <div class="content">
+      <p>Olá,</p>
+      <p>Seu pagamento foi aprovado com sucesso e sua assinatura está agora ativa!</p>
+      
+      <div class="info-box">
+        <p><strong>Detalhes da Assinatura:</strong></p>
+        <p><strong>Plano:</strong> {planName}</p>
+        <p><strong>Valor:</strong> R$ {amount}</p>
+        <p><strong>Método de Pagamento:</strong> {paymentMethod}</p>
+        <p><strong>Status:</strong> Ativa</p>
+        <p><strong>Válida até:</strong> {endDate}</p>
+      </div>
+
+      <div class="warning">
+        <p><strong>⚠️ Próximo Passo:</strong></p>
+        <p>Para acessar sua conta e começar a usar a plataforma, você precisa completar seu cadastro definindo uma senha.</p>
+      </div>
+
+      <p>Clique no botão abaixo para finalizar seu cadastro:</p>
+      
+      <p style="text-align: center;">
+        <a href="{{registrationUrl}}" class="button">Finalizar Cadastro</a>
+      </p>
+
+      <p>Ou copie e cole este link no seu navegador:</p>
+      <p style="word-break: break-all; color: #666; font-size: 12px;">{registrationUrl}</p>
+
+      <p><strong>Importante:</strong> Este link expira em 7 dias. Após esse período, entre em contato conosco para gerar um novo link.</p>
+
+      <p>Se você não solicitou esta assinatura, entre em contato conosco imediatamente.</p>
+
+      <p>Atenciosamente,<br><strong>Equipe MV Cash</strong></p>
+    </div>
+    <div class="footer">
+      <p>Este é um email automático, por favor não responda.</p>
+      <p>MV Cash - Sistema de Trading Automation</p>
+    </div>
+  </div>
+</body>
+</html>

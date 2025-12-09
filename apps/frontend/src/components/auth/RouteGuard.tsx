@@ -266,20 +266,42 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
         }
 
         // Verificar assinatura ativa
+        // Permitir acesso a /my-plan mesmo se assinatura estiver inativa
+        const isMyPlanPage = pathname === '/my-plan'
+        const isSubscribePage = pathname.startsWith('/subscribe')
+        
+        if (isMyPlanPage || isSubscribePage) {
+            // Permitir acesso sem verificar assinatura
+            setSubscriptionStatus('active')
+            return
+        }
+        
         setSubscriptionStatus('checking')
         subscriptionsService.getMySubscription()
             .then((subscription) => {
+                // Se não há assinatura, permitir acesso apenas a /my-plan
+                if (!subscription) {
+                    setSubscriptionStatus('inactive')
+                    if (!isMyPlanPage && !isSubscribePage) {
+                        router.push('/my-plan?no_subscription=true')
+                    }
+                    return
+                }
+                
                 const isActive = subscription.status === 'ACTIVE' && 
                     (!subscription.end_date || new Date(subscription.end_date) > new Date())
                 setSubscriptionStatus(isActive ? 'active' : 'inactive')
                 
-                if (!isActive && pathname !== '/my-plan' && !pathname.startsWith('/subscribe')) {
+                if (!isActive && !isMyPlanPage && !isSubscribePage) {
                     router.push('/my-plan?expired=true')
                 }
             })
             .catch(() => {
                 setSubscriptionStatus('inactive')
-                // Se não conseguir verificar, permitir acesso mas mostrar aviso
+                // Se não conseguir verificar e não estiver em /my-plan, redirecionar
+                if (!isMyPlanPage && !isSubscribePage) {
+                    router.push('/my-plan?expired=true')
+                }
             })
     }, [isLoading, processingImpersonation, isAuthenticated, user, pathname, router])
 
@@ -297,7 +319,10 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
         }
     }, [isLoading, processingImpersonation, isAuthenticated, hasToken, user, requireAuth, requireAdmin, router, pathname])
 
-    if (isLoading || processingImpersonation || subscriptionStatus === 'checking') {
+    // Permitir acesso a /my-plan mesmo se assinatura estiver inativa
+    const isMyPlanPage = pathname === '/my-plan'
+    
+    if (isLoading || processingImpersonation || (subscriptionStatus === 'checking' && !isMyPlanPage)) {
         return (
             <div className="flex min-h-screen items-center justify-center">
                 <div className="text-center">
@@ -307,7 +332,7 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
                             Fazendo login como outro usuário...
                         </p>
                     )}
-                    {subscriptionStatus === 'checking' && (
+                    {subscriptionStatus === 'checking' && !isMyPlanPage && (
                         <p className="mt-4 text-sm text-muted-foreground">
                             Verificando assinatura...
                         </p>
@@ -331,6 +356,36 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
                 <Spinner size="lg" />
             </div>
         )
+    }
+
+    // Bloquear assinantes de acessar rotas não permitidas
+    const isSubscriber = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === UserRole.SUBSCRIBER || roleValue === 'subscriber'
+    })
+    
+    const isAdmin = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue === UserRole.ADMIN || roleValue === 'admin'
+    })
+    
+    // Rotas bloqueadas para assinantes (exceto admin)
+    const blockedRoutesForSubscribers = [
+        '/webhooks',
+        '/operations',
+        '/trade-jobs',
+    ]
+    
+    if (isSubscriber && !isAdmin) {
+        const isBlockedRoute = blockedRoutesForSubscribers.some(route => pathname.startsWith(route))
+        if (isBlockedRoute) {
+            router.push('/my-plan?error=access_denied')
+            return (
+                <div className="flex min-h-screen items-center justify-center">
+                    <Spinner size="lg" />
+                </div>
+            )
+        }
     }
 
     return <>{children}</>

@@ -7,6 +7,8 @@ import { MercadoPagoService } from './mercadopago.service';
 import { TransFiService } from './transfi.service';
 import { SubscriptionsController } from './subscriptions.controller';
 import { SubscriptionPaymentsController } from './subscription-payments.controller';
+import { SubscriptionGuard } from './guards/subscription.guard';
+import { BlockSubscribersGuard } from './guards/block-subscribers.guard';
 
 @Module({
   imports: [ConfigModule],
@@ -31,6 +33,6 @@ import { SubscriptionPaymentsController } from './subscription-payments.controll
       inject: [ConfigService],
     },
   ],
-  exports: [SubscriptionsService, MercadoPagoService, TransFiService],
+  exports: [SubscriptionsService, MercadoPagoService, TransFiService, SubscriptionGuard, BlockSubscribersGuard],
 })
 export class SubscriptionsModule {}

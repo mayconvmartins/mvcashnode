@@ -13,6 +13,7 @@ export enum ExchangeType {
 export enum UserRole {
   ADMIN = 'admin',
   USER = 'user',
+  SUBSCRIBER = 'subscriber',
 }
 
 export enum PositionSide {
