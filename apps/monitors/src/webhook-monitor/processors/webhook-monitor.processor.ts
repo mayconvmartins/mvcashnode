@@ -38,9 +38,19 @@ export class WebhookMonitorProcessor extends WorkerHost {
           state: 'MONITORING',
         },
         include: {
-          exchange_account: {
-            select: {
-              exchange: true,
+          webhook_source: {
+            include: {
+              bindings: {
+                where: { is_active: true },
+                include: {
+                  exchange_account: {
+                    select: {
+                      exchange: true,
+                    },
+                  },
+                },
+                take: 1, // Pegar apenas uma conta para buscar o exchange
+              },
             },
           },
         },
@@ -69,15 +79,16 @@ export class WebhookMonitorProcessor extends WorkerHost {
         try {
           checked++;
 
-          // Buscar preço atual
+          // Buscar preço atual (sempre tenta Binance primeiro, depois Bybit se falhar)
+          // Não precisa mais do exchange específico, sempre usa Binance primeiro
           const currentPrice = await this.getCurrentPrice(
-            alert.exchange_account.exchange,
+            'BINANCE', // Sempre começar com Binance
             alert.symbol
           );
 
           if (!currentPrice || currentPrice <= 0) {
             this.logger.warn(
-              `[WEBHOOK-MONITOR] Preço inválido para ${alert.symbol} na ${alert.exchange_account.exchange}: ${currentPrice}`
+              `[WEBHOOK-MONITOR] Preço inválido para ${alert.symbol}: ${currentPrice}`
             );
             continue;
           }
@@ -156,48 +167,62 @@ export class WebhookMonitorProcessor extends WorkerHost {
 
   /**
    * Buscar preço atual usando cache do price-sync ou buscar diretamente
+   * Sempre tenta Binance primeiro, depois Bybit se falhar
    */
-  private async getCurrentPrice(exchange: string, symbol: string): Promise<number | null> {
-    try {
-      // Tentar buscar do cache primeiro
-      const cacheKey = `price:${exchange}:${symbol}`;
-      const cachedPrice = await this.cacheService.get<number>(cacheKey);
+  private async getCurrentPrice(_exchange: string, symbol: string): Promise<number | null> {
+    // Sempre tentar Binance primeiro
+    const exchangesToTry = ['BINANCE', 'BYBIT'];
+    
+    for (const exchangeToTry of exchangesToTry) {
+      try {
+        // Tentar buscar do cache primeiro
+        const cacheKey = `price:${exchangeToTry}:${symbol}`;
+        const cachedPrice = await this.cacheService.get<number>(cacheKey);
 
-      if (cachedPrice !== null && cachedPrice > 0) {
+        if (cachedPrice !== null && cachedPrice > 0) {
+          this.logger.debug(
+            `[WEBHOOK-MONITOR] Preço de ${symbol} obtido do cache (${exchangeToTry}): ${cachedPrice}`
+          );
+          return cachedPrice;
+        }
+
+        // Se não estiver no cache, buscar da exchange
         this.logger.debug(
-          `[WEBHOOK-MONITOR] Preço de ${symbol} obtido do cache: ${cachedPrice}`
+          `[WEBHOOK-MONITOR] Preço não encontrado no cache, buscando da exchange ${exchangeToTry}...`
         );
-        return cachedPrice;
-      }
 
-      // Se não estiver no cache, buscar da exchange
-      this.logger.debug(
-        `[WEBHOOK-MONITOR] Preço não encontrado no cache, buscando da exchange ${exchange}...`
-      );
+        const adapter = AdapterFactory.createAdapter(exchangeToTry as ExchangeType);
+        const ticker = await adapter.fetchTicker(symbol);
+        const price = ticker.last;
 
-      const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
-      const ticker = await adapter.fetchTicker(symbol);
-      const price = ticker.last;
+        if (price && price > 0) {
+          // Armazenar no cache com TTL de 25 segundos
+          await this.cacheService.set(cacheKey, price, { ttl: 25 });
+          this.logger.debug(
+            `[WEBHOOK-MONITOR] Preço de ${symbol} obtido da ${exchangeToTry} e armazenado no cache: ${price}`
+          );
+          return price;
+        }
 
-      if (price && price > 0) {
-        // Armazenar no cache com TTL de 25 segundos
-        await this.cacheService.set(cacheKey, price, { ttl: 25 });
-        this.logger.debug(
-          `[WEBHOOK-MONITOR] Preço de ${symbol} obtido da exchange e armazenado no cache: ${price}`
+        this.logger.warn(
+          `[WEBHOOK-MONITOR] Preço inválido para ${symbol} na ${exchangeToTry}: ${price}`
         );
-        return price;
+      } catch (error: any) {
+        this.logger.warn(
+          `[WEBHOOK-MONITOR] Erro ao buscar preço para ${symbol} na ${exchangeToTry}: ${error.message}`
+        );
+        // Continuar para próxima exchange se não for a última
+        if (exchangeToTry !== exchangesToTry[exchangesToTry.length - 1]) {
+          continue;
+        }
       }
-
-      this.logger.warn(
-        `[WEBHOOK-MONITOR] Preço inválido para ${symbol} na ${exchange}: ${price}`
-      );
-      return null;
-    } catch (error: any) {
-      this.logger.error(
-        `[WEBHOOK-MONITOR] Erro ao buscar preço para ${symbol} na ${exchange}: ${error.message}`
-      );
-      return null;
     }
+
+    // Se todas as exchanges falharam
+    this.logger.error(
+      `[WEBHOOK-MONITOR] Falha ao buscar preço para ${symbol} em todas as exchanges tentadas`
+    );
+    return null;
   }
 }
 

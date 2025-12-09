@@ -519,9 +519,22 @@ export class WebhookMonitorService {
       state: WebhookMonitorAlertState.MONITORING,
     };
 
+    // Filtrar por usuário através do webhook_source (owner) ou através dos bindings
     if (userId) {
-      where.exchange_account = {
-        user_id: userId,
+      where.webhook_source = {
+        OR: [
+          { owner_user_id: userId }, // Webhook próprio do usuário
+          {
+            bindings: {
+              some: {
+                is_active: true,
+                exchange_account: {
+                  user_id: userId,
+                },
+              },
+            },
+          }, // Webhook compartilhado com conta do usuário
+        ],
       };
     }
 
@@ -569,9 +582,22 @@ export class WebhookMonitorService {
   }): Promise<any[]> {
     const where: any = {};
 
+    // Filtrar por usuário através do webhook_source (owner) ou através dos bindings
     if (filters.userId) {
-      where.exchange_account = {
-        user_id: filters.userId,
+      where.webhook_source = {
+        OR: [
+          { owner_user_id: filters.userId }, // Webhook próprio do usuário
+          {
+            bindings: {
+              some: {
+                is_active: true,
+                exchange_account: {
+                  user_id: filters.userId,
+                },
+              },
+            },
+          }, // Webhook compartilhado com conta do usuário
+        ],
       };
     }
 
