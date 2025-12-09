@@ -571,6 +571,7 @@ export class WebhookMonitorService {
 
   /**
    * Listar histórico de alertas
+   * Agrupa por (webhook_source_id, symbol, trade_mode) e retorna apenas o mais recente de cada grupo
    */
   async listHistory(filters: {
     userId?: number;
@@ -580,52 +581,97 @@ export class WebhookMonitorService {
     endDate?: Date;
     limit?: number;
   }): Promise<any[]> {
-    const where: any = {};
+    // Construir condições WHERE para a query SQL
+    const conditions: string[] = [];
+    const params: any[] = [];
 
-    // Filtrar por usuário através do webhook_source (owner) ou através dos bindings
-    if (filters.userId) {
-      where.webhook_source = {
-        OR: [
-          { owner_user_id: filters.userId }, // Webhook próprio do usuário
-          {
-            bindings: {
-              some: {
-                is_active: true,
-                exchange_account: {
-                  user_id: filters.userId,
-                },
-              },
-            },
-          }, // Webhook compartilhado com conta do usuário
-        ],
-      };
-    }
-
-    if (filters.symbol) {
-      where.symbol = filters.symbol;
-    }
-
-    // Se state foi especificado, usar ele; senão, mostrar apenas EXECUTED e CANCELLED (não MONITORING)
+    // Filtrar por state
     if (filters.state) {
-      where.state = filters.state;
+      conditions.push(`wma.state = ?`);
+      params.push(filters.state);
     } else {
-      where.state = {
-        in: [WebhookMonitorAlertState.EXECUTED, WebhookMonitorAlertState.CANCELLED],
-      };
+      conditions.push(`wma.state IN (?, ?)`);
+      params.push(WebhookMonitorAlertState.EXECUTED, WebhookMonitorAlertState.CANCELLED);
     }
 
-    if (filters.startDate || filters.endDate) {
-      where.created_at = {};
-      if (filters.startDate) {
-        where.created_at.gte = filters.startDate;
-      }
-      if (filters.endDate) {
-        where.created_at.lte = filters.endDate;
-      }
+    // Filtrar por symbol
+    if (filters.symbol) {
+      conditions.push(`wma.symbol = ?`);
+      params.push(filters.symbol);
     }
 
+    // Filtrar por data
+    if (filters.startDate) {
+      conditions.push(`wma.created_at >= ?`);
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push(`wma.created_at <= ?`);
+      params.push(filters.endDate);
+    }
+
+    // Filtrar por userId através de webhook_source
+    let userIdCondition = '';
+    if (filters.userId) {
+      userIdCondition = `AND (
+        ws.owner_user_id = ?
+        OR EXISTS (
+          SELECT 1 FROM account_webhook_bindings awb
+          INNER JOIN exchange_accounts ea ON awb.exchange_account_id = ea.id
+          WHERE awb.webhook_source_id = wma.webhook_source_id
+            AND awb.is_active = true
+            AND ea.user_id = ?
+        )
+      )`;
+      params.push(filters.userId, filters.userId);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Query SQL raw para identificar os IDs mais recentes de cada grupo (webhook_source_id, symbol, trade_mode)
+    // Usa uma subquery correlacionada para pegar o ID mais recente de cada grupo
+    const latestIdsQuery = `
+      SELECT wma.id
+      FROM webhook_monitor_alerts wma
+      INNER JOIN webhook_sources ws ON wma.webhook_source_id = ws.id
+      ${whereClause}
+      ${userIdCondition}
+      AND wma.id = (
+        SELECT wma2.id
+        FROM webhook_monitor_alerts wma2
+        WHERE wma2.webhook_source_id = wma.webhook_source_id
+          AND wma2.symbol = wma.symbol
+          AND wma2.trade_mode = wma.trade_mode
+        ORDER BY wma2.created_at DESC, wma2.id DESC
+        LIMIT 1
+      )
+      ORDER BY wma.created_at DESC
+      ${filters.limit ? `LIMIT ?` : 'LIMIT 100'}
+    `;
+
+    if (filters.limit) {
+      params.push(filters.limit);
+    }
+
+    // Executar query raw para obter os IDs
+    const latestIds = await this.prisma.$queryRawUnsafe<Array<{ id: number }>>(
+      latestIdsQuery,
+      ...params
+    );
+
+    if (latestIds.length === 0) {
+      return [];
+    }
+
+    const ids = latestIds.map((row) => row.id);
+
+    // Buscar os detalhes completos dos alertas usando Prisma
     return this.prisma.webhookMonitorAlert.findMany({
-      where,
+      where: {
+        id: {
+          in: ids,
+        },
+      },
       include: {
         webhook_source: {
           select: {
@@ -652,7 +698,6 @@ export class WebhookMonitorService {
       orderBy: {
         created_at: 'desc',
       },
-      take: filters.limit || 100,
     });
   }
 }

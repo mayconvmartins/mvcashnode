@@ -79,12 +79,11 @@ export class WebhookMonitorProcessor extends WorkerHost {
         try {
           checked++;
 
-          // Buscar preço atual (sempre tenta Binance primeiro, depois Bybit se falhar)
-          // Não precisa mais do exchange específico, sempre usa Binance primeiro
-          const currentPrice = await this.getCurrentPrice(
-            'BINANCE', // Sempre começar com Binance
-            alert.symbol
-          );
+      // Buscar preço atual usando cache do sistema (BINANCE_SPOT)
+      const currentPrice = await this.getCurrentPrice(
+        'BINANCE_SPOT', // Usar BINANCE_SPOT que é o cache padrão
+        alert.symbol
+      );
 
           if (!currentPrice || currentPrice <= 0) {
             this.logger.warn(
@@ -166,61 +165,68 @@ export class WebhookMonitorProcessor extends WorkerHost {
   }
 
   /**
-   * Buscar preço atual usando cache do price-sync ou buscar diretamente
-   * Sempre tenta Binance primeiro, depois Bybit se falhar
+   * Buscar preço atual usando cache do price-sync
+   * Tenta buscar do cache de todas as exchanges comuns antes de buscar diretamente
    */
   private async getCurrentPrice(_exchange: string, symbol: string): Promise<number | null> {
-    // Sempre tentar Binance primeiro
-    const exchangesToTry = ['BINANCE', 'BYBIT'];
-    
-    for (const exchangeToTry of exchangesToTry) {
-      try {
-        // Tentar buscar do cache primeiro
-        const cacheKey = `price:${exchangeToTry}:${symbol}`;
-        const cachedPrice = await this.cacheService.get<number>(cacheKey);
+    // Tentar buscar do cache de todas as exchanges comuns (formato usado pelo price-sync)
+    // O price-sync salva com formato: price:${exchange}:${symbol} onde exchange é o enum do banco
+    const commonExchanges = [
+      'BINANCE_SPOT',
+      'BINANCE_FUTURES',
+      'BYBIT_SPOT',
+      'BYBIT_FUTURES',
+      'BINANCE', // Fallback para formato antigo
+    ];
 
+    for (const exchange of commonExchanges) {
+      try {
+        const cacheKey = `price:${exchange}:${symbol}`;
+        const cachedPrice = await this.cacheService.get<number>(cacheKey);
         if (cachedPrice !== null && cachedPrice > 0) {
           this.logger.debug(
-            `[WEBHOOK-MONITOR] Preço de ${symbol} obtido do cache (${exchangeToTry}): ${cachedPrice}`
+            `[WEBHOOK-MONITOR] Preço de ${symbol} obtido do cache (${exchange}): ${cachedPrice}`
           );
           return cachedPrice;
         }
-
-        // Se não estiver no cache, buscar da exchange
-        this.logger.debug(
-          `[WEBHOOK-MONITOR] Preço não encontrado no cache, buscando da exchange ${exchangeToTry}...`
-        );
-
-        const adapter = AdapterFactory.createAdapter(exchangeToTry as ExchangeType);
-        const ticker = await adapter.fetchTicker(symbol);
-        const price = ticker.last;
-
-        if (price && price > 0) {
-          // Armazenar no cache com TTL de 25 segundos
-          await this.cacheService.set(cacheKey, price, { ttl: 25 });
-          this.logger.debug(
-            `[WEBHOOK-MONITOR] Preço de ${symbol} obtido da ${exchangeToTry} e armazenado no cache: ${price}`
-          );
-          return price;
-        }
-
-        this.logger.warn(
-          `[WEBHOOK-MONITOR] Preço inválido para ${symbol} na ${exchangeToTry}: ${price}`
-        );
       } catch (error: any) {
-        this.logger.warn(
-          `[WEBHOOK-MONITOR] Erro ao buscar preço para ${symbol} na ${exchangeToTry}: ${error.message}`
-        );
-        // Continuar para próxima exchange se não for a última
-        if (exchangeToTry !== exchangesToTry[exchangesToTry.length - 1]) {
-          continue;
-        }
+        // Continuar para próxima exchange
+        continue;
       }
     }
 
-    // Se todas as exchanges falharam
+    // Se não encontrou no cache, tentar buscar diretamente da Binance
+    try {
+      this.logger.debug(
+        `[WEBHOOK-MONITOR] Preço não encontrado no cache, buscando da exchange BINANCE_SPOT...`
+      );
+
+      const adapter = AdapterFactory.createAdapter('BINANCE_SPOT' as ExchangeType);
+      const ticker = await adapter.fetchTicker(symbol);
+      const price = ticker.last;
+
+      if (price && price > 0) {
+        // Armazenar no cache com TTL de 25 segundos (usar chave padrão BINANCE_SPOT)
+        const cacheKey = `price:BINANCE_SPOT:${symbol}`;
+        await this.cacheService.set(cacheKey, price, { ttl: 25 });
+        this.logger.debug(
+          `[WEBHOOK-MONITOR] Preço de ${symbol} obtido da BINANCE_SPOT e armazenado no cache: ${price}`
+        );
+        return price;
+      }
+
+      this.logger.warn(
+        `[WEBHOOK-MONITOR] Preço inválido para ${symbol} na BINANCE_SPOT: ${price}`
+      );
+    } catch (error: any) {
+      this.logger.warn(
+        `[WEBHOOK-MONITOR] Erro ao buscar preço para ${symbol} na BINANCE_SPOT: ${error.message}`
+      );
+    }
+
+    // Se falhou
     this.logger.error(
-      `[WEBHOOK-MONITOR] Falha ao buscar preço para ${symbol} em todas as exchanges tentadas`
+      `[WEBHOOK-MONITOR] Falha ao buscar preço para ${symbol}`
     );
     return null;
   }

@@ -25,7 +25,7 @@ export default function WebhookMonitorPage() {
     const { data: alerts, isLoading: alertsLoading } = useQuery({
         queryKey: ['webhook-monitor-alerts'],
         queryFn: webhookMonitorService.listAlerts,
-        refetchInterval: 10000, // Atualizar a cada 10 segundos
+        refetchInterval: 3000, // Atualizar a cada 3 segundos para realtime
     })
 
     const { data: history, isLoading: historyLoading } = useQuery({
