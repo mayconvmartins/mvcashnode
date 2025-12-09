@@ -584,7 +584,24 @@ export default function PositionsPage() {
         {
             key: 'realized_profit_usd',
             label: 'PnL Realizado',
-            render: (position: Position) => <PnLBadge value={Number(position.realized_profit_usd || 0)} />,
+            render: (position: Position) => {
+                const realizedPnl = Number(position.realized_profit_usd || 0);
+                const investedValue = Number(position.invested_value_usd || 0);
+                const profitPct = investedValue > 0 ? (realizedPnl / investedValue) * 100 : 0;
+                
+                return (
+                    <div className="flex flex-col gap-1">
+                        <PnLBadge value={realizedPnl} />
+                        {position.status === 'CLOSED' && realizedPnl !== 0 && (
+                            <span className={`text-xs font-mono ${
+                                profitPct >= 0 ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                                {profitPct >= 0 ? '+' : ''}{profitPct.toFixed(2)}%
+                            </span>
+                        )}
+                    </div>
+                );
+            },
         },
         {
             key: 'unrealized_pnl',
@@ -795,7 +812,24 @@ export default function PositionsPage() {
         {
             key: 'realized_profit_usd',
             label: 'PnL Realizado',
-            render: (position) => <PnLBadge value={Number(position.realized_profit_usd || 0)} />,
+            render: (position: Position) => {
+                const realizedPnl = Number(position.realized_profit_usd || 0);
+                const investedValue = Number(position.invested_value_usd || 0);
+                const profitPct = investedValue > 0 ? (realizedPnl / investedValue) * 100 : 0;
+                
+                return (
+                    <div className="flex flex-col gap-1">
+                        <PnLBadge value={realizedPnl} />
+                        {position.status === 'CLOSED' && realizedPnl !== 0 && (
+                            <span className={`text-xs font-mono ${
+                                profitPct >= 0 ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                                {profitPct >= 0 ? '+' : ''}{profitPct.toFixed(2)}%
+                            </span>
+                        )}
+                    </div>
+                );
+            },
         },
         {
             key: 'unrealized_pnl',

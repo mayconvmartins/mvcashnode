@@ -234,6 +234,16 @@ export default function PositionDetailPage() {
                                 {formatCurrency(Number(position.realized_profit_usd || 0))}
                             </span>
                         </div>
+                        {position.status === 'CLOSED' && Number(position.realized_profit_usd || 0) !== 0 && Number(position.invested_value_usd || 0) > 0 && (
+                            <p className={`text-sm font-semibold mt-1 ${
+                                (Number(position.realized_profit_usd || 0) / Number(position.invested_value_usd || 1)) * 100 >= 0 
+                                    ? 'text-green-600' 
+                                    : 'text-red-600'
+                            }`}>
+                                {((Number(position.realized_profit_usd || 0) / Number(position.invested_value_usd || 1)) * 100) >= 0 ? '+' : ''}
+                                {((Number(position.realized_profit_usd || 0) / Number(position.invested_value_usd || 1)) * 100).toFixed(2)}% de lucro
+                            </p>
+                        )}
                         <p className="text-sm text-muted-foreground mt-1">
                             {qtyClosed > 0 ? `${formatAssetAmount(qtyClosed)} (${qtyClosedPct.toFixed(1)}%) fechado` : 'Nenhuma venda realizada'}
                         </p>

@@ -1,25 +1,33 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Eye, X } from 'lucide-react'
+import { Eye, X, History } from 'lucide-react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { ModeToggle } from '@/components/shared/ModeToggle'
 import { limitOrdersService } from '@/lib/api/limit-orders.service'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
 import { toast } from 'sonner'
-import { formatCurrency, formatDateTime } from '@/lib/utils/format'
+import { formatCurrency, formatDateTime, formatAssetAmount } from '@/lib/utils/format'
 
 export default function LimitOrdersPage() {
     const queryClient = useQueryClient()
     const { tradeMode } = useTradeMode()
+    const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending')
 
     const { data: orders, isLoading } = useQuery({
-        queryKey: ['limit-orders', tradeMode],
-        queryFn: () => limitOrdersService.list({ trade_mode: tradeMode }),
+        queryKey: ['limit-orders', tradeMode, activeTab],
+        queryFn: () => {
+            if (activeTab === 'history') {
+                return limitOrdersService.getHistory()
+            }
+            return limitOrdersService.list({ trade_mode: tradeMode })
+        },
     })
 
     const cancelMutation = useMutation({
@@ -34,7 +42,16 @@ export default function LimitOrdersPage() {
     })
 
     const columns: Column<any>[] = [
-        { key: 'symbol', label: 'Símbolo', render: (order) => <span className="font-mono">{order.symbol}</span> },
+        { 
+            key: 'id', 
+            label: 'ID', 
+            render: (order) => <span className="font-mono text-sm">#{order.id}</span> 
+        },
+        { 
+            key: 'symbol', 
+            label: 'Símbolo', 
+            render: (order) => <span className="font-mono">{order.symbol}</span> 
+        },
         {
             key: 'side',
             label: 'Lado',
@@ -42,14 +59,69 @@ export default function LimitOrdersPage() {
                 <Badge variant={order.side === 'BUY' ? 'success' : 'destructive'}>{order.side}</Badge>
             ),
         },
-        { key: 'quantity', label: 'Quantidade', render: (order) => <span className="font-mono">{order.quantity}</span> },
-        { key: 'price', label: 'Preço', render: (order) => <span className="font-mono">{formatCurrency(order.price)}</span> },
+        { 
+            key: 'quantity', 
+            label: 'Quantidade', 
+            render: (order) => {
+                const qty = order.base_quantity || order.quote_amount
+                if (!qty) return <span className="text-muted-foreground">-</span>
+                if (order.base_quantity) {
+                    const baseAsset = order.symbol.split('/')[0] || order.symbol
+                    return <span className="font-mono">{formatAssetAmount(order.base_quantity, baseAsset)}</span>
+                }
+                return <span className="font-mono">{formatCurrency(order.quote_amount)}</span>
+            }
+        },
+        { 
+            key: 'price', 
+            label: 'Preço Limite', 
+            render: (order) => (
+                <span className="font-mono">
+                    {order.limit_price ? formatCurrency(order.limit_price) : '-'}
+                </span>
+            )
+        },
+        {
+            key: 'position',
+            label: 'Posição',
+            render: (order) => {
+                if (order.side === 'SELL') {
+                    if (order.position_id_to_close) {
+                        return (
+                            <Link
+                                href={`/positions/${order.position_id_to_close}`}
+                                className="text-primary hover:underline font-mono text-sm"
+                            >
+                                #{order.position_id_to_close}
+                            </Link>
+                        )
+                    } else {
+                        return (
+                            <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
+                                FIFO
+                            </Badge>
+                        )
+                    }
+                }
+                return <span className="text-muted-foreground">-</span>
+            },
+        },
         {
             key: 'status',
             label: 'Status',
-            render: (order) => <Badge variant="secondary">{order.status}</Badge>,
+            render: (order) => {
+                const variant = 
+                    order.status === 'FILLED' ? 'success' :
+                    order.status === 'CANCELED' || order.status === 'EXPIRED' ? 'destructive' :
+                    'secondary'
+                return <Badge variant={variant}>{order.status}</Badge>
+            },
         },
-        { key: 'created_at', label: 'Criado em', render: (order) => <span className="text-sm">{formatDateTime(order.created_at)}</span> },
+        { 
+            key: 'created_at', 
+            label: 'Criado em', 
+            render: (order) => <span className="text-sm">{formatDateTime(order.created_at)}</span> 
+        },
         {
             key: 'actions',
             label: 'Ações',
@@ -60,14 +132,20 @@ export default function LimitOrdersPage() {
                             <Eye className="h-4 w-4" />
                         </Button>
                     </Link>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => cancelMutation.mutate(order.id)}
-                        disabled={cancelMutation.isPending}
-                    >
-                        <X className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {['PENDING', 'PENDING_LIMIT', 'EXECUTING'].includes(order.status) && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                if (confirm('Tem certeza que deseja cancelar esta ordem?')) {
+                                    cancelMutation.mutate(order.id)
+                                }
+                            }}
+                            disabled={cancelMutation.isPending}
+                        >
+                            <X className="h-4 w-4 text-destructive" />
+                        </Button>
+                    )}
                 </div>
             ),
         },
@@ -78,28 +156,60 @@ export default function LimitOrdersPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold gradient-text">Ordens Limit</h1>
-                    <p className="text-muted-foreground mt-1">Gerencie suas ordens limit pendentes</p>
+                    <p className="text-muted-foreground mt-1">Gerencie suas ordens limit pendentes e histórico</p>
                 </div>
                 <ModeToggle />
             </div>
 
-            <Card className="glass">
-                <CardHeader>
-                    <CardTitle>Ordens Pendentes - {tradeMode}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <DataTable
-                        data={orders || []}
-                        columns={columns}
-                        loading={isLoading}
-                        emptyState={
-                            <div className="text-center py-12">
-                                <p className="text-muted-foreground">Nenhuma ordem limit pendente</p>
-                            </div>
-                        }
-                    />
-                </CardContent>
-            </Card>
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'pending' | 'history')} className="space-y-4">
+                <TabsList>
+                    <TabsTrigger value="pending">Pendentes</TabsTrigger>
+                    <TabsTrigger value="history">
+                        <History className="h-4 w-4 mr-2" />
+                        Histórico
+                    </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="pending">
+                    <Card className="glass">
+                        <CardHeader>
+                            <CardTitle>Ordens Pendentes - {tradeMode}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <DataTable
+                                data={orders || []}
+                                columns={columns}
+                                loading={isLoading}
+                                emptyState={
+                                    <div className="text-center py-12">
+                                        <p className="text-muted-foreground">Nenhuma ordem limit pendente</p>
+                                    </div>
+                                }
+                            />
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="history">
+                    <Card className="glass">
+                        <CardHeader>
+                            <CardTitle>Histórico de Ordens Limit - {tradeMode}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <DataTable
+                                data={orders || []}
+                                columns={columns}
+                                loading={isLoading}
+                                emptyState={
+                                    <div className="text-center py-12">
+                                        <p className="text-muted-foreground">Nenhuma ordem limit no histórico</p>
+                                    </div>
+                                }
+                            />
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
         </div>
     )
 }

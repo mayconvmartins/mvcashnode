@@ -133,7 +133,8 @@ export class LimitOrdersController {
         where.status = status;
       } else {
         // Por padrão, mostrar apenas pendentes se não especificado
-        where.status = { in: ['PENDING_LIMIT', 'EXECUTING'] };
+        // Incluir PENDING também para ordens que ainda não foram processadas
+        where.status = { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING'] };
       }
 
       if (side) {
@@ -157,7 +158,21 @@ export class LimitOrdersController {
 
       const jobs = await this.prisma.tradeJob.findMany({
         where,
-        include: {
+        select: {
+          id: true,
+          exchange_account_id: true,
+          trade_mode: true,
+          symbol: true,
+          side: true,
+          order_type: true,
+          quote_amount: true,
+          base_quantity: true,
+          limit_price: true,
+          status: true,
+          position_id_to_close: true,
+          limit_order_expires_at: true,
+          created_at: true,
+          updated_at: true,
           exchange_account: {
             select: {
               id: true,
@@ -191,6 +206,7 @@ export class LimitOrdersController {
         return {
           id: job.id,
           position_id: job.position_open?.id || null,
+          position_id_to_close: job.position_id_to_close || null,
           symbol: job.symbol,
           side: job.side,
           order_type: job.order_type,
@@ -198,6 +214,7 @@ export class LimitOrdersController {
           base_quantity: job.base_quantity?.toNumber() || null,
           quote_amount: job.quote_amount?.toNumber() || null,
           status: job.status,
+          status_exchange: execution?.status_exchange || null,
           exchange_order_id: execution?.exchange_order_id || null,
           exchange_account: job.exchange_account,
           limit_order_expires_at: job.limit_order_expires_at,
@@ -636,7 +653,7 @@ export class LimitOrdersController {
       const where: any = {
         exchange_account_id: { in: accountIds },
         order_type: 'LIMIT',
-        status: { in: ['FILLED', 'CANCELED'] },
+        status: { in: ['FILLED', 'CANCELED', 'EXPIRED'] },
       };
 
       if (status) {
