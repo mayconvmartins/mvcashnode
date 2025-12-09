@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
-import type { CreateManualPositionDto, ExchangeAccount } from '@/lib/types'
+import type { CreateManualPositionDto, ExchangeAccount, PositionStatus } from '@/lib/types'
 
 // Tipo estendido para contas retornadas pelo listAll (admin)
 type ExchangeAccountWithUser = ExchangeAccount & {
@@ -66,7 +66,7 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
     const { data: openPositions, isLoading: loadingPositions } = useQuery({
         queryKey: ['positions', 'open', exchangeAccountId, exchangeSymbol],
         queryFn: () => positionsService.list({
-            status: 'OPEN',
+            status: PositionStatus.OPEN,
             exchange_account_id: exchangeAccountId ? parseInt(exchangeAccountId) : undefined,
             symbol: exchangeSymbol || undefined,
             limit: 1000,
