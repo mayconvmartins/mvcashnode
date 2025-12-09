@@ -522,10 +522,28 @@ export class AdminEmailTemplatesController {
 
   constructor() {
     // Caminho para os templates de email
-    // __dirname aponta para apps/api/dist/admin quando compilado
-    // Precisamos voltar para a raiz do projeto e ir até packages/notifications/src/email-templates
-    const projectRoot = path.resolve(__dirname, '../../../..');
-    this.templatesDir = path.join(projectRoot, 'packages/notifications/src/email-templates');
+    // Tentar múltiplos caminhos possíveis (desenvolvimento e produção)
+    const possiblePaths = [
+      path.resolve(process.cwd(), 'packages/notifications/src/email-templates'),
+      path.resolve(__dirname, '../../../../packages/notifications/src/email-templates'),
+      path.resolve(__dirname, '../../../packages/notifications/src/email-templates'),
+    ];
+    
+    let templatesDir: string | null = null;
+    for (const possiblePath of possiblePaths) {
+      if (fs.existsSync(possiblePath)) {
+        templatesDir = possiblePath;
+        break;
+      }
+    }
+    
+    if (!templatesDir) {
+      // Se não encontrar, usar o primeiro caminho como padrão
+      templatesDir = possiblePaths[0];
+      console.warn(`[AdminEmailTemplatesController] Diretório de templates não encontrado, usando: ${templatesDir}`);
+    }
+    
+    this.templatesDir = templatesDir;
   }
 
   @Get()

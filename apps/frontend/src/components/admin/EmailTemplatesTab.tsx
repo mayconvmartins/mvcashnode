@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminService } from '@/lib/api/admin.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -186,17 +186,20 @@ function EmailTemplateEditorDialog({
     const [content, setContent] = useState('')
     const [isLoading, setIsLoading] = useState(true)
 
-    const { data: template } = useQuery({
+    const { data: template, isLoading: isLoadingTemplate, isError } = useQuery({
         queryKey: ['admin', 'email-templates', templateName],
         queryFn: () => adminService.getEmailTemplate(templateName),
-        onSuccess: (data) => {
-            setContent(data.content)
-            setIsLoading(false)
-        },
-        onError: () => {
-            setIsLoading(false)
-        },
+        enabled: !!templateName,
     })
+
+    useEffect(() => {
+        if (template) {
+            setContent(template.content)
+            setIsLoading(false)
+        } else if (isError || (!isLoadingTemplate && !template)) {
+            setIsLoading(false)
+        }
+    }, [template, isLoadingTemplate, isError])
 
     return (
         <Dialog open={!!templateName} onOpenChange={onClose}>
