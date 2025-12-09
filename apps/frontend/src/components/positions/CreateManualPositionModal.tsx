@@ -70,7 +70,7 @@ export function CreateManualPositionModal({ open, onClose }: CreateManualPositio
             status: PositionStatus.OPEN,
             exchange_account_id: exchangeAccountId ? parseInt(exchangeAccountId) : undefined,
             symbol: exchangeSymbol || undefined,
-            limit: 1000,
+            limit: 100,
         }),
         enabled: open && exchangeSide === 'SELL' && !!exchangeAccountId && !!exchangeSymbol,
     })
