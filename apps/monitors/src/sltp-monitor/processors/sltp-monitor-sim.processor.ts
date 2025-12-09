@@ -106,6 +106,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               orderType: 'LIMIT',
               baseQuantity: position.qty_remaining.toNumber(),
               limitPrice,
+              positionIdToClose: position.id, // Vincular posição específica
               skipParameterValidation: true,
             });
 
@@ -151,6 +152,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               orderType: 'LIMIT',
               baseQuantity: position.qty_remaining.toNumber(),
               limitPrice,
+              positionIdToClose: position.id, // Vincular posição específica
               skipParameterValidation: true,
             });
 
@@ -208,6 +210,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               orderType: 'LIMIT',
               baseQuantity: position.qty_remaining.toNumber(),
               limitPrice,
+              positionIdToClose: position.id, // Vincular posição específica
               skipParameterValidation: true,
             });
 

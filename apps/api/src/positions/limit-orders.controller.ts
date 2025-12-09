@@ -176,6 +176,7 @@ export class LimitOrdersController {
             orderBy: { id: 'desc' },
             select: {
               exchange_order_id: true,
+              status_exchange: true,
             },
           },
         },

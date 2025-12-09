@@ -1091,16 +1091,38 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         }
       }
 
-      // Update job status
-      const finalStatus = isPartiallyFilled ? TradeJobStatus.PARTIALLY_FILLED : TradeJobStatus.FILLED;
-      await this.prisma.tradeJob.update({
+      // Update job status - verificar status atual antes de atualizar
+      // onSellExecuted pode ter marcado como SKIPPED ou PARTIALLY_FILLED
+      const currentJob = await this.prisma.tradeJob.findUnique({
         where: { id: tradeJobId },
-        data: {
-          status: finalStatus,
-          reason_code: isPartiallyFilled ? 'PARTIALLY_FILLED' : null,
-          reason_message: isPartiallyFilled ? 'Ordem parcialmente preenchida' : null,
-        },
+        select: { status: true },
       });
+
+      let finalStatus: string;
+
+      // Se o job já foi marcado como SKIPPED por onSellExecuted (quando não há posições elegíveis), não sobrescrever
+      if (currentJob?.status === TradeJobStatus.SKIPPED) {
+        finalStatus = TradeJobStatus.SKIPPED;
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} já está como SKIPPED (marcado por onSellExecuted), não atualizando status`);
+      }
+      // Se o job já foi marcado como PARTIALLY_FILLED por onSellExecuted, manter esse status
+      else if (currentJob?.status === TradeJobStatus.PARTIALLY_FILLED) {
+        finalStatus = TradeJobStatus.PARTIALLY_FILLED;
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} já está como PARTIALLY_FILLED (marcado por onSellExecuted), mantendo status`);
+      }
+      // Se o status ainda é EXECUTING ou outro status intermediário, atualizar para FILLED/PARTIALLY_FILLED
+      else {
+        finalStatus = isPartiallyFilled ? TradeJobStatus.PARTIALLY_FILLED : TradeJobStatus.FILLED;
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: finalStatus,
+            reason_code: isPartiallyFilled ? 'PARTIALLY_FILLED' : null,
+            reason_message: isPartiallyFilled ? 'Ordem parcialmente preenchida' : null,
+          },
+        });
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} atualizado para status: ${finalStatus}`);
+      }
 
       const duration = Date.now() - startTime;
       this.logger.log(`[EXECUTOR] Trade job ${tradeJobId} concluído com sucesso em ${duration}ms. Status: ${finalStatus}`);

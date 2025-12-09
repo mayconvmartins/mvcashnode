@@ -14,6 +14,7 @@ export interface CreateTradeJobDto {
   limitPrice?: number;
   vaultId?: number;
   limitOrderExpiresAt?: Date;
+  positionIdToClose?: number; // ID da posição específica a fechar (para SELL)
   skipParameterValidation?: boolean; // Para casos onde já temos quantidade definida
 }
 
@@ -104,6 +105,7 @@ export class TradeJobService {
         limit_price: dto.limitPrice || null,
         vault_id: dto.vaultId || null,
         limit_order_expires_at: dto.limitOrderExpiresAt || null,
+        position_id_to_close: dto.positionIdToClose || null,
         status: initialStatus,
       },
     });

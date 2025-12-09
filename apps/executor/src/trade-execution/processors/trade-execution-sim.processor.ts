@@ -441,11 +441,29 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         }
       }
 
-      // Update job status
-      await this.prisma.tradeJob.update({
+      // Update job status - verificar status atual antes de atualizar
+      // onSellExecuted pode ter marcado como SKIPPED, FILLED ou PARTIALLY_FILLED
+      const currentJob = await this.prisma.tradeJob.findUnique({
         where: { id: tradeJobId },
-        data: { status: TradeJobStatus.FILLED },
+        select: { status: true },
       });
+
+      // Se o job já foi marcado como SKIPPED por onSellExecuted (quando não há posições elegíveis), não sobrescrever
+      if (currentJob?.status === TradeJobStatus.SKIPPED) {
+        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} já está como SKIPPED (marcado por onSellExecuted), não atualizando status`);
+      }
+      // Se o job já foi marcado como FILLED ou PARTIALLY_FILLED por onSellExecuted, manter esse status
+      else if (currentJob?.status === TradeJobStatus.FILLED || currentJob?.status === TradeJobStatus.PARTIALLY_FILLED) {
+        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} já está como ${currentJob.status} (marcado por onSellExecuted), mantendo status`);
+      }
+      // Se o status ainda é EXECUTING ou outro status intermediário, atualizar para FILLED
+      else {
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: { status: TradeJobStatus.FILLED },
+        });
+        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} atualizado para status: FILLED`);
+      }
 
       const duration = Date.now() - startTime;
       this.logger.log(`[EXECUTOR-SIM] Trade job ${tradeJobId} concluído com sucesso em ${duration}ms`);

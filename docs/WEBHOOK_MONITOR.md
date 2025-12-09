@@ -2,27 +2,37 @@
 
 ## Visão Geral
 
-O Módulo Monitor Webhook é um sistema inteligente que transforma alertas de webhook em "candidatos" monitorados, rastreando preços em tempo real antes de executar compras. Em vez de executar imediatamente quando um alerta chega, o sistema monitora o preço do ativo e aguarda o melhor momento de entrada baseado em análise de queda/lateralização/alta do preço.
+O Módulo Monitor Webhook é um sistema inteligente que transforma alertas de webhook em "candidatos" monitorados, rastreando preços em tempo real antes de executar compras ou vendas. Em vez de executar imediatamente quando um alerta chega, o sistema monitora o preço do ativo e aguarda o melhor momento de entrada/saída baseado em análise de tendência de preço.
+
+**Suporta dois tipos de monitoramento:**
+- **BUY (Compra)**: Monitora enquanto cai, executa quando para de cair (lateraliza/sobe)
+- **SELL (Venda)**: Monitora enquanto sobe, executa quando para de subir (lateraliza/cai)
 
 ## Conceito Principal
 
-Para cada par (ex: `SOLUSDT`), o sistema mantém **no máximo 1 alerta ativo** em estado de monitoramento. Este alerta guarda:
+Para cada par (ex: `SOLUSDT`) e tipo (BUY ou SELL), o sistema mantém **no máximo 1 alerta ativo** em estado de monitoramento por webhook. Este alerta guarda:
 
 - **Preço do alerta**: Preço original recebido no webhook
-- **Preço mínimo**: Menor preço visto desde o alerta
+- **Preço mínimo** (BUY): Menor preço visto desde o alerta
+- **Preço máximo** (SELL): Maior preço visto desde o alerta
 - **Preço atual**: Último preço verificado
+- **Preço de execução**: Preço quando foi executado (apenas para EXECUTED)
 - **Estado**: `MONITORING` | `EXECUTED` | `CANCELLED`
-- **Ciclos sem novo fundo**: Contador de verificações sem fazer novo mínimo
+- **Status de monitoramento**: `FALLING` | `LATERAL` | `RISING`
+- **Ciclos sem novo fundo/topo**: Contador de verificações sem fazer novo mínimo/máximo
+- **Motivo de saída**: Detalhes de por que saiu do monitoramento
 
-O sistema **não compra na hora** que o alerta chega. Em vez disso:
+O sistema **não executa na hora** que o alerta chega. Em vez disso:
 
-> "Recebi um alerta de compra → vou começar a seguir esse ativo de perto e tentar pegar ele o mais perto possível do fundo local."
+> **BUY**: "Recebi um alerta de compra → vou começar a seguir esse ativo de perto e tentar pegar ele o mais perto possível do fundo local."
+> 
+> **SELL**: "Recebi um alerta de venda → vou começar a seguir esse ativo de perto e tentar vender ele o mais próximo possível do topo local."
 
 ## Fluxo de Funcionamento
 
 ### 1. Recebimento de Alerta
 
-Quando um webhook é recebido com `monitor_enabled = true` e `action = BUY_SIGNAL`:
+Quando um webhook é recebido com `monitor_enabled = true` e `action = BUY_SIGNAL` ou `SELL_SIGNAL`:
 
 #### Situação A: Não existe alerta ativo para aquele par
 
@@ -34,8 +44,9 @@ Quando um webhook é recebido com `monitor_enabled = true` e `action = BUY_SIGNA
 
 #### Situação B: Já existe alerta ativo para aquele par
 
-O sistema compara os preços:
+O sistema compara os preços baseado no tipo (BUY ou SELL):
 
+**Para BUY:**
 - **Se o novo alerta é mais barato** que o `preço_mínimo` atual:
   - Substitui o alerta antigo pelo novo
   - Atualiza `preço_alerta` e `preço_mínimo` para o novo valor
@@ -46,69 +57,120 @@ O sistema compara os preços:
   - Ignora o novo alerta
   - Continua usando o alerta atual (que tem preço melhor)
 
-> **Regra**: Sempre que vier um alerta mais barato que o que está sendo acompanhado, o sistema "troca o alvo" para o mais barato.
+**Para SELL:**
+- **Se o novo alerta é mais alto** que o `preço_máximo` atual:
+  - Substitui o alerta antigo pelo novo
+  - Atualiza `preço_alerta` e `preço_máximo` para o novo valor
+  - Zera contadores de lateralização/queda
+  - Continua monitorando a partir do novo nível
+
+- **Se o novo alerta é mais baixo ou igual**:
+  - Ignora o novo alerta
+  - Continua usando o alerta atual (que tem preço melhor)
+
+> **Regra BUY**: Sempre que vier um alerta mais barato que o que está sendo acompanhado, o sistema "troca o alvo" para o mais barato.
+> 
+> **Regra SELL**: Sempre que vier um alerta mais alto que o que está sendo acompanhado, o sistema "troca o alvo" para o mais alto.
 
 ### 2. Loop de Monitoramento (30 em 30 segundos)
 
-O sistema consulta a Binance a cada 30 segundos. Para cada par com alerta ativo em `MONITORING`:
+O sistema consulta o cache de preços (prioritariamente Binance) a cada 30 segundos. Para cada par com alerta ativo em `MONITORING`:
 
-1. Lê o **preço atual de mercado** (usando cache do price-sync ou buscando diretamente)
-2. Atualiza o **preço mínimo**:
-   - Se o preço atual for **menor** que o `preço_mínimo`, atualiza e zera contador
-   - Se não, incrementa contador de ciclos sem novo fundo
+1. Lê o **preço atual de mercado** (usando cache do price-sync ou buscando diretamente da Binance)
+2. Atualiza o **preço mínimo/máximo** baseado no tipo:
+   - **BUY**: Se o preço atual for **menor** que o `preço_mínimo`, atualiza e zera contador
+   - **SELL**: Se o preço atual for **maior** que o `preço_máximo`, atualiza e zera contador
+   - Se não, incrementa contador de ciclos sem novo fundo/topo
 3. Classifica o momento em uma das 3 situações:
 
-#### 2.1. "Ainda caindo" (FALLING)
+#### 2.1. "Ainda caindo/subindo" (FALLING/RISING)
 
-Considera que ainda está caindo quando:
-- O preço atual fez novo fundo (`preço_atual < preço_mínimo anterior`), ou
-- Ainda não atingiu condições de lateralização ou alta
+**Para BUY (FALLING):**
+- Considera que ainda está caindo quando:
+  - O preço atual fez novo fundo (`preço_atual < preço_mínimo anterior`), ou
+  - Ainda não atingiu condições de lateralização ou alta
 
-**Ação**: Não compra, apenas continua monitorando.
+**Para SELL (RISING):**
+- Considera que ainda está subindo quando:
+  - O preço atual fez novo topo (`preço_atual > preço_máximo anterior`), ou
+  - Ainda não atingiu condições de lateralização ou queda
+
+**Ação**: Não executa, apenas continua monitorando.
 
 #### 2.2. "Lateralizando" (LATERAL)
 
-Considera **lateral** quando:
-- O preço fica dentro de uma faixa pequena em relação ao `preço_mínimo`:
-  - Exemplo: entre `preço_mínimo` e `preço_mínimo + 0,3%` (configurável)
-- E não aparece novo fundo por um período mínimo:
-  - Exemplo: 3-5 ciclos sem novo fundo (configurável)
+**Para BUY:**
+- Considera **lateral** quando:
+  - O preço fica dentro de uma faixa pequena em relação ao `preço_mínimo`:
+    - Exemplo: entre `preço_mínimo` e `preço_mínimo + 0,3%` (configurável)
+  - E não aparece novo fundo por um período mínimo:
+    - Exemplo: 3-5 ciclos sem novo fundo (configurável)
 
-**Leitura**: "Parou de despencar, está segurando num patamar."
+**Para SELL:**
+- Considera **lateral** quando:
+  - O preço fica dentro de uma faixa pequena em relação ao `preço_máximo`:
+    - Exemplo: entre `preço_máximo - 0,3%` e `preço_máximo` (configurável)
+  - E não aparece novo topo por um período mínimo:
+    - Exemplo: 3-5 ciclos sem novo topo (configurável)
 
-**Ação**: Se está lateral há ciclos suficientes → **executa a compra**.
+**Leitura**: "Parou de despencar/subir, está segurando num patamar."
 
-#### 2.3. "Iniciando alta" (RISING)
+**Ação**: Se está lateral há ciclos suficientes → **executa a operação**.
 
-Considera **início de alta** quando:
-- O preço atual está **acima do `preço_mínimo` por uma margem**, ex.:
-  - `preço_atual >= preço_mínimo * (1 + 0,75%)` (configurável)
-- E já se passaram alguns ciclos (ex.: 2-3 checks de 30s) sem fazer novo fundo
+#### 2.3. "Iniciando alta/queda" (RISING/FALLING)
+
+**Para BUY (RISING):**
+- Considera **início de alta** quando:
+  - O preço atual está **acima do `preço_mínimo` por uma margem**, ex.:
+    - `preço_atual >= preço_mínimo * (1 + 0,75%)` (configurável)
+  - E já se passaram alguns ciclos (ex.: 2-3 checks de 30s) sem fazer novo fundo
 
 **Leitura**: "Fez um fundo e começou a reagir."
 
 **Ação**: Se subiu o suficiente e já passou ciclos mínimos → **executa a compra**.
 
-### 3. Execução da Compra
+**Para SELL (FALLING):**
+- Considera **início de queda** quando:
+  - O preço atual está **abaixo do `preço_máximo` por uma margem**, ex.:
+    - `preço_atual <= preço_máximo * (1 - 0,5%)` (configurável)
+  - E já se passaram alguns ciclos (ex.: 2-3 checks de 30s) sem fazer novo topo
 
-A compra é executada quando **qualquer uma** das condições é atendida:
+**Leitura**: "Fez um topo e começou a cair."
 
+**Ação**: Se caiu o suficiente e já passou ciclos mínimos → **executa a venda**.
+
+### 3. Execução da Operação
+
+A operação é executada quando **qualquer uma** das condições é atendida:
+
+**Para BUY:**
 - **Regra 1**: Preço está **lateral** há X ciclos (configurável)
 - **Regra 2**: Preço **subiu Y%** a partir do mínimo (configurável)
 
+**Para SELL:**
+- **Regra 1**: Preço está **lateral** há X ciclos (configurável)
+- **Regra 2**: Preço **caiu Y%** a partir do máximo (configurável)
+
 Após executar:
 - Marca o alerta como `EXECUTED`
-- Cria o `TradeJob` normalmente (usando `TradeJobService`)
+- Armazena preço de execução e detalhes (ex: "Lateralizado por 5 ciclos", "Em alta por 3 ciclos")
+- Cria `TradeJob`s para todas as contas vinculadas ao webhook (usando `TradeJobService`)
+- Armazena todos os IDs dos jobs criados
 - Aplica cooldown no par (não aceita novos alertas por X minutos)
 
 ### 4. Proteções Implementadas
 
-#### 4.1. Limite de Queda Máxima
+#### 4.1. Limite de Queda/Alta Máxima
 
-Se desde o `preço_alerta` até o `preço_mínimo` já caiu mais que X% (padrão: 6%):
+**Para BUY:**
+- Se desde o `preço_alerta` até o `preço_mínimo` já caiu mais que X% (padrão: 6%):
+  - Cancela o alerta (marca como `CANCELLED`)
+  - Motivo: "Queda máxima excedida: X% > Y%"
 
-- Cancela o alerta (marca como `CANCELLED`)
-- Motivo: "Queda máxima excedida: X% > Y%"
+**Para SELL:**
+- Se desde o `preço_alerta` até o `preço_máximo` já subiu mais que X% (padrão: 6%):
+  - Cancela o alerta (marca como `CANCELLED`)
+  - Motivo: "Alta máxima excedida: X% > Y%"
 
 #### 4.2. Tempo Máximo de Monitoramento
 
@@ -124,12 +186,15 @@ Após executar uma compra, o sistema aplica um cooldown:
 - Por X minutos (padrão: 30min), não aceita novos alertas no mesmo par
 - Evita reentrar em faca que continua caindo
 
-#### 4.4. Um Alerta por Par
+#### 4.4. Um Alerta por Webhook
 
 Máximo 1 alerta ativo por combinação de:
-- `exchange_account_id`
+- `webhook_source_id` (não mais por conta)
 - `symbol`
 - `trade_mode`
+- `side` (BUY ou SELL)
+
+**Importante**: O monitoramento acontece ANTES de vincular a contas. Quando executado, cria jobs para todas as contas vinculadas ao webhook.
 
 ## Estrutura do Banco de Dados
 
@@ -141,23 +206,32 @@ Armazena alertas ativos sendo monitorados:
 - id (PK)
 - webhook_source_id (FK)
 - webhook_event_id (FK)
-- exchange_account_id (FK)
+- exchange_account_id (FK, nullable) -- Opcional, apenas para referência
 - symbol (VARCHAR(50))
 - trade_mode (VARCHAR(20))
+- side (VARCHAR(10)) -- 'BUY' | 'SELL'
 - price_alert (DECIMAL(36, 18)) -- Preço do alerta original
-- price_minimum (DECIMAL(36, 18)) -- Menor preço visto
-- current_price (DECIMAL(36, 18)) -- Preço atual
+- price_minimum (DECIMAL(36, 18), nullable) -- Menor preço visto (BUY)
+- price_maximum (DECIMAL(36, 18), nullable) -- Maior preço visto (SELL)
+- current_price (DECIMAL(36, 18), nullable) -- Preço atual
+- execution_price (DECIMAL(36, 18), nullable) -- Preço quando foi executado
 - state (VARCHAR(50)) -- 'MONITORING' | 'EXECUTED' | 'CANCELLED'
-- cycles_without_new_low (INT) -- Contador de ciclos sem novo fundo
-- last_price_check_at (DATETIME)
-- executed_trade_job_id (INT, nullable) -- ID do TradeJob quando executado
+- monitoring_status (VARCHAR(20), nullable) -- 'FALLING' | 'LATERAL' | 'RISING'
+- cycles_without_new_low (INT) -- Contador de ciclos sem novo fundo (BUY)
+- cycles_without_new_high (INT) -- Contador de ciclos sem novo topo (SELL)
+- last_price_check_at (DATETIME, nullable)
+- executed_trade_job_id (INT, nullable) -- Primeiro TradeJob ID (compatibilidade)
+- executed_trade_job_ids_json (JSON, nullable) -- Array de todos os job IDs criados
 - cancel_reason (TEXT, nullable)
+- exit_reason (VARCHAR(100), nullable) -- Motivo de saída: 'EXECUTED', 'CANCELLED', 'MAX_FALL', 'MAX_RISE', 'MAX_TIME', 'REPLACED'
+- exit_details (TEXT, nullable) -- Detalhes do motivo (ex: "Lateralizado por 5 ciclos")
 - created_at, updated_at
 ```
 
 **Índices**:
-- `(exchange_account_id, symbol, trade_mode, state)` - Busca rápida de alertas ativos
+- `(webhook_source_id, symbol, trade_mode, state)` - Busca rápida de alertas ativos
 - `(state)` - Filtro por estado
+- `(side)` - Filtro por tipo (BUY/SELL)
 - `(created_at)` - Ordenação temporal
 
 ### Tabela: `webhook_monitor_config`
@@ -169,6 +243,7 @@ Configurações de monitoramento (global ou por usuário):
 - user_id (INT, nullable, UNIQUE) -- null = configuração global
 - monitor_enabled (BOOLEAN, default: true)
 - check_interval_sec (INT, default: 30)
+-- Parâmetros para BUY
 - lateral_tolerance_pct (DECIMAL(5,2), default: 0.30)
 - lateral_cycles_min (INT, default: 4)
 - rise_trigger_pct (DECIMAL(5,2), default: 0.75)
@@ -176,6 +251,14 @@ Configurações de monitoramento (global ou por usuário):
 - max_fall_pct (DECIMAL(5,2), default: 6.00)
 - max_monitoring_time_min (INT, default: 60)
 - cooldown_after_execution_min (INT, default: 30)
+-- Parâmetros para SELL
+- sell_lateral_tolerance_pct (DECIMAL(5,2), default: 0.30)
+- sell_lateral_cycles_min (INT, default: 4)
+- sell_fall_trigger_pct (DECIMAL(5,2), default: 0.50)
+- sell_fall_cycles_min (INT, default: 2)
+- sell_max_rise_pct (DECIMAL(5,2), default: 6.00)
+- sell_max_monitoring_time_min (INT, default: 60)
+- sell_cooldown_after_execution_min (INT, default: 30)
 - created_at, updated_at
 ```
 
@@ -193,6 +276,7 @@ Todos os parâmetros podem ser configurados na interface (`/webhooks/monitor` �
 | Parâmetro | Padrão | Descrição |
 |-----------|--------|-----------|
 | `check_interval_sec` | 30 | Intervalo entre verificações de preço (segundos) |
+| **Parâmetros BUY** | | |
 | `lateral_tolerance_pct` | 0.3% | Margem para considerar preço lateral |
 | `lateral_cycles_min` | 4 | Ciclos sem novo fundo para executar em lateral |
 | `rise_trigger_pct` | 0.75% | Percentual de alta a partir do mínimo para executar |
@@ -200,6 +284,14 @@ Todos os parâmetros podem ser configurados na interface (`/webhooks/monitor` �
 | `max_fall_pct` | 6% | Queda máxima desde o alerta para cancelar |
 | `max_monitoring_time_min` | 60 | Tempo máximo de monitoramento (minutos) |
 | `cooldown_after_execution_min` | 30 | Cooldown após execução (minutos) |
+| **Parâmetros SELL** | | |
+| `sell_lateral_tolerance_pct` | 0.3% | Margem para considerar preço lateral em vendas |
+| `sell_lateral_cycles_min` | 4 | Ciclos sem novo topo para executar venda em lateral |
+| `sell_fall_trigger_pct` | 0.5% | Percentual de queda a partir do máximo para executar venda |
+| `sell_fall_cycles_min` | 2 | Ciclos mínimos após queda para executar venda |
+| `sell_max_rise_pct` | 6% | Alta máxima desde o alerta para cancelar venda |
+| `sell_max_monitoring_time_min` | 60 | Tempo máximo de monitoramento para venda (minutos) |
+| `sell_cooldown_after_execution_min` | 30 | Cooldown após execução de venda (minutos) |
 
 ### Configuração Global vs. por Usuário
 
@@ -292,20 +384,26 @@ Lista de símbolos sendo monitorados em tempo real:
 
 - **Tabela com colunas**:
   - Símbolo (com ícone de tendência: caindo/lateral/subindo)
+  - Tipo (BUY/SELL com badge colorido)
   - Preço Alerta
-  - Preço Mínimo (em verde)
+  - Preço Mín/Máx (verde para BUY, vermelho para SELL)
   - Preço Atual
   - Estado (badge colorido)
-  - Ciclos sem novo fundo
+  - Status Monitoramento (Em queda/Lateralizado X ciclos/Em alta X ciclos)
+  - Ciclos (sem novo fundo para BUY, sem novo topo para SELL)
   - Criado em
   - Ações (botão para cancelar)
 
-- **Atualização automática**: A cada 10 segundos
+- **Atualização automática**: A cada 3 segundos (realtime)
+- **Indicador visual**: Spinner animado e timestamp da última atualização
 - **Cards visuais**: Status de cada alerta (caindo/lateral/subindo)
 
 #### Aba "Parâmetros"
 
-Formulário com todos os parâmetros ajustáveis:
+Formulário com todos os parâmetros ajustáveis, organizados em duas seções:
+
+- **Seção "Parâmetros para Compra (BUY)"**: Todos os parâmetros relacionados a compras
+- **Seção "Parâmetros para Venda (SELL)"**: Todos os parâmetros relacionados a vendas
 
 - Grid responsivo com campos organizados
 - Validação de ranges (min/max)
@@ -316,9 +414,22 @@ Formulário com todos os parâmetros ajustáveis:
 
 Tabela de alertas já executados ou cancelados:
 
+- **Colunas**:
+  - Símbolo
+  - Tipo (BUY/SELL)
+  - Preço Alerta
+  - Preço Mín/Máx (conforme tipo)
+  - Preço Atual
+  - Preço Execução (quando executado)
+  - Estado
+  - Motivo Saída (com detalhes: "Lateralizado por X ciclos", "Em alta por Y ciclos", etc)
+  - Detalhes (informações adicionais)
+  - Webhook (não mostra mais "Conta", pois monitoramento é por webhook)
+  - Criado em
+
 - Filtros por símbolo, estado, data
-- Detalhes de cada execução/cancelamento
-- Motivo do cancelamento (quando aplicável)
+- Detalhes completos de cada execução/cancelamento
+- Motivo detalhado do cancelamento (quando aplicável)
 
 ## Integração com Sistema Existente
 
@@ -327,7 +438,8 @@ Tabela de alertas já executados ou cancelados:
 O monitor utiliza o cache de preços do `price-sync` processor:
 
 - Busca preço do cache primeiro (chave: `price:{exchange}:{symbol}`)
-- Se não estiver no cache, busca diretamente da exchange
+- Prioriza Binance (`BINANCE_SPOT`) e tenta outras exchanges se necessário
+- Se não estiver no cache, busca diretamente da Binance
 - Armazena no cache com TTL de 25 segundos
 
 ### WebSocket para Atualizações em Tempo Real
@@ -402,10 +514,11 @@ O job `webhook-monitor` roda a cada 30 segundos:
 
 ### Validações
 
-- Apenas alertas `BUY_SIGNAL` são monitorados
+- Apenas alertas `BUY_SIGNAL` ou `SELL_SIGNAL` são monitorados
 - `price_reference` deve estar presente no webhook
 - Trade mode deve corresponder entre webhook e conta
-- Um alerta por par (símbolo + conta + modo)
+- Um alerta por webhook (símbolo + trade_mode + side)
+- Monitoramento acontece ANTES de vincular a contas
 
 ### Cooldown
 
@@ -447,9 +560,10 @@ O job aparece na página `/monitoring` com:
 
 Verificar:
 1. Webhook tem `monitor_enabled = true`?
-2. Alerta é `BUY_SIGNAL`?
+2. Alerta é `BUY_SIGNAL` ou `SELL_SIGNAL`?
 3. `price_reference` está presente no webhook?
 4. Trade mode corresponde entre webhook e conta?
+5. Não há cooldown ativo para o par?
 
 ### Alerta não está executando
 
@@ -478,11 +592,19 @@ pnpm db:migrate
 pnpm db:migrate:deploy
 ```
 
-A migration `20250220000000_add_webhook_monitor` cria:
-- Tabela `webhook_monitor_alerts`
-- Tabela `webhook_monitor_config`
-- Campo `monitor_enabled` em `webhook_sources`
-- Índices apropriados
+As migrations criam:
+- `20250220000000_add_webhook_monitor`: Tabelas básicas
+- `20251210000000_refactor_webhook_monitor_one_per_webhook`: Refatoração para 1 alerta por webhook
+- `20251210000001_add_sell_monitoring_and_execution_details`: Suporte a SELL e detalhes de execução
+
+**Campos adicionados na última migration:**
+- `side` (BUY/SELL)
+- `price_maximum` (para SELL)
+- `execution_price` (preço de execução)
+- `cycles_without_new_high` (para SELL)
+- `executed_trade_job_ids_json` (todos os jobs criados)
+- `exit_details` (detalhes do motivo de saída)
+- Parâmetros SELL em `webhook_monitor_config`
 
 ## Arquivos Principais
 
@@ -507,5 +629,45 @@ A migration `20250220000000_add_webhook_monitor` cria:
 
 ---
 
-**Última atualização**: 2025-02-20
+## Monitoramento de Vendas (SELL)
+
+### Conceito
+
+O monitoramento de vendas funciona de forma **invertida** ao de compras:
+
+- **BUY**: Monitora enquanto cai, executa quando para de cair (lateraliza/sobe)
+- **SELL**: Monitora enquanto sobe, executa quando para de subir (lateraliza/cai)
+
+### Fluxo SELL
+
+1. **Alerta chega (SELL_SIGNAL)**
+   - Se `monitor_enabled = true` → Criar alerta de monitoramento
+   - Armazenar: `price_alert`, `price_maximum = price_alert`, `estado = MONITORING`, `side = SELL`
+
+2. **Novo alerta mais alto**
+   - Se novo preço > `price_maximum` → Substituir alerta antigo
+   - Atualizar `price_maximum` e resetar contadores
+
+3. **Loop de monitoramento (30s)**
+   - Atualizar `price_maximum` se preço atual > máximo
+   - Classificar tendência:
+     - **RISING**: Ainda subindo (novo máximo ou tendência clara de alta)
+     - **LATERAL**: Lateralizando (dentro de faixa pequena do máximo)
+     - **FALLING**: Iniciando queda (preço abaixo do máximo por margem)
+
+4. **Execução**
+   - **Lateral**: Preço lateral há X ciclos → Executa venda
+   - **Queda**: Preço caiu Y% do máximo há Z ciclos → Executa venda
+   - Cria TradeJobs SELL para todas as contas vinculadas
+
+5. **Proteções**
+   - **Max Rise**: Cancelar se subiu > X% desde o alerta
+   - **Max Time**: Cancelar se monitorando > 1 hora
+   - **Cooldown**: Não aceitar novos alertas por 30-60min após execução
+
+### Parâmetros SELL
+
+Todos os parâmetros SELL são independentes dos parâmetros BUY, permitindo ajustes finos para cada tipo de operação.
+
+**Última atualização**: 2025-12-10
 

@@ -846,120 +846,209 @@ export class PositionService {
     feeAmount?: number,
     feeCurrency?: string
   ): Promise<void> {
-    const job = await this.prisma.tradeJob.findUnique({
-      where: { id: jobId },
-      include: { exchange_account: true },
-    });
-
-    if (!job || job.side !== 'SELL') {
-      throw new Error('Invalid sell job');
-    }
-
-    // Get eligible positions (FIFO)
-    const eligiblePositions = await this.prisma.tradePosition.findMany({
-      where: {
-        exchange_account_id: job.exchange_account_id,
-        trade_mode: job.trade_mode,
-        symbol: job.symbol,
-        side: 'LONG',
-        status: PositionStatus.OPEN,
-        qty_remaining: { gt: 0 },
-        ...(origin === 'WEBHOOK' ? { lock_sell_by_webhook: false } : {}),
-      },
-      orderBy: { created_at: 'asc' },
-    });
-
-    if (eligiblePositions.length === 0) {
-      await this.prisma.tradeJob.update({
+    // Usar transação para garantir atomicidade e evitar race conditions
+    await this.prisma.$transaction(async (tx) => {
+      const job = await tx.tradeJob.findUnique({
         where: { id: jobId },
-        data: {
-          status: 'SKIPPED',
-          reason_code: origin === 'WEBHOOK' ? 'WEBHOOK_LOCK' : 'NO_ELIGIBLE_POSITIONS',
-          reason_message: 'No eligible positions found',
-        },
+        include: { exchange_account: true },
       });
-      return;
-    }
 
-    // Calcular taxa em USD para a venda
-    let feeUsd = 0;
-    if (feeAmount && feeAmount > 0 && feeCurrency) {
-      const quoteAsset = job.symbol.split('/')[1] || 'USDT';
-      if (feeCurrency === 'USDT' || feeCurrency === 'USD' || feeCurrency === quoteAsset) {
-        // Taxa já está em USD ou em quote asset
-        feeUsd = feeAmount;
-      } else if (feeCurrency === job.symbol.split('/')[0]) {
-        // Taxa em base asset, converter usando preço de venda
-        feeUsd = feeAmount * avgPrice;
-      } else {
-        // Outra moeda, usar aproximação
-        feeUsd = feeAmount;
-        console.warn(`[POSITION-SERVICE] Taxa em moeda desconhecida ${feeCurrency}, usando valor direto`);
+      if (!job || job.side !== 'SELL') {
+        throw new Error('Invalid sell job');
       }
-    }
 
-    // Proporção da taxa para cada posição (baseado na quantidade vendida)
-    const totalQtySold = executedQty;
-    let remainingToSell = executedQty;
-    let totalFeeDistributed = 0;
+      // Calcular taxa em USD para a venda
+      let feeUsd = 0;
+      if (feeAmount && feeAmount > 0 && feeCurrency) {
+        const quoteAsset = job.symbol.split('/')[1] || 'USDT';
+        if (feeCurrency === 'USDT' || feeCurrency === 'USD' || feeCurrency === quoteAsset) {
+          // Taxa já está em USD ou em quote asset
+          feeUsd = feeAmount;
+        } else if (feeCurrency === job.symbol.split('/')[0]) {
+          // Taxa em base asset, converter usando preço de venda
+          feeUsd = feeAmount * avgPrice;
+        } else {
+          // Outra moeda, usar aproximação
+          feeUsd = feeAmount;
+          console.warn(`[POSITION-SERVICE] Taxa em moeda desconhecida ${feeCurrency}, usando valor direto`);
+        }
+      }
 
-    for (const position of eligiblePositions) {
-      if (remainingToSell <= 0) break;
+      // Se o job tem position_id_to_close, fechar apenas essa posição específica
+      // Caso contrário, usar FIFO como antes
+      let eligiblePositions: any[] = [];
 
-      const qtyToClose = Math.min(position.qty_remaining.toNumber(), remainingToSell);
-      
-      // Calcular proporção da taxa para esta posição
-      const feeProportion = totalQtySold > 0 ? (qtyToClose / totalQtySold) : 0;
-      const positionFeeUsd = feeUsd * feeProportion;
-      totalFeeDistributed += positionFeeUsd;
-      
-      // Calcular lucro descontando a taxa proporcional
-      const grossProfitUsd = (avgPrice - position.price_open.toNumber()) * qtyToClose;
-      const profitUsd = grossProfitUsd - positionFeeUsd;
+      if (job.position_id_to_close) {
+        // Buscar a posição específica vinculada ao job
+        const targetPosition = await tx.tradePosition.findUnique({
+          where: { id: job.position_id_to_close },
+        });
 
-      const newQtyRemaining = position.qty_remaining.toNumber() - qtyToClose;
-      const existingRealizedProfit = position.realized_profit_usd.toNumber();
-      const existingFeesOnSell = position.fees_on_sell_usd.toNumber();
-      const existingTotalFees = position.total_fees_paid_usd.toNumber();
-      const newRealizedProfit = existingRealizedProfit + profitUsd;
+        if (!targetPosition) {
+          await tx.tradeJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'SKIPPED',
+              reason_code: 'POSITION_NOT_FOUND',
+              reason_message: `Position ${job.position_id_to_close} not found`,
+            },
+          });
+          return;
+        }
 
-      await this.prisma.tradePosition.update({
-        where: { id: position.id },
-        data: {
-          qty_remaining: newQtyRemaining,
-          realized_profit_usd: newRealizedProfit,
-          fees_on_sell_usd: existingFeesOnSell + positionFeeUsd,
-          total_fees_paid_usd: existingTotalFees + positionFeeUsd,
-          status: newQtyRemaining === 0 ? PositionStatus.CLOSED : PositionStatus.OPEN,
-          closed_at: newQtyRemaining === 0 ? new Date() : null,
-          close_reason: newQtyRemaining === 0 ? this.getCloseReason(origin) : null,
-        },
-      });
+        // Validar se a posição é elegível
+        if (
+          targetPosition.exchange_account_id !== job.exchange_account_id ||
+          targetPosition.trade_mode !== job.trade_mode ||
+          targetPosition.symbol !== job.symbol ||
+          targetPosition.side !== 'LONG' ||
+          targetPosition.status !== PositionStatus.OPEN ||
+          targetPosition.qty_remaining.toNumber() <= 0
+        ) {
+          await tx.tradeJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'SKIPPED',
+              reason_code: 'POSITION_NOT_ELIGIBLE',
+              reason_message: `Position ${job.position_id_to_close} is not eligible for closing`,
+            },
+          });
+          return;
+        }
 
-      // Create position fill
-      await this.prisma.positionFill.create({
-        data: {
-          position_id: position.id,
-          trade_execution_id: executionId,
-          side: 'SELL',
-          qty: qtyToClose,
-          price: avgPrice,
-        },
-      });
+        // Verificar lock para webhook
+        if (origin === 'WEBHOOK' && targetPosition.lock_sell_by_webhook) {
+          await tx.tradeJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'SKIPPED',
+              reason_code: 'WEBHOOK_LOCK',
+              reason_message: 'Position is locked for webhook sells',
+            },
+          });
+          return;
+        }
 
-      remainingToSell -= qtyToClose;
-    }
+        // Se a posição é agrupada, verificar se há outras posições relacionadas
+        // Para posições agrupadas, fechar apenas a posição agrupada (que já contém todas as quantidades)
+        eligiblePositions = [targetPosition];
+      } else {
+        // Buscar posições elegíveis dentro da transação (FIFO) - comportamento antigo
+        const whereConditions: any = {
+          exchange_account_id: job.exchange_account_id,
+          trade_mode: job.trade_mode,
+          symbol: job.symbol,
+          side: 'LONG',
+          status: PositionStatus.OPEN,
+          qty_remaining: { gt: 0 },
+        };
 
-    if (remainingToSell > 0) {
-      // Partial execution - update job
-      await this.prisma.tradeJob.update({
-        where: { id: jobId },
-        data: {
-          status: 'PARTIALLY_FILLED',
-          reason_message: `Only ${executedQty - remainingToSell} executed, ${remainingToSell} remaining`,
-        },
-      });
-    }
+        if (origin === 'WEBHOOK') {
+          whereConditions.lock_sell_by_webhook = false;
+        }
+
+        eligiblePositions = await tx.tradePosition.findMany({
+          where: whereConditions,
+          orderBy: { created_at: 'asc' },
+        });
+
+        if (eligiblePositions.length === 0) {
+          await tx.tradeJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'SKIPPED',
+              reason_code: origin === 'WEBHOOK' ? 'WEBHOOK_LOCK' : 'NO_ELIGIBLE_POSITIONS',
+              reason_message: 'No eligible positions found',
+            },
+          });
+          return;
+        }
+      }
+
+      // Proporção da taxa para cada posição (baseado na quantidade vendida)
+      const totalQtySold = executedQty;
+      let remainingToSell = executedQty;
+      let totalFeeDistributed = 0;
+
+      for (const position of eligiblePositions) {
+        if (remainingToSell <= 0) break;
+
+        // Re-buscar posição dentro da transação para garantir dados atualizados
+        const currentPosition = await tx.tradePosition.findUnique({
+          where: { id: position.id },
+        });
+
+        if (!currentPosition || currentPosition.status !== PositionStatus.OPEN || currentPosition.qty_remaining.toNumber() <= 0) {
+          console.warn(`[POSITION-SERVICE] Posição ${position.id} não está mais disponível, pulando...`);
+          continue;
+        }
+
+        const qtyToClose = Math.min(currentPosition.qty_remaining.toNumber(), remainingToSell);
+        
+        // Calcular proporção da taxa para esta posição
+        const feeProportion = totalQtySold > 0 ? (qtyToClose / totalQtySold) : 0;
+        const positionFeeUsd = feeUsd * feeProportion;
+        totalFeeDistributed += positionFeeUsd;
+        
+        // Calcular lucro descontando a taxa proporcional
+        const grossProfitUsd = (avgPrice - currentPosition.price_open.toNumber()) * qtyToClose;
+        const profitUsd = grossProfitUsd - positionFeeUsd;
+
+        const newQtyRemaining = currentPosition.qty_remaining.toNumber() - qtyToClose;
+        const existingRealizedProfit = currentPosition.realized_profit_usd.toNumber();
+        const existingFeesOnSell = currentPosition.fees_on_sell_usd.toNumber();
+        const existingTotalFees = currentPosition.total_fees_paid_usd.toNumber();
+        const newRealizedProfit = existingRealizedProfit + profitUsd;
+
+        await tx.tradePosition.update({
+          where: { id: currentPosition.id },
+          data: {
+            qty_remaining: newQtyRemaining,
+            realized_profit_usd: newRealizedProfit,
+            fees_on_sell_usd: existingFeesOnSell + positionFeeUsd,
+            total_fees_paid_usd: existingTotalFees + positionFeeUsd,
+            status: newQtyRemaining === 0 ? PositionStatus.CLOSED : PositionStatus.OPEN,
+            closed_at: newQtyRemaining === 0 ? new Date() : null,
+            close_reason: newQtyRemaining === 0 ? this.getCloseReason(origin) : null,
+          },
+        });
+
+        // Create position fill
+        await tx.positionFill.create({
+          data: {
+            position_id: currentPosition.id,
+            trade_execution_id: executionId,
+            side: 'SELL',
+            qty: qtyToClose,
+            price: avgPrice,
+          },
+        });
+
+        remainingToSell -= qtyToClose;
+      }
+
+      // Update job status based on remaining quantity
+      if (remainingToSell > 0) {
+        // Partial execution - update job
+        await tx.tradeJob.update({
+          where: { id: jobId },
+          data: {
+            status: 'PARTIALLY_FILLED',
+            reason_message: `Only ${executedQty - remainingToSell} executed, ${remainingToSell} remaining`,
+          },
+        });
+      } else {
+        // All quantity was sold - mark as FILLED
+        await tx.tradeJob.update({
+          where: { id: jobId },
+          data: {
+            status: 'FILLED',
+            reason_code: null,
+            reason_message: null,
+          },
+        });
+      }
+    });
   }
 
   async getEligiblePositions(
@@ -1058,6 +1147,7 @@ export class PositionService {
       orderType: orderType,
       baseQuantity: qtyToClose,
       limitPrice: limitPrice,
+      positionIdToClose: positionId, // Vincular posição específica
       skipParameterValidation: true, // Já temos a quantidade definida
     });
 
@@ -1140,6 +1230,7 @@ export class PositionService {
       baseQuantity: qtyToSell,
       limitPrice: limitPrice,
       limitOrderExpiresAt: expiresAt,
+      positionIdToClose: positionId, // Vincular posição específica
       skipParameterValidation: true, // Já temos a quantidade definida
     });
 

@@ -17,6 +17,7 @@ export enum PriceTrend {
 export interface WebhookMonitorConfig {
   monitor_enabled: boolean;
   check_interval_sec: number;
+  // BUY
   lateral_tolerance_pct: number;
   lateral_cycles_min: number;
   rise_trigger_pct: number;
@@ -24,6 +25,14 @@ export interface WebhookMonitorConfig {
   max_fall_pct: number;
   max_monitoring_time_min: number;
   cooldown_after_execution_min: number;
+  // SELL
+  sell_lateral_tolerance_pct: number;
+  sell_lateral_cycles_min: number;
+  sell_fall_trigger_pct: number;
+  sell_fall_cycles_min: number;
+  sell_max_rise_pct: number;
+  sell_max_monitoring_time_min: number;
+  sell_cooldown_after_execution_min: number;
 }
 
 export interface CreateOrUpdateAlertDto {
@@ -32,6 +41,7 @@ export interface CreateOrUpdateAlertDto {
   exchangeAccountId: number | null; // Opcional: mantido apenas para referência
   symbol: string;
   tradeMode: TradeMode;
+  side: 'BUY' | 'SELL';
   priceAlert: number;
 }
 
@@ -39,6 +49,7 @@ export class WebhookMonitorService {
   private readonly defaultConfig: WebhookMonitorConfig = {
     monitor_enabled: true,
     check_interval_sec: 30,
+    // BUY
     lateral_tolerance_pct: 0.3,
     lateral_cycles_min: 4,
     rise_trigger_pct: 0.75,
@@ -46,6 +57,14 @@ export class WebhookMonitorService {
     max_fall_pct: 6.0,
     max_monitoring_time_min: 60,
     cooldown_after_execution_min: 30,
+    // SELL
+    sell_lateral_tolerance_pct: 0.3,
+    sell_lateral_cycles_min: 4,
+    sell_fall_trigger_pct: 0.5,
+    sell_fall_cycles_min: 2,
+    sell_max_rise_pct: 6.0,
+    sell_max_monitoring_time_min: 60,
+    sell_cooldown_after_execution_min: 30,
   };
 
   constructor(
@@ -66,6 +85,7 @@ export class WebhookMonitorService {
         return {
           monitor_enabled: userConfig.monitor_enabled,
           check_interval_sec: userConfig.check_interval_sec,
+          // BUY
           lateral_tolerance_pct: userConfig.lateral_tolerance_pct.toNumber(),
           lateral_cycles_min: userConfig.lateral_cycles_min,
           rise_trigger_pct: userConfig.rise_trigger_pct.toNumber(),
@@ -73,6 +93,14 @@ export class WebhookMonitorService {
           max_fall_pct: userConfig.max_fall_pct.toNumber(),
           max_monitoring_time_min: userConfig.max_monitoring_time_min,
           cooldown_after_execution_min: userConfig.cooldown_after_execution_min,
+          // SELL
+          sell_lateral_tolerance_pct: (userConfig as any).sell_lateral_tolerance_pct?.toNumber() || 0.3,
+          sell_lateral_cycles_min: (userConfig as any).sell_lateral_cycles_min || 4,
+          sell_fall_trigger_pct: (userConfig as any).sell_fall_trigger_pct?.toNumber() || 0.5,
+          sell_fall_cycles_min: (userConfig as any).sell_fall_cycles_min || 2,
+          sell_max_rise_pct: (userConfig as any).sell_max_rise_pct?.toNumber() || 6.0,
+          sell_max_monitoring_time_min: (userConfig as any).sell_max_monitoring_time_min || 60,
+          sell_cooldown_after_execution_min: (userConfig as any).sell_cooldown_after_execution_min || 30,
         };
       }
     }
@@ -86,6 +114,7 @@ export class WebhookMonitorService {
       return {
         monitor_enabled: globalConfig.monitor_enabled,
         check_interval_sec: globalConfig.check_interval_sec,
+        // BUY
         lateral_tolerance_pct: globalConfig.lateral_tolerance_pct.toNumber(),
         lateral_cycles_min: globalConfig.lateral_cycles_min,
         rise_trigger_pct: globalConfig.rise_trigger_pct.toNumber(),
@@ -93,6 +122,14 @@ export class WebhookMonitorService {
         max_fall_pct: globalConfig.max_fall_pct.toNumber(),
         max_monitoring_time_min: globalConfig.max_monitoring_time_min,
         cooldown_after_execution_min: globalConfig.cooldown_after_execution_min,
+        // SELL
+        sell_lateral_tolerance_pct: (globalConfig as any).sell_lateral_tolerance_pct?.toNumber() || 0.3,
+        sell_lateral_cycles_min: (globalConfig as any).sell_lateral_cycles_min || 4,
+        sell_fall_trigger_pct: (globalConfig as any).sell_fall_trigger_pct?.toNumber() || 0.5,
+        sell_fall_cycles_min: (globalConfig as any).sell_fall_cycles_min || 2,
+        sell_max_rise_pct: (globalConfig as any).sell_max_rise_pct?.toNumber() || 6.0,
+        sell_max_monitoring_time_min: (globalConfig as any).sell_max_monitoring_time_min || 60,
+        sell_cooldown_after_execution_min: (globalConfig as any).sell_cooldown_after_execution_min || 30,
       };
     }
 
@@ -124,36 +161,68 @@ export class WebhookMonitorService {
         });
 
         if (existingAlert) {
-          const existingMinPrice = existingAlert.price_minimum.toNumber();
+          const existingSide = (existingAlert as any).side || 'BUY';
           
-          // Se novo alerta é mais barato ou igual, substituir (preço igual = mais recente vence)
-          if (dto.priceAlert <= existingMinPrice) {
-            console.log(`[WEBHOOK-MONITOR] Substituindo alerta existente (preço antigo: ${existingMinPrice}, novo: ${dto.priceAlert})`);
-            
-            // Cancelar alerta antigo dentro da transação
-            await tx.webhookMonitorAlert.update({
-              where: { id: existingAlert.id },
-              data: {
-                state: WebhookMonitorAlertState.CANCELLED,
-                cancel_reason: `Substituído por alerta ${dto.priceAlert < existingMinPrice ? 'mais barato' : 'mais recente'} (${dto.priceAlert} ${dto.priceAlert < existingMinPrice ? '<' : '='} ${existingMinPrice})`,
-                exit_reason: 'REPLACED',
-              },
-            });
-
-            // Criar novo alerta dentro da transação
-            return await this.createNewAlertInTransaction(tx, dto);
-          } else {
-            // Novo alerta é mais caro, ignorar
-            console.log(`[WEBHOOK-MONITOR] Ignorando alerta mais caro (existente: ${existingMinPrice}, novo: ${dto.priceAlert})`);
+          // Verificar se o side corresponde
+          if (existingSide !== dto.side) {
+            console.log(`[WEBHOOK-MONITOR] Side diferente (existente: ${existingSide}, novo: ${dto.side}), ignorando`);
             return existingAlert;
+          }
+
+          if (dto.side === 'BUY') {
+            const existingMinPrice = existingAlert.price_minimum?.toNumber() || existingAlert.price_alert.toNumber();
+            
+            // Para BUY: substituir se novo preço é menor ou igual
+            if (dto.priceAlert <= existingMinPrice) {
+              console.log(`[WEBHOOK-MONITOR] Substituindo alerta BUY existente (preço antigo: ${existingMinPrice}, novo: ${dto.priceAlert})`);
+              
+              await tx.webhookMonitorAlert.update({
+                where: { id: existingAlert.id },
+                data: {
+                  state: WebhookMonitorAlertState.CANCELLED,
+                  cancel_reason: `Substituído por alerta ${dto.priceAlert < existingMinPrice ? 'mais barato' : 'mais recente'} (${dto.priceAlert} ${dto.priceAlert < existingMinPrice ? '<' : '='} ${existingMinPrice})`,
+                  exit_reason: 'REPLACED',
+                },
+              });
+
+              return await this.createNewAlertInTransaction(tx, dto);
+            } else {
+              console.log(`[WEBHOOK-MONITOR] Ignorando alerta BUY mais caro (existente: ${existingMinPrice}, novo: ${dto.priceAlert})`);
+              return existingAlert;
+            }
+          } else {
+            // SELL: substituir se novo preço é maior ou igual
+            const existingMaxPrice = existingAlert.price_maximum?.toNumber() || existingAlert.price_alert.toNumber();
+            
+            if (dto.priceAlert >= existingMaxPrice) {
+              console.log(`[WEBHOOK-MONITOR] Substituindo alerta SELL existente (preço antigo: ${existingMaxPrice}, novo: ${dto.priceAlert})`);
+              
+              await tx.webhookMonitorAlert.update({
+                where: { id: existingAlert.id },
+                data: {
+                  state: WebhookMonitorAlertState.CANCELLED,
+                  cancel_reason: `Substituído por alerta ${dto.priceAlert > existingMaxPrice ? 'mais alto' : 'mais recente'} (${dto.priceAlert} ${dto.priceAlert > existingMaxPrice ? '>' : '='} ${existingMaxPrice})`,
+                  exit_reason: 'REPLACED',
+                },
+              });
+
+              return await this.createNewAlertInTransaction(tx, dto);
+            } else {
+              console.log(`[WEBHOOK-MONITOR] Ignorando alerta SELL mais baixo (existente: ${existingMaxPrice}, novo: ${dto.priceAlert})`);
+              return existingAlert;
+            }
           }
         }
 
-        // Verificar cooldown dentro da transação (por webhook + símbolo + trade_mode)
+        // Verificar cooldown dentro da transação (por webhook + símbolo + trade_mode + side)
         const cooldownConfig = await this.getConfig();
+        const cooldownMinutes = dto.side === 'SELL' 
+          ? cooldownConfig.sell_cooldown_after_execution_min 
+          : cooldownConfig.cooldown_after_execution_min;
+        
         const cooldownMinutesAgo = new Date();
         cooldownMinutesAgo.setMinutes(
-          cooldownMinutesAgo.getMinutes() - cooldownConfig.cooldown_after_execution_min
+          cooldownMinutesAgo.getMinutes() - cooldownMinutes
         );
 
         const recentExecution = await tx.webhookMonitorAlert.findFirst({
@@ -161,14 +230,15 @@ export class WebhookMonitorService {
             webhook_source_id: dto.webhookSourceId,
             symbol: dto.symbol,
             trade_mode: dto.tradeMode,
+            side: dto.side,
             state: WebhookMonitorAlertState.EXECUTED,
             updated_at: { gte: cooldownMinutesAgo },
           },
         });
 
         if (recentExecution) {
-          console.log(`[WEBHOOK-MONITOR] Cooldown ativo para ${dto.symbol}, ignorando novo alerta`);
-          throw new Error(`Cooldown ativo para ${dto.symbol}. Aguarde ${cooldownConfig.cooldown_after_execution_min} minutos após execução.`);
+          console.log(`[WEBHOOK-MONITOR] Cooldown ativo para ${dto.symbol} (${dto.side}), ignorando novo alerta`);
+          throw new Error(`Cooldown ativo para ${dto.symbol} (${dto.side}). Aguarde ${cooldownMinutes} minutos após execução.`);
         }
 
         // Criar novo alerta dentro da transação
@@ -185,6 +255,8 @@ export class WebhookMonitorService {
    * Criar novo alerta (versão para uso dentro de transação)
    */
   private async createNewAlertInTransaction(tx: any, dto: CreateOrUpdateAlertDto): Promise<any> {
+    const isBuy = dto.side === 'BUY';
+    
     const alert = await tx.webhookMonitorAlert.create({
       data: {
         webhook_source_id: dto.webhookSourceId,
@@ -192,17 +264,20 @@ export class WebhookMonitorService {
         exchange_account_id: dto.exchangeAccountId, // Opcional, pode ser null
         symbol: dto.symbol,
         trade_mode: dto.tradeMode,
+        side: dto.side,
         price_alert: dto.priceAlert,
-        price_minimum: dto.priceAlert,
+        price_minimum: isBuy ? dto.priceAlert : null, // BUY usa price_minimum
+        price_maximum: !isBuy ? dto.priceAlert : null, // SELL usa price_maximum
         current_price: dto.priceAlert,
         state: WebhookMonitorAlertState.MONITORING,
-        monitoring_status: PriceTrend.FALLING, // Iniciar como FALLING
-        cycles_without_new_low: 0,
+        monitoring_status: isBuy ? PriceTrend.FALLING : PriceTrend.RISING, // BUY inicia FALLING, SELL inicia RISING
+        cycles_without_new_low: isBuy ? 0 : null,
+        cycles_without_new_high: !isBuy ? 0 : null,
         last_price_check_at: new Date(),
       },
     });
 
-    console.log(`[WEBHOOK-MONITOR] ✅ Alerta criado: ID=${alert.id}, símbolo=${dto.symbol}, preço=${dto.priceAlert}`);
+    console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${dto.side} criado: ID=${alert.id}, símbolo=${dto.symbol}, preço=${dto.priceAlert}`);
     return alert;
   }
 
@@ -226,6 +301,7 @@ export class WebhookMonitorService {
 
   /**
    * Atualizar monitoramento de preço
+   * Chama a lógica correta baseado no side (BUY ou SELL)
    */
   async updatePriceMonitoring(alertId: number, currentPrice: number): Promise<{
     alert: any;
@@ -242,8 +318,35 @@ export class WebhookMonitorService {
       throw new Error(`Alerta ${alertId} não encontrado ou não está em MONITORING`);
     }
 
+    const side = (alert as any).side || 'BUY';
+    
+    if (side === 'SELL') {
+      return this.updatePriceMonitoringSELL(alertId, currentPrice);
+    } else {
+      return this.updatePriceMonitoringBUY(alertId, currentPrice);
+    }
+  }
+
+  /**
+   * Atualizar monitoramento de preço para BUY
+   */
+  private async updatePriceMonitoringBUY(alertId: number, currentPrice: number): Promise<{
+    alert: any;
+    trend: PriceTrend;
+    shouldExecute: boolean;
+    shouldCancel: boolean;
+    cancelReason?: string;
+  }> {
+    const alert = await this.prisma.webhookMonitorAlert.findUnique({
+      where: { id: alertId },
+    });
+
+    if (!alert || alert.state !== WebhookMonitorAlertState.MONITORING) {
+      throw new Error(`Alerta ${alertId} não encontrado ou não está em MONITORING`);
+    }
+
     const config = await this.getConfig();
-    const priceMinimum = alert.price_minimum.toNumber();
+    const priceMinimum = alert.price_minimum?.toNumber() || alert.price_alert.toNumber();
     const priceAlert = alert.price_alert.toNumber();
     let newPriceMinimum = priceMinimum;
     let cyclesWithoutNewLow = alert.cycles_without_new_low;
@@ -321,6 +424,103 @@ export class WebhookMonitorService {
   }
 
   /**
+   * Atualizar monitoramento de preço para SELL (lógica invertida)
+   */
+  private async updatePriceMonitoringSELL(alertId: number, currentPrice: number): Promise<{
+    alert: any;
+    trend: PriceTrend;
+    shouldExecute: boolean;
+    shouldCancel: boolean;
+    cancelReason?: string;
+  }> {
+    const alert = await this.prisma.webhookMonitorAlert.findUnique({
+      where: { id: alertId },
+    });
+
+    if (!alert || alert.state !== WebhookMonitorAlertState.MONITORING) {
+      throw new Error(`Alerta ${alertId} não encontrado ou não está em MONITORING`);
+    }
+
+    const config = await this.getConfig();
+    const priceMaximum = alert.price_maximum?.toNumber() || alert.price_alert.toNumber();
+    const priceAlert = alert.price_alert.toNumber();
+    let newPriceMaximum = priceMaximum;
+    let cyclesWithoutNewHigh = alert.cycles_without_new_high || 0;
+    let trend: PriceTrend = PriceTrend.RISING;
+    let shouldExecute = false;
+    let shouldCancel = false;
+    let cancelReason: string | undefined;
+
+    // Atualizar preço máximo se necessário
+    if (currentPrice > priceMaximum) {
+      newPriceMaximum = currentPrice;
+      cyclesWithoutNewHigh = 0; // Reset contador quando faz novo topo
+      trend = PriceTrend.RISING;
+    } else {
+      cyclesWithoutNewHigh += 1;
+      
+      // Calcular variação percentual do preço atual em relação ao máximo
+      const fallFromMaxPct = ((priceMaximum - currentPrice) / priceMaximum) * 100;
+      const variationPct = ((currentPrice - priceMaximum) / priceMaximum) * 100;
+      
+      // Verificar se está lateralizando (dentro da tolerância do máximo)
+      if (variationPct <= config.sell_lateral_tolerance_pct) {
+        trend = PriceTrend.LATERAL;
+        
+        // Se está lateral há ciclos suficientes, pode executar
+        if (cyclesWithoutNewHigh >= config.sell_lateral_cycles_min) {
+          shouldExecute = true;
+        }
+      } else if (fallFromMaxPct >= config.sell_fall_trigger_pct) {
+        // Verificar se iniciou queda (caiu do máximo)
+        trend = PriceTrend.FALLING;
+        
+        // Se caiu o suficiente e já passou ciclos mínimos, pode executar
+        if (cyclesWithoutNewHigh >= config.sell_fall_cycles_min) {
+          shouldExecute = true;
+        }
+      } else {
+        // Ainda próximo do máximo, mas não fez novo topo
+        trend = PriceTrend.RISING;
+      }
+    }
+
+    // Verificar proteções (para SELL: cancelar se subiu muito desde o alerta)
+    const riseFromAlertPct = ((newPriceMaximum - priceAlert) / priceAlert) * 100;
+    if (riseFromAlertPct > config.sell_max_rise_pct) {
+      shouldCancel = true;
+      cancelReason = `Alta máxima excedida: ${riseFromAlertPct.toFixed(2)}% > ${config.sell_max_rise_pct}%`;
+    }
+
+    // Verificar tempo máximo de monitoramento
+    const monitoringTimeMinutes = (Date.now() - alert.created_at.getTime()) / (1000 * 60);
+    if (monitoringTimeMinutes > config.sell_max_monitoring_time_min) {
+      shouldCancel = true;
+      cancelReason = `Tempo máximo de monitoramento excedido: ${monitoringTimeMinutes.toFixed(1)}min > ${config.sell_max_monitoring_time_min}min`;
+    }
+
+    // Atualizar alerta com monitoring_status
+    const updatedAlert = await this.prisma.webhookMonitorAlert.update({
+      where: { id: alertId },
+      data: {
+        price_maximum: newPriceMaximum,
+        current_price: currentPrice,
+        cycles_without_new_high: cyclesWithoutNewHigh,
+        last_price_check_at: new Date(),
+        monitoring_status: trend, // Salvar status de monitoramento
+      },
+    });
+
+    return {
+      alert: updatedAlert,
+      trend,
+      shouldExecute,
+      shouldCancel,
+      cancelReason,
+    };
+  }
+
+  /**
    * Executar compra quando condições atendidas
    * Cria jobs para todas as contas vinculadas ao webhook que correspondem ao trade_mode
    */
@@ -367,12 +567,14 @@ export class WebhookMonitorService {
       }
 
       try {
+        // Usar o side do alerta (BUY ou SELL)
+        const side = (alert as any).side || 'BUY';
         const tradeJob = await this.tradeJobService.createJob({
           webhookEventId: alert.webhook_event_id,
           exchangeAccountId: binding.exchange_account.id,
           tradeMode: alert.trade_mode as TradeMode,
           symbol: alert.symbol,
-          side: 'BUY',
+          side: side as 'BUY' | 'SELL',
           orderType: 'MARKET',
         });
         
@@ -387,13 +589,31 @@ export class WebhookMonitorService {
       throw new Error(`Nenhum TradeJob foi criado para o alerta ${alertId}`);
     }
 
+    // Buscar preço atual para armazenar como preço de execução
+    const alertBeforeUpdate = await this.prisma.webhookMonitorAlert.findUnique({
+      where: { id: alertId },
+    });
+    const executionPrice = alertBeforeUpdate?.current_price || alertBeforeUpdate?.price_alert;
+
+    // Criar detalhes de saída
+    const exitDetails = alertBeforeUpdate?.monitoring_status === 'LATERAL'
+      ? `Lateralizado por ${alertBeforeUpdate.cycles_without_new_low || alertBeforeUpdate.cycles_without_new_high || 0} ciclos`
+      : alertBeforeUpdate?.monitoring_status === 'RISING'
+      ? `Em alta por ${alertBeforeUpdate.cycles_without_new_low || alertBeforeUpdate.cycles_without_new_high || 0} ciclos`
+      : alertBeforeUpdate?.monitoring_status === 'FALLING'
+      ? `Em queda por ${alertBeforeUpdate.cycles_without_new_low || alertBeforeUpdate.cycles_without_new_high || 0} ciclos`
+      : 'Executado';
+
     // Atualizar alerta como executado
     const updatedAlert = await this.prisma.webhookMonitorAlert.update({
       where: { id: alertId },
       data: {
         state: WebhookMonitorAlertState.EXECUTED,
         executed_trade_job_id: tradeJobIds[0], // Guardar o primeiro job ID para referência
+        executed_trade_job_ids_json: tradeJobIds, // Guardar todos os job IDs
+        execution_price: executionPrice,
         exit_reason: 'EXECUTED',
+        exit_details: exitDetails,
       },
     });
 

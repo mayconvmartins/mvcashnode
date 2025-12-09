@@ -82,16 +82,17 @@ export class WebhookEventService {
       },
     });
 
-    // Se monitoramento está habilitado e é BUY_SIGNAL, criar alerta de monitoramento
+    // Se monitoramento está habilitado e é BUY_SIGNAL ou SELL_SIGNAL, criar alerta de monitoramento
     if (
       webhookSource?.monitor_enabled &&
-      event.action === WebhookAction.BUY_SIGNAL &&
+      (event.action === WebhookAction.BUY_SIGNAL || event.action === WebhookAction.SELL_SIGNAL) &&
       event.price_reference
     ) {
-      console.log(`[WEBHOOK-EVENT] Monitoramento habilitado para webhook ${dto.webhookSourceId}, criando alerta de monitoramento...`);
+      const side = event.action === WebhookAction.BUY_SIGNAL ? 'BUY' : 'SELL';
+      console.log(`[WEBHOOK-EVENT] Monitoramento habilitado para webhook ${dto.webhookSourceId}, criando alerta de monitoramento ${side}...`);
       
       try {
-        // Verificar se já existe alerta MONITORING para este webhook + símbolo + trade_mode
+        // Verificar se já existe alerta MONITORING para este webhook + símbolo + trade_mode + side
         const existingAlert = await this.monitorService.getActiveAlert(
           dto.webhookSourceId,
           event.symbol_normalized,
@@ -99,25 +100,55 @@ export class WebhookEventService {
         );
         
         if (existingAlert) {
-          const existingMinPrice = existingAlert.price_minimum.toNumber();
-          const newPrice = event.price_reference.toNumber();
+          const existingSide = (existingAlert as any).side || 'BUY';
           
-          // Se novo alerta é mais caro, ignorar
-          if (newPrice > existingMinPrice) {
-            console.log(`[WEBHOOK-EVENT] Ignorando alerta mais caro para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice})`);
-            await this.prisma.webhookEvent.update({
-              where: { id: event.id },
-              data: {
-                status: WebhookEventStatus.SKIPPED,
-                processed_at: new Date(),
-                validation_error: `Alerta mais caro ignorado (existente: ${existingMinPrice}, novo: ${newPrice})`,
-              },
-            });
-            return { event, jobsCreated: 0, jobIds: [] };
+          // Verificar se o side corresponde
+          if (existingSide !== side) {
+            console.log(`[WEBHOOK-EVENT] Side diferente (existente: ${existingSide}, novo: ${side}), criando novo alerta...`);
+            // Continuar para criar novo alerta
+          } else {
+            // Mesmo side, verificar preço
+            if (side === 'BUY') {
+              const existingMinPrice = existingAlert.price_minimum?.toNumber() || existingAlert.price_alert.toNumber();
+              const newPrice = event.price_reference.toNumber();
+              
+              // Para BUY: se novo alerta é mais caro, ignorar
+              if (newPrice > existingMinPrice) {
+                console.log(`[WEBHOOK-EVENT] Ignorando alerta BUY mais caro para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice})`);
+                await this.prisma.webhookEvent.update({
+                  where: { id: event.id },
+                  data: {
+                    status: WebhookEventStatus.SKIPPED,
+                    processed_at: new Date(),
+                    validation_error: `Alerta mais caro ignorado (existente: ${existingMinPrice}, novo: ${newPrice})`,
+                  },
+                });
+                return { event, jobsCreated: 0, jobIds: [] };
+              }
+              
+              console.log(`[WEBHOOK-EVENT] Alerta BUY mais barato/igual detectado para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice}), substituindo...`);
+            } else {
+              // SELL
+              const existingMaxPrice = existingAlert.price_maximum?.toNumber() || existingAlert.price_alert.toNumber();
+              const newPrice = event.price_reference.toNumber();
+              
+              // Para SELL: se novo alerta é mais baixo, ignorar
+              if (newPrice < existingMaxPrice) {
+                console.log(`[WEBHOOK-EVENT] Ignorando alerta SELL mais baixo para ${event.symbol_normalized} (existente: ${existingMaxPrice}, novo: ${newPrice})`);
+                await this.prisma.webhookEvent.update({
+                  where: { id: event.id },
+                  data: {
+                    status: WebhookEventStatus.SKIPPED,
+                    processed_at: new Date(),
+                    validation_error: `Alerta mais baixo ignorado (existente: ${existingMaxPrice}, novo: ${newPrice})`,
+                  },
+                });
+                return { event, jobsCreated: 0, jobIds: [] };
+              }
+              
+              console.log(`[WEBHOOK-EVENT] Alerta SELL mais alto/igual detectado para ${event.symbol_normalized} (existente: ${existingMaxPrice}, novo: ${newPrice}), substituindo...`);
+            }
           }
-          
-          // Se novo alerta é mais barato ou igual, createOrUpdateAlert vai substituir automaticamente
-          console.log(`[WEBHOOK-EVENT] Alerta mais barato/igual detectado para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice}), substituindo...`);
         }
 
         // Encontrar primeira conta válida para referência (opcional, mantido para compatibilidade)
@@ -134,6 +165,7 @@ export class WebhookEventService {
           exchangeAccountId: firstValidBinding?.exchange_account_id || null, // Opcional, apenas para referência
           symbol: event.symbol_normalized,
           tradeMode: event.trade_mode as TradeMode,
+          side: side,
           priceAlert: event.price_reference.toNumber(),
         });
 

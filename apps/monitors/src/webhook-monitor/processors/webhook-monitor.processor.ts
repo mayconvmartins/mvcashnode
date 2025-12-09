@@ -109,8 +109,12 @@ export class WebhookMonitorProcessor extends WorkerHost {
               `[WEBHOOK-MONITOR] Alerta ${alert.id} executado para ${alert.symbol}`
             );
           } else {
+            const side = (alert as any).side || 'BUY';
+            const priceRef = side === 'BUY' 
+              ? (alert.price_minimum?.toNumber() || alert.price_alert.toNumber())
+              : (alert.price_maximum?.toNumber() || alert.price_alert.toNumber());
             this.logger.debug(
-              `[WEBHOOK-MONITOR] Alerta ${alert.id} ainda em monitoramento (preço: ${currentPrice}, mínimo: ${alert.price_minimum.toNumber()})`
+              `[WEBHOOK-MONITOR] Alerta ${alert.id} ainda em monitoramento (preço: ${currentPrice}, ${side === 'BUY' ? 'mínimo' : 'máximo'}: ${priceRef})`
             );
           }
         } catch (error: any) {

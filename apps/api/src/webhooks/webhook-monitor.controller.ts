@@ -51,11 +51,17 @@ export class WebhookMonitorController {
     return alerts.map((alert: any) => ({
       ...alert,
       price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
-      price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : Number(alert.price_minimum),
+      price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : (alert.price_minimum ? Number(alert.price_minimum) : null),
+      price_maximum: alert.price_maximum?.toNumber ? alert.price_maximum.toNumber() : (alert.price_maximum ? Number(alert.price_maximum) : null),
       current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
+      execution_price: alert.execution_price?.toNumber ? alert.execution_price.toNumber() : (alert.execution_price ? Number(alert.execution_price) : null),
       cycles_without_new_low: alert.cycles_without_new_low || 0,
+      cycles_without_new_high: alert.cycles_without_new_high || 0,
       monitoring_status: alert.monitoring_status || null,
       exit_reason: alert.exit_reason || null,
+      exit_details: alert.exit_details || null,
+      side: alert.side || 'BUY',
+      executed_trade_job_ids_json: alert.executed_trade_job_ids_json || null,
     }));
   }
 
@@ -253,6 +259,7 @@ export class WebhookMonitorController {
           user_id: user.userId,
           monitor_enabled: configData.monitor_enabled ?? globalConfig?.monitor_enabled ?? true,
           check_interval_sec: configData.check_interval_sec ?? globalConfig?.check_interval_sec ?? 30,
+          // BUY
           lateral_tolerance_pct: configData.lateral_tolerance_pct ?? globalConfig?.lateral_tolerance_pct ?? 0.3,
           lateral_cycles_min: configData.lateral_cycles_min ?? globalConfig?.lateral_cycles_min ?? 4,
           rise_trigger_pct: configData.rise_trigger_pct ?? globalConfig?.rise_trigger_pct ?? 0.75,
@@ -260,6 +267,14 @@ export class WebhookMonitorController {
           max_fall_pct: configData.max_fall_pct ?? globalConfig?.max_fall_pct ?? 6.0,
           max_monitoring_time_min: configData.max_monitoring_time_min ?? globalConfig?.max_monitoring_time_min ?? 60,
           cooldown_after_execution_min: configData.cooldown_after_execution_min ?? globalConfig?.cooldown_after_execution_min ?? 30,
+          // SELL
+          sell_lateral_tolerance_pct: configData.sell_lateral_tolerance_pct ?? (globalConfig as any)?.sell_lateral_tolerance_pct ?? 0.3,
+          sell_lateral_cycles_min: configData.sell_lateral_cycles_min ?? (globalConfig as any)?.sell_lateral_cycles_min ?? 4,
+          sell_fall_trigger_pct: configData.sell_fall_trigger_pct ?? (globalConfig as any)?.sell_fall_trigger_pct ?? 0.5,
+          sell_fall_cycles_min: configData.sell_fall_cycles_min ?? (globalConfig as any)?.sell_fall_cycles_min ?? 2,
+          sell_max_rise_pct: configData.sell_max_rise_pct ?? (globalConfig as any)?.sell_max_rise_pct ?? 6.0,
+          sell_max_monitoring_time_min: configData.sell_max_monitoring_time_min ?? (globalConfig as any)?.sell_max_monitoring_time_min ?? 60,
+          sell_cooldown_after_execution_min: configData.sell_cooldown_after_execution_min ?? (globalConfig as any)?.sell_cooldown_after_execution_min ?? 30,
         },
       });
     } else {
@@ -300,6 +315,7 @@ export class WebhookMonitorController {
     return {
       monitor_enabled: config.monitor_enabled,
       check_interval_sec: config.check_interval_sec,
+      // BUY
       lateral_tolerance_pct: config.lateral_tolerance_pct.toNumber(),
       lateral_cycles_min: config.lateral_cycles_min,
       rise_trigger_pct: config.rise_trigger_pct.toNumber(),
@@ -307,6 +323,14 @@ export class WebhookMonitorController {
       max_fall_pct: config.max_fall_pct.toNumber(),
       max_monitoring_time_min: config.max_monitoring_time_min,
       cooldown_after_execution_min: config.cooldown_after_execution_min,
+      // SELL
+      sell_lateral_tolerance_pct: (config as any).sell_lateral_tolerance_pct?.toNumber() || 0.3,
+      sell_lateral_cycles_min: (config as any).sell_lateral_cycles_min || 4,
+      sell_fall_trigger_pct: (config as any).sell_fall_trigger_pct?.toNumber() || 0.5,
+      sell_fall_cycles_min: (config as any).sell_fall_cycles_min || 2,
+      sell_max_rise_pct: (config as any).sell_max_rise_pct?.toNumber() || 6.0,
+      sell_max_monitoring_time_min: (config as any).sell_max_monitoring_time_min || 60,
+      sell_cooldown_after_execution_min: (config as any).sell_cooldown_after_execution_min || 30,
     };
   }
 }

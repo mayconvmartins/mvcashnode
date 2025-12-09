@@ -10,7 +10,7 @@ import { DataTable, type Column } from '@/components/shared/DataTable'
 import { webhookMonitorService, type WebhookMonitorAlert, type WebhookMonitorConfig } from '@/lib/api/webhook-monitor.service'
 import { toast } from 'sonner'
 import { formatDateTime } from '@/lib/utils/format'
-import { X, TrendingDown, TrendingUp, Minus, Settings, History, Activity } from 'lucide-react'
+import { X, TrendingDown, TrendingUp, Minus, Settings, History, Activity, RefreshCw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -22,7 +22,7 @@ export default function WebhookMonitorPage() {
     const [selectedAlert, setSelectedAlert] = useState<WebhookMonitorAlert | null>(null)
     const [cancelReason, setCancelReason] = useState('')
 
-    const { data: alerts, isLoading: alertsLoading } = useQuery({
+    const { data: alerts, isLoading: alertsLoading, dataUpdatedAt } = useQuery({
         queryKey: ['webhook-monitor-alerts'],
         queryFn: webhookMonitorService.listAlerts,
         refetchInterval: 3000, // Atualizar a cada 3 segundos para realtime
@@ -136,11 +136,12 @@ export default function WebhookMonitorPage() {
         {
             key: 'monitoring_status',
             label: 'Status Monitoramento',
-            render: (alert) => {
+            render: (alert: any) => {
                 if (alert.state !== 'MONITORING') return <span className="text-sm text-muted-foreground">-</span>
                 
                 const status = alert.monitoring_status
-                const cycles = alert.cycles_without_new_low
+                const side = alert.side || 'BUY'
+                const cycles = side === 'BUY' ? (alert.cycles_without_new_low || 0) : (alert.cycles_without_new_high || 0)
                 
                 if (status === 'FALLING') {
                     return <Badge variant="destructive">Em queda</Badge>
@@ -153,11 +154,13 @@ export default function WebhookMonitorPage() {
             },
         },
         {
-            key: 'cycles_without_new_low',
+            key: 'cycles',
             label: 'Ciclos',
-            render: (alert) => (
-                <span className="text-sm">{alert.cycles_without_new_low}</span>
-            ),
+            render: (alert: any) => {
+                const side = alert.side || 'BUY'
+                const cycles = side === 'BUY' ? (alert.cycles_without_new_low || 0) : (alert.cycles_without_new_high || 0)
+                return <span className="text-sm">{cycles}</span>
+            },
         },
         {
             key: 'created_at',
@@ -202,10 +205,17 @@ export default function WebhookMonitorPage() {
         },
         {
             key: 'price_minimum',
-            label: 'Preço Mínimo',
-            render: (alert) => {
-                const price = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
-                return <span className="font-mono">${price.toFixed(8)}</span>
+            label: 'Preço Mín/Máx',
+            render: (alert: any) => {
+                const side = alert.side || 'BUY'
+                if (side === 'BUY' && alert.price_minimum) {
+                    const price = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
+                    return <span className="font-mono text-green-600">${price.toFixed(8)}</span>
+                } else if (side === 'SELL' && alert.price_maximum) {
+                    const price = typeof alert.price_maximum === 'number' ? alert.price_maximum : Number(alert.price_maximum)
+                    return <span className="font-mono text-red-600">${price.toFixed(8)}</span>
+                }
+                return <span className="font-mono">-</span>
             },
         },
         {
@@ -223,14 +233,27 @@ export default function WebhookMonitorPage() {
             render: (alert) => getStateBadge(alert.state),
         },
         {
+            key: 'side',
+            label: 'Tipo',
+            render: (alert: any) => {
+                const side = alert.side || 'BUY'
+                return (
+                    <Badge variant={side === 'BUY' ? 'default' : 'secondary'}>
+                        {side === 'BUY' ? 'Compra' : 'Venda'}
+                    </Badge>
+                )
+            },
+        },
+        {
             key: 'exit_reason',
             label: 'Motivo Saída',
-            render: (alert) => {
+            render: (alert: any) => {
                 if (alert.state === 'EXECUTED') {
                     const exitReason = alert.exit_reason || 'EXECUTED'
                     const reasonMap: Record<string, string> = {
                         'EXECUTED': 'Executado com sucesso',
                         'MAX_FALL': 'Queda máxima excedida',
+                        'MAX_RISE': 'Alta máxima excedida',
                         'MAX_TIME': 'Tempo máximo excedido',
                         'REPLACED': 'Substituído por alerta melhor',
                         'COOLDOWN': 'Cooldown ativo',
@@ -241,6 +264,7 @@ export default function WebhookMonitorPage() {
                     const exitReason = alert.exit_reason || 'CANCELLED'
                     const reasonMap: Record<string, string> = {
                         'MAX_FALL': 'Queda máxima excedida',
+                        'MAX_RISE': 'Alta máxima excedida',
                         'MAX_TIME': 'Tempo máximo excedido',
                         'REPLACED': 'Substituído por alerta melhor',
                         'COOLDOWN': 'Cooldown ativo',
@@ -256,9 +280,16 @@ export default function WebhookMonitorPage() {
             },
         },
         {
-            key: 'cancel_reason',
+            key: 'exit_details',
             label: 'Detalhes',
-            render: (alert) => {
+            render: (alert: any) => {
+                if (alert.exit_details) {
+                    return (
+                        <span className="text-sm text-muted-foreground">
+                            {alert.exit_details}
+                        </span>
+                    )
+                }
                 if (alert.cancel_reason) {
                     return (
                         <span className="text-sm text-muted-foreground">
@@ -270,20 +301,22 @@ export default function WebhookMonitorPage() {
             },
         },
         {
+            key: 'execution_price',
+            label: 'Preço Execução',
+            render: (alert: any) => {
+                if (alert.state === 'EXECUTED' && alert.execution_price) {
+                    const price = typeof alert.execution_price === 'number' ? alert.execution_price : Number(alert.execution_price)
+                    return <span className="font-mono text-green-600">${price.toFixed(8)}</span>
+                }
+                return <span className="text-sm text-muted-foreground">-</span>
+            },
+        },
+        {
             key: 'webhook_source',
             label: 'Webhook',
             render: (alert: any) => (
                 <span className="text-sm">
                     {alert.webhook_source?.label || alert.webhook_source?.webhook_code || '-'}
-                </span>
-            ),
-        },
-        {
-            key: 'exchange_account',
-            label: 'Conta',
-            render: (alert: any) => (
-                <span className="text-sm">
-                    {alert.exchange_account?.label || alert.exchange_account?.exchange || '-'}
                 </span>
             ),
         },
@@ -328,7 +361,17 @@ export default function WebhookMonitorPage() {
                 <TabsContent value="active">
                     <Card className="glass">
                         <CardHeader>
-                            <CardTitle>Alertas em Monitoramento</CardTitle>
+                            <div className="flex items-center justify-between">
+                                <CardTitle>Alertas em Monitoramento</CardTitle>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <RefreshCw className={`h-4 w-4 ${alertsLoading ? 'animate-spin' : ''}`} />
+                                    {dataUpdatedAt && (
+                                        <span>
+                                            Atualizado: {new Date(dataUpdatedAt).toLocaleTimeString()}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
                         </CardHeader>
                         <CardContent>
                             <DataTable

@@ -7,16 +7,22 @@ export interface WebhookMonitorAlert {
   exchange_account_id: number | null
   symbol: string
   trade_mode: string
+  side: 'BUY' | 'SELL'
   price_alert: number
-  price_minimum: number
+  price_minimum: number | null
+  price_maximum: number | null
   current_price: number | null
+  execution_price: number | null
   state: 'MONITORING' | 'EXECUTED' | 'CANCELLED'
   monitoring_status: 'FALLING' | 'LATERAL' | 'RISING' | null
   cycles_without_new_low: number
+  cycles_without_new_high: number
   last_price_check_at: string | null
   executed_trade_job_id: number | null
+  executed_trade_job_ids_json: number[] | null
   cancel_reason: string | null
   exit_reason: string | null
+  exit_details: string | null
   created_at: string
   updated_at: string
   webhook_source?: {
@@ -39,6 +45,7 @@ export interface WebhookMonitorAlert {
 export interface WebhookMonitorConfig {
   monitor_enabled: boolean
   check_interval_sec: number
+  // BUY
   lateral_tolerance_pct: number
   lateral_cycles_min: number
   rise_trigger_pct: number
@@ -46,6 +53,14 @@ export interface WebhookMonitorConfig {
   max_fall_pct: number
   max_monitoring_time_min: number
   cooldown_after_execution_min: number
+  // SELL
+  sell_lateral_tolerance_pct: number
+  sell_lateral_cycles_min: number
+  sell_fall_trigger_pct: number
+  sell_fall_cycles_min: number
+  sell_max_rise_pct: number
+  sell_max_monitoring_time_min: number
+  sell_cooldown_after_execution_min: number
 }
 
 export const webhookMonitorService = {
