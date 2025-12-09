@@ -2,9 +2,29 @@
 
 Este documento descreve o módulo de assinaturas implementado no sistema.
 
+## Visão Geral
+
+O sistema de assinaturas suporta múltiplos gateways de pagamento:
+- **TransFi**: Gateway principal (PIX, Cartão, Criptomoedas → USDT)
+- **Mercado Pago**: Suporte legado (PIX, Cartão)
+
+> **Nota**: O sistema está migrando para TransFi como gateway principal. Para detalhes sobre TransFi, consulte [TRANSFI.md](./TRANSFI.md).
+
 ## Variáveis de Ambiente
 
-Adicione as seguintes variáveis ao seu arquivo `.env`:
+### TransFi (Recomendado)
+
+```env
+# TransFi
+TRANSFI_MERCHANT_ID=seu-merchant-id-do-transfi
+TRANSFI_AUTHORIZATION_TOKEN=seu-authorization-token-do-transfi
+TRANSFI_WEBHOOK_SECRET=seu-webhook-secret-do-transfi
+TRANSFI_ENVIRONMENT=sandbox  # ou 'production'
+TRANSFI_WEBHOOK_URL=https://seu-dominio.com/subscriptions/webhooks/transfi
+FRONTEND_URL=https://seu-dominio.com  # URL do frontend para redirecionamentos
+```
+
+### Mercado Pago (Legado)
 
 ```env
 # Mercado Pago
@@ -13,16 +33,11 @@ MERCADOPAGO_PUBLIC_KEY=sua-public-key-do-mercadopago
 MERCADOPAGO_WEBHOOK_SECRET=seu-webhook-secret-do-mercadopago
 MERCADOPAGO_ENVIRONMENT=sandbox  # ou 'production'
 SUBSCRIPTION_WEBHOOK_URL=https://seu-dominio.com/subscriptions/webhooks/mercadopago
-FRONTEND_URL=https://seu-dominio.com  # URL do frontend para redirecionamentos
 ```
 
-## Configuração do Mercado Pago
+## Configuração
 
-1. Acesse o [Painel do Mercado Pago](https://www.mercadopago.com.br/developers/panel)
-2. Crie uma aplicação
-3. Obtenha o Access Token e Public Key
-4. Configure o webhook na aplicação apontando para `SUBSCRIPTION_WEBHOOK_URL`
-5. Obtenha o Webhook Secret nas configurações de webhooks
+A configuração pode ser feita via interface administrativa (`/admin/transfi` ou `/admin/mercadopago`) ou via variáveis de ambiente.
 
 ## Fluxo de Assinatura
 
@@ -36,12 +51,12 @@ FRONTEND_URL=https://seu-dominio.com  # URL do frontend para redirecionamentos
    - Validação de CPF e dados
 
 3. **Pagamento** (`/subscribe/payment`)
-   - Integração com Mercado Pago (checkout transparente)
-   - Opções: Cartão de Crédito ou PIX
+   - **TransFi**: PIX, Cartão de Crédito ou Criptomoedas (todos convertidos para USDT)
+   - **Mercado Pago**: Cartão de Crédito ou PIX
    - Aguarda confirmação do pagamento
 
 4. **Webhook**
-   - Mercado Pago envia webhook quando pagamento é aprovado
+   - Gateway envia webhook quando pagamento é aprovado
    - Sistema cria/ativa usuário e assinatura
    - Envia email com link para finalizar cadastro
 
@@ -122,6 +137,16 @@ Quando um assinante cria uma ExchangeAccount ou TradeParameter, os valores de `S
 ## Segurança
 
 - CPF e dados sensíveis são criptografados
-- Webhooks do Mercado Pago são validados por assinatura
+- Webhooks são validados por assinatura HMAC SHA256
 - Rate limiting em endpoints públicos
 - Tokens de registro com expiração
+- Tokens e secrets são armazenados criptografados no banco de dados
+
+## Sincronização Automática
+
+Um cron job executa a cada 5 minutos para sincronizar pagamentos pendentes:
+- Verifica pagamentos das últimas 24 horas
+- Atualiza status de pagamentos pendentes
+- Processa pagamentos aprovados que não foram processados via webhook
+
+A sincronização também pode ser disparada manualmente via interface admin.

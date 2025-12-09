@@ -59,6 +59,7 @@ export enum WebhookEventStatus {
   JOB_CREATED = 'JOB_CREATED',
   SKIPPED = 'SKIPPED',
   FAILED = 'FAILED',
+  MONITORING = 'MONITORING',
 }
 
 export enum VaultTransactionType {

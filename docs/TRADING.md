@@ -248,5 +248,5 @@ O sistema envia notificações WhatsApp para:
 
 ---
 
-**Última atualização**: 2025-02-12
+**Última atualização**: 2025-02-20
 

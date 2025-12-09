@@ -44,6 +44,7 @@ const menuItems = [
     { icon: Vault, label: 'Cofres', href: '/vaults' },
     { icon: Settings2, label: 'Parâmetros', href: '/parameters' },
     { icon: Webhook, label: 'Webhooks', href: '/webhooks', subscriberBlocked: true }, // Bloqueado para assinantes
+    { icon: Activity, label: 'Monitor Webhook', href: '/webhooks/monitor', subscriberBlocked: true }, // Bloqueado para assinantes
     { icon: LineChart, label: 'Posições', href: '/positions' },
     { icon: ArrowLeftRight, label: 'Ordens Limit', href: '/limit-orders' },
     { icon: History, label: 'Operações', href: '/operations', subscriberBlocked: true }, // Bloqueado para assinantes

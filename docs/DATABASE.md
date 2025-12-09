@@ -219,6 +219,7 @@ Fonte de webhook (endpoint público).
 - admin_locked: Boolean
 - alert_group_enabled: Boolean
 - alert_group_id: String?
+- monitor_enabled: Boolean // Ativa monitoramento de preços antes de executar compras
 - created_at, updated_at: DateTime
 ```
 
@@ -226,6 +227,7 @@ Fonte de webhook (endpoint público).
 - `bindings` (1:N)
 - `events` (1:N)
 - `blocked_attempts` (1:N)
+- `monitor_alerts` (1:N)
 
 #### `AccountWebhookBinding`
 Vinculação de webhook source com conta de exchange.
@@ -256,12 +258,69 @@ Evento recebido via webhook.
 - price_reference: Decimal?
 - raw_text: String?
 - raw_payload_json: Json?
-- status: String ('RECEIVED', 'PROCESSED', 'FAILED')
+- status: String ('RECEIVED', 'JOB_CREATED', 'MONITORING', 'SKIPPED', 'FAILED')
 - validation_error: String?
 - created_at: DateTime
 - processed_at: DateTime?
 - unique(webhook_source_id, event_uid, target_account_id)
 ```
+
+**Relacionamentos:**
+- `monitor_alerts` (1:N) - Alertas de monitoramento criados a partir deste evento
+
+#### `WebhookMonitorAlert`
+Alerta de monitoramento de webhook (rastreamento de preços antes de executar compras).
+
+```prisma
+- id: Int (PK)
+- webhook_source_id: Int (FK)
+- webhook_event_id: Int (FK)
+- exchange_account_id: Int (FK)
+- symbol: String
+- trade_mode: String ('REAL' | 'SIMULATION')
+- price_alert: Decimal(36, 18) // Preço do alerta original
+- price_minimum: Decimal(36, 18) // Menor preço visto desde o alerta
+- current_price: Decimal(36, 18)? // Preço atual
+- state: String ('MONITORING' | 'EXECUTED' | 'CANCELLED')
+- cycles_without_new_low: Int // Contador de ciclos sem fazer novo fundo
+- last_price_check_at: DateTime?
+- executed_trade_job_id: Int? // ID do TradeJob quando executado
+- cancel_reason: Text? // Motivo do cancelamento
+- created_at, updated_at: DateTime
+- unique(webhook_source_id, exchange_account_id, symbol, trade_mode, state)
+```
+
+**Relacionamentos:**
+- `webhook_source` (N:1)
+- `webhook_event` (N:1)
+- `exchange_account` (N:1)
+- `executed_trade_job` (1:1, opcional)
+
+**Índices:**
+- `(exchange_account_id, symbol, trade_mode, state)` - Busca rápida de alertas ativos
+- `(state)` - Filtro por estado
+- `(created_at)` - Ordenação temporal
+
+#### `WebhookMonitorConfig`
+Configurações de monitoramento (global ou por usuário).
+
+```prisma
+- id: Int (PK)
+- user_id: Int? (UNIQUE) // null = configuração global
+- monitor_enabled: Boolean (default: true)
+- check_interval_sec: Int (default: 30) // Intervalo entre verificações
+- lateral_tolerance_pct: Decimal(5, 2) (default: 0.30) // Margem para considerar lateral
+- lateral_cycles_min: Int (default: 4) // Ciclos mínimos em lateral para executar
+- rise_trigger_pct: Decimal(5, 2) (default: 0.75) // Percentual de alta para executar
+- rise_cycles_min: Int (default: 2) // Ciclos mínimos após alta
+- max_fall_pct: Decimal(5, 2) (default: 6.00) // Queda máxima desde alerta para cancelar
+- max_monitoring_time_min: Int (default: 60) // Tempo máximo de monitoramento
+- cooldown_after_execution_min: Int (default: 30) // Cooldown após execução
+- created_at, updated_at: DateTime
+```
+
+**Relacionamentos:**
+- `user` (1:1, opcional) - Se null, é configuração global
 
 ### Jobs e Execuções
 
@@ -552,5 +611,5 @@ mysql -u usuario -p mvcashnode < backup.sql
 
 ---
 
-**Última atualização**: 2025-02-12
+**Última atualização**: 2025-02-20
 

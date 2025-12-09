@@ -11,6 +11,7 @@ Bem-vindo à documentação completa do sistema de automação de trading. Este 
 - **[API.md](./API.md)** - Documentação completa da API REST
 - **[DATABASE.md](./DATABASE.md)** - Modelo de dados e schema do banco
 - **[TRADING.md](./TRADING.md)** - Conceitos de trading e funcionamento do sistema
+- **[WEBHOOK_MONITOR.md](./WEBHOOK_MONITOR.md)** - Módulo Monitor Webhook
 
 ### Guias de Desenvolvimento e Deploy
 
@@ -20,10 +21,8 @@ Bem-vindo à documentação completa do sistema de automação de trading. Este 
 ### Documentação Técnica Adicional
 
 - **[MONITORING_API.md](./MONITORING_API.md)** - API de monitoramento do sistema
-- **[IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md)** - Status de implementação
-- **[IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md)** - Resumo de implementação
-- **[FINAL_STATUS.md](./FINAL_STATUS.md)** - Status final do projeto
-- **[DOCKER_BUILD_FIX.md](./DOCKER_BUILD_FIX.md)** - Correções de build Docker
+- **[SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md)** - Módulo de assinaturas e pagamentos
+- **[TRANSFI.md](./TRANSFI.md)** - Integração TransFi Gateway de Pagamento
 
 ## 🚀 Início Rápido
 
@@ -63,9 +62,11 @@ mvcashnode/
 - **Cofres Virtuais**: Gerenciamento de capital
 - **Posições**: Rastreamento de posições abertas e fechadas
 - **Webhooks**: Recebimento de sinais de trading
+- **Monitor Webhook**: Rastreamento de preços antes de executar compras
 - **Stop Loss / Take Profit**: Monitoramento automático
 - **Notificações**: WhatsApp via Evolution API
 - **Relatórios**: PnL, performance e métricas
+- **Assinaturas**: Sistema de planos e pagamentos (TransFi)
 
 ## 📝 Convenções
 
@@ -93,5 +94,5 @@ Para dúvidas ou problemas:
 
 ---
 
-**Última atualização**: 2025-02-12
+**Última atualização**: 2025-02-20
 

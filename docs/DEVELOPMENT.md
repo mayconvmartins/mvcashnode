@@ -397,5 +397,5 @@ kill -9 <PID>
 
 ---
 
-**Última atualização**: 2025-02-12
+**Última atualização**: 2025-02-20
 

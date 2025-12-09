@@ -147,6 +147,7 @@ export class WebhookSourcesController {
           allowed_ips: source.allowed_ips_json as string[] | null,
           alert_group_enabled: source.alert_group_enabled,
           alert_group_id: source.alert_group_id,
+          monitor_enabled: Boolean(source.monitor_enabled),
           bindings: source.bindings.map(binding => ({
             id: binding.id,
             exchange_account: binding.exchange_account,
@@ -498,6 +499,7 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
       }
       if (updateDto.requireSignature !== undefined) updateData.require_signature = updateDto.requireSignature;
       if (updateDto.rateLimitPerMin !== undefined) updateData.rate_limit_per_min = updateDto.rateLimitPerMin;
+      if (updateDto.monitorEnabled !== undefined) updateData.monitor_enabled = updateDto.monitorEnabled;
       
       // Sempre atualizar alert_group_enabled e alert_group_id juntos
       if (updateDto.alertGroupEnabled !== undefined) {
@@ -547,6 +549,7 @@ A URL completa do webhook será: \`{API_URL}/webhooks/{webhook_code}\`
         allowed_ips: updated.allowed_ips_json as string[] | null,
         alert_group_enabled: Boolean(updated.alert_group_enabled), // Garantir que é boolean
         alert_group_id: updated.alert_group_id || null, // Garantir que é null se vazio
+        monitor_enabled: Boolean(updated.monitor_enabled), // Garantir que é boolean
         created_at: updated.created_at,
         updated_at: updated.updated_at,
       };

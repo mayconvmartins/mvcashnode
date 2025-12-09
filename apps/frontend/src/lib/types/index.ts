@@ -252,6 +252,7 @@ export interface WebhookSource {
     admin_locked: boolean
     alert_group_enabled?: boolean
     alert_group_id?: string
+    monitor_enabled?: boolean
     created_at: string
     updated_at: string
 }

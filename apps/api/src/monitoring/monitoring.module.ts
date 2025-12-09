@@ -44,6 +44,9 @@ import { PrismaService } from '@mvcashnode/db';
     BullModule.registerQueue({
       name: 'dust-positions-monitor',
     }),
+    BullModule.registerQueue({
+      name: 'webhook-monitor',
+    }),
   ],
   controllers: [MonitoringController, CronManagementController],
   providers: [MonitoringService, CronManagementService, PrismaService],

@@ -14,6 +14,7 @@ export interface CreateWebhookSourceDto {
   signingSecret?: string;
   rateLimitPerMin?: number;
   isShared?: boolean;
+  monitorEnabled?: boolean;
 }
 
 export class WebhookSourceService {
@@ -39,6 +40,7 @@ export class WebhookSourceService {
         signing_secret_enc: signingSecretEnc,
         rate_limit_per_min: dto.rateLimitPerMin || 60,
         is_shared: dto.isShared || false,
+        monitor_enabled: dto.monitorEnabled || false,
       },
     });
   }

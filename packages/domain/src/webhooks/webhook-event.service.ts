@@ -3,6 +3,7 @@ import { TradeMode, WebhookEventStatus, WebhookAction } from '@mvcashnode/shared
 import { WebhookParserService } from './webhook-parser.service';
 import { TradeJobService } from '../trading/trade-job.service';
 import { PositionService } from '../positions/position.service';
+import { WebhookMonitorService } from './webhook-monitor.service';
 
 export interface CreateWebhookEventDto {
   webhookSourceId: number;
@@ -14,6 +15,7 @@ export interface CreateWebhookEventDto {
 
 export class WebhookEventService {
   private positionService: PositionService;
+  private monitorService: WebhookMonitorService;
 
   constructor(
     private prisma: PrismaClient,
@@ -21,6 +23,7 @@ export class WebhookEventService {
     private tradeJobService: TradeJobService
   ) {
     this.positionService = new PositionService(prisma);
+    this.monitorService = new WebhookMonitorService(prisma, tradeJobService);
   }
 
   async createEvent(dto: CreateWebhookEventDto): Promise<{ event: any; jobsCreated: number; jobIds: number[] }> {
@@ -61,7 +64,80 @@ export class WebhookEventService {
 
     console.log(`[WEBHOOK-EVENT] ✅ Evento criado: ID=${event.id}, price_reference=${event.price_reference ? event.price_reference.toNumber() : 'NULL'}, action=${event.action}`);
 
-    // Create jobs from event
+    // Buscar webhook source para verificar se monitoramento está habilitado
+    const webhookSource = await this.prisma.webhookSource.findUnique({
+      where: { id: dto.webhookSourceId },
+      include: {
+        bindings: {
+          where: { is_active: true },
+          include: {
+            exchange_account: {
+              select: {
+                id: true,
+                is_simulation: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Se monitoramento está habilitado e é BUY_SIGNAL, criar alerta de monitoramento
+    if (
+      webhookSource?.monitor_enabled &&
+      event.action === WebhookAction.BUY_SIGNAL &&
+      event.price_reference
+    ) {
+      console.log(`[WEBHOOK-EVENT] Monitoramento habilitado para webhook ${dto.webhookSourceId}, criando alertas de monitoramento...`);
+      
+      let monitorsCreated = 0;
+      const monitorErrors: string[] = [];
+
+      // Criar alerta de monitoramento para cada binding ativo
+      for (const binding of webhookSource.bindings) {
+        try {
+          // Verificar se trade mode corresponde
+          const accountIsSim = binding.exchange_account.is_simulation;
+          const eventIsSim = event.trade_mode === 'SIMULATION';
+          
+          if (accountIsSim !== eventIsSim) {
+            console.log(`[WEBHOOK-EVENT] Trade mode não corresponde para binding ${binding.id}, pulando monitoramento`);
+            continue;
+          }
+
+          await this.monitorService.createOrUpdateAlert({
+            webhookEventId: event.id,
+            webhookSourceId: dto.webhookSourceId,
+            exchangeAccountId: binding.exchange_account_id,
+            symbol: event.symbol_normalized,
+            tradeMode: event.trade_mode as TradeMode,
+            priceAlert: event.price_reference.toNumber(),
+          });
+
+          monitorsCreated++;
+          console.log(`[WEBHOOK-EVENT] ✅ Alerta de monitoramento criado para binding ${binding.id}`);
+        } catch (error: any) {
+          const errorMsg = `Erro ao criar alerta de monitoramento para binding ${binding.id}: ${error.message}`;
+          console.error(`[WEBHOOK-EVENT] ${errorMsg}`);
+          monitorErrors.push(errorMsg);
+        }
+      }
+
+      // Atualizar status do evento
+      await this.prisma.webhookEvent.update({
+        where: { id: event.id },
+        data: {
+          status: monitorsCreated > 0 ? WebhookEventStatus.MONITORING : WebhookEventStatus.SKIPPED,
+          processed_at: new Date(),
+          validation_error: monitorsCreated === 0 && monitorErrors.length > 0 ? monitorErrors.join('; ') : null,
+        },
+      });
+
+      console.log(`[WEBHOOK-EVENT] ${monitorsCreated} alerta(s) de monitoramento criado(s)`);
+      return { event, jobsCreated: 0, jobIds: [] };
+    }
+
+    // Comportamento padrão: criar jobs imediatamente
     const { count: jobsCreated, jobIds, skipReasons } = await this.createJobsFromEvent(event.id);
 
     // Update event status
@@ -97,6 +173,12 @@ export class WebhookEventService {
         },
       },
     });
+
+    // Se monitoramento está habilitado e é BUY, não criar jobs aqui (já foi tratado no createEvent)
+    if (event?.webhook_source.monitor_enabled && event.action === WebhookAction.BUY_SIGNAL) {
+      console.log(`[WEBHOOK-EVENT] Monitoramento habilitado, jobs não serão criados aqui`);
+      return { count: 0, jobIds: [], skipReasons: ['Monitoramento habilitado - jobs serão criados após monitoramento'] };
+    }
 
     console.log(`[WEBHOOK-EVENT] Criando jobs para evento ${eventId}`);
     console.log(`[WEBHOOK-EVENT] Evento:`, {

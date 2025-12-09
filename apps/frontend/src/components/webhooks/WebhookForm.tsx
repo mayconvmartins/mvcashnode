@@ -38,6 +38,7 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
         alertGroupEnabled: webhook?.alert_group_enabled || false,
         alertGroupId: webhook?.alert_group_id || '',
         isShared: webhook?.is_shared || false,
+        monitorEnabled: webhook?.monitor_enabled || false,
     })
 
     // Atualizar formData quando webhook mudar
@@ -53,6 +54,7 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                 alertGroupEnabled: webhook.alert_group_enabled || false,
                 alertGroupId: webhook.alert_group_id || '',
                 isShared: webhook.is_shared || false,
+                monitorEnabled: webhook.monitor_enabled || false,
             })
         }
     }, [webhook])
@@ -66,6 +68,7 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                 requireSignature: formData.requireSignature,
                 rateLimitPerMin: formData.rateLimitPerMin,
                 alertGroupEnabled: formData.alertGroupEnabled,
+                monitorEnabled: formData.monitorEnabled,
             }
             
             // Incluir isShared apenas se usuário for admin
@@ -279,6 +282,22 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                             </p>
                         </div>
                     )}
+                </div>
+
+                <div className="border-t pt-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                            <Label htmlFor="monitorEnabled">Ativar Monitoramento</Label>
+                            <p className="text-sm text-muted-foreground">
+                                Monitora preços em tempo real antes de executar compras, aguardando o melhor momento de entrada
+                            </p>
+                        </div>
+                        <Switch
+                            id="monitorEnabled"
+                            checked={formData.monitorEnabled}
+                            onCheckedChange={(checked) => handleChange('monitorEnabled', checked)}
+                        />
+                    </div>
                 </div>
                 
                 {isAdmin && (

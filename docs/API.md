@@ -1093,6 +1093,178 @@ Lista eventos de webhook recebidos.
 ### `GET /webhook-events/:id`
 Obtém detalhes de um evento de webhook.
 
+## Monitor Webhook
+
+O Monitor Webhook permite rastrear preços em tempo real antes de executar compras, aguardando o melhor momento de entrada.
+
+### `GET /webhooks/monitor/alerts`
+Lista alertas ativos em monitoramento.
+
+**Autenticação**: Requerida
+
+**Resposta:**
+```json
+[
+  {
+    "id": 1,
+    "webhook_source_id": 1,
+    "webhook_event_id": 123,
+    "exchange_account_id": 1,
+    "symbol": "SOLUSDT",
+    "trade_mode": "REAL",
+    "price_alert": 100.0,
+    "price_minimum": 95.0,
+    "current_price": 95.30,
+    "state": "MONITORING",
+    "cycles_without_new_low": 4,
+    "last_price_check_at": "2025-02-20T10:03:30.000Z",
+    "created_at": "2025-02-20T10:00:00.000Z",
+    "webhook_source": {
+      "id": 1,
+      "label": "TradingView Alerts",
+      "webhook_code": "tv-alerts"
+    },
+    "exchange_account": {
+      "id": 1,
+      "label": "Conta Principal",
+      "exchange": "BINANCE_SPOT"
+    }
+  }
+]
+```
+
+### `GET /webhooks/monitor/alerts/:id`
+Obtém detalhes de um alerta específico.
+
+**Autenticação**: Requerida
+
+**Parâmetros:**
+- `id` (path): ID do alerta
+
+**Resposta:**
+```json
+{
+  "id": 1,
+  "webhook_source_id": 1,
+  "webhook_event_id": 123,
+  "exchange_account_id": 1,
+  "symbol": "SOLUSDT",
+  "trade_mode": "REAL",
+  "price_alert": 100.0,
+  "price_minimum": 95.0,
+  "current_price": 95.30,
+  "state": "MONITORING",
+  "cycles_without_new_low": 4,
+  "last_price_check_at": "2025-02-20T10:03:30.000Z",
+  "executed_trade_job_id": null,
+  "cancel_reason": null,
+  "created_at": "2025-02-20T10:00:00.000Z",
+  "updated_at": "2025-02-20T10:03:30.000Z"
+}
+```
+
+### `POST /webhooks/monitor/alerts/:id/cancel`
+Cancela um alerta manualmente.
+
+**Autenticação**: Requerida
+
+**Parâmetros:**
+- `id` (path): ID do alerta
+
+**Body:**
+```json
+{
+  "reason": "Cancelado manualmente pelo usuário"
+}
+```
+
+**Resposta:**
+```json
+{
+  "message": "Alerta cancelado com sucesso"
+}
+```
+
+### `GET /webhooks/monitor/history`
+Lista histórico de alertas executados ou cancelados.
+
+**Autenticação**: Requerida
+
+**Query Parameters:**
+- `symbol` (opcional): Filtrar por símbolo (ex: `BTCUSDT`)
+- `state` (opcional): Filtrar por estado (`EXECUTED` ou `CANCELLED`)
+- `startDate` (opcional): Data inicial (ISO string)
+- `endDate` (opcional): Data final (ISO string)
+- `limit` (opcional): Limite de resultados (padrão: 100)
+
+**Resposta:**
+```json
+[
+  {
+    "id": 1,
+    "symbol": "SOLUSDT",
+    "price_alert": 100.0,
+    "price_minimum": 95.0,
+    "state": "EXECUTED",
+    "executed_trade_job_id": 456,
+    "cancel_reason": null,
+    "created_at": "2025-02-20T10:00:00.000Z"
+  }
+]
+```
+
+### `GET /webhooks/monitor/config`
+Obtém configurações de monitoramento do usuário (ou global se não houver configuração do usuário).
+
+**Autenticação**: Requerida
+
+**Resposta:**
+```json
+{
+  "monitor_enabled": true,
+  "check_interval_sec": 30,
+  "lateral_tolerance_pct": 0.3,
+  "lateral_cycles_min": 4,
+  "rise_trigger_pct": 0.75,
+  "rise_cycles_min": 2,
+  "max_fall_pct": 6.0,
+  "max_monitoring_time_min": 60,
+  "cooldown_after_execution_min": 30
+}
+```
+
+### `PUT /webhooks/monitor/config`
+Atualiza configurações de monitoramento do usuário.
+
+**Autenticação**: Requerida
+
+**Body:**
+```json
+{
+  "lateral_tolerance_pct": 0.5,
+  "lateral_cycles_min": 5,
+  "rise_trigger_pct": 1.0,
+  "max_fall_pct": 8.0
+}
+```
+
+**Resposta:**
+```json
+{
+  "monitor_enabled": true,
+  "check_interval_sec": 30,
+  "lateral_tolerance_pct": 0.5,
+  "lateral_cycles_min": 5,
+  "rise_trigger_pct": 1.0,
+  "rise_cycles_min": 2,
+  "max_fall_pct": 8.0,
+  "max_monitoring_time_min": 60,
+  "cooldown_after_execution_min": 30
+}
+```
+
+**Nota**: Apenas os campos enviados serão atualizados. Campos não enviados mantêm seus valores atuais.
+
 **Headers:** `Authorization: Bearer <token>`
 
 **Resposta (200):**
@@ -1730,5 +1902,5 @@ CORS é configurado via variáveis de ambiente:
 
 ---
 
-**Última atualização**: 2025-02-12
+**Última atualização**: 2025-02-20
 

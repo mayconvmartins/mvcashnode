@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { WebhookSourcesController } from './webhook-sources.controller';
 import { WebhookBindingsController } from './webhook-bindings.controller';
 import { WebhookEventsController } from './webhook-events.controller';
+import { WebhookMonitorController } from './webhook-monitor.controller';
 import { WebhooksController } from './webhooks.controller';
 import { WebhooksService } from './webhooks.service';
 import { PrismaService } from '@mvcashnode/db';
@@ -29,6 +30,7 @@ import { WebSocketModule } from '../websocket/websocket.module';
     WebhookBindingsController,
     WebhookEventsController,
     WebhooksController,
+    WebhookMonitorController,
   ],
   providers: [
     WebhooksService,

@@ -164,6 +164,22 @@ async function bootstrap() {
   );
   console.log('✅ System Monitor configurado (a cada 30s)');
 
+  // Configurar Webhook Monitor - executa a cada 30 segundos
+  const webhookMonitorQueue = app.get<Queue>(getQueueToken('webhook-monitor'));
+  await webhookMonitorQueue.add(
+    'monitor-webhook-alerts',
+    {},
+    {
+      repeat: {
+        every: 30000, // 30 segundos
+      },
+      jobId: 'webhook-monitor-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Webhook Monitor configurado (a cada 30s)');
+
   // Configurar Price Sync - executa a cada 22 segundos (garante TTL de 25s)
   const priceSyncQueue = app.get<Queue>(getQueueToken('price-sync'));
   await priceSyncQueue.add(

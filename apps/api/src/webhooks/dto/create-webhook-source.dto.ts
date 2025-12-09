@@ -51,5 +51,10 @@ export class CreateWebhookSourceDto {
   @IsOptional()
   @IsBoolean()
   isShared?: boolean;
+
+  @ApiProperty({ required: false, example: false, description: 'Ativar monitoramento de preços antes de executar compras' })
+  @IsOptional()
+  @IsBoolean()
+  monitorEnabled?: boolean;
 }
 

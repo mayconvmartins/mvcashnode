@@ -95,6 +95,11 @@ mvcashnode/
   - Sincroniza saldos das exchanges
   - Atualiza cache de saldos
   
+- **Webhook Monitor** (a cada 30s):
+  - Monitora alertas de webhook em estado MONITORING
+  - Verifica preços e condições de execução
+  - Executa compras quando condições são atendidas
+  
 - **System Monitor** (a cada 30s):
   - Monitora saúde dos serviços
   - Gera alertas se necessário
@@ -123,8 +128,13 @@ mvcashnode/
   - `ExchangeAccountService` - Contas de exchange
   - `VaultService` - Cofres virtuais
   - `PositionService` - Posições
-  - `WebhookService` - Webhooks
+  - `WebhookParserService` - Parsing de sinais de webhook
+  - `WebhookSourceService` - Gerenciamento de fontes de webhook
+  - `WebhookEventService` - Processamento de eventos de webhook
+  - `WebhookMonitorService` - Monitoramento de preços antes de executar compras
   - `TradeParameterService` - Parâmetros de trading
+  - `TradeJobService` - Gerenciamento de jobs de trading
+  - `TradeExecutionService` - Execução de trades
 
 **Características:**
 - Independente de frameworks
@@ -338,5 +348,5 @@ Ver [SETUP.md](./SETUP.md) para lista completa de variáveis.
 
 ---
 
-**Última atualização**: 2025-02-12
+**Última atualização**: 2025-02-20
 

@@ -23,6 +23,7 @@ export class CronManagementService implements OnModuleInit {
     @InjectQueue('price-sync') private priceSyncQueue: Queue,
     @InjectQueue('positions-params-fix') private positionsParamsFixQueue: Queue,
     @InjectQueue('dust-positions-monitor') private dustPositionsMonitorQueue: Queue,
+    @InjectQueue('webhook-monitor') private webhookMonitorQueue: Queue,
   ) {}
 
   /**
@@ -40,6 +41,7 @@ export class CronManagementService implements OnModuleInit {
       'price-sync': this.priceSyncQueue,
       'positions-params-fix': this.positionsParamsFixQueue,
       'dust-positions-monitor': this.dustPositionsMonitorQueue,
+      'webhook-monitor': this.webhookMonitorQueue,
     };
   }
 
@@ -59,6 +61,7 @@ export class CronManagementService implements OnModuleInit {
       'price-sync': 'sync-prices',
       'positions-params-fix': 'fix-positions-params',
       'dust-positions-monitor': 'monitor-dust-positions',
+      'webhook-monitor': 'monitor-webhook-alerts',
     };
     return nameMap[jobName] || null;
   }
@@ -144,6 +147,13 @@ export class CronManagementService implements OnModuleInit {
         queue_name: 'transfi-sync',
         job_id: 'transfi-sync-repeat',
         interval_ms: 300000, // 5 minutos
+      },
+      {
+        name: 'webhook-monitor',
+        description: 'Monitor de alertas de webhook - rastreia preços antes de executar compras',
+        queue_name: 'webhook-monitor',
+        job_id: 'webhook-monitor-repeat',
+        interval_ms: 30000, // 30 segundos
       },
     ];
 

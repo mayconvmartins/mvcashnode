@@ -37,6 +37,7 @@ model User {
   subscriptions     Subscription[]
   subscriber_profile SubscriberProfile?
   subscriber_parameters SubscriberParameters?
+  monitor_config WebhookMonitorConfig?
 
   @@index([email])
   @@index([is_active])
@@ -153,6 +154,7 @@ model ExchangeAccount {
   trade_jobs       TradeJob[]
   trade_executions TradeExecution[]
   positions        TradePosition[]
+  monitor_alerts   WebhookMonitorAlert[]
 
   @@index([user_id])
   @@index([user_id, id])
@@ -290,6 +292,7 @@ model WebhookSource {
   is_subscriber_webhook Boolean @default(false)
   alert_group_enabled Boolean  @default(false)
   alert_group_id      String?  @db.VarChar(255)
+  monitor_enabled     Boolean  @default(false)
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
 
@@ -297,6 +300,7 @@ model WebhookSource {
   bindings         AccountWebhookBinding[]
   events           WebhookEvent[]
   blocked_attempts WebhookBlockedAttempt[]
+  monitor_alerts   WebhookMonitorAlert[]
 
   @@index([webhook_code])
   @@index([owner_user_id])
@@ -339,6 +343,7 @@ model WebhookEvent {
   processed_at      DateTime?
 
   webhook_source WebhookSource @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
+  monitor_alerts WebhookMonitorAlert[] @relation("WebhookEventMonitorAlert")
 
   @@unique([webhook_source_id, event_uid, target_account_id])
   @@index([webhook_source_id])
@@ -360,6 +365,61 @@ model WebhookBlockedAttempt {
   @@index([webhook_source_id])
   @@index([created_at])
   @@map("webhook_blocked_attempts")
+}
+
+// ============================================
+// WEBHOOK MONITOR
+// ============================================
+
+model WebhookMonitorAlert {
+  id                      Int       @id @default(autoincrement())
+  webhook_source_id       Int
+  webhook_event_id         Int
+  exchange_account_id     Int
+  symbol                   String    @db.VarChar(50)
+  trade_mode               String    @db.VarChar(20) // 'REAL' | 'SIMULATION'
+  price_alert              Decimal   @db.Decimal(36, 18)
+  price_minimum            Decimal   @db.Decimal(36, 18)
+  current_price            Decimal?  @db.Decimal(36, 18)
+  state                    String    @default("MONITORING") @db.VarChar(50) // 'MONITORING' | 'EXECUTED' | 'CANCELLED'
+  cycles_without_new_low  Int       @default(0)
+  last_price_check_at      DateTime?
+  executed_trade_job_id    Int?
+  cancel_reason            String?   @db.Text
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  webhook_source   WebhookSource   @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
+  webhook_event    WebhookEvent   @relation("WebhookEventMonitorAlert", fields: [webhook_event_id], references: [id], onDelete: Cascade)
+  exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+
+  @@index([webhook_source_id])
+  @@index([exchange_account_id, symbol, trade_mode, state])
+  @@index([state])
+  @@index([created_at])
+  @@map("webhook_monitor_alerts")
+}
+
+model WebhookMonitorConfig {
+  id                          Int      @id @default(autoincrement())
+  user_id                     Int?     // null = configuração global
+  monitor_enabled             Boolean  @default(true)
+  check_interval_sec          Int      @default(30)
+  lateral_tolerance_pct        Decimal  @default(0.3) @db.Decimal(5, 2)
+  lateral_cycles_min          Int      @default(4)
+  rise_trigger_pct            Decimal  @default(0.75) @db.Decimal(5, 2)
+  rise_cycles_min             Int      @default(2)
+  max_fall_pct                Decimal  @default(6.0) @db.Decimal(5, 2)
+  max_monitoring_time_min     Int      @default(60)
+  cooldown_after_execution_min Int     @default(30)
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
+
+  user User? @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id])
+  @@index([user_id])
+  @@map("webhook_monitor_config")
 }
 
 // ============================================
