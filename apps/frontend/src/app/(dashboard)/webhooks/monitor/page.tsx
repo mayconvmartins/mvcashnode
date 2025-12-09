@@ -134,6 +134,25 @@ export default function WebhookMonitorPage() {
             render: (alert) => getStateBadge(alert.state),
         },
         {
+            key: 'monitoring_status',
+            label: 'Status Monitoramento',
+            render: (alert) => {
+                if (alert.state !== 'MONITORING') return <span className="text-sm text-muted-foreground">-</span>
+                
+                const status = alert.monitoring_status
+                const cycles = alert.cycles_without_new_low
+                
+                if (status === 'FALLING') {
+                    return <Badge variant="destructive">Em queda</Badge>
+                } else if (status === 'LATERAL') {
+                    return <Badge className="bg-yellow-500">Lateralizado ({cycles} ciclos)</Badge>
+                } else if (status === 'RISING') {
+                    return <Badge className="bg-green-500">Em alta ({cycles} ciclos)</Badge>
+                }
+                return <Badge variant="secondary">Aguardando</Badge>
+            },
+        },
+        {
             key: 'cycles_without_new_low',
             label: 'Ciclos',
             render: (alert) => (
@@ -204,13 +223,51 @@ export default function WebhookMonitorPage() {
             render: (alert) => getStateBadge(alert.state),
         },
         {
+            key: 'exit_reason',
+            label: 'Motivo Saída',
+            render: (alert) => {
+                if (alert.state === 'EXECUTED') {
+                    const exitReason = alert.exit_reason || 'EXECUTED'
+                    const reasonMap: Record<string, string> = {
+                        'EXECUTED': 'Executado com sucesso',
+                        'MAX_FALL': 'Queda máxima excedida',
+                        'MAX_TIME': 'Tempo máximo excedido',
+                        'REPLACED': 'Substituído por alerta melhor',
+                        'COOLDOWN': 'Cooldown ativo',
+                        'CANCELLED': 'Cancelado manualmente',
+                    }
+                    return <span className="text-sm text-green-600">{reasonMap[exitReason] || exitReason}</span>
+                } else if (alert.state === 'CANCELLED') {
+                    const exitReason = alert.exit_reason || 'CANCELLED'
+                    const reasonMap: Record<string, string> = {
+                        'MAX_FALL': 'Queda máxima excedida',
+                        'MAX_TIME': 'Tempo máximo excedido',
+                        'REPLACED': 'Substituído por alerta melhor',
+                        'COOLDOWN': 'Cooldown ativo',
+                        'CANCELLED': 'Cancelado manualmente',
+                    }
+                    return (
+                        <span className="text-sm text-muted-foreground">
+                            {reasonMap[exitReason] || alert.cancel_reason || '-'}
+                        </span>
+                    )
+                }
+                return <span className="text-sm text-muted-foreground">-</span>
+            },
+        },
+        {
             key: 'cancel_reason',
-            label: 'Motivo',
-            render: (alert) => (
-                <span className="text-sm text-muted-foreground">
-                    {alert.cancel_reason || (alert.state === 'EXECUTED' ? 'Executado com sucesso' : '-')}
-                </span>
-            ),
+            label: 'Detalhes',
+            render: (alert) => {
+                if (alert.cancel_reason) {
+                    return (
+                        <span className="text-sm text-muted-foreground">
+                            {alert.cancel_reason}
+                        </span>
+                    )
+                }
+                return <span className="text-sm text-muted-foreground">-</span>
+            },
         },
         {
             key: 'webhook_source',

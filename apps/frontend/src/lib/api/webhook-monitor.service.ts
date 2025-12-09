@@ -4,17 +4,19 @@ export interface WebhookMonitorAlert {
   id: number
   webhook_source_id: number
   webhook_event_id: number
-  exchange_account_id: number
+  exchange_account_id: number | null
   symbol: string
   trade_mode: string
   price_alert: number
   price_minimum: number
   current_price: number | null
   state: 'MONITORING' | 'EXECUTED' | 'CANCELLED'
+  monitoring_status: 'FALLING' | 'LATERAL' | 'RISING' | null
   cycles_without_new_low: number
   last_price_check_at: string | null
   executed_trade_job_id: number | null
   cancel_reason: string | null
+  exit_reason: string | null
   created_at: string
   updated_at: string
   webhook_source?: {

@@ -29,7 +29,7 @@ export interface WebhookMonitorConfig {
 export interface CreateOrUpdateAlertDto {
   webhookEventId: number;
   webhookSourceId: number;
-  exchangeAccountId: number;
+  exchangeAccountId: number | null; // Opcional: mantido apenas para referência
   symbol: string;
   tradeMode: TradeMode;
   priceAlert: number;
@@ -101,82 +101,102 @@ export class WebhookMonitorService {
 
   /**
    * Criar ou atualizar alerta ativo
-   * Se já existe alerta MONITORING para o mesmo par, substitui se o novo preço for menor
+   * Se já existe alerta MONITORING para o mesmo webhook + símbolo + trade_mode, substitui se o novo preço for menor ou igual
+   * Usa transação com lock para evitar race conditions
    */
   async createOrUpdateAlert(dto: CreateOrUpdateAlertDto): Promise<any> {
-    // Buscar alerta ativo existente (MONITORING) para o mesmo par
-    const existingAlert = await this.prisma.webhookMonitorAlert.findFirst({
-      where: {
-        exchange_account_id: dto.exchangeAccountId,
-        symbol: dto.symbol,
-        trade_mode: dto.tradeMode,
-        state: WebhookMonitorAlertState.MONITORING,
-      },
-    });
-
-    if (existingAlert) {
-      const existingMinPrice = existingAlert.price_minimum.toNumber();
-      
-      // Se novo alerta é mais barato, substituir
-      if (dto.priceAlert < existingMinPrice) {
-        console.log(`[WEBHOOK-MONITOR] Substituindo alerta existente (preço antigo: ${existingMinPrice}, novo: ${dto.priceAlert})`);
-        
-        // Cancelar alerta antigo
-        await this.prisma.webhookMonitorAlert.update({
-          where: { id: existingAlert.id },
-          data: {
-            state: WebhookMonitorAlertState.CANCELLED,
-            cancel_reason: `Substituído por alerta mais barato (${dto.priceAlert} < ${existingMinPrice})`,
+    // Usar transação para garantir atomicidade e evitar race conditions
+    return await this.prisma.$transaction(
+      async (tx) => {
+        // Buscar alerta ativo existente (MONITORING) para o mesmo webhook + símbolo + trade_mode
+        // Dentro da transação, isso garante que apenas um processo pode modificar por vez
+        const existingAlert = await tx.webhookMonitorAlert.findFirst({
+          where: {
+            webhook_source_id: dto.webhookSourceId,
+            symbol: dto.symbol,
+            trade_mode: dto.tradeMode,
+            state: WebhookMonitorAlertState.MONITORING,
+          },
+          // Ordenar por created_at para pegar o mais recente em caso de duplicatas
+          orderBy: {
+            created_at: 'desc',
           },
         });
 
-        // Criar novo alerta
-        return this.createNewAlert(dto);
-      } else {
-        // Novo alerta é mais caro, ignorar
-        console.log(`[WEBHOOK-MONITOR] Ignorando alerta mais caro (existente: ${existingMinPrice}, novo: ${dto.priceAlert})`);
-        return existingAlert;
-      }
-    }
+        if (existingAlert) {
+          const existingMinPrice = existingAlert.price_minimum.toNumber();
+          
+          // Se novo alerta é mais barato ou igual, substituir (preço igual = mais recente vence)
+          if (dto.priceAlert <= existingMinPrice) {
+            console.log(`[WEBHOOK-MONITOR] Substituindo alerta existente (preço antigo: ${existingMinPrice}, novo: ${dto.priceAlert})`);
+            
+            // Cancelar alerta antigo dentro da transação
+            await tx.webhookMonitorAlert.update({
+              where: { id: existingAlert.id },
+              data: {
+                state: WebhookMonitorAlertState.CANCELLED,
+                cancel_reason: `Substituído por alerta ${dto.priceAlert < existingMinPrice ? 'mais barato' : 'mais recente'} (${dto.priceAlert} ${dto.priceAlert < existingMinPrice ? '<' : '='} ${existingMinPrice})`,
+                exit_reason: 'REPLACED',
+              },
+            });
 
-    // Verificar cooldown
-    const cooldownConfig = await this.getConfig();
-    const cooldownMinutesAgo = new Date();
-    cooldownMinutesAgo.setMinutes(
-      cooldownMinutesAgo.getMinutes() - cooldownConfig.cooldown_after_execution_min
-    );
+            // Criar novo alerta dentro da transação
+            return await this.createNewAlertInTransaction(tx, dto);
+          } else {
+            // Novo alerta é mais caro, ignorar
+            console.log(`[WEBHOOK-MONITOR] Ignorando alerta mais caro (existente: ${existingMinPrice}, novo: ${dto.priceAlert})`);
+            return existingAlert;
+          }
+        }
 
-    const recentExecution = await this.prisma.webhookMonitorAlert.findFirst({
-      where: {
-        exchange_account_id: dto.exchangeAccountId,
-        symbol: dto.symbol,
-        trade_mode: dto.tradeMode,
-        state: WebhookMonitorAlertState.EXECUTED,
-        updated_at: { gte: cooldownMinutesAgo },
+        // Verificar cooldown dentro da transação (por webhook + símbolo + trade_mode)
+        const cooldownConfig = await this.getConfig();
+        const cooldownMinutesAgo = new Date();
+        cooldownMinutesAgo.setMinutes(
+          cooldownMinutesAgo.getMinutes() - cooldownConfig.cooldown_after_execution_min
+        );
+
+        const recentExecution = await tx.webhookMonitorAlert.findFirst({
+          where: {
+            webhook_source_id: dto.webhookSourceId,
+            symbol: dto.symbol,
+            trade_mode: dto.tradeMode,
+            state: WebhookMonitorAlertState.EXECUTED,
+            updated_at: { gte: cooldownMinutesAgo },
+          },
+        });
+
+        if (recentExecution) {
+          console.log(`[WEBHOOK-MONITOR] Cooldown ativo para ${dto.symbol}, ignorando novo alerta`);
+          throw new Error(`Cooldown ativo para ${dto.symbol}. Aguarde ${cooldownConfig.cooldown_after_execution_min} minutos após execução.`);
+        }
+
+        // Criar novo alerta dentro da transação
+        return await this.createNewAlertInTransaction(tx, dto);
       },
-    });
-
-    if (recentExecution) {
-      console.log(`[WEBHOOK-MONITOR] Cooldown ativo para ${dto.symbol}, ignorando novo alerta`);
-      throw new Error(`Cooldown ativo para ${dto.symbol}. Aguarde ${cooldownConfig.cooldown_after_execution_min} minutos após execução.`);
-    }
-
-    // Criar novo alerta
-    return this.createNewAlert(dto);
+      {
+        isolationLevel: 'Serializable', // Nível mais alto de isolamento para evitar race conditions
+        timeout: 10000, // 10 segundos de timeout
+      }
+    );
   }
 
-  private async createNewAlert(dto: CreateOrUpdateAlertDto): Promise<any> {
-    const alert = await this.prisma.webhookMonitorAlert.create({
+  /**
+   * Criar novo alerta (versão para uso dentro de transação)
+   */
+  private async createNewAlertInTransaction(tx: any, dto: CreateOrUpdateAlertDto): Promise<any> {
+    const alert = await tx.webhookMonitorAlert.create({
       data: {
         webhook_source_id: dto.webhookSourceId,
         webhook_event_id: dto.webhookEventId,
-        exchange_account_id: dto.exchangeAccountId,
+        exchange_account_id: dto.exchangeAccountId, // Opcional, pode ser null
         symbol: dto.symbol,
         trade_mode: dto.tradeMode,
         price_alert: dto.priceAlert,
         price_minimum: dto.priceAlert,
         current_price: dto.priceAlert,
         state: WebhookMonitorAlertState.MONITORING,
+        monitoring_status: PriceTrend.FALLING, // Iniciar como FALLING
         cycles_without_new_low: 0,
         last_price_check_at: new Date(),
       },
@@ -187,16 +207,16 @@ export class WebhookMonitorService {
   }
 
   /**
-   * Buscar alerta ativo por par
+   * Buscar alerta ativo por webhook + símbolo + trade_mode
    */
   async getActiveAlert(
+    webhookSourceId: number,
     symbol: string,
-    exchangeAccountId: number,
     tradeMode: TradeMode
   ): Promise<any | null> {
     return this.prisma.webhookMonitorAlert.findFirst({
       where: {
-        exchange_account_id: exchangeAccountId,
+        webhook_source_id: webhookSourceId,
         symbol,
         trade_mode: tradeMode,
         state: WebhookMonitorAlertState.MONITORING,
@@ -279,7 +299,7 @@ export class WebhookMonitorService {
       cancelReason = `Tempo máximo de monitoramento excedido: ${monitoringTimeMinutes.toFixed(1)}min > ${config.max_monitoring_time_min}min`;
     }
 
-    // Atualizar alerta
+    // Atualizar alerta com monitoring_status
     const updatedAlert = await this.prisma.webhookMonitorAlert.update({
       where: { id: alertId },
       data: {
@@ -287,6 +307,7 @@ export class WebhookMonitorService {
         current_price: currentPrice,
         cycles_without_new_low: cyclesWithoutNewLow,
         last_price_check_at: new Date(),
+        monitoring_status: trend, // Salvar status de monitoramento
       },
     });
 
@@ -301,13 +322,28 @@ export class WebhookMonitorService {
 
   /**
    * Executar compra quando condições atendidas
+   * Cria jobs para todas as contas vinculadas ao webhook que correspondem ao trade_mode
    */
   async executeAlert(alertId: number): Promise<any> {
     const alert = await this.prisma.webhookMonitorAlert.findUnique({
       where: { id: alertId },
       include: {
         webhook_event: true,
-        exchange_account: true,
+        webhook_source: {
+          include: {
+            bindings: {
+              where: { is_active: true },
+              include: {
+                exchange_account: {
+                  select: {
+                    id: true,
+                    is_simulation: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -317,26 +353,51 @@ export class WebhookMonitorService {
 
     console.log(`[WEBHOOK-MONITOR] Executando alerta ${alertId} para ${alert.symbol}`);
 
-    // Criar TradeJob usando o webhook event original
-    const tradeJob = await this.tradeJobService.createJob({
-      webhookEventId: alert.webhook_event_id,
-      exchangeAccountId: alert.exchange_account_id,
-      tradeMode: alert.trade_mode as TradeMode,
-      symbol: alert.symbol,
-      side: 'BUY',
-      orderType: 'MARKET',
-    });
+    // Criar TradeJobs para todas as contas vinculadas ao webhook que correspondem ao trade_mode
+    const tradeJobIds: number[] = [];
+    const eventIsSim = alert.trade_mode === 'SIMULATION';
+
+    for (const binding of alert.webhook_source.bindings) {
+      const accountIsSim = binding.exchange_account.is_simulation;
+      
+      // Verificar se trade mode corresponde
+      if (accountIsSim !== eventIsSim) {
+        console.log(`[WEBHOOK-MONITOR] Trade mode não corresponde para conta ${binding.exchange_account.id}, pulando`);
+        continue;
+      }
+
+      try {
+        const tradeJob = await this.tradeJobService.createJob({
+          webhookEventId: alert.webhook_event_id,
+          exchangeAccountId: binding.exchange_account.id,
+          tradeMode: alert.trade_mode as TradeMode,
+          symbol: alert.symbol,
+          side: 'BUY',
+          orderType: 'MARKET',
+        });
+        
+        tradeJobIds.push(tradeJob.id);
+        console.log(`[WEBHOOK-MONITOR] ✅ TradeJob criado: ${tradeJob.id} para conta ${binding.exchange_account.id}`);
+      } catch (error: any) {
+        console.error(`[WEBHOOK-MONITOR] ❌ Erro ao criar TradeJob para conta ${binding.exchange_account.id}: ${error.message}`);
+      }
+    }
+
+    if (tradeJobIds.length === 0) {
+      throw new Error(`Nenhum TradeJob foi criado para o alerta ${alertId}`);
+    }
 
     // Atualizar alerta como executado
     const updatedAlert = await this.prisma.webhookMonitorAlert.update({
       where: { id: alertId },
       data: {
         state: WebhookMonitorAlertState.EXECUTED,
-        executed_trade_job_id: tradeJob.id,
+        executed_trade_job_id: tradeJobIds[0], // Guardar o primeiro job ID para referência
+        exit_reason: 'EXECUTED',
       },
     });
 
-    console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${alertId} executado, TradeJob criado: ${tradeJob.id}`);
+    console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${alertId} executado, ${tradeJobIds.length} TradeJob(s) criado(s): ${tradeJobIds.join(', ')}`);
     return updatedAlert;
   }
 
@@ -377,9 +438,19 @@ export class WebhookMonitorService {
         state: WebhookMonitorAlertState.MONITORING,
       },
       include: {
-        exchange_account: {
-          select: {
-            exchange: true,
+        webhook_source: {
+          include: {
+            bindings: {
+              where: { is_active: true },
+              include: {
+                exchange_account: {
+                  select: {
+                    exchange: true,
+                  },
+                },
+              },
+              take: 1, // Pegar apenas uma conta para buscar o exchange
+            },
           },
         },
       },
@@ -394,10 +465,15 @@ export class WebhookMonitorService {
       try {
         checked++;
 
-        // Buscar preço atual (será implementado com cache do price-sync)
-        // Por enquanto, vamos usar um método auxiliar
+        // Buscar preço atual usando a primeira conta vinculada ao webhook
+        const firstBinding = alert.webhook_source.bindings[0];
+        if (!firstBinding?.exchange_account) {
+          console.warn(`[WEBHOOK-MONITOR] Nenhuma conta vinculada ao webhook ${alert.webhook_source_id} para buscar preço`);
+          continue;
+        }
+
         const currentPrice = await this.getCurrentPrice(
-          alert.exchange_account.exchange,
+          firstBinding.exchange_account.exchange,
           alert.symbol
         );
 

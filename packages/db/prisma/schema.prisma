@@ -375,26 +375,28 @@ model WebhookMonitorAlert {
   id                      Int       @id @default(autoincrement())
   webhook_source_id       Int
   webhook_event_id         Int
-  exchange_account_id     Int
+  exchange_account_id     Int?      // Opcional: mantido para referência, mas não é mais parte da chave única
   symbol                   String    @db.VarChar(50)
   trade_mode               String    @db.VarChar(20) // 'REAL' | 'SIMULATION'
   price_alert              Decimal   @db.Decimal(36, 18)
   price_minimum            Decimal   @db.Decimal(36, 18)
   current_price            Decimal?  @db.Decimal(36, 18)
   state                    String    @default("MONITORING") @db.VarChar(50) // 'MONITORING' | 'EXECUTED' | 'CANCELLED'
+  monitoring_status        String?   @db.VarChar(20) // 'FALLING' | 'LATERAL' | 'RISING'
   cycles_without_new_low  Int       @default(0)
   last_price_check_at      DateTime?
   executed_trade_job_id    Int?
   cancel_reason            String?   @db.Text
+  exit_reason              String?   @db.VarChar(100) // Motivo de saída: 'EXECUTED', 'CANCELLED', 'MAX_FALL', 'MAX_TIME', etc.
   created_at               DateTime  @default(now())
   updated_at               DateTime  @updatedAt
 
   webhook_source   WebhookSource   @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
   webhook_event    WebhookEvent   @relation("WebhookEventMonitorAlert", fields: [webhook_event_id], references: [id], onDelete: Cascade)
-  exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+  exchange_account ExchangeAccount? @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
 
   @@index([webhook_source_id])
-  @@index([exchange_account_id, symbol, trade_mode, state], name: "wh_monitor_alerts_active_idx")
+  @@index([webhook_source_id, symbol, trade_mode, state], name: "wh_monitor_alerts_active_idx")
   @@index([state])
   @@index([created_at])
   @@map("webhook_monitor_alerts")

@@ -88,74 +88,81 @@ export class WebhookEventService {
       event.action === WebhookAction.BUY_SIGNAL &&
       event.price_reference
     ) {
-      console.log(`[WEBHOOK-EVENT] Monitoramento habilitado para webhook ${dto.webhookSourceId}, criando alertas de monitoramento...`);
+      console.log(`[WEBHOOK-EVENT] Monitoramento habilitado para webhook ${dto.webhookSourceId}, criando alerta de monitoramento...`);
       
-      let monitorsCreated = 0;
-      const monitorErrors: string[] = [];
+      try {
+        // Verificar se já existe alerta MONITORING para este webhook + símbolo + trade_mode
+        const existingAlert = await this.monitorService.getActiveAlert(
+          dto.webhookSourceId,
+          event.symbol_normalized,
+          event.trade_mode as TradeMode
+        );
+        
+        if (existingAlert) {
+          const existingMinPrice = existingAlert.price_minimum.toNumber();
+          const newPrice = event.price_reference.toNumber();
+          
+          // Se novo alerta é mais caro, ignorar
+          if (newPrice > existingMinPrice) {
+            console.log(`[WEBHOOK-EVENT] Ignorando alerta mais caro para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice})`);
+            await this.prisma.webhookEvent.update({
+              where: { id: event.id },
+              data: {
+                status: WebhookEventStatus.SKIPPED,
+                processed_at: new Date(),
+                validation_error: `Alerta mais caro ignorado (existente: ${existingMinPrice}, novo: ${newPrice})`,
+              },
+            });
+            return { event, jobsCreated: 0, jobIds: [] };
+          }
+          
+          // Se novo alerta é mais barato ou igual, createOrUpdateAlert vai substituir automaticamente
+          console.log(`[WEBHOOK-EVENT] Alerta mais barato/igual detectado para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice}), substituindo...`);
+        }
 
-      // Criar alerta de monitoramento para cada binding ativo
-      for (const binding of webhookSource.bindings) {
-        try {
-          // Verificar se trade mode corresponde PRIMEIRO
+        // Encontrar primeira conta válida para referência (opcional, mantido para compatibilidade)
+        const firstValidBinding = webhookSource.bindings.find(binding => {
           const accountIsSim = binding.exchange_account.is_simulation;
           const eventIsSim = event.trade_mode === 'SIMULATION';
-          
-          if (accountIsSim !== eventIsSim) {
-            console.log(`[WEBHOOK-EVENT] Trade mode não corresponde para binding ${binding.id}, pulando monitoramento`);
-            continue;
-          }
+          return accountIsSim === eventIsSim;
+        });
 
-          // Verificar se já existe alerta MONITORING para este par específico
-          const existingAlert = await this.monitorService.getActiveAlert(
-            event.symbol_normalized,
-            binding.exchange_account_id,
-            event.trade_mode as TradeMode
-          );
-          
-          if (existingAlert) {
-            const existingMinPrice = existingAlert.price_minimum.toNumber();
-            const newPrice = event.price_reference.toNumber();
-            
-            // Se novo alerta é mais caro ou igual, ignorar
-            if (newPrice >= existingMinPrice) {
-              console.log(`[WEBHOOK-EVENT] Ignorando alerta mais caro para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice})`);
-              continue;
-            }
-            
-            // Se novo alerta é mais barato, createOrUpdateAlert vai substituir automaticamente
-            console.log(`[WEBHOOK-EVENT] Alerta mais barato detectado para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice}), substituindo...`);
-          }
+        // Criar 1 único alerta por webhook (não por conta)
+        await this.monitorService.createOrUpdateAlert({
+          webhookEventId: event.id,
+          webhookSourceId: dto.webhookSourceId,
+          exchangeAccountId: firstValidBinding?.exchange_account_id || null, // Opcional, apenas para referência
+          symbol: event.symbol_normalized,
+          tradeMode: event.trade_mode as TradeMode,
+          priceAlert: event.price_reference.toNumber(),
+        });
 
-          await this.monitorService.createOrUpdateAlert({
-            webhookEventId: event.id,
-            webhookSourceId: dto.webhookSourceId,
-            exchangeAccountId: binding.exchange_account_id,
-            symbol: event.symbol_normalized,
-            tradeMode: event.trade_mode as TradeMode,
-            priceAlert: event.price_reference.toNumber(),
-          });
+        // Atualizar status do evento
+        await this.prisma.webhookEvent.update({
+          where: { id: event.id },
+          data: {
+            status: WebhookEventStatus.MONITORING,
+            processed_at: new Date(),
+          },
+        });
 
-          monitorsCreated++;
-          console.log(`[WEBHOOK-EVENT] ✅ Alerta de monitoramento criado para binding ${binding.id}`);
-        } catch (error: any) {
-          const errorMsg = `Erro ao criar alerta de monitoramento para binding ${binding.id}: ${error.message}`;
-          console.error(`[WEBHOOK-EVENT] ${errorMsg}`);
-          monitorErrors.push(errorMsg);
-        }
+        console.log(`[WEBHOOK-EVENT] ✅ Alerta de monitoramento criado/atualizado para webhook ${dto.webhookSourceId}`);
+        return { event, jobsCreated: 0, jobIds: [] };
+      } catch (error: any) {
+        const errorMsg = `Erro ao criar alerta de monitoramento: ${error.message}`;
+        console.error(`[WEBHOOK-EVENT] ${errorMsg}`);
+        
+        await this.prisma.webhookEvent.update({
+          where: { id: event.id },
+          data: {
+            status: WebhookEventStatus.SKIPPED,
+            processed_at: new Date(),
+            validation_error: errorMsg,
+          },
+        });
+        
+        return { event, jobsCreated: 0, jobIds: [] };
       }
-
-      // Atualizar status do evento
-      await this.prisma.webhookEvent.update({
-        where: { id: event.id },
-        data: {
-          status: monitorsCreated > 0 ? WebhookEventStatus.MONITORING : WebhookEventStatus.SKIPPED,
-          processed_at: new Date(),
-          validation_error: monitorsCreated === 0 && monitorErrors.length > 0 ? monitorErrors.join('; ') : null,
-        },
-      });
-
-      console.log(`[WEBHOOK-EVENT] ${monitorsCreated} alerta(s) de monitoramento criado(s)`);
-      return { event, jobsCreated: 0, jobIds: [] };
     }
 
     // Comportamento padrão: criar jobs imediatamente
