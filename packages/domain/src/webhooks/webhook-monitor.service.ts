@@ -279,8 +279,8 @@ export class WebhookMonitorService {
         current_price: dto.priceAlert,
         state: WebhookMonitorAlertState.MONITORING,
         monitoring_status: isBuy ? PriceTrend.FALLING : PriceTrend.RISING, // BUY inicia FALLING, SELL inicia RISING
-        cycles_without_new_low: isBuy ? 0 : null,
-        cycles_without_new_high: !isBuy ? 0 : null,
+        cycles_without_new_low: 0, // Sempre 0 (BUY usa, SELL não usa mas campo é obrigatório)
+        cycles_without_new_high: 0, // Sempre 0 (SELL usa, BUY não usa mas campo é obrigatório)
         last_price_check_at: new Date(),
       },
     });
