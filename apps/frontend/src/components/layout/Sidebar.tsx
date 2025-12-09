@@ -27,7 +27,8 @@ import {
     Target,
     CreditCard,
     Receipt,
-    Package
+    Package,
+    Wrench
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -65,6 +66,7 @@ const adminMenuItems = [
     { icon: MessageSquare, label: 'Notificações', href: '/admin/notifications' },
     { icon: CreditCard, label: 'Mercado Pago', href: '/admin/mercadopago' },
     { icon: CreditCard, label: 'TransFi', href: '/admin/transfi' },
+    { icon: Wrench, label: 'Debug Tools', href: '/admin/debug-tools' },
     { icon: BookOpen, label: 'API Docs', href: '/api-docs', external: true },
 ]
 

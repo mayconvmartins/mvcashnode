@@ -2803,13 +2803,15 @@ export class PositionService {
    * Reverter uma execução de venda e corrigir posições fechadas incorretamente
    * Remove os fills de SELL relacionados e recalcula tudo corretamente
    * @param executionId ID da execução de venda a ser revertida
+   * @param shouldReprocess Se true, reprocessa a venda com a lógica corrigida (busca quantidade exata primeiro)
    * @returns Estatísticas da correção
    */
-  async revertSellExecution(executionId: number): Promise<{
+  async revertSellExecution(executionId: number, shouldReprocess: boolean = false): Promise<{
     success: boolean;
     positionsFixed: number;
     fillsRemoved: number;
     message: string;
+    reprocessed?: boolean;
     errors?: string[];
   }> {
     const errors: string[] = [];
@@ -2817,7 +2819,7 @@ export class PositionService {
     let fillsRemoved = 0;
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         // Buscar a execução
         const execution = await tx.tradeExecution.findUnique({
           where: { id: executionId },
@@ -2933,7 +2935,7 @@ export class PositionService {
       // Se solicitado e a reversão foi bem-sucedida, reprocessar a venda com a lógica correta
       // Isso deve ser feito FORA da transação, pois onSellExecuted cria sua própria transação
       let reprocessed = false;
-      if (reprocess && result.success && result.positionsFixed > 0) {
+      if (shouldReprocess && result.success && result.positionsFixed > 0) {
         try {
           console.log(`[POSITION-SERVICE] Reprocessando venda ${executionId} com lógica corrigida...`);
           
@@ -2957,6 +2959,10 @@ export class PositionService {
           // Determinar origin baseado no job
           let origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'MANUAL';
           const job = executionAfterRevert.trade_job;
+          
+          if (!job) {
+            throw new Error('Job não encontrado na execução');
+          }
           
           // Buscar posição relacionada para determinar origin
           const relatedPosition = await this.prisma.tradePosition.findFirst({
@@ -2991,8 +2997,9 @@ export class PositionService {
         } catch (reprocessError: any) {
           console.error(`[POSITION-SERVICE] ❌ Erro ao reprocessar venda ${executionId}: ${reprocessError.message}`);
           // Não falhar a reversão se o reprocessamento falhar
-          result.errors = result.errors || [];
-          result.errors.push(`Aviso: Reversão concluída, mas reprocessamento falhou: ${reprocessError.message}`);
+          const currentErrors = result.errors || [];
+          currentErrors.push(`Aviso: Reversão concluída, mas reprocessamento falhou: ${reprocessError.message}`);
+          result.errors = currentErrors.length > 0 ? currentErrors : undefined;
         }
       }
 
