@@ -21,7 +21,7 @@ CREATE TABLE `webhook_monitor_alerts` (
     `updated_at` DATETIME(3) NOT NULL,
 
     INDEX `webhook_monitor_alerts_webhook_source_id_idx`(`webhook_source_id`),
-    INDEX `webhook_monitor_alerts_exchange_account_id_symbol_trade_mode_state_idx`(`exchange_account_id`, `symbol`, `trade_mode`, `state`),
+    INDEX `wh_monitor_alerts_active_idx`(`exchange_account_id`, `symbol`, `trade_mode`, `state`),
     INDEX `webhook_monitor_alerts_state_idx`(`state`),
     INDEX `webhook_monitor_alerts_created_at_idx`(`created_at`),
     PRIMARY KEY (`id`)

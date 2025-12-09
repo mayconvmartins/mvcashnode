@@ -394,7 +394,7 @@ model WebhookMonitorAlert {
   exchange_account ExchangeAccount @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
 
   @@index([webhook_source_id])
-  @@index([exchange_account_id, symbol, trade_mode, state])
+  @@index([exchange_account_id, symbol, trade_mode, state], name: "wh_monitor_alerts_active_idx")
   @@index([state])
   @@index([created_at])
   @@map("webhook_monitor_alerts")
