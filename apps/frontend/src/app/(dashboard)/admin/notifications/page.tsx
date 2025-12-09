@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils/format'
 import { TemplatesTab } from '@/components/admin/TemplatesTab'
+import { EmailTemplatesTab } from '@/components/admin/EmailTemplatesTab'
 
 export default function NotificationsConfigPage() {
     const queryClient = useQueryClient()
@@ -228,7 +229,11 @@ export default function NotificationsConfigPage() {
                     </TabsTrigger>
                     <TabsTrigger value="templates" className="flex items-center gap-2">
                         <FileText className="h-4 w-4" />
-                        Templates
+                        Templates WhatsApp
+                    </TabsTrigger>
+                    <TabsTrigger value="email-templates" className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Templates Email
                     </TabsTrigger>
                     <TabsTrigger value="test" className="flex items-center gap-2">
                         <Send className="h-4 w-4" />
@@ -338,9 +343,14 @@ export default function NotificationsConfigPage() {
                     </Card>
                 </TabsContent>
 
-                {/* Templates Tab */}
+                {/* Templates WhatsApp Tab */}
                 <TabsContent value="templates">
                     <TemplatesTab />
+                </TabsContent>
+
+                {/* Templates Email Tab */}
+                <TabsContent value="email-templates">
+                    <EmailTemplatesTab />
                 </TabsContent>
 
                 {/* Test Tab */}

@@ -704,5 +704,30 @@ export const adminService = {
         const response = await apiClient.post('/admin/emails/test', data)
         return response.data
     },
+
+    // Email Templates
+    getEmailTemplates: async (): Promise<any[]> => {
+        const response = await apiClient.get('/admin/email-templates')
+        return response.data
+    },
+
+    getEmailTemplate: async (name: string): Promise<any> => {
+        const response = await apiClient.get(`/admin/email-templates/${name}`)
+        return response.data
+    },
+
+    updateEmailTemplate: async (name: string, content: string): Promise<any> => {
+        const response = await apiClient.put(`/admin/email-templates/${name}`, { content })
+        return response.data
+    },
+
+    previewEmailTemplate: async (name: string, variables?: Record<string, any>): Promise<{
+        template: any;
+        variables: Record<string, any>;
+        rendered: string;
+    }> => {
+        const response = await apiClient.post(`/admin/email-templates/${name}/preview`, { variables })
+        return response.data
+    },
 }
 

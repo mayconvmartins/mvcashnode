@@ -25,6 +25,8 @@ import { UserRole } from '@mvcashnode/shared';
 import { PrismaService } from '@mvcashnode/db';
 import { TemplateService, NotificationTemplateType } from '@mvcashnode/notifications';
 import { ConfigService } from '@nestjs/config';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface CreateTemplateDto {
   template_type: NotificationTemplateType;
@@ -506,6 +508,284 @@ export class AdminEmailController {
         success: false,
         message: error.message || 'Erro ao enviar email de teste',
       };
+    }
+  }
+}
+
+@ApiTags('Admin - Email Templates')
+@Controller('admin/email-templates')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
+@ApiBearerAuth()
+export class AdminEmailTemplatesController {
+  private readonly templatesDir: string;
+
+  constructor() {
+    // Caminho para os templates de email
+    // __dirname aponta para apps/api/dist/admin quando compilado
+    // Precisamos voltar para a raiz do projeto e ir até packages/notifications/src/email-templates
+    const projectRoot = path.resolve(__dirname, '../../../..');
+    this.templatesDir = path.join(projectRoot, 'packages/notifications/src/email-templates');
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Listar todos os templates de email' })
+  @ApiResponse({ status: 200, description: 'Lista de templates de email' })
+  async listEmailTemplates(): Promise<any[]> {
+    try {
+      const files = fs.readdirSync(this.templatesDir);
+      const templates = files
+        .filter(file => file.endsWith('.html'))
+        .map(file => {
+          const templateName = file.replace('.html', '');
+          const filePath = path.join(this.templatesDir, file);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          
+          // Extrair variáveis do template
+          const variableRegex = /\{([^}]+)\}/g;
+          const variables: string[] = [];
+          let match;
+          while ((match = variableRegex.exec(content)) !== null) {
+            if (!variables.includes(match[1])) {
+              variables.push(match[1]);
+            }
+          }
+
+          return {
+            name: templateName,
+            filename: file,
+            content: content,
+            variables: variables,
+            size: content.length,
+            lastModified: fs.statSync(filePath).mtime,
+          };
+        });
+
+      return templates;
+    } catch (error: any) {
+      throw new Error(`Erro ao listar templates: ${error.message}`);
+    }
+  }
+
+  @Get(':name')
+  @ApiOperation({ summary: 'Obter template de email por nome' })
+  @ApiParam({ name: 'name', type: 'string', description: 'Nome do template (sem extensão .html)' })
+  @ApiResponse({ status: 200, description: 'Template encontrado' })
+  @ApiResponse({ status: 404, description: 'Template não encontrado' })
+  async getEmailTemplate(@Param('name') name: string): Promise<any> {
+    try {
+      const filePath = path.join(this.templatesDir, `${name}.html`);
+      
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Template ${name} não encontrado`);
+      }
+
+      const content = fs.readFileSync(filePath, 'utf-8');
+      
+      // Extrair variáveis do template
+      const variableRegex = /\{([^}]+)\}/g;
+      const variables: string[] = [];
+      let match;
+      while ((match = variableRegex.exec(content)) !== null) {
+        if (!variables.includes(match[1])) {
+          variables.push(match[1]);
+        }
+      }
+
+      return {
+        name: name,
+        filename: `${name}.html`,
+        content: content,
+        variables: variables,
+        size: content.length,
+        lastModified: fs.statSync(filePath).mtime,
+      };
+    } catch (error: any) {
+      if (error.message.includes('não encontrado')) {
+        throw new Error(error.message);
+      }
+      throw new Error(`Erro ao obter template: ${error.message}`);
+    }
+  }
+
+  @Put(':name')
+  @ApiOperation({ summary: 'Atualizar template de email' })
+  @ApiParam({ name: 'name', type: 'string', description: 'Nome do template (sem extensão .html)' })
+  @ApiResponse({ status: 200, description: 'Template atualizado' })
+  @ApiResponse({ status: 404, description: 'Template não encontrado' })
+  async updateEmailTemplate(
+    @Param('name') name: string,
+    @Body() body: { content: string }
+  ): Promise<any> {
+    try {
+      const filePath = path.join(this.templatesDir, `${name}.html`);
+      
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Template ${name} não encontrado`);
+      }
+
+      // Validar que o conteúdo não está vazio
+      if (!body.content || body.content.trim().length === 0) {
+        throw new Error('Conteúdo do template não pode estar vazio');
+      }
+
+      // Salvar o template
+      fs.writeFileSync(filePath, body.content, 'utf-8');
+
+      // Extrair variáveis do template atualizado
+      const variableRegex = /\{([^}]+)\}/g;
+      const variables: string[] = [];
+      let match;
+      while ((match = variableRegex.exec(body.content)) !== null) {
+        if (!variables.includes(match[1])) {
+          variables.push(match[1]);
+        }
+      }
+
+      return {
+        name: name,
+        filename: `${name}.html`,
+        content: body.content,
+        variables: variables,
+        size: body.content.length,
+        lastModified: fs.statSync(filePath).mtime,
+        message: 'Template atualizado com sucesso',
+      };
+    } catch (error: any) {
+      if (error.message.includes('não encontrado') || error.message.includes('não pode estar vazio')) {
+        throw new Error(error.message);
+      }
+      throw new Error(`Erro ao atualizar template: ${error.message}`);
+    }
+  }
+
+  @Post(':name/preview')
+  @ApiOperation({ summary: 'Preview do template de email com dados de exemplo' })
+  @ApiParam({ name: 'name', type: 'string', description: 'Nome do template (sem extensão .html)' })
+  @ApiResponse({ status: 200, description: 'Preview renderizado' })
+  async previewEmailTemplate(
+    @Param('name') name: string,
+    @Body() body?: { variables?: Record<string, any> }
+  ): Promise<any> {
+    try {
+      const filePath = path.join(this.templatesDir, `${name}.html`);
+      
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Template ${name} não encontrado`);
+      }
+
+      const template = fs.readFileSync(filePath, 'utf-8');
+      const templateService = new TemplateService();
+
+      // Gerar variáveis de exemplo se não fornecidas
+      const exampleVariables = body?.variables || this.generateExampleVariables(name);
+
+      const rendered = templateService.renderTemplate(template, exampleVariables);
+
+      return {
+        template: {
+          name: name,
+          content: template,
+        },
+        variables: exampleVariables,
+        rendered: rendered,
+      };
+    } catch (error: any) {
+      throw new Error(`Erro ao gerar preview: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gera variáveis de exemplo baseado no nome do template
+   */
+  private generateExampleVariables(templateName: string): Record<string, any> {
+    const now = new Date();
+    
+    switch (templateName) {
+      case 'password-reset':
+        return {
+          'resetUrl': 'https://app.mvcash.com.br/reset-password?token=abc123',
+          'resetToken': 'abc123',
+          'email': 'usuario@exemplo.com',
+          'datetime': now,
+        };
+      
+      case 'password-reset-confirmation':
+        return {
+          'email': 'usuario@exemplo.com',
+          'datetime': now,
+        };
+      
+      case 'subscription-activated':
+        return {
+          'planName': 'Plano Premium',
+          'loginUrl': 'https://app.mvcash.com.br/login',
+          'email': 'usuario@exemplo.com',
+          'endDate': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 dias
+          'datetime': now,
+        };
+      
+      case 'payment-confirmed':
+        return {
+          'planName': 'Plano Premium',
+          'amount': '99.90',
+          'paymentMethod': 'PIX',
+          'registrationUrl': 'https://app.mvcash.com.br/subscribe/register?email=usuario@exemplo.com',
+          'endDate': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          'datetime': now,
+        };
+      
+      case 'position-opened':
+        return {
+          'account.label': 'Conta Principal',
+          'symbol': 'SOLUSDT',
+          'position.id': '123',
+          'qty': 0.45,
+          'avgPrice': 215.81,
+          'total': 97.11,
+          'datetime': now,
+        };
+      
+      case 'position-closed':
+        return {
+          'account.label': 'Conta Principal',
+          'symbol': 'SOLUSDT',
+          'position.id': '123',
+          'buyQty': 0.45,
+          'buyAvgPrice': 215.81,
+          'buyTotal': 97.11,
+          'sellQty': 0.45,
+          'sellAvgPrice': 220.50,
+          'sellTotal': 99.23,
+          'profit': 2.12,
+          'profitPct': 2.18,
+          'duration': '3h 45min',
+          'closeReason': 'Take Profit',
+          'datetime': now,
+        };
+      
+      case 'system-alert':
+        return {
+          'alertType': 'Sistema Crítico',
+          'severity': 'high',
+          'message': 'Erro ao conectar com exchange',
+          'serviceName': 'Binance API',
+          'metadata': JSON.stringify({ error: 'Connection timeout' }, null, 2),
+          'datetime': now,
+        };
+      
+      case 'operation-alert':
+        return {
+          'operationType': 'Stop Loss',
+          'message': 'Stop Loss acionado para posição SOLUSDT',
+          'details': JSON.stringify({ positionId: 123, price: 210.50 }, null, 2),
+          'datetime': now,
+        };
+      
+      default:
+        return {
+          'datetime': now,
+        };
     }
   }
 }

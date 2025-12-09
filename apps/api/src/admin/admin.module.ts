@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminSystemController } from './admin-system.controller';
 import { AdminAuditController } from './admin-audit.controller';
-import { AdminNotificationsController, AdminEmailController } from './admin-notifications.controller';
+import { AdminNotificationsController, AdminEmailController, AdminEmailTemplatesController } from './admin-notifications.controller';
 import { AdminSubscriptionsController } from './admin-subscriptions.controller';
 import { AdminSubscribersController, AdminSubscriberParametersController } from './admin-subscribers.controller';
 import { AdminSubscriptionPlansController } from './admin-subscription-plans.controller';
@@ -35,6 +35,7 @@ import { TransFiService } from '../subscriptions/transfi.service';
     AdminAuditController,
     AdminNotificationsController,
     AdminEmailController,
+    AdminEmailTemplatesController,
     AdminSubscriptionsController,
     AdminSubscribersController,
     AdminSubscriberParametersController,

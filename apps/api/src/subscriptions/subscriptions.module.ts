@@ -21,6 +21,8 @@ import { BlockSubscribersGuard } from './guards/block-subscribers.guard';
     MercadoPagoService,
     TransFiService,
     PrismaService,
+    SubscriptionGuard,
+    BlockSubscribersGuard,
     {
       provide: EncryptionService,
       useFactory: (configService: ConfigService) => {
