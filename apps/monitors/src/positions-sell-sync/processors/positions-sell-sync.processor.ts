@@ -18,13 +18,12 @@ export class PositionsSellSyncProcessor extends WorkerHost {
 
   async process(_job: Job<any>): Promise<any> {
     const startTime = Date.now();
-    const executionId = await this.cronExecutionService.startExecution(
-      'positions-sell-sync',
-      'Verificando e fechando posições abertas com vendas executadas'
-    );
+    const jobName = 'positions-sell-sync';
+    this.logger.log('[POSITIONS-SELL-SYNC] Iniciando verificação de posições abertas com vendas executadas...');
 
     try {
-      this.logger.log('[POSITIONS-SELL-SYNC] Iniciando verificação de posições abertas com vendas executadas...');
+      // Registrar início da execução
+      await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
 
       // Buscar posições abertas
       const openPositions = await this.prisma.tradePosition.findMany({
@@ -177,20 +176,35 @@ export class PositionsSellSyncProcessor extends WorkerHost {
         duration,
       };
 
-      await this.cronExecutionService.finishExecution(executionId, CronExecutionStatus.SUCCESS, result);
+      const durationMs = Date.now() - startTime;
+
+      // Registrar sucesso
+      await this.cronExecutionService.recordExecution(
+        jobName,
+        CronExecutionStatus.SUCCESS,
+        durationMs,
+        result
+      );
+
       this.logger.log(
-        `[POSITIONS-SELL-SYNC] ✅ Concluído: ${processed} vendas processadas, ${closed} posições fechadas, ${errors} erros (${duration}ms)`
+        `[POSITIONS-SELL-SYNC] ✅ Concluído: ${processed} vendas processadas, ${closed} posições fechadas, ${errors} erros (${durationMs}ms)`
       );
 
       return result;
     } catch (error: any) {
-      const duration = Date.now() - startTime;
-      await this.cronExecutionService.finishExecution(
-        executionId,
+      const durationMs = Date.now() - startTime;
+      const errorMessage = error?.message || 'Erro desconhecido';
+
+      // Registrar falha
+      await this.cronExecutionService.recordExecution(
+        jobName,
         CronExecutionStatus.FAILED,
-        { error: error.message, duration }
+        durationMs,
+        undefined,
+        errorMessage
       );
-      this.logger.error(`[POSITIONS-SELL-SYNC] ❌ Erro fatal: ${error.message}`, error.stack);
+
+      this.logger.error(`[POSITIONS-SELL-SYNC] ❌ Erro fatal: ${errorMessage}`, error.stack);
       throw error;
     }
   }
