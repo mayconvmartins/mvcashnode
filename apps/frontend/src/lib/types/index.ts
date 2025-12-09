@@ -536,6 +536,7 @@ export interface TradeJob {
     reason_message?: string
     vault_id?: number
     limit_order_expires_at?: string
+    position_id_to_close?: number
     created_at: string
     updated_at: string
 }

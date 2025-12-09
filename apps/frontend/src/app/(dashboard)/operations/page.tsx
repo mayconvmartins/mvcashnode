@@ -11,6 +11,7 @@ import { operationsService } from '@/lib/api/operations.service'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
 import { formatDateTime, formatCurrency } from '@/lib/utils/format'
 import { Eye } from 'lucide-react'
+import Link from 'next/link' // Import for position links
 
 export default function OperationsPage() {
     const { tradeMode } = useTradeMode()
@@ -90,6 +91,31 @@ export default function OperationsPage() {
             key: 'order_type',
             label: 'Tipo',
             render: (op) => <Badge variant="outline">{op.job.order_type}</Badge>,
+        },
+        {
+            key: 'position_to_close',
+            label: 'Posição Alvo',
+            render: (op) => {
+                if (op.job.side === 'SELL') {
+                    if (op.job.position_id_to_close) {
+                        return (
+                            <Link
+                                href={`/positions/${op.job.position_id_to_close}`}
+                                className="text-primary hover:underline font-mono text-sm"
+                            >
+                                #{op.job.position_id_to_close}
+                            </Link>
+                        )
+                    } else {
+                        return (
+                            <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
+                                FIFO
+                            </Badge>
+                        )
+                    }
+                }
+                return <span className="text-muted-foreground">-</span>
+            },
         },
         {
             key: 'executions',

@@ -353,6 +353,26 @@ export default function OperationDetailPage() {
                                     </div>
                                 )}
 
+                                {job.side === 'SELL' && (
+                                    <div>
+                                        <label className="text-sm font-medium text-muted-foreground">Posição Alvo</label>
+                                        <div className="mt-1">
+                                            {job.position_id_to_close ? (
+                                                <Link
+                                                    href={`/positions/${job.position_id_to_close}`}
+                                                    className="text-primary hover:underline font-mono"
+                                                >
+                                                    #{job.position_id_to_close}
+                                                </Link>
+                                            ) : (
+                                                <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
+                                                    FIFO (sem posição específica)
+                                                </Badge>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div>
                                     <label className="text-sm font-medium text-muted-foreground">Criado em</label>
                                     <div className="mt-1 flex items-center gap-2">

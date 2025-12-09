@@ -275,6 +275,7 @@ export class OperationsController {
           reason_message: job.reason_message,
           vault_id: job.vault_id,
           limit_order_expires_at: job.limit_order_expires_at,
+          position_id_to_close: job.position_id_to_close,
           exchange_account: job.exchange_account,
           webhook_event_id: job.webhook_event_id,
           created_at: job.created_at,
