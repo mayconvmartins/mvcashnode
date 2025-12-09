@@ -3,15 +3,27 @@ ALTER TABLE `webhook_monitor_alerts`
   ADD COLUMN `monitoring_status` VARCHAR(20) NULL,
   ADD COLUMN `exit_reason` VARCHAR(100) NULL;
 
--- Tornar exchange_account_id opcional (nullable)
+-- Remover foreign key constraint primeiro (ela usa o índice)
 ALTER TABLE `webhook_monitor_alerts` 
-  MODIFY COLUMN `exchange_account_id` INTEGER NULL;
+  DROP FOREIGN KEY `webhook_monitor_alerts_exchange_account_id_fkey`;
 
 -- Remover índice antigo
 DROP INDEX `wh_monitor_alerts_active_idx` ON `webhook_monitor_alerts`;
 
--- Criar novo índice único por webhook_source_id + symbol + trade_mode + state
+-- Tornar exchange_account_id opcional (nullable)
+ALTER TABLE `webhook_monitor_alerts` 
+  MODIFY COLUMN `exchange_account_id` INTEGER NULL;
+
+-- Criar novo índice por webhook_source_id + symbol + trade_mode + state
 CREATE INDEX `wh_monitor_alerts_active_idx` ON `webhook_monitor_alerts`(`webhook_source_id`, `symbol`, `trade_mode`, `state`);
+
+-- Recriar foreign key constraint (agora permitindo NULL)
+ALTER TABLE `webhook_monitor_alerts` 
+  ADD CONSTRAINT `webhook_monitor_alerts_exchange_account_id_fkey` 
+  FOREIGN KEY (`exchange_account_id`) 
+  REFERENCES `exchange_accounts`(`id`) 
+  ON DELETE CASCADE 
+  ON UPDATE CASCADE;
 
 -- Migração de dados: Consolidar alertas duplicados
 -- Para cada combinação de (webhook_source_id, symbol, trade_mode) com múltiplos alertas MONITORING,
