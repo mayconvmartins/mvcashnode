@@ -2613,8 +2613,14 @@ export class PositionService {
           qty_remaining: 0,
           close_reason: 'CONVERTED_TO_DUST',
           closed_at: new Date(),
+          // Limpar flags de trigger quando posição é fechada
+          tp_triggered: false,
+          sl_triggered: false,
+          trailing_triggered: false,
+          partial_tp_triggered: false,
         },
       });
+      console.log(`[POSITION-SERVICE] Posição ${positionId} convertida para dust e fechada, flags de trigger limpos`);
 
       // Criar execução temporária de SELL para o fill da posição original
       const sellExecution = await tx.tradeExecution.create({

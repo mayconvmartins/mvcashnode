@@ -954,6 +954,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             // Determinar origin baseado na posição vinculada ou posições elegíveis
             let sellOrigin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'WEBHOOK';
             
+            // Buscar posições antes de executar para comparação posterior
+            let positionsBefore: Awaited<ReturnType<typeof this.prisma.tradePosition.findMany>> = [];
+            
             // Se há position_id_to_close, buscar essa posição específica para determinar origin
             if (tradeJob.position_id_to_close) {
               const targetPosition = await this.prisma.tradePosition.findUnique({
@@ -961,6 +964,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               });
               
               if (targetPosition) {
+                // Armazenar a posição específica para comparação posterior
+                positionsBefore = [targetPosition];
+                
                 this.logger.log(`[EXECUTOR] Job ${tradeJobId} tem position_id_to_close=${tradeJob.position_id_to_close}, verificando flags dessa posição`);
                 
                 if (targetPosition.tp_triggered) {
@@ -989,7 +995,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               }
             } else {
               // Buscar posições que serão fechadas antes de executar (lógica FIFO)
-              const positionsBefore = await this.prisma.tradePosition.findMany({
+              positionsBefore = await this.prisma.tradePosition.findMany({
                 where: {
                   exchange_account_id: tradeJob.exchange_account_id,
                   trade_mode: tradeJob.trade_mode,

@@ -162,6 +162,9 @@ NTP_SERVER=pool.ntp.org  # Servidor NTP para sincronização
 NTP_SYNC_INTERVAL=3600000  # Intervalo de sincronização NTP em ms (1 hora)
 NTP_ENABLED=true  # Habilitar sincronização NTP
 
+# Mercado Pago Sync (opcional)
+MERCADOPAGO_SYNC_DEBUG=false  # Se true, mostra logs detalhados do MercadoPagoSyncProcessor. Se false, mostra apenas resumo.
+
 # WhatsApp (Evolution API) - Opcional
 # Configuração pode ser feita via API ou variáveis de ambiente
 WHATSAPP_API_URL=http://localhost:8080  # URL da Evolution API

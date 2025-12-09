@@ -7,12 +7,21 @@ import { EncryptionService } from '@mvcashnode/shared';
 @Processor('mercadopago-sync')
 export class MercadoPagoSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(MercadoPagoSyncProcessor.name);
+  private readonly isDebugMode: boolean;
 
   constructor(
     private prisma: PrismaService,
     private encryptionService: EncryptionService
   ) {
     super();
+    // Verificar variável de ambiente para modo debug
+    this.isDebugMode = process.env.MERCADOPAGO_SYNC_DEBUG === 'true' || process.env.MERCADOPAGO_SYNC_DEBUG === '1';
+  }
+
+  private debugLog(message: string, ...optionalParams: any[]): void {
+    if (this.isDebugMode) {
+      this.logger.log(message, ...optionalParams);
+    }
   }
 
   async process(_job: Job<any>): Promise<any> {
@@ -56,12 +65,12 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         },
       });
       
-      this.logger.log(`Debug: Total de pagamentos no banco: ${totalPayments}, com mp_payment_id: ${paymentsWithMpId}, sem mp_payment_id: ${paymentsWithoutMpId}`);
+      this.debugLog(`Debug: Total de pagamentos no banco: ${totalPayments}, com mp_payment_id: ${paymentsWithMpId}, sem mp_payment_id: ${paymentsWithoutMpId}`);
 
       // ====================================================================================================
       // IMPORTAR TODAS AS TRANSAÇÕES DA API DO MERCADO PAGO (TODOS OS STATUS)
       // ====================================================================================================
-      this.logger.log('Iniciando importação de TODAS as transações do Mercado Pago...');
+      this.debugLog('Iniciando importação de TODAS as transações do Mercado Pago...');
       
       let importedCount = 0;
       let updatedFromApiCount = 0;
@@ -83,7 +92,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
           
           const searchUrl = `${baseUrl}/v1/payments/search?range=date_created&begin_date=${dateFrom}T00:00:00.000-00:00&end_date=${dateTo}T23:59:59.999-00:00&offset=${offset}&limit=${limit}`;
           
-          this.logger.log(`Buscando pagamentos da API (offset: ${offset}, limit: ${limit}, período: ${dateFrom} a ${dateTo})...`);
+          this.debugLog(`Buscando pagamentos da API (offset: ${offset}, limit: ${limit}, período: ${dateFrom} a ${dateTo})...`);
           
           const searchResponse = await fetch(searchUrl, {
             method: 'GET',
@@ -118,12 +127,12 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
           };
 
           if (!searchResult.results || searchResult.results.length === 0) {
-            this.logger.log('Nenhum pagamento encontrado na API');
+            this.debugLog('Nenhum pagamento encontrado na API');
             hasMore = false;
             break;
           }
 
-          this.logger.log(`Encontrados ${searchResult.results.length} pagamentos na API (offset: ${offset})`);
+          this.debugLog(`Encontrados ${searchResult.results.length} pagamentos na API (offset: ${offset})`);
 
           // Processar cada pagamento encontrado
           for (const mpPayment of searchResult.results) {
@@ -162,7 +171,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                     },
                   });
                   updatedFromApiCount++;
-                  this.logger.debug(`Pagamento ${mpPayment.id} atualizado no banco`);
+                  this.debugLog(`Pagamento ${mpPayment.id} atualizado no banco`);
                 }
               } else {
                 // Tentar associar com assinatura por preference_id ou external_reference
@@ -212,7 +221,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                 // buscar pagamento completo da API para obter payer.email e tentar vincular
                 if (!subscriptionId) {
                   try {
-                    this.logger.log(`Tentando fallback para pagamento ${mpPaymentIdStr}: buscando pagamento completo da API...`);
+                    this.debugLog(`Tentando fallback para pagamento ${mpPaymentIdStr}: buscando pagamento completo da API...`);
                     
                     const paymentDetailResponse = await fetch(`${baseUrl}/v1/payments/${mpPaymentIdStr}`, {
                       method: 'GET',
@@ -239,7 +248,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                       // Fallback 1: tentar vincular usando payer.email
                       if (paymentDetail.payer?.email) {
                         const payerEmail = paymentDetail.payer.email;
-                        this.logger.log(`Fallback 1: pagamento ${mpPaymentIdStr} tem payer.email: ${payerEmail}`);
+                        this.debugLog(`Fallback 1: pagamento ${mpPaymentIdStr} tem payer.email: ${payerEmail}`);
                         
                         // Buscar usuário pelo email
                         const user = await this.prisma.user.findUnique({
@@ -283,25 +292,25 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                               : matchingSubscriptions[0];
 
                             subscriptionId = selectedSubscription.id;
-                            this.logger.log(`Fallback 1 (email): assinatura ${subscriptionId} encontrada para pagamento ${mpPaymentIdStr} via email ${payerEmail}`);
+                            this.debugLog(`Fallback 1 (email): assinatura ${subscriptionId} encontrada para pagamento ${mpPaymentIdStr} via email ${payerEmail}`);
                             
                             if (matchingSubscriptions.length > 1) {
-                              this.logger.warn(`Fallback 1: múltiplas assinaturas correspondem (${matchingSubscriptions.length}), escolhendo a mais recente: ${subscriptionId}`);
+                              this.debugLog(`Fallback 1: múltiplas assinaturas correspondem (${matchingSubscriptions.length}), escolhendo a mais recente: ${subscriptionId}`);
                             }
                           } else {
-                            this.logger.warn(`Fallback 1: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) para email ${payerEmail}`);
+                            this.debugLog(`Fallback 1: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) para email ${payerEmail}`);
                           }
                         } else {
-                          this.logger.warn(`Fallback 1: usuário não encontrado ou sem assinaturas pendentes para email ${payerEmail}`);
+                          this.debugLog(`Fallback 1: usuário não encontrado ou sem assinaturas pendentes para email ${payerEmail}`);
                         }
                       } else {
-                        this.logger.warn(`Fallback 1: pagamento ${mpPaymentIdStr} não tem payer.email`);
+                        this.debugLog(`Fallback 1: pagamento ${mpPaymentIdStr} não tem payer.email`);
                       }
                       
                       // Fallback 2: se não encontrou por email, buscar TODAS as assinaturas pendentes sem mp_payment_id
                       // que correspondam ao valor e data (último recurso)
                       if (!subscriptionId) {
-                        this.logger.log(`Tentando fallback 2 para pagamento ${mpPaymentIdStr}: buscando TODAS as assinaturas pendentes sem mp_payment_id que correspondam ao valor ${paymentAmount}...`);
+                        this.debugLog(`Tentando fallback 2 para pagamento ${mpPaymentIdStr}: buscando TODAS as assinaturas pendentes sem mp_payment_id que correspondam ao valor ${paymentAmount}...`);
                         
                         const allPendingSubscriptions = await this.prisma.subscription.findMany({
                           where: {
@@ -334,18 +343,18 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                         if (matchingByValue.length > 0) {
                           // Escolher a mais recente
                           subscriptionId = matchingByValue[0].id;
-                          this.logger.log(`Fallback 2 (valor+data): assinatura ${subscriptionId} encontrada para pagamento ${mpPaymentIdStr} (valor: ${paymentAmount}, email pagamento: ${paymentDetail.payer?.email || 'N/A'}, email cadastro: ${matchingByValue[0].user.email})`);
+                          this.debugLog(`Fallback 2 (valor+data): assinatura ${subscriptionId} encontrada para pagamento ${mpPaymentIdStr} (valor: ${paymentAmount}, email pagamento: ${paymentDetail.payer?.email || 'N/A'}, email cadastro: ${matchingByValue[0].user.email})`);
                           
                           if (matchingByValue.length > 1) {
-                            this.logger.warn(`Fallback 2: ATENÇÃO - múltiplas assinaturas correspondem (${matchingByValue.length}), escolhendo a mais recente: ${subscriptionId}. Verifique se está correto!`);
+                            this.debugLog(`Fallback 2: ATENÇÃO - múltiplas assinaturas correspondem (${matchingByValue.length}), escolhendo a mais recente: ${subscriptionId}. Verifique se está correto!`);
                           }
                           
                           // Se o email do pagamento for diferente do email do cadastro, alertar
                           if (paymentDetail.payer?.email && paymentDetail.payer.email !== matchingByValue[0].user.email) {
-                            this.logger.warn(`⚠️ ATENÇÃO: Email do pagamento (${paymentDetail.payer.email}) é diferente do email do cadastro (${matchingByValue[0].user.email}). Verifique se a vinculação está correta!`);
+                            this.debugLog(`⚠️ ATENÇÃO: Email do pagamento (${paymentDetail.payer.email}) é diferente do email do cadastro (${matchingByValue[0].user.email}). Verifique se a vinculação está correta!`);
                           }
                         } else {
-                          this.logger.warn(`Fallback 2: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) no período de 7 dias`);
+                          this.debugLog(`Fallback 2: nenhuma assinatura pendente encontrada com valor correspondente (${paymentAmount}) no período de 7 dias`);
                         }
                       }
                     } else {
@@ -370,7 +379,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   });
 
                   importedCount++;
-                  this.logger.log(`Pagamento ${mpPaymentIdStr} importado (status: ${mpPayment.status}, método: ${paymentMethod})`);
+                  this.debugLog(`Pagamento ${mpPaymentIdStr} importado (status: ${mpPayment.status}, método: ${paymentMethod})`);
 
                   // Se pagamento foi aprovado e tem assinatura, processar
                   if (mpPayment.status === 'approved') {
@@ -383,7 +392,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                     });
 
                     if (subscription && subscription.status === 'PENDING_PAYMENT') {
-                      this.logger.log(`Processando pagamento aprovado para assinatura ${subscriptionId}`);
+                      this.debugLog(`Processando pagamento aprovado para assinatura ${subscriptionId}`);
                       await this.processApprovedPayment(
                         subscriptionId,
                         mpPaymentIdStr,
@@ -398,7 +407,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                     }
                   }
                 } else {
-                  this.logger.warn(`Pagamento ${mpPaymentIdStr} não pôde ser importado: nenhuma assinatura encontrada (preference_id: ${mpPayment.preference_id}, external_reference: ${mpPayment.external_reference})`);
+                  this.debugLog(`Pagamento ${mpPaymentIdStr} não pôde ser importado: nenhuma assinatura encontrada (preference_id: ${mpPayment.preference_id}, external_reference: ${mpPayment.external_reference})`);
                 }
               }
             } catch (error: any) {
@@ -413,7 +422,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             offset += limit;
             // Limitar a 1000 pagamentos por execução para não sobrecarregar
             if (offset >= 1000) {
-              this.logger.log('Limite de 1000 pagamentos atingido nesta execução');
+              this.debugLog('Limite de 1000 pagamentos atingido nesta execução');
               hasMore = false;
             }
           }
@@ -426,7 +435,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         }
       }
 
-      this.logger.log(`Importação concluída: ${importedCount} novos pagamentos importados, ${updatedFromApiCount} atualizados`);
+      this.debugLog(`Importação concluída: ${importedCount} novos pagamentos importados, ${updatedFromApiCount} atualizados`);
 
       // Buscar TODOS os pagamentos SEM FILTRO NENHUM (como solicitado pelo usuário)
       // Primeiro, buscar todos os pagamentos que têm mp_payment_id
@@ -449,12 +458,12 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         },
       });
 
-      this.logger.log(`Encontrados ${allPayments.length} pagamentos com mp_payment_id para sincronizar`);
+      this.debugLog(`Encontrados ${allPayments.length} pagamentos com mp_payment_id para sincronizar`);
 
       // Se não encontrou nenhum com mp_payment_id, buscar TODOS os pagamentos (mesmo sem mp_payment_id)
       // para verificar se há pagamentos que precisam ser vinculados
       if (allPayments.length === 0) {
-        this.logger.log('Nenhum pagamento com mp_payment_id encontrado. Buscando TODOS os pagamentos...');
+        this.debugLog('Nenhum pagamento com mp_payment_id encontrado. Buscando TODOS os pagamentos...');
         
         const allPaymentsNoFilter = await this.prisma.subscriptionPayment.findMany({
           include: {
@@ -472,7 +481,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         });
         
         if (allPaymentsNoFilter.length > 0) {
-          this.logger.log(`Encontrados ${allPaymentsNoFilter.length} pagamentos (sem filtro de mp_payment_id)`);
+          this.debugLog(`Encontrados ${allPaymentsNoFilter.length} pagamentos (sem filtro de mp_payment_id)`);
           allPayments = allPaymentsNoFilter;
         }
       }
@@ -488,11 +497,11 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
       for (const payment of pendingPayments) {
         try {
           if (!payment.mp_payment_id) {
-            this.logger.warn(`Pagamento ${payment.id} não tem mp_payment_id, pulando...`);
+            this.debugLog(`Pagamento ${payment.id} não tem mp_payment_id, pulando...`);
             continue;
           }
 
-          this.logger.debug(`Verificando pagamento ${payment.id} (MP: ${payment.mp_payment_id})`);
+          this.debugLog(`Verificando pagamento ${payment.id} (MP: ${payment.mp_payment_id})`);
           
           // Buscar status atualizado do Mercado Pago
           const response = await fetch(`${baseUrl}/v1/payments/${payment.mp_payment_id}`, {
@@ -525,9 +534,9 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
           };
           synced++;
           
-          this.logger.debug(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Status: ${mpPayment.status}, Status Detail: ${mpPayment.status_detail || 'N/A'}`);
+          this.debugLog(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Status: ${mpPayment.status}, Status Detail: ${mpPayment.status_detail || 'N/A'}`);
 
-          this.logger.debug(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Status no MP: ${mpPayment.status}, Status no DB: ${payment.status}`);
+          this.debugLog(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Status no MP: ${mpPayment.status}, Status no DB: ${payment.status}`);
 
           // Verificar se o status mudou
           const newStatus = this.mapMpStatusToDbStatus(mpPayment.status);
@@ -553,11 +562,12 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             });
 
             if (statusChanged) {
+              // Log de mudança de status sempre visível (importante)
               this.logger.log(
                 `Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) atualizado: ${payment.status} -> ${newStatus}`
               );
             } else {
-              this.logger.debug(
+              this.debugLog(
                 `Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) atualizado (sem mudança de status)`
               );
             }
@@ -566,10 +576,10 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             if (newStatus === 'APPROVED' && payment.subscription && payment.mp_payment_id) {
               // Só processar se a assinatura ainda estiver pendente
               if (payment.subscription.status === 'PENDING_PAYMENT') {
-                this.logger.log(`Processando pagamento aprovado para assinatura ${payment.subscription.id}`);
+                this.debugLog(`Processando pagamento aprovado para assinatura ${payment.subscription.id}`);
                 await this.processApprovedPayment(payment.subscription.id, payment.mp_payment_id, mpPayment);
               } else {
-                this.logger.debug(`Assinatura ${payment.subscription.id} já foi processada (status: ${payment.subscription.status})`);
+                this.debugLog(`Assinatura ${payment.subscription.id} já foi processada (status: ${payment.subscription.status})`);
               }
             }
 
@@ -610,10 +620,10 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                 where: { id: payment.id },
                 data: updateData,
               });
-              this.logger.debug(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Informações atualizadas (status mantido: ${payment.status})`);
+              this.debugLog(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Informações atualizadas (status mantido: ${payment.status})`);
               updated++;
             } else {
-              this.logger.debug(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Sem alterações (status: ${payment.status})`);
+              this.debugLog(`Pagamento ${payment.id} (MP: ${payment.mp_payment_id}) - Sem alterações (status: ${payment.status})`);
             }
           }
         } catch (error: any) {
@@ -645,7 +655,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         },
       });
       
-      this.logger.log(`Debug: Total de assinaturas: ${totalSubscriptions}, com mp_payment_id: ${subscriptionsWithMpId}, pendentes: ${pendingSubscriptionsCount}`);
+      this.debugLog(`Debug: Total de assinaturas: ${totalSubscriptions}, com mp_payment_id: ${subscriptionsWithMpId}, pendentes: ${pendingSubscriptionsCount}`);
 
       // Buscar TODAS as assinaturas com mp_payment_id (sem filtro de status ou data)
       let pendingSubscriptions = await this.prisma.subscription.findMany({
@@ -664,11 +674,11 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         take: 200, // Limitar a 200 para não sobrecarregar
       });
 
-      this.logger.log(`Verificando ${pendingSubscriptions.length} assinaturas com mp_payment_id`);
+      this.debugLog(`Verificando ${pendingSubscriptions.length} assinaturas com mp_payment_id`);
 
       // Se não encontrou nenhuma com mp_payment_id, buscar TODAS as assinaturas (mesmo sem mp_payment_id)
       if (pendingSubscriptions.length === 0) {
-        this.logger.log('Nenhuma assinatura com mp_payment_id encontrada. Buscando TODAS as assinaturas...');
+        this.debugLog('Nenhuma assinatura com mp_payment_id encontrada. Buscando TODAS as assinaturas...');
         
         pendingSubscriptions = await this.prisma.subscription.findMany({
           include: {
@@ -682,7 +692,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         });
 
         if (pendingSubscriptions.length > 0) {
-          this.logger.log(`Encontradas ${pendingSubscriptions.length} assinaturas (sem filtro de mp_payment_id)`);
+          this.debugLog(`Encontradas ${pendingSubscriptions.length} assinaturas (sem filtro de mp_payment_id)`);
         }
       }
 
@@ -708,7 +718,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
       });
 
       if (subscriptionsWithPreference.length > 0) {
-        this.logger.log(`Encontradas ${subscriptionsWithPreference.length} assinaturas com preference_id mas sem payment_id`);
+        this.debugLog(`Encontradas ${subscriptionsWithPreference.length} assinaturas com preference_id mas sem payment_id`);
         // Adicionar à lista de assinaturas para verificar
         const existingIds = new Set(pendingSubscriptions.map(s => s.id));
         for (const sub of subscriptionsWithPreference) {
@@ -720,7 +730,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
 
       // Buscar também assinaturas que têm mp_payment_id mas não têm registro de pagamento correspondente
       if (pendingSubscriptions.length > 0) {
-        this.logger.log('Verificando assinaturas com mp_payment_id mas sem registro de pagamento...');
+        this.debugLog('Verificando assinaturas com mp_payment_id mas sem registro de pagamento...');
         
         const subscriptionsWithoutPayment = [];
         for (const sub of pendingSubscriptions) {
@@ -733,13 +743,13 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
           });
 
           if (!existingPayment) {
-            this.logger.log(`Assinatura ${sub.id} tem mp_payment_id (${sub.mp_payment_id}) mas não tem registro de pagamento. Adicionando à lista de verificação.`);
+            this.debugLog(`Assinatura ${sub.id} tem mp_payment_id (${sub.mp_payment_id}) mas não tem registro de pagamento. Adicionando à lista de verificação.`);
             subscriptionsWithoutPayment.push(sub);
           }
         }
 
         if (subscriptionsWithoutPayment.length > 0) {
-          this.logger.log(`Encontradas ${subscriptionsWithoutPayment.length} assinaturas com mp_payment_id mas sem registro de pagamento`);
+          this.debugLog(`Encontradas ${subscriptionsWithoutPayment.length} assinaturas com mp_payment_id mas sem registro de pagamento`);
           // Adicionar à lista de assinaturas para verificar (evitar duplicatas)
           const existingIds = new Set(pendingSubscriptions.map(s => s.id));
           for (const sub of subscriptionsWithoutPayment) {
@@ -753,7 +763,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
       for (const subscription of pendingSubscriptions) {
         // Se tem preference_id mas não tem payment_id, buscar pagamentos por preference_id
         if (subscription.mp_preference_id && !subscription.mp_payment_id) {
-          this.logger.log(`Buscando pagamentos para assinatura ${subscription.id} usando preference_id: ${subscription.mp_preference_id}`);
+          this.debugLog(`Buscando pagamentos para assinatura ${subscription.id} usando preference_id: ${subscription.mp_preference_id}`);
           
           try {
             // Usar merchant_orders para buscar pagamentos por preference_id
@@ -782,16 +792,16 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
               };
 
               if (merchantOrdersResult.elements && merchantOrdersResult.elements.length > 0) {
-                this.logger.log(`Encontrados ${merchantOrdersResult.elements.length} pedido(s) para preference_id ${subscription.mp_preference_id}`);
+                this.debugLog(`Encontrados ${merchantOrdersResult.elements.length} pedido(s) para preference_id ${subscription.mp_preference_id}`);
                 
                 // Processar cada pedido e seus pagamentos
                 for (const order of merchantOrdersResult.elements) {
                   if (!order.payments || order.payments.length === 0) {
-                    this.logger.debug(`Pedido ${order.id} não tem pagamentos associados`);
+                    this.debugLog(`Pedido ${order.id} não tem pagamentos associados`);
                     continue;
                   }
 
-                  this.logger.log(`Pedido ${order.id} tem ${order.payments.length} pagamento(s)`);
+                  this.debugLog(`Pedido ${order.id} tem ${order.payments.length} pagamento(s)`);
                   
                   // Processar cada pagamento do pedido
                   for (const paymentData of order.payments) {
@@ -812,7 +822,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                   });
 
                   if (!existingPayment) {
-                    this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
+                    this.debugLog(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
                     const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
                     await this.prisma.subscriptionPayment.create({
                       data: {
@@ -857,21 +867,21 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                     updated++;
                     this.logger.log(`✅ Assinatura ${subscription.id} ativada com sucesso!`);
                   } else if (mpPayment.status === 'approved' && currentSubscription && currentSubscription.status !== 'PENDING_PAYMENT') {
-                    this.logger.log(`Assinatura ${subscription.id} já está com status ${currentSubscription.status}, não precisa processar`);
+                    this.debugLog(`Assinatura ${subscription.id} já está com status ${currentSubscription.status}, não precisa processar`);
                   } else {
-                    this.logger.log(`Pagamento ${mpPaymentIdStr} ainda não está aprovado (status: ${mpPayment.status}), aguardando...`);
+                    this.debugLog(`Pagamento ${mpPaymentIdStr} ainda não está aprovado (status: ${mpPayment.status}), aguardando...`);
                   }
                 }
                 }
               } else {
-                this.logger.debug(`Nenhum pedido encontrado para preference_id ${subscription.mp_preference_id}`);
+                this.debugLog(`Nenhum pedido encontrado para preference_id ${subscription.mp_preference_id}`);
               }
             } else {
               const error = await merchantOrdersResponse.json();
               this.logger.warn(`Erro ao buscar merchant_orders por preference_id ${subscription.mp_preference_id}:`, error);
               
               // Fallback: tentar buscar pagamentos recentes e filtrar
-              this.logger.log(`Tentando busca alternativa de pagamentos recentes...`);
+              this.debugLog(`Tentando busca alternativa de pagamentos recentes...`);
               try {
                 const sevenDaysAgo = new Date();
                 sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -903,7 +913,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                     );
                     
                     if (filteredPayments.length > 0) {
-                      this.logger.log(`Encontrados ${filteredPayments.length} pagamento(s) via busca alternativa`);
+                      this.debugLog(`Encontrados ${filteredPayments.length} pagamento(s) via busca alternativa`);
                       
                       for (const mpPayment of filteredPayments) {
                         // Garantir que mpPayment.id seja sempre string
@@ -917,7 +927,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                         });
 
                         if (!existingPayment) {
-                          this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
+                          this.debugLog(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
                           const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
                           await this.prisma.subscriptionPayment.create({
                             data: {
@@ -963,7 +973,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
                         }
                       }
                     } else {
-                      this.logger.debug(`Nenhum pagamento encontrado para preference_id ${subscription.mp_preference_id} na busca alternativa`);
+                      this.debugLog(`Nenhum pagamento encontrado para preference_id ${subscription.mp_preference_id} na busca alternativa`);
                     }
                   }
                 }
@@ -979,14 +989,14 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
 
         // Se não tem payment_id, pular
         if (!subscription.mp_payment_id) {
-          this.logger.debug(`Assinatura ${subscription.id} não tem mp_payment_id nem preference_id, pulando...`);
+          this.debugLog(`Assinatura ${subscription.id} não tem mp_payment_id nem preference_id, pulando...`);
           continue;
         }
 
         try {
           // Garantir que mp_payment_id seja string
           const mpPaymentIdStr = String(subscription.mp_payment_id);
-          this.logger.debug(`Verificando assinatura ${subscription.id} com pagamento MP: ${mpPaymentIdStr}`);
+          this.debugLog(`Verificando assinatura ${subscription.id} com pagamento MP: ${mpPaymentIdStr}`);
           
           const response = await fetch(`${baseUrl}/v1/payments/${mpPaymentIdStr}`, {
             method: 'GET',
@@ -1004,7 +1014,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
               preference_id?: string;
             };
             
-            this.logger.debug(`Assinatura ${subscription.id} - Status no MP: ${mpPayment.status}, Status no DB: ${subscription.status}`);
+            this.debugLog(`Assinatura ${subscription.id} - Status no MP: ${mpPayment.status}, Status no DB: ${subscription.status}`);
             
             // Verificar se existe registro de pagamento, se não, criar
             const existingPayment = await this.prisma.subscriptionPayment.findFirst({
@@ -1014,7 +1024,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
             });
 
             if (!existingPayment) {
-              this.logger.log(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
+              this.debugLog(`Criando registro de pagamento para assinatura ${subscription.id} (MP: ${mpPaymentIdStr})`);
               const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
               await this.prisma.subscriptionPayment.create({
                 data: {
@@ -1030,7 +1040,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
               // Atualizar status do pagamento se mudou
               const paymentStatus = this.mapMpStatusToDbStatus(mpPayment.status);
               if (existingPayment.status !== paymentStatus) {
-                this.logger.log(`Atualizando status do pagamento ${existingPayment.id}: ${existingPayment.status} -> ${paymentStatus}`);
+                this.debugLog(`Atualizando status do pagamento ${existingPayment.id}: ${existingPayment.status} -> ${paymentStatus}`);
                 await this.prisma.subscriptionPayment.update({
                   where: { id: existingPayment.id },
                   data: { status: paymentStatus },
@@ -1044,7 +1054,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
               await this.processApprovedPayment(subscription.id, mpPaymentIdStr, mpPayment);
               updated++;
             } else if (mpPayment.status !== 'approved') {
-              this.logger.debug(`Assinatura ${subscription.id} - Pagamento ainda não aprovado (status: ${mpPayment.status})`);
+              this.debugLog(`Assinatura ${subscription.id} - Pagamento ainda não aprovado (status: ${mpPayment.status})`);
             }
           } else {
             const error = await response.json();
@@ -1194,7 +1204,7 @@ export class MercadoPagoSyncProcessor extends WorkerHost {
         });
       }
 
-      this.logger.log(`Assinatura ${subscriptionId} ativada via sincronização`);
+      this.debugLog(`Assinatura ${subscriptionId} ativada via sincronização`);
     } catch (error: any) {
       this.logger.error(`Erro ao processar pagamento aprovado para assinatura ${subscriptionId}:`, error);
       throw error;
