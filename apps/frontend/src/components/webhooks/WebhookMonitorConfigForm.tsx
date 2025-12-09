@@ -47,7 +47,20 @@ export function WebhookMonitorConfigForm() {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
-        updateMutation.mutate(formData)
+        // Garantir que todos os campos estão presentes (usar valores do formData ou do config atual)
+        const dataToSend: Partial<WebhookMonitorConfig> = {
+            monitor_enabled: formData.monitor_enabled ?? config?.monitor_enabled ?? true,
+            check_interval_sec: formData.check_interval_sec ?? config?.check_interval_sec ?? 30,
+            lateral_tolerance_pct: formData.lateral_tolerance_pct ?? config?.lateral_tolerance_pct ?? 0.3,
+            lateral_cycles_min: formData.lateral_cycles_min ?? config?.lateral_cycles_min ?? 4,
+            rise_trigger_pct: formData.rise_trigger_pct ?? config?.rise_trigger_pct ?? 0.75,
+            rise_cycles_min: formData.rise_cycles_min ?? config?.rise_cycles_min ?? 2,
+            max_fall_pct: formData.max_fall_pct ?? config?.max_fall_pct ?? 6.0,
+            max_monitoring_time_min: formData.max_monitoring_time_min ?? config?.max_monitoring_time_min ?? 60,
+            cooldown_after_execution_min: formData.cooldown_after_execution_min ?? config?.cooldown_after_execution_min ?? 30,
+        }
+        console.log('Enviando configurações:', dataToSend)
+        updateMutation.mutate(dataToSend)
     }
 
     const handleChange = (key: keyof WebhookMonitorConfig, value: any) => {

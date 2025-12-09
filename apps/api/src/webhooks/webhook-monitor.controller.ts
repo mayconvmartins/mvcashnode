@@ -226,6 +226,7 @@ export class WebhookMonitorController {
     },
     @CurrentUser() user: any
   ) {
+    console.log('[WEBHOOK-MONITOR] Atualizando configurações:', JSON.stringify(body, null, 2));
     // Buscar ou criar configuração do usuário
     let config = await this.prisma.webhookMonitorConfig.findUnique({
       where: { user_id: user.userId },
@@ -233,35 +234,43 @@ export class WebhookMonitorController {
 
     if (!config) {
       // Criar configuração do usuário
+      // Buscar configuração global para usar como base
+      const globalConfig = await this.prisma.webhookMonitorConfig.findFirst({
+        where: { user_id: null },
+      });
+      
       config = await this.prisma.webhookMonitorConfig.create({
         data: {
           user_id: user.userId,
-          monitor_enabled: body.monitor_enabled ?? true,
-          check_interval_sec: body.check_interval_sec ?? 30,
-          lateral_tolerance_pct: body.lateral_tolerance_pct ?? 0.3,
-          lateral_cycles_min: body.lateral_cycles_min ?? 4,
-          rise_trigger_pct: body.rise_trigger_pct ?? 0.75,
-          rise_cycles_min: body.rise_cycles_min ?? 2,
-          max_fall_pct: body.max_fall_pct ?? 6.0,
-          max_monitoring_time_min: body.max_monitoring_time_min ?? 60,
-          cooldown_after_execution_min: body.cooldown_after_execution_min ?? 30,
+          monitor_enabled: body.monitor_enabled ?? globalConfig?.monitor_enabled ?? true,
+          check_interval_sec: body.check_interval_sec ?? globalConfig?.check_interval_sec ?? 30,
+          lateral_tolerance_pct: body.lateral_tolerance_pct ?? globalConfig?.lateral_tolerance_pct ?? 0.3,
+          lateral_cycles_min: body.lateral_cycles_min ?? globalConfig?.lateral_cycles_min ?? 4,
+          rise_trigger_pct: body.rise_trigger_pct ?? globalConfig?.rise_trigger_pct ?? 0.75,
+          rise_cycles_min: body.rise_cycles_min ?? globalConfig?.rise_cycles_min ?? 2,
+          max_fall_pct: body.max_fall_pct ?? globalConfig?.max_fall_pct ?? 6.0,
+          max_monitoring_time_min: body.max_monitoring_time_min ?? globalConfig?.max_monitoring_time_min ?? 60,
+          cooldown_after_execution_min: body.cooldown_after_execution_min ?? globalConfig?.cooldown_after_execution_min ?? 30,
         },
       });
     } else {
       // Atualizar configuração existente
+      // Construir objeto de atualização apenas com campos que foram enviados
+      const updateData: any = {};
+      
+      if (body.monitor_enabled !== undefined) updateData.monitor_enabled = body.monitor_enabled;
+      if (body.check_interval_sec !== undefined) updateData.check_interval_sec = body.check_interval_sec;
+      if (body.lateral_tolerance_pct !== undefined) updateData.lateral_tolerance_pct = body.lateral_tolerance_pct;
+      if (body.lateral_cycles_min !== undefined) updateData.lateral_cycles_min = body.lateral_cycles_min;
+      if (body.rise_trigger_pct !== undefined) updateData.rise_trigger_pct = body.rise_trigger_pct;
+      if (body.rise_cycles_min !== undefined) updateData.rise_cycles_min = body.rise_cycles_min;
+      if (body.max_fall_pct !== undefined) updateData.max_fall_pct = body.max_fall_pct;
+      if (body.max_monitoring_time_min !== undefined) updateData.max_monitoring_time_min = body.max_monitoring_time_min;
+      if (body.cooldown_after_execution_min !== undefined) updateData.cooldown_after_execution_min = body.cooldown_after_execution_min;
+      
       config = await this.prisma.webhookMonitorConfig.update({
         where: { user_id: user.userId },
-        data: {
-          monitor_enabled: body.monitor_enabled ?? config.monitor_enabled,
-          check_interval_sec: body.check_interval_sec ?? config.check_interval_sec,
-          lateral_tolerance_pct: body.lateral_tolerance_pct ?? config.lateral_tolerance_pct,
-          lateral_cycles_min: body.lateral_cycles_min ?? config.lateral_cycles_min,
-          rise_trigger_pct: body.rise_trigger_pct ?? config.rise_trigger_pct,
-          rise_cycles_min: body.rise_cycles_min ?? config.rise_cycles_min,
-          max_fall_pct: body.max_fall_pct ?? config.max_fall_pct,
-          max_monitoring_time_min: body.max_monitoring_time_min ?? config.max_monitoring_time_min,
-          cooldown_after_execution_min: body.cooldown_after_execution_min ?? config.cooldown_after_execution_min,
-        },
+        data: updateData,
       });
     }
 
