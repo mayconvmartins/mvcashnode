@@ -19,7 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
-import type { CreateManualPositionDto, ExchangeAccount, PositionStatus } from '@/lib/types'
+import type { CreateManualPositionDto, ExchangeAccount } from '@/lib/types'
+import { PositionStatus } from '@/lib/types'
 
 // Tipo estendido para contas retornadas pelo listAll (admin)
 type ExchangeAccountWithUser = ExchangeAccount & {
