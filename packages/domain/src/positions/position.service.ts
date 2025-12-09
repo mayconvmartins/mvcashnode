@@ -884,7 +884,10 @@ export class PositionService {
           where: { id: job.position_id_to_close },
         });
 
+        console.log(`[POSITION-SERVICE] Job ${jobId} tem position_id_to_close=${job.position_id_to_close}, buscando posição específica...`);
+
         if (!targetPosition) {
+          console.error(`[POSITION-SERVICE] Posição ${job.position_id_to_close} não encontrada para job ${jobId}`);
           await tx.tradeJob.update({
             where: { id: jobId },
             data: {
@@ -896,6 +899,8 @@ export class PositionService {
           return;
         }
 
+        console.log(`[POSITION-SERVICE] Posição ${targetPosition.id} encontrada: status=${targetPosition.status}, qty_remaining=${targetPosition.qty_remaining.toNumber()}, tp_triggered=${targetPosition.tp_triggered}, sl_triggered=${targetPosition.sl_triggered}, origin=${origin}`);
+
         // Validar se a posição é elegível
         if (
           targetPosition.exchange_account_id !== job.exchange_account_id ||
@@ -905,6 +910,7 @@ export class PositionService {
           targetPosition.status !== PositionStatus.OPEN ||
           targetPosition.qty_remaining.toNumber() <= 0
         ) {
+          console.warn(`[POSITION-SERVICE] Posição ${targetPosition.id} não é elegível para fechamento`);
           await tx.tradeJob.update({
             where: { id: jobId },
             data: {
@@ -918,6 +924,7 @@ export class PositionService {
 
         // Verificar lock para webhook
         if (origin === 'WEBHOOK' && targetPosition.lock_sell_by_webhook) {
+          console.warn(`[POSITION-SERVICE] Posição ${targetPosition.id} está bloqueada para vendas via webhook`);
           await tx.tradeJob.update({
             where: { id: jobId },
             data: {
@@ -932,6 +939,7 @@ export class PositionService {
         // Se a posição é agrupada, verificar se há outras posições relacionadas
         // Para posições agrupadas, fechar apenas a posição agrupada (que já contém todas as quantidades)
         eligiblePositions = [targetPosition];
+        console.log(`[POSITION-SERVICE] Posição ${targetPosition.id} elegível para fechamento (origin: ${origin}, qty_remaining: ${targetPosition.qty_remaining.toNumber()}, executedQty: ${executedQty})`);
       } else {
         // Quando não tem position_id_to_close, buscar posição com quantidade exata primeiro
         // Isso evita fragmentar posições desnecessariamente
@@ -1005,6 +1013,8 @@ export class PositionService {
 
         const qtyToClose = Math.min(currentPosition.qty_remaining.toNumber(), remainingToSell);
         
+        console.log(`[POSITION-SERVICE] Fechando posição ${currentPosition.id}: qty_remaining=${currentPosition.qty_remaining.toNumber()}, qtyToClose=${qtyToClose}, remainingToSell=${remainingToSell}, origin=${origin}`);
+        
         // Calcular proporção da taxa para esta posição
         const feeProportion = totalQtySold > 0 ? (qtyToClose / totalQtySold) : 0;
         const positionFeeUsd = feeUsd * feeProportion;
@@ -1020,17 +1030,29 @@ export class PositionService {
         const existingTotalFees = currentPosition.total_fees_paid_usd.toNumber();
         const newRealizedProfit = existingRealizedProfit + profitUsd;
 
+        // Preparar dados de atualização
+        const updateData: any = {
+          qty_remaining: newQtyRemaining,
+          realized_profit_usd: newRealizedProfit,
+          fees_on_sell_usd: existingFeesOnSell + positionFeeUsd,
+          total_fees_paid_usd: existingTotalFees + positionFeeUsd,
+          status: newQtyRemaining === 0 ? PositionStatus.CLOSED : PositionStatus.OPEN,
+          closed_at: newQtyRemaining === 0 ? new Date() : null,
+          close_reason: newQtyRemaining === 0 ? this.getCloseReason(origin) : null,
+        };
+
+        // Se a posição está sendo fechada, limpar flags de trigger
+        if (newQtyRemaining === 0) {
+          updateData.tp_triggered = false;
+          updateData.sl_triggered = false;
+          updateData.trailing_triggered = false;
+          updateData.partial_tp_triggered = false;
+          console.log(`[POSITION-SERVICE] Posição ${currentPosition.id} fechada, limpando flags de trigger (origin: ${origin})`);
+        }
+
         await tx.tradePosition.update({
           where: { id: currentPosition.id },
-          data: {
-            qty_remaining: newQtyRemaining,
-            realized_profit_usd: newRealizedProfit,
-            fees_on_sell_usd: existingFeesOnSell + positionFeeUsd,
-            total_fees_paid_usd: existingTotalFees + positionFeeUsd,
-            status: newQtyRemaining === 0 ? PositionStatus.CLOSED : PositionStatus.OPEN,
-            closed_at: newQtyRemaining === 0 ? new Date() : null,
-            close_reason: newQtyRemaining === 0 ? this.getCloseReason(origin) : null,
-          },
+          data: updateData,
         });
 
         // Create position fill

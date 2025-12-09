@@ -100,16 +100,22 @@ export function SuspiciousSellExecutions() {
     }
 
     const handleRevert = (executionId: number) => {
-        setExecutionToRevert(executionId)
-        setRevertDialogOpen(true)
+        if (typeof executionId === 'number' && !isNaN(executionId) && executionId > 0) {
+            setExecutionToRevert(executionId)
+            setRevertDialogOpen(true)
+        } else {
+            toast.error('ID de execução inválido')
+        }
     }
 
     const confirmRevert = () => {
-        if (executionToRevert !== null) {
+        if (executionToRevert !== null && typeof executionToRevert === 'number' && !isNaN(executionToRevert)) {
             revertMutation.mutate({
                 executionId: executionToRevert,
                 reprocess: shouldReprocess,
             })
+        } else {
+            toast.error('ID de execução inválido')
         }
     }
 

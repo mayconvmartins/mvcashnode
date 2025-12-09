@@ -259,9 +259,17 @@ export class WebhookMonitorService {
     
     const alert = await tx.webhookMonitorAlert.create({
       data: {
-        webhook_source_id: dto.webhookSourceId,
-        webhook_event_id: dto.webhookEventId,
-        exchange_account_id: dto.exchangeAccountId, // Opcional, pode ser null
+        webhook_source: {
+          connect: { id: dto.webhookSourceId },
+        },
+        webhook_event: {
+          connect: { id: dto.webhookEventId },
+        },
+        ...(dto.exchangeAccountId && {
+          exchange_account: {
+            connect: { id: dto.exchangeAccountId },
+          },
+        }),
         symbol: dto.symbol,
         trade_mode: dto.tradeMode,
         side: dto.side,

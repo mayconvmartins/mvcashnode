@@ -3131,9 +3131,16 @@ export class PositionsController {
   @ApiResponse({ status: 404, description: 'Execução não encontrada' })
   @ApiResponse({ status: 400, description: 'Erro ao reverter execução' })
   async revertSellExecution(
-    @Param('executionId', ParseIntPipe) executionId: number,
+    @Param('executionId', new ParseIntPipe({ 
+      errorHttpStatusCode: 400,
+      exceptionFactory: () => new BadRequestException('ID de execução inválido. Deve ser um número válido.')
+    })) executionId: number,
     @Query('reprocess') reprocess?: string
   ) {
+    if (!executionId || isNaN(executionId) || executionId <= 0) {
+      throw new BadRequestException('ID de execução inválido. Deve ser um número positivo.');
+    }
+
     const shouldReprocess = reprocess === 'true' || reprocess === '1';
     const result = await this.positionService.revertSellExecution(executionId, shouldReprocess);
     

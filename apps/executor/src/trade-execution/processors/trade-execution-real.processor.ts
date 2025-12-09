@@ -951,50 +951,84 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               this.logger.warn(`[EXECUTOR] Erro ao enviar notificação de posição aberta: ${notifError.message}`);
             }
           } else {
-            // Buscar posições que serão fechadas antes de executar
-            const positionsBefore = await this.prisma.tradePosition.findMany({
-              where: {
-                exchange_account_id: tradeJob.exchange_account_id,
-                trade_mode: tradeJob.trade_mode,
-                symbol: tradeJob.symbol,
-                status: 'OPEN',
-                qty_remaining: { gt: 0 },
-              },
-            });
-
-            // Determinar origin baseado nas posições elegíveis
-            // Verificar se alguma posição tem flags de SL/TP/Trailing ativadas
+            // Determinar origin baseado na posição vinculada ou posições elegíveis
             let sellOrigin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'WEBHOOK';
             
-            if (positionsBefore.length > 0) {
-              // Verificar flags na primeira posição (FIFO)
-              const firstPosition = positionsBefore[0];
+            // Se há position_id_to_close, buscar essa posição específica para determinar origin
+            if (tradeJob.position_id_to_close) {
+              const targetPosition = await this.prisma.tradePosition.findUnique({
+                where: { id: tradeJob.position_id_to_close },
+              });
               
-              if (firstPosition.tp_triggered) {
-                sellOrigin = 'TAKE_PROFIT';
-                this.logger.log(`[EXECUTOR] Origin determinado como TAKE_PROFIT (posição ${firstPosition.id} tem tp_triggered=true)`);
-              } else if (firstPosition.sl_triggered) {
-                sellOrigin = 'STOP_LOSS';
-                this.logger.log(`[EXECUTOR] Origin determinado como STOP_LOSS (posição ${firstPosition.id} tem sl_triggered=true)`);
-              } else if (firstPosition.trailing_triggered) {
-                sellOrigin = 'TRAILING';
-                this.logger.log(`[EXECUTOR] Origin determinado como TRAILING (posição ${firstPosition.id} tem trailing_triggered=true)`);
-              } else {
-                // Verificar se não há webhook_event_id no trade job (indica origem manual ou SL/TP)
-                if (!tradeJob.webhook_event_id) {
-                  // Se não tem webhook_event_id, pode ser manual ou SL/TP
-                  // Verificar reason_code ou reason_message para mais contexto
-                  if (tradeJob.reason_code?.includes('TAKE_PROFIT') || tradeJob.reason_message?.includes('Take Profit')) {
-                    sellOrigin = 'TAKE_PROFIT';
-                  } else if (tradeJob.reason_code?.includes('STOP_LOSS') || tradeJob.reason_message?.includes('Stop Loss')) {
-                    sellOrigin = 'STOP_LOSS';
+              if (targetPosition) {
+                this.logger.log(`[EXECUTOR] Job ${tradeJobId} tem position_id_to_close=${tradeJob.position_id_to_close}, verificando flags dessa posição`);
+                
+                if (targetPosition.tp_triggered) {
+                  sellOrigin = 'TAKE_PROFIT';
+                  this.logger.log(`[EXECUTOR] Origin determinado como TAKE_PROFIT (posição ${targetPosition.id} vinculada tem tp_triggered=true)`);
+                } else if (targetPosition.sl_triggered) {
+                  sellOrigin = 'STOP_LOSS';
+                  this.logger.log(`[EXECUTOR] Origin determinado como STOP_LOSS (posição ${targetPosition.id} vinculada tem sl_triggered=true)`);
+                } else if (targetPosition.trailing_triggered) {
+                  sellOrigin = 'TRAILING';
+                  this.logger.log(`[EXECUTOR] Origin determinado como TRAILING (posição ${targetPosition.id} vinculada tem trailing_triggered=true)`);
+                } else {
+                  // Se não tem flags, verificar webhook_event_id
+                  if (tradeJob.webhook_event_id) {
+                    sellOrigin = 'WEBHOOK';
+                    this.logger.log(`[EXECUTOR] Origin determinado como WEBHOOK (posição ${targetPosition.id} vinculada, trade job tem webhook_event_id)`);
                   } else {
                     sellOrigin = 'MANUAL';
+                    this.logger.log(`[EXECUTOR] Origin determinado como MANUAL (posição ${targetPosition.id} vinculada, sem webhook_event_id)`);
                   }
-                  this.logger.log(`[EXECUTOR] Origin determinado como ${sellOrigin} (sem webhook_event_id, reason_code: ${tradeJob.reason_code})`);
+                }
+              } else {
+                this.logger.warn(`[EXECUTOR] Job ${tradeJobId} tem position_id_to_close=${tradeJob.position_id_to_close} mas posição não encontrada, usando lógica padrão`);
+                // Fallback para lógica padrão
+                sellOrigin = tradeJob.webhook_event_id ? 'WEBHOOK' : 'MANUAL';
+              }
+            } else {
+              // Buscar posições que serão fechadas antes de executar (lógica FIFO)
+              const positionsBefore = await this.prisma.tradePosition.findMany({
+                where: {
+                  exchange_account_id: tradeJob.exchange_account_id,
+                  trade_mode: tradeJob.trade_mode,
+                  symbol: tradeJob.symbol,
+                  status: 'OPEN',
+                  qty_remaining: { gt: 0 },
+                },
+              });
+
+              if (positionsBefore.length > 0) {
+                // Verificar flags na primeira posição (FIFO)
+                const firstPosition = positionsBefore[0];
+                
+                if (firstPosition.tp_triggered) {
+                  sellOrigin = 'TAKE_PROFIT';
+                  this.logger.log(`[EXECUTOR] Origin determinado como TAKE_PROFIT (posição ${firstPosition.id} tem tp_triggered=true)`);
+                } else if (firstPosition.sl_triggered) {
+                  sellOrigin = 'STOP_LOSS';
+                  this.logger.log(`[EXECUTOR] Origin determinado como STOP_LOSS (posição ${firstPosition.id} tem sl_triggered=true)`);
+                } else if (firstPosition.trailing_triggered) {
+                  sellOrigin = 'TRAILING';
+                  this.logger.log(`[EXECUTOR] Origin determinado como TRAILING (posição ${firstPosition.id} tem trailing_triggered=true)`);
                 } else {
-                  sellOrigin = 'WEBHOOK';
-                  this.logger.log(`[EXECUTOR] Origin determinado como WEBHOOK (trade job tem webhook_event_id)`);
+                  // Verificar se não há webhook_event_id no trade job (indica origem manual ou SL/TP)
+                  if (!tradeJob.webhook_event_id) {
+                    // Se não tem webhook_event_id, pode ser manual ou SL/TP
+                    // Verificar reason_code ou reason_message para mais contexto
+                    if (tradeJob.reason_code?.includes('TAKE_PROFIT') || tradeJob.reason_message?.includes('Take Profit')) {
+                      sellOrigin = 'TAKE_PROFIT';
+                    } else if (tradeJob.reason_code?.includes('STOP_LOSS') || tradeJob.reason_message?.includes('Stop Loss')) {
+                      sellOrigin = 'STOP_LOSS';
+                    } else {
+                      sellOrigin = 'MANUAL';
+                    }
+                    this.logger.log(`[EXECUTOR] Origin determinado como ${sellOrigin} (sem webhook_event_id, reason_code: ${tradeJob.reason_code})`);
+                  } else {
+                    sellOrigin = 'WEBHOOK';
+                    this.logger.log(`[EXECUTOR] Origin determinado como WEBHOOK (trade job tem webhook_event_id)`);
+                  }
                 }
               }
             }
