@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { SLTPMonitorRealProcessor } from './processors/sltp-monitor-real.processor';
@@ -42,15 +42,40 @@ import { CronExecutionService } from '../shared/cron-execution.service';
     {
       provide: CacheService,
       useFactory: (configService: ConfigService) => {
-        return new CacheService(
-          configService.get<string>('REDIS_HOST') || 'localhost',
-          parseInt(configService.get<string>('REDIS_PORT') || '6379'),
-          configService.get<string>('REDIS_PASSWORD')
+        const redisHost = configService.get<string>('REDIS_HOST') || process.env.REDIS_HOST || 'localhost';
+        const redisPort = parseInt(configService.get<string>('REDIS_PORT') || process.env.REDIS_PORT || '6379');
+        const redisPassword = configService.get<string>('REDIS_PASSWORD') || process.env.REDIS_PASSWORD;
+        
+        // Log para debug (não logar a senha completa por segurança)
+        console.log(`[SLTPMonitorModule] Configurando CacheService: host=${redisHost}, port=${redisPort}, password=${redisPassword ? '***' : 'não definida'}`);
+        
+        const cacheService = new CacheService(
+          redisHost,
+          redisPort,
+          redisPassword
         );
+        // Conectar ao Redis na inicialização
+        cacheService.connect().catch((err) => {
+          console.error('[SLTPMonitorModule] Erro ao conectar CacheService ao Redis:', err);
+        });
+        return cacheService;
       },
       inject: [ConfigService],
     },
   ],
 })
-export class SLTPMonitorModule {}
+export class SLTPMonitorModule implements OnModuleInit {
+  constructor(private cacheService: CacheService) {}
+
+  async onModuleInit() {
+    // Garantir que o CacheService está conectado
+    try {
+      await this.cacheService.connect();
+      console.log('[SLTPMonitorModule] CacheService conectado ao Redis');
+    } catch (error) {
+      console.error('[SLTPMonitorModule] Erro ao conectar CacheService:', error);
+      // Não lançar erro para permitir que o serviço continue funcionando sem cache
+    }
+  }
+}
 

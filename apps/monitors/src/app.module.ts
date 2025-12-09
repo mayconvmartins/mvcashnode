@@ -19,7 +19,15 @@ import * as path from 'path';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(__dirname, '../../../.env'),
+      // Tentar múltiplos caminhos para encontrar o .env
+      envFilePath: [
+        path.resolve(process.cwd(), '.env'),
+        path.resolve(__dirname, '../../../.env'),
+        path.resolve(__dirname, '../../../../.env'),
+        '.env',
+      ],
+      // Também carregar variáveis de ambiente do sistema
+      ignoreEnvFile: false,
     }),
     BullModule.forRoot({
       connection: {

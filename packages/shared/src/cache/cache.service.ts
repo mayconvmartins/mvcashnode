@@ -68,6 +68,26 @@ export class CacheService {
     if (!this.isConnected || !this.client) {
       await this.connect();
     }
+    
+    // Verificar se o cliente está realmente conectado e autenticado
+    if (this.client && !this.isConnected) {
+      // Tentar reconectar se não estiver conectado
+      try {
+        await this.client.ping();
+        this.isConnected = true;
+      } catch (error: any) {
+        // Se houver erro de autenticação ou conexão, tentar reconectar
+        if (error?.message?.includes('NOAUTH') || error?.message?.includes('Authentication required')) {
+          console.warn('[CacheService] Erro de autenticação detectado, tentando reconectar...');
+          this.isConnected = false;
+          this.client = null;
+          await this.connect();
+        } else {
+          // Outros erros, apenas marcar como desconectado
+          this.isConnected = false;
+        }
+      }
+    }
   }
 
   /**
@@ -95,7 +115,10 @@ export class CacheService {
   async set(key: string, value: any, options?: CacheOptions): Promise<boolean> {
     try {
       await this.ensureConnected();
-      if (!this.client) return false;
+      if (!this.client || !this.isConnected) {
+        console.warn(`[CacheService] Cliente Redis não disponível, pulando cache para chave ${key}`);
+        return false;
+      }
 
       // Garantir que TTL de preços não exceda 25 segundos
       let ttl = options?.ttl;
@@ -113,8 +136,15 @@ export class CacheService {
       }
 
       return true;
-    } catch (error) {
-      console.error(`[CacheService] Erro ao definir chave ${key}:`, error);
+    } catch (error: any) {
+      // Se for erro de autenticação, marcar como desconectado e não tentar novamente nesta execução
+      if (error?.message?.includes('NOAUTH') || error?.message?.includes('Authentication required')) {
+        console.error(`[CacheService] Erro de autenticação ao definir chave ${key}:`, error.message);
+        this.isConnected = false;
+        // Não tentar reconectar aqui para evitar loop infinito
+      } else {
+        console.error(`[CacheService] Erro ao definir chave ${key}:`, error);
+      }
       return false;
     }
   }

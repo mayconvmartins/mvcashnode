@@ -49,6 +49,94 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
     const tradeJobService = new TradeJobService(this.prisma);
     const positionService = new PositionService(this.prisma);
     let triggered = 0;
+    let retried = 0;
+
+    // Primeiro, verificar posições com flags triggered mas sem job válido (retry)
+    const positionsWithTriggeredFlags = await this.prisma.tradePosition.findMany({
+      where: {
+        trade_mode: TradeMode.SIMULATION,
+        status: PositionStatus.OPEN,
+        qty_remaining: { gt: 0 },
+        OR: [
+          { sl_triggered: true },
+          { tp_triggered: true },
+          { trailing_triggered: true },
+        ],
+      },
+      include: {
+        exchange_account: true,
+        close_jobs: {
+          where: {
+            side: 'SELL',
+            status: { in: ['PENDING', 'EXECUTING', 'PARTIALLY_FILLED'] },
+          },
+          orderBy: { created_at: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    // Tentar criar jobs para posições com flags triggered mas sem job válido
+    for (const position of positionsWithTriggeredFlags) {
+      try {
+        // Verificar se já existe um job válido (PENDING, EXECUTING ou PARTIALLY_FILLED)
+        const hasValidJob = position.close_jobs.length > 0;
+        
+        if (!hasValidJob) {
+          // Não tem job válido, tentar criar novamente
+          let shouldRetry = false;
+          let limitPrice = 0;
+          let triggerType: 'SL' | 'TP' | 'TRAILING' | null = null;
+
+          if (position.sl_triggered && position.sl_enabled && position.sl_pct) {
+            shouldRetry = true;
+            triggerType = 'SL';
+            const slPct = position.sl_pct.toNumber();
+            limitPrice = position.price_open.toNumber() * (1 - slPct / 100);
+          } else if (position.tp_triggered && position.tp_enabled && position.tp_pct) {
+            shouldRetry = true;
+            triggerType = 'TP';
+            const tpPct = position.tp_pct.toNumber();
+            limitPrice = position.price_open.toNumber() * (1 + tpPct / 100);
+          } else if (position.trailing_triggered && position.trailing_enabled && position.trailing_distance_pct && position.trailing_max_price) {
+            shouldRetry = true;
+            triggerType = 'TRAILING';
+            const trailingDistance = position.trailing_distance_pct.toNumber();
+            limitPrice = position.trailing_max_price.toNumber() * (1 - trailingDistance / 100);
+          }
+
+          if (shouldRetry && limitPrice > 0) {
+            this.logger.warn(`[SL-TP-MONITOR-SIM] Posição ${position.id} tem flag ${triggerType}_triggered=true mas sem job válido. Tentando criar novamente...`);
+            
+            try {
+              const tradeJob = await tradeJobService.createJob({
+                exchangeAccountId: position.exchange_account_id,
+                tradeMode: TradeMode.SIMULATION,
+                symbol: position.symbol,
+                side: 'SELL',
+                orderType: 'LIMIT',
+                baseQuantity: position.qty_remaining.toNumber(),
+                limitPrice,
+                positionIdToClose: position.id,
+                skipParameterValidation: true,
+              });
+
+              await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
+                jobId: `trade-job-${tradeJob.id}`,
+                attempts: 3,
+              });
+
+              this.logger.log(`[SL-TP-MONITOR-SIM] ${triggerType} - Job recriado: ID=${tradeJob.id} para posição ${position.id}`);
+              retried++;
+            } catch (retryError: any) {
+              this.logger.error(`[SL-TP-MONITOR-SIM] Erro ao recriar job para posição ${position.id} (${triggerType}): ${retryError.message}`);
+            }
+          }
+        }
+      } catch (error: any) {
+        this.logger.error(`[SL-TP-MONITOR-SIM] Erro ao verificar retry para posição ${position.id}: ${error.message}`);
+      }
+    }
 
     for (const position of positions) {
       try {
@@ -94,37 +182,43 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         // Check Stop Loss
         if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
           if (!position.sl_triggered) {
-            // Calcular preço LIMIT para Stop Loss: price_open * (1 - sl_pct / 100)
-            const slPct = position.sl_pct.toNumber();
-            const limitPrice = priceOpen * (1 - slPct / 100);
-            
-            const tradeJob = await tradeJobService.createJob({
-              exchangeAccountId: position.exchange_account_id,
-              tradeMode: TradeMode.SIMULATION,
-              symbol: position.symbol,
-              side: 'SELL',
-              orderType: 'LIMIT',
-              baseQuantity: position.qty_remaining.toNumber(),
-              limitPrice,
-              positionIdToClose: position.id, // Vincular posição específica
-              skipParameterValidation: true,
-            });
+            try {
+              // Calcular preço LIMIT para Stop Loss: price_open * (1 - sl_pct / 100)
+              const slPct = position.sl_pct.toNumber();
+              const limitPrice = priceOpen * (1 - slPct / 100);
+              
+              const tradeJob = await tradeJobService.createJob({
+                exchangeAccountId: position.exchange_account_id,
+                tradeMode: TradeMode.SIMULATION,
+                symbol: position.symbol,
+                side: 'SELL',
+                orderType: 'LIMIT',
+                baseQuantity: position.qty_remaining.toNumber(),
+                limitPrice,
+                positionIdToClose: position.id, // Vincular posição específica
+                skipParameterValidation: true,
+              });
 
-            this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
+              this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
 
-            // Enfileirar job para execução
-            await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
-              jobId: `trade-job-${tradeJob.id}`,
-              attempts: 3,
-            });
+              // Enfileirar job para execução
+              await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
+                jobId: `trade-job-${tradeJob.id}`,
+                attempts: 3,
+              });
 
-            this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job ${tradeJob.id} enfileirado na fila trade-execution-sim`);
+              this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job ${tradeJob.id} enfileirado na fila trade-execution-sim`);
 
-            await this.prisma.tradePosition.update({
-              where: { id: position.id },
-              data: { sl_triggered: true },
-            });
-            triggered++;
+              // Só marcar flag como true se job foi criado e enfileirado com sucesso
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { sl_triggered: true },
+              });
+              triggered++;
+            } catch (error: any) {
+              this.logger.error(`[SL-TP-MONITOR-SIM] Erro ao criar job de Stop Loss para posição ${position.id}: ${error.message}`);
+              // Não marcar flag se houver erro - permitirá tentar novamente no próximo ciclo
+            }
           }
         }
 
@@ -244,12 +338,12 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
       }
     }
 
-    const result = { positionsChecked: positions.length, triggered };
+    const result = { positionsChecked: positions.length, triggered, retried };
     const durationMs = Date.now() - startTime;
 
     this.logger.log(
       `[SL-TP-MONITOR-SIM] Monitoramento concluído com sucesso. ` +
-      `Posições verificadas: ${positions.length}, Triggers acionados: ${triggered}, Duração: ${durationMs}ms`
+      `Posições verificadas: ${positions.length}, Triggers acionados: ${triggered}, Jobs recriados: ${retried}, Duração: ${durationMs}ms`
     );
 
     // Registrar sucesso
