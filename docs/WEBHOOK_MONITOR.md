@@ -209,7 +209,8 @@ Armazena alertas ativos sendo monitorados:
 - exchange_account_id (FK, nullable) -- Opcional, apenas para referência
 - symbol (VARCHAR(50))
 - trade_mode (VARCHAR(20))
-- side (VARCHAR(10)) -- 'BUY' | 'SELL'
+- side (VARCHAR(10)) -- 'BUY' | 'S
+ELL'
 - price_alert (DECIMAL(36, 18)) -- Preço do alerta original
 - price_minimum (DECIMAL(36, 18), nullable) -- Menor preço visto (BUY)
 - price_maximum (DECIMAL(36, 18), nullable) -- Maior preço visto (SELL)

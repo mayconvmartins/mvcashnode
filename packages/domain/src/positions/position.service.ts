@@ -933,35 +933,55 @@ export class PositionService {
         // Para posições agrupadas, fechar apenas a posição agrupada (que já contém todas as quantidades)
         eligiblePositions = [targetPosition];
       } else {
-        // Buscar posições elegíveis dentro da transação (FIFO) - comportamento antigo
-        const whereConditions: any = {
+        // Quando não tem position_id_to_close, buscar posição com quantidade exata primeiro
+        // Isso evita fragmentar posições desnecessariamente
+        const baseWhereConditions: any = {
           exchange_account_id: job.exchange_account_id,
           trade_mode: job.trade_mode,
           symbol: job.symbol,
           side: 'LONG',
           status: PositionStatus.OPEN,
-          qty_remaining: { gt: 0 },
         };
 
         if (origin === 'WEBHOOK') {
-          whereConditions.lock_sell_by_webhook = false;
+          baseWhereConditions.lock_sell_by_webhook = false;
         }
 
-        eligiblePositions = await tx.tradePosition.findMany({
-          where: whereConditions,
+        // Primeiro tentar encontrar posição com quantidade exata
+        const exactMatch = await tx.tradePosition.findFirst({
+          where: {
+            ...baseWhereConditions,
+            qty_remaining: executedQty, // Quantidade exata
+          },
           orderBy: { created_at: 'asc' },
         });
 
-        if (eligiblePositions.length === 0) {
-          await tx.tradeJob.update({
-            where: { id: jobId },
-            data: {
-              status: 'SKIPPED',
-              reason_code: origin === 'WEBHOOK' ? 'WEBHOOK_LOCK' : 'NO_ELIGIBLE_POSITIONS',
-              reason_message: 'No eligible positions found',
+        if (exactMatch) {
+          // Encontrou posição com quantidade exata, usar apenas ela
+          eligiblePositions = [exactMatch];
+          console.log(`[POSITION-SERVICE] Encontrada posição com quantidade exata: ID=${exactMatch.id}, qty=${executedQty}`);
+        } else {
+          // Se não encontrou quantidade exata, usar FIFO como fallback
+          console.log(`[POSITION-SERVICE] Nenhuma posição com quantidade exata (${executedQty}), usando FIFO...`);
+          eligiblePositions = await tx.tradePosition.findMany({
+            where: {
+              ...baseWhereConditions,
+              qty_remaining: { gt: 0 },
             },
+            orderBy: { created_at: 'asc' },
           });
-          return;
+
+          if (eligiblePositions.length === 0) {
+            await tx.tradeJob.update({
+              where: { id: jobId },
+              data: {
+                status: 'SKIPPED',
+                reason_code: origin === 'WEBHOOK' ? 'WEBHOOK_LOCK' : 'NO_ELIGIBLE_POSITIONS',
+                reason_message: 'No eligible positions found',
+              },
+            });
+            return;
+          }
         }
       }
 
@@ -2777,6 +2797,298 @@ export class PositionService {
         totalValueUsd,
       };
     });
+  }
+
+  /**
+   * Reverter uma execução de venda e corrigir posições fechadas incorretamente
+   * Remove os fills de SELL relacionados e recalcula tudo corretamente
+   * @param executionId ID da execução de venda a ser revertida
+   * @returns Estatísticas da correção
+   */
+  async revertSellExecution(executionId: number): Promise<{
+    success: boolean;
+    positionsFixed: number;
+    fillsRemoved: number;
+    message: string;
+    errors?: string[];
+  }> {
+    const errors: string[] = [];
+    let positionsFixed = 0;
+    let fillsRemoved = 0;
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // Buscar a execução
+        const execution = await tx.tradeExecution.findUnique({
+          where: { id: executionId },
+          include: {
+            trade_job: true,
+          },
+        });
+
+        if (!execution) {
+          throw new Error(`Execução ${executionId} não encontrada`);
+        }
+
+        if (execution.trade_job.side !== 'SELL') {
+          throw new Error(`Execução ${executionId} não é uma venda (side: ${execution.trade_job.side})`);
+        }
+
+        // Buscar todos os fills de SELL relacionados a esta execução
+        const sellFills = await tx.positionFill.findMany({
+          where: {
+            trade_execution_id: executionId,
+            side: 'SELL',
+          },
+          include: {
+            position: true,
+          },
+        });
+
+        if (sellFills.length === 0) {
+          return {
+            success: true,
+            positionsFixed: 0,
+            fillsRemoved: 0,
+            message: `Nenhum fill de venda encontrado para execução ${executionId}`,
+          };
+        }
+
+        console.log(`[POSITION-SERVICE] Revertendo execução ${executionId}: ${sellFills.length} fill(s) encontrado(s)`);
+
+        // Para cada fill, reverter as mudanças na posição
+        for (const fill of sellFills) {
+          try {
+            const position = fill.position;
+            const qtyClosed = fill.qty.toNumber();
+            const sellPrice = fill.price.toNumber();
+            const buyPrice = position.price_open.toNumber();
+
+            // Recalcular valores
+            const oldQtyRemaining = position.qty_remaining.toNumber();
+            const newQtyRemaining = oldQtyRemaining + qtyClosed; // Reverter: adicionar de volta
+
+            // Recalcular PnL: remover o lucro/prejuízo desta venda
+            const profitFromThisSale = (sellPrice - buyPrice) * qtyClosed;
+            const oldRealizedProfit = position.realized_profit_usd.toNumber();
+            const newRealizedProfit = oldRealizedProfit - profitFromThisSale;
+
+            // Buscar taxa paga nesta venda (proporcional)
+            // Assumir que a taxa foi distribuída proporcionalmente
+            const totalQtySold = execution.executed_qty.toNumber();
+            const feeProportion = totalQtySold > 0 ? (qtyClosed / totalQtySold) : 0;
+            const executionFee = execution.fee_amount?.toNumber() || 0;
+            const positionFeeUsd = executionFee * feeProportion;
+
+            const oldFeesOnSell = position.fees_on_sell_usd.toNumber();
+            const newFeesOnSell = Math.max(0, oldFeesOnSell - positionFeeUsd);
+
+            const oldTotalFees = position.total_fees_paid_usd.toNumber();
+            const newTotalFees = Math.max(0, oldTotalFees - positionFeeUsd);
+
+            // Atualizar posição
+            await tx.tradePosition.update({
+              where: { id: position.id },
+              data: {
+                qty_remaining: newQtyRemaining,
+                realized_profit_usd: newRealizedProfit,
+                fees_on_sell_usd: newFeesOnSell,
+                total_fees_paid_usd: newTotalFees,
+                status: newQtyRemaining > 0 ? PositionStatus.OPEN : PositionStatus.CLOSED,
+                closed_at: newQtyRemaining > 0 ? null : position.closed_at,
+                close_reason: newQtyRemaining > 0 ? null : position.close_reason,
+              },
+            });
+
+            // Remover o fill
+            await tx.positionFill.delete({
+              where: { id: fill.id },
+            });
+
+            positionsFixed++;
+            fillsRemoved++;
+
+            console.log(
+              `[POSITION-SERVICE] ✅ Posição ${position.id} revertida: qty_remaining ${oldQtyRemaining} -> ${newQtyRemaining}, ` +
+              `realized_profit ${oldRealizedProfit.toFixed(2)} -> ${newRealizedProfit.toFixed(2)}`
+            );
+          } catch (error: any) {
+            const errorMsg = `Erro ao reverter fill ${fill.id} da posição ${fill.position_id}: ${error.message}`;
+            errors.push(errorMsg);
+            console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+          }
+        }
+
+        return {
+          success: errors.length === 0,
+          positionsFixed,
+          fillsRemoved,
+          message: `Execução ${executionId} revertida: ${positionsFixed} posição(ões) corrigida(s), ${fillsRemoved} fill(s) removido(s)`,
+          errors: errors.length > 0 ? errors : undefined,
+        };
+      }, {
+        timeout: 30000, // 30 segundos de timeout
+      });
+
+      // Se solicitado e a reversão foi bem-sucedida, reprocessar a venda com a lógica correta
+      // Isso deve ser feito FORA da transação, pois onSellExecuted cria sua própria transação
+      let reprocessed = false;
+      if (reprocess && result.success && result.positionsFixed > 0) {
+        try {
+          console.log(`[POSITION-SERVICE] Reprocessando venda ${executionId} com lógica corrigida...`);
+          
+          // Buscar execução novamente para garantir dados atualizados
+          const executionAfterRevert = await this.prisma.tradeExecution.findUnique({
+            where: { id: executionId },
+            include: {
+              trade_job: true,
+            },
+          });
+
+          if (!executionAfterRevert) {
+            throw new Error('Execução não encontrada após reversão');
+          }
+
+          const executedQty = executionAfterRevert.executed_qty.toNumber();
+          const avgPrice = executionAfterRevert.avg_price.toNumber();
+          const feeAmount = executionAfterRevert.fee_amount?.toNumber();
+          const feeCurrency = executionAfterRevert.fee_currency || undefined;
+
+          // Determinar origin baseado no job
+          let origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'MANUAL';
+          const job = executionAfterRevert.trade_job;
+          
+          // Buscar posição relacionada para determinar origin
+          const relatedPosition = await this.prisma.tradePosition.findFirst({
+            where: {
+              exchange_account_id: job.exchange_account_id,
+              symbol: job.symbol,
+              trade_mode: job.trade_mode,
+              status: PositionStatus.OPEN,
+            },
+          });
+
+          if (relatedPosition) {
+            if (relatedPosition.tp_triggered) origin = 'TAKE_PROFIT';
+            else if (relatedPosition.sl_triggered) origin = 'STOP_LOSS';
+            else if (relatedPosition.trailing_triggered) origin = 'TRAILING';
+            else if (job.webhook_event_id) origin = 'WEBHOOK';
+          }
+
+          // Reprocessar com a nova lógica (que busca quantidade exata primeiro)
+          await this.onSellExecuted(
+            job.id,
+            executionId,
+            executedQty,
+            avgPrice,
+            origin,
+            feeAmount,
+            feeCurrency
+          );
+
+          reprocessed = true;
+          console.log(`[POSITION-SERVICE] ✅ Venda ${executionId} reprocessada com sucesso`);
+        } catch (reprocessError: any) {
+          console.error(`[POSITION-SERVICE] ❌ Erro ao reprocessar venda ${executionId}: ${reprocessError.message}`);
+          // Não falhar a reversão se o reprocessamento falhar
+          result.errors = result.errors || [];
+          result.errors.push(`Aviso: Reversão concluída, mas reprocessamento falhou: ${reprocessError.message}`);
+        }
+      }
+
+      return {
+        ...result,
+        reprocessed,
+      };
+    } catch (error: any) {
+      console.error(`[POSITION-SERVICE] ❌ Erro ao reverter execução ${executionId}: ${error.message}`);
+      return {
+        success: false,
+        positionsFixed,
+        fillsRemoved,
+        message: `Erro ao reverter execução ${executionId}: ${error.message}`,
+        errors: [error.message],
+      };
+    }
+  }
+
+  /**
+   * Identificar execuções de venda que podem ter fechado posições incorretamente
+   * Busca vendas recentes que fecharam múltiplas posições quando deveriam ter fechado apenas uma
+   * @param days Número de dias para buscar (padrão: 7)
+   * @returns Lista de execuções suspeitas
+   */
+  async findSuspiciousSellExecutions(days: number = 7): Promise<Array<{
+    executionId: number;
+    jobId: number;
+    symbol: string;
+    executedQty: number;
+    positionsAffected: number;
+    hasExactMatch: boolean;
+    reason: string;
+  }>> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+
+    // Buscar execuções de venda recentes
+    const sellExecutions = await this.prisma.tradeExecution.findMany({
+      where: {
+        trade_job: {
+          side: 'SELL',
+          created_at: { gte: cutoffDate },
+        },
+      },
+      include: {
+        trade_job: true,
+        position_fills: {
+          where: { side: 'SELL' },
+          include: {
+            position: true,
+          },
+        },
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    });
+
+    const suspicious: Array<{
+      executionId: number;
+      jobId: number;
+      symbol: string;
+      executedQty: number;
+      positionsAffected: number;
+      hasExactMatch: boolean;
+      reason: string;
+    }> = [];
+
+    for (const execution of sellExecutions) {
+      const fills = execution.position_fills;
+      if (fills.length === 0) continue;
+
+      const executedQty = execution.executed_qty.toNumber();
+      const positionsAffected = fills.length;
+
+      // Verificar se alguma posição tinha quantidade exata
+      const hasExactMatch = fills.some(
+        fill => Math.abs(fill.position.qty_remaining.toNumber() + fill.qty.toNumber() - executedQty) < 0.00000001
+      );
+
+      // Se afetou múltiplas posições e não tinha match exato, é suspeito
+      if (positionsAffected > 1 && !hasExactMatch) {
+        suspicious.push({
+          executionId: execution.id,
+          jobId: execution.trade_job_id,
+          symbol: execution.trade_job.symbol,
+          executedQty,
+          positionsAffected,
+          hasExactMatch: false,
+          reason: `Fechou ${positionsAffected} posição(ões) quando deveria ter encontrado uma com quantidade exata (${executedQty})`,
+        });
+      }
+    }
+
+    return suspicious;
   }
 }
 

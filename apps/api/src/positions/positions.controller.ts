@@ -3085,5 +3085,43 @@ export class PositionsController {
       throw new BadRequestException(`Erro ao agrupar posições: ${error.message}`);
     }
   }
+
+  @Get('suspicious-sells')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Identificar execuções de venda suspeitas (fecharam múltiplas posições incorretamente)' })
+  @ApiQuery({ name: 'days', required: false, type: Number, description: 'Número de dias para buscar (padrão: 7)' })
+  @ApiResponse({ status: 200, description: 'Lista de execuções suspeitas' })
+  async findSuspiciousSells(@Query('days') days?: string) {
+    const daysNum = days ? parseInt(days, 10) : 7;
+    const suspicious = await this.positionService.findSuspiciousSellExecutions(daysNum);
+    return {
+      count: suspicious.length,
+      executions: suspicious,
+    };
+  }
+
+  @Post('revert-sell-execution/:executionId')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reverter uma execução de venda e corrigir posições fechadas incorretamente' })
+  @ApiParam({ name: 'executionId', type: Number, description: 'ID da execução de venda a ser revertida' })
+  @ApiQuery({ name: 'reprocess', required: false, type: Boolean, description: 'Se true, reprocessa a venda com lógica corrigida (padrão: false)' })
+  @ApiResponse({ status: 200, description: 'Execução revertida com sucesso' })
+  @ApiResponse({ status: 404, description: 'Execução não encontrada' })
+  @ApiResponse({ status: 400, description: 'Erro ao reverter execução' })
+  async revertSellExecution(
+    @Param('executionId', ParseIntPipe) executionId: number,
+    @Query('reprocess') reprocess?: string
+  ) {
+    const shouldReprocess = reprocess === 'true' || reprocess === '1';
+    const result = await this.positionService.revertSellExecution(executionId, shouldReprocess);
+    
+    if (!result.success) {
+      throw new BadRequestException(result.message);
+    }
+
+    return result;
+  }
 }
 
