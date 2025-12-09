@@ -899,7 +899,10 @@ export class PositionService {
           return;
         }
 
-        console.log(`[POSITION-SERVICE] Posição ${targetPosition.id} encontrada: status=${targetPosition.status}, qty_remaining=${targetPosition.qty_remaining.toNumber()}, tp_triggered=${targetPosition.tp_triggered}, sl_triggered=${targetPosition.sl_triggered}, origin=${origin}`);
+        console.log(`[POSITION-SERVICE] Posição ${targetPosition.id} encontrada para fechamento via position_id_to_close:`);
+        console.log(`[POSITION-SERVICE]   - status=${targetPosition.status}, qty_remaining=${targetPosition.qty_remaining.toNumber()}`);
+        console.log(`[POSITION-SERVICE]   - flags: tp_triggered=${targetPosition.tp_triggered}, sl_triggered=${targetPosition.sl_triggered}, trailing_triggered=${targetPosition.trailing_triggered}`);
+        console.log(`[POSITION-SERVICE]   - origin=${origin}, executedQty=${executedQty}, avgPrice=${avgPrice}`);
 
         // Validar se a posição é elegível
         if (
@@ -1043,11 +1046,22 @@ export class PositionService {
 
         // Se a posição está sendo fechada, limpar flags de trigger
         if (newQtyRemaining === 0) {
+          const flagsBefore = {
+            tp_triggered: currentPosition.tp_triggered,
+            sl_triggered: currentPosition.sl_triggered,
+            trailing_triggered: currentPosition.trailing_triggered,
+            partial_tp_triggered: currentPosition.partial_tp_triggered,
+          };
+          
           updateData.tp_triggered = false;
           updateData.sl_triggered = false;
           updateData.trailing_triggered = false;
           updateData.partial_tp_triggered = false;
-          console.log(`[POSITION-SERVICE] Posição ${currentPosition.id} fechada, limpando flags de trigger (origin: ${origin})`);
+          
+          console.log(`[POSITION-SERVICE] Posição ${currentPosition.id} fechada completamente, limpando flags de trigger:`);
+          console.log(`[POSITION-SERVICE]   - Antes: tp=${flagsBefore.tp_triggered}, sl=${flagsBefore.sl_triggered}, trailing=${flagsBefore.trailing_triggered}, partial_tp=${flagsBefore.partial_tp_triggered}`);
+          console.log(`[POSITION-SERVICE]   - Depois: tp=false, sl=false, trailing=false, partial_tp=false`);
+          console.log(`[POSITION-SERVICE]   - Origin: ${origin}, close_reason: ${this.getCloseReason(origin)}`);
         }
 
         await tx.tradePosition.update({
@@ -2916,18 +2930,30 @@ export class PositionService {
             const oldTotalFees = position.total_fees_paid_usd.toNumber();
             const newTotalFees = Math.max(0, oldTotalFees - positionFeeUsd);
 
+            // Preparar dados de atualização
+            const updateData: any = {
+              qty_remaining: newQtyRemaining,
+              realized_profit_usd: newRealizedProfit,
+              fees_on_sell_usd: newFeesOnSell,
+              total_fees_paid_usd: newTotalFees,
+              status: newQtyRemaining > 0 ? PositionStatus.OPEN : PositionStatus.CLOSED,
+              closed_at: newQtyRemaining > 0 ? null : position.closed_at,
+              close_reason: newQtyRemaining > 0 ? null : position.close_reason,
+            };
+
+            // Se a posição está sendo fechada, limpar flags de trigger
+            if (newQtyRemaining === 0) {
+              updateData.tp_triggered = false;
+              updateData.sl_triggered = false;
+              updateData.trailing_triggered = false;
+              updateData.partial_tp_triggered = false;
+              console.log(`[POSITION-SERVICE] Posição ${position.id} fechada após reversão de fill, flags de trigger limpos`);
+            }
+
             // Atualizar posição
             await tx.tradePosition.update({
               where: { id: position.id },
-              data: {
-                qty_remaining: newQtyRemaining,
-                realized_profit_usd: newRealizedProfit,
-                fees_on_sell_usd: newFeesOnSell,
-                total_fees_paid_usd: newTotalFees,
-                status: newQtyRemaining > 0 ? PositionStatus.OPEN : PositionStatus.CLOSED,
-                closed_at: newQtyRemaining > 0 ? null : position.closed_at,
-                close_reason: newQtyRemaining > 0 ? null : position.close_reason,
-              },
+              data: updateData,
             });
 
             // Remover o fill

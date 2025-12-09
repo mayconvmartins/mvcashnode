@@ -367,6 +367,7 @@ export class PositionsController {
               },
               select: shouldIncludeFills ? {
                 id: true,
+                side: true,
                 price: true,
                 qty: true,
                 created_at: true,
@@ -393,6 +394,7 @@ export class PositionsController {
                 },
               } : {
                 id: true,
+                side: true,
                 price: true,
                 qty: true,
                 created_at: true,

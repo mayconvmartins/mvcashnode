@@ -478,6 +478,8 @@ export class TradeExecutionSimProcessor extends WorkerHost {
             }
           }
 
+          this.logger.log(`[EXECUTOR-SIM] Chamando onSellExecuted para job ${tradeJobId}: qty=${adjustedExecutedQty}, price=${avgPrice}, origin=${sellOrigin}, position_id_to_close=${tradeJob.position_id_to_close || 'N/A'}`);
+          
           await positionService.onSellExecuted(
             tradeJobId,
             execution.id,

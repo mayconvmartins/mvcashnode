@@ -1039,6 +1039,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               }
             }
 
+            this.logger.log(`[EXECUTOR] Chamando onSellExecuted para job ${tradeJobId}: qty=${finalExecutedQty}, price=${finalAvgPrice}, origin=${sellOrigin}, position_id_to_close=${tradeJob.position_id_to_close || 'N/A'}`);
+            
             await positionService.onSellExecuted(
               tradeJobId,
               execution.id,
@@ -1048,7 +1050,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               updatedExecution?.fee_amount?.toNumber(),
               updatedExecution?.fee_currency || undefined
             );
-            this.logger.log(`[EXECUTOR] Posição de venda atualizada para job ${tradeJobId}`);
+            this.logger.log(`[EXECUTOR] Posição de venda atualizada para job ${tradeJobId} (origin: ${sellOrigin})`);
 
             // Verificar quais posições foram fechadas ou parcialmente fechadas
             const positionsAfter = await this.prisma.tradePosition.findMany({
