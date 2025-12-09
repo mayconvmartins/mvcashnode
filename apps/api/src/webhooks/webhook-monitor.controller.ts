@@ -213,25 +213,31 @@ export class WebhookMonitorController {
   @ApiOperation({ summary: 'Atualizar configurações de monitoramento' })
   @ApiResponse({ status: 200, description: 'Configurações atualizadas' })
   async updateConfig(
-    @Body() body: {
-      monitor_enabled?: boolean;
-      check_interval_sec?: number;
-      lateral_tolerance_pct?: number;
-      lateral_cycles_min?: number;
-      rise_trigger_pct?: number;
-      rise_cycles_min?: number;
-      max_fall_pct?: number;
-      max_monitoring_time_min?: number;
-      cooldown_after_execution_min?: number;
-    },
+    @Body() body: any,
     @CurrentUser() user: any
   ) {
-    console.log('[WEBHOOK-MONITOR] Atualizando configurações:', JSON.stringify(body, null, 2));
+    // Se body é um Buffer, fazer parse manual
+    let parsedBody: any = body;
+    if (body && typeof body === 'object' && body.type === 'Buffer' && Array.isArray(body.data)) {
+      try {
+        const buffer = Buffer.from(body.data);
+        parsedBody = JSON.parse(buffer.toString('utf8'));
+        console.log('[WEBHOOK-MONITOR] Body parseado de Buffer:', parsedBody);
+      } catch (error) {
+        console.error('[WEBHOOK-MONITOR] Erro ao fazer parse do Buffer:', error);
+        throw new BadRequestException('Erro ao processar dados da requisição');
+      }
+    }
+    
+    console.log('[WEBHOOK-MONITOR] Atualizando configurações:', JSON.stringify(parsedBody, null, 2));
     // Buscar ou criar configuração do usuário
     let config = await this.prisma.webhookMonitorConfig.findUnique({
       where: { user_id: user.userId },
     });
 
+    // Usar parsedBody em vez de body
+    const configData = parsedBody;
+    
     if (!config) {
       // Criar configuração do usuário
       // Buscar configuração global para usar como base
@@ -242,15 +248,15 @@ export class WebhookMonitorController {
       config = await this.prisma.webhookMonitorConfig.create({
         data: {
           user_id: user.userId,
-          monitor_enabled: body.monitor_enabled ?? globalConfig?.monitor_enabled ?? true,
-          check_interval_sec: body.check_interval_sec ?? globalConfig?.check_interval_sec ?? 30,
-          lateral_tolerance_pct: body.lateral_tolerance_pct ?? globalConfig?.lateral_tolerance_pct ?? 0.3,
-          lateral_cycles_min: body.lateral_cycles_min ?? globalConfig?.lateral_cycles_min ?? 4,
-          rise_trigger_pct: body.rise_trigger_pct ?? globalConfig?.rise_trigger_pct ?? 0.75,
-          rise_cycles_min: body.rise_cycles_min ?? globalConfig?.rise_cycles_min ?? 2,
-          max_fall_pct: body.max_fall_pct ?? globalConfig?.max_fall_pct ?? 6.0,
-          max_monitoring_time_min: body.max_monitoring_time_min ?? globalConfig?.max_monitoring_time_min ?? 60,
-          cooldown_after_execution_min: body.cooldown_after_execution_min ?? globalConfig?.cooldown_after_execution_min ?? 30,
+          monitor_enabled: configData.monitor_enabled ?? globalConfig?.monitor_enabled ?? true,
+          check_interval_sec: configData.check_interval_sec ?? globalConfig?.check_interval_sec ?? 30,
+          lateral_tolerance_pct: configData.lateral_tolerance_pct ?? globalConfig?.lateral_tolerance_pct ?? 0.3,
+          lateral_cycles_min: configData.lateral_cycles_min ?? globalConfig?.lateral_cycles_min ?? 4,
+          rise_trigger_pct: configData.rise_trigger_pct ?? globalConfig?.rise_trigger_pct ?? 0.75,
+          rise_cycles_min: configData.rise_cycles_min ?? globalConfig?.rise_cycles_min ?? 2,
+          max_fall_pct: configData.max_fall_pct ?? globalConfig?.max_fall_pct ?? 6.0,
+          max_monitoring_time_min: configData.max_monitoring_time_min ?? globalConfig?.max_monitoring_time_min ?? 60,
+          cooldown_after_execution_min: configData.cooldown_after_execution_min ?? globalConfig?.cooldown_after_execution_min ?? 30,
         },
       });
     } else {
@@ -258,15 +264,15 @@ export class WebhookMonitorController {
       // Construir objeto de atualização apenas com campos que foram enviados
       const updateData: any = {};
       
-      if (body.monitor_enabled !== undefined) updateData.monitor_enabled = body.monitor_enabled;
-      if (body.check_interval_sec !== undefined) updateData.check_interval_sec = body.check_interval_sec;
-      if (body.lateral_tolerance_pct !== undefined) updateData.lateral_tolerance_pct = body.lateral_tolerance_pct;
-      if (body.lateral_cycles_min !== undefined) updateData.lateral_cycles_min = body.lateral_cycles_min;
-      if (body.rise_trigger_pct !== undefined) updateData.rise_trigger_pct = body.rise_trigger_pct;
-      if (body.rise_cycles_min !== undefined) updateData.rise_cycles_min = body.rise_cycles_min;
-      if (body.max_fall_pct !== undefined) updateData.max_fall_pct = body.max_fall_pct;
-      if (body.max_monitoring_time_min !== undefined) updateData.max_monitoring_time_min = body.max_monitoring_time_min;
-      if (body.cooldown_after_execution_min !== undefined) updateData.cooldown_after_execution_min = body.cooldown_after_execution_min;
+      if (configData.monitor_enabled !== undefined) updateData.monitor_enabled = configData.monitor_enabled;
+      if (configData.check_interval_sec !== undefined) updateData.check_interval_sec = configData.check_interval_sec;
+      if (configData.lateral_tolerance_pct !== undefined) updateData.lateral_tolerance_pct = configData.lateral_tolerance_pct;
+      if (configData.lateral_cycles_min !== undefined) updateData.lateral_cycles_min = configData.lateral_cycles_min;
+      if (configData.rise_trigger_pct !== undefined) updateData.rise_trigger_pct = configData.rise_trigger_pct;
+      if (configData.rise_cycles_min !== undefined) updateData.rise_cycles_min = configData.rise_cycles_min;
+      if (configData.max_fall_pct !== undefined) updateData.max_fall_pct = configData.max_fall_pct;
+      if (configData.max_monitoring_time_min !== undefined) updateData.max_monitoring_time_min = configData.max_monitoring_time_min;
+      if (configData.cooldown_after_execution_min !== undefined) updateData.cooldown_after_execution_min = configData.cooldown_after_execution_min;
       
       console.log('[WEBHOOK-MONITOR] Dados que serão atualizados:', JSON.stringify(updateData, null, 2));
       

@@ -117,44 +117,57 @@ async function bootstrap() {
   const bodyParser = require('body-parser');
   
   // Para rotas de webhook, usar parser que captura raw body
-  // Aplicar em /webhooks e /subscriptions/webhooks para capturar todas as rotas de webhook
-  app.use('/webhooks', bodyParser.raw({ 
-    type: '*/*',
-    limit: '10mb',
-    verify: (req: any, res: any, buf: Buffer) => {
-      // Salvar o buffer raw
-      req.rawBody = buf;
-      const contentType = req.headers['content-type'] || '';
-      const bodyStr = buf.toString('utf8');
-      
-      console.log(`[WEBHOOK-MIDDLEWARE] ✅ Middleware executado!`);
-      console.log(`[WEBHOOK-MIDDLEWARE] Content-Type: ${contentType}`);
-      console.log(`[WEBHOOK-MIDDLEWARE] Raw body capturado (${buf.length} bytes): "${bodyStr.substring(0, 200)}${bodyStr.length > 200 ? '...' : ''}"`);
-      
-      // Processar baseado no Content-Type
-      if (contentType.includes('text/plain')) {
-        req.body = bodyStr;
-        console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string: "${req.body}"`);
-      } else if (contentType.includes('application/json')) {
-        try {
-          req.body = JSON.parse(bodyStr);
-          console.log(`[WEBHOOK-MIDDLEWARE] Body parseado como JSON`);
-        } catch (e) {
+  // Aplicar apenas em rotas de recebimento de webhook (POST /webhooks/:webhookCode)
+  // NÃO aplicar em rotas de API: /webhooks/monitor, /webhook-sources, /webhook-events, etc.
+  
+  // Middleware condicional: aplicar raw parser apenas para rotas de recebimento de webhook
+  app.use('/webhooks', (req: any, res: any, next: any) => {
+    // Se for rota de API (monitor, events, etc), pular o raw parser e usar JSON padrão
+    if (req.path.startsWith('/monitor') || 
+        req.path.startsWith('/events') ||
+        req.path.startsWith('/sources')) {
+      return next();
+    }
+    
+    // Para rotas de recebimento de webhook (POST /webhooks/:webhookCode), usar raw parser
+    bodyParser.raw({ 
+      type: '*/*',
+      limit: '10mb',
+      verify: (req: any, res: any, buf: Buffer) => {
+        // Salvar o buffer raw
+        req.rawBody = buf;
+        const contentType = req.headers['content-type'] || '';
+        const bodyStr = buf.toString('utf8');
+        
+        console.log(`[WEBHOOK-MIDDLEWARE] ✅ Middleware executado!`);
+        console.log(`[WEBHOOK-MIDDLEWARE] Content-Type: ${contentType}`);
+        console.log(`[WEBHOOK-MIDDLEWARE] Raw body capturado (${buf.length} bytes): "${bodyStr.substring(0, 200)}${bodyStr.length > 200 ? '...' : ''}"`);
+        
+        // Processar baseado no Content-Type
+        if (contentType.includes('text/plain')) {
           req.body = bodyStr;
-          console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string (JSON parse falhou)`);
-        }
-      } else {
-        // Tentar JSON primeiro, depois string
-        try {
-          req.body = JSON.parse(bodyStr);
-          console.log(`[WEBHOOK-MIDDLEWARE] Body parseado como JSON (tentativa)`);
-        } catch (e) {
-          req.body = bodyStr;
-          console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string (fallback)`);
+          console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string: "${req.body}"`);
+        } else if (contentType.includes('application/json')) {
+          try {
+            req.body = JSON.parse(bodyStr);
+            console.log(`[WEBHOOK-MIDDLEWARE] Body parseado como JSON`);
+          } catch (e) {
+            req.body = bodyStr;
+            console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string (JSON parse falhou)`);
+          }
+        } else {
+          // Tentar JSON primeiro, depois string
+          try {
+            req.body = JSON.parse(bodyStr);
+            console.log(`[WEBHOOK-MIDDLEWARE] Body parseado como JSON (tentativa)`);
+          } catch (e) {
+            req.body = bodyStr;
+            console.log(`[WEBHOOK-MIDDLEWARE] Body definido como string (fallback)`);
+          }
         }
       }
-    }
-  }));
+    })(req, res, next);
+  });
   
   // Para outras rotas, usar body parser JSON padrão
   app.use(bodyParser.json());
