@@ -431,7 +431,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                 }
                 await accountService.syncBalance(
                   tradeJob.exchange_account_id,
-                  tradeJob.trade_mode,
+                  tradeJob.trade_mode as TradeMode,
                   balances
                 );
                 
