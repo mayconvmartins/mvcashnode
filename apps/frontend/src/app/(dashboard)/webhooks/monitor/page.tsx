@@ -66,7 +66,9 @@ export default function WebhookMonitorPage() {
     const getTrendIcon = (alert: WebhookMonitorAlert) => {
         if (!alert.current_price || !alert.price_minimum) return null
 
-        const priceVariation = ((alert.current_price - alert.price_minimum) / alert.price_minimum) * 100
+        const currentPrice = typeof alert.current_price === 'number' ? alert.current_price : Number(alert.current_price)
+        const minPrice = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
+        const priceVariation = ((currentPrice - minPrice) / minPrice) * 100
 
         if (priceVariation < -0.1) {
             return <TrendingDown className="h-4 w-4 text-red-500" />
@@ -104,25 +106,27 @@ export default function WebhookMonitorPage() {
         {
             key: 'price_alert',
             label: 'Preço Alerta',
-            render: (alert) => (
-                <span className="font-mono">${alert.price_alert.toFixed(8)}</span>
-            ),
+            render: (alert) => {
+                const price = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
+                return <span className="font-mono">${price.toFixed(8)}</span>
+            },
         },
         {
             key: 'price_minimum',
             label: 'Preço Mínimo',
-            render: (alert) => (
-                <span className="font-mono text-green-600">${alert.price_minimum.toFixed(8)}</span>
-            ),
+            render: (alert) => {
+                const price = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
+                return <span className="font-mono text-green-600">${price.toFixed(8)}</span>
+            },
         },
         {
             key: 'current_price',
             label: 'Preço Atual',
-            render: (alert) => (
-                <span className="font-mono">
-                    {alert.current_price ? `$${alert.current_price.toFixed(8)}` : '-'}
-                </span>
-            ),
+            render: (alert) => {
+                if (!alert.current_price) return <span className="font-mono">-</span>
+                const price = typeof alert.current_price === 'number' ? alert.current_price : Number(alert.current_price)
+                return <span className="font-mono">${price.toFixed(8)}</span>
+            },
         },
         {
             key: 'state',
@@ -172,16 +176,18 @@ export default function WebhookMonitorPage() {
         {
             key: 'price_alert',
             label: 'Preço Alerta',
-            render: (alert) => (
-                <span className="font-mono">${alert.price_alert.toFixed(8)}</span>
-            ),
+            render: (alert) => {
+                const price = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
+                return <span className="font-mono">${price.toFixed(8)}</span>
+            },
         },
         {
             key: 'price_minimum',
             label: 'Preço Mínimo',
-            render: (alert) => (
-                <span className="font-mono">${alert.price_minimum.toFixed(8)}</span>
-            ),
+            render: (alert) => {
+                const price = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
+                return <span className="font-mono">${price.toFixed(8)}</span>
+            },
         },
         {
             key: 'state',
@@ -313,10 +319,10 @@ export default function WebhookMonitorPage() {
                                     <strong>Símbolo:</strong> {selectedAlert.symbol}
                                 </p>
                                 <p className="text-sm">
-                                    <strong>Preço Alerta:</strong> ${selectedAlert.price_alert.toFixed(8)}
+                                    <strong>Preço Alerta:</strong> ${(typeof selectedAlert.price_alert === 'number' ? selectedAlert.price_alert : Number(selectedAlert.price_alert)).toFixed(8)}
                                 </p>
                                 <p className="text-sm">
-                                    <strong>Preço Mínimo:</strong> ${selectedAlert.price_minimum.toFixed(8)}
+                                    <strong>Preço Mínimo:</strong> ${(typeof selectedAlert.price_minimum === 'number' ? selectedAlert.price_minimum : Number(selectedAlert.price_minimum)).toFixed(8)}
                                 </p>
                             </div>
                         )}

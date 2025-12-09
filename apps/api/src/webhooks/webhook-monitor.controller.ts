@@ -47,7 +47,13 @@ export class WebhookMonitorController {
   @ApiResponse({ status: 200, description: 'Lista de alertas ativos' })
   async listActiveAlerts(@CurrentUser() user: any) {
     const alerts = await this.monitorService.listActiveAlerts(user.userId);
-    return alerts;
+    // Converter Decimal para número
+    return alerts.map((alert: any) => ({
+      ...alert,
+      price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
+      price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : Number(alert.price_minimum),
+      current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
+    }));
   }
 
   @Get('alerts/:id')
@@ -96,7 +102,13 @@ export class WebhookMonitorController {
       throw new NotFoundException('Alerta não encontrado');
     }
 
-    return alert as Record<string, any>;
+    // Converter Decimal para número
+    return {
+      ...alert,
+      price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
+      price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : Number(alert.price_minimum),
+      current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
+    } as Record<string, any>;
   }
 
   @Post('alerts/:id/cancel')
@@ -180,7 +192,13 @@ export class WebhookMonitorController {
     }
 
     const history = await this.monitorService.listHistory(filters);
-    return history;
+    // Converter Decimal para número
+    return history.map((alert: any) => ({
+      ...alert,
+      price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
+      price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : Number(alert.price_minimum),
+      current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
+    }));
   }
 
   @Get('config')

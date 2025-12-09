@@ -96,13 +96,34 @@ export class WebhookEventService {
       // Criar alerta de monitoramento para cada binding ativo
       for (const binding of webhookSource.bindings) {
         try {
-          // Verificar se trade mode corresponde
+          // Verificar se trade mode corresponde PRIMEIRO
           const accountIsSim = binding.exchange_account.is_simulation;
           const eventIsSim = event.trade_mode === 'SIMULATION';
           
           if (accountIsSim !== eventIsSim) {
             console.log(`[WEBHOOK-EVENT] Trade mode não corresponde para binding ${binding.id}, pulando monitoramento`);
             continue;
+          }
+
+          // Verificar se já existe alerta MONITORING para este par específico
+          const existingAlert = await this.monitorService.getActiveAlert(
+            event.symbol_normalized,
+            binding.exchange_account_id,
+            event.trade_mode as TradeMode
+          );
+          
+          if (existingAlert) {
+            const existingMinPrice = existingAlert.price_minimum.toNumber();
+            const newPrice = event.price_reference.toNumber();
+            
+            // Se novo alerta é mais caro ou igual, ignorar
+            if (newPrice >= existingMinPrice) {
+              console.log(`[WEBHOOK-EVENT] Ignorando alerta mais caro para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice})`);
+              continue;
+            }
+            
+            // Se novo alerta é mais barato, createOrUpdateAlert vai substituir automaticamente
+            console.log(`[WEBHOOK-EVENT] Alerta mais barato detectado para ${event.symbol_normalized} (existente: ${existingMinPrice}, novo: ${newPrice}), substituindo...`);
           }
 
           await this.monitorService.createOrUpdateAlert({
