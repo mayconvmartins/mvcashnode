@@ -3221,11 +3221,18 @@ export class AdminSystemController {
       };
     }
 
-    // Buscar posições alternativas
+    // Normalizar símbolo para buscar (pode estar com ou sem barra)
+    // Job pode ter 'UNI/USDT' mas posições no banco podem estar como 'UNIUSDT'
+    const symbolWithSlash = job.symbol.includes('/') ? job.symbol : job.symbol.replace(/USDT$/, '/USDT').replace(/BTC$/, '/BTC').replace(/ETH$/, '/ETH').replace(/BNB$/, '/BNB');
+    const symbolWithoutSlash = job.symbol.replace('/', '');
+    
+    console.log(`[ADMIN] Buscando com múltiplos formatos de símbolo: '${job.symbol}', '${symbolWithSlash}', '${symbolWithoutSlash}'`);
+
+    // Buscar posições alternativas com ambos os formatos de símbolo
     const alternatives = await this.prisma.tradePosition.findMany({
       where: {
         exchange_account_id: job.exchange_account_id,
-        symbol: job.symbol,
+        symbol: { in: [job.symbol, symbolWithSlash, symbolWithoutSlash] },
         trade_mode: job.trade_mode,
         side: 'LONG', // ← IMPORTANTE: Apenas posições LONG podem ser fechadas
         status: 'OPEN',
@@ -3235,8 +3242,32 @@ export class AdminSystemController {
       take: 10,
     });
 
-    console.log(`[ADMIN] Query executada: exchange_account_id=${job.exchange_account_id}, symbol=${job.symbol}, trade_mode=${job.trade_mode}, side=LONG, status=OPEN`);
+    console.log(`[ADMIN] Query executada: exchange_account_id=${job.exchange_account_id}, symbol IN [${job.symbol}, ${symbolWithSlash}, ${symbolWithoutSlash}], trade_mode=${job.trade_mode}, side=LONG, status=OPEN`);
     console.log(`[ADMIN] Encontradas ${alternatives.length} posições alternativas para job ${jobId}`);
+
+    // ✅ DEBUG: Se não encontrou, buscar TODAS as posições OPEN da conta para diagnóstico
+    if (alternatives.length === 0) {
+      const allOpenPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          exchange_account_id: job.exchange_account_id,
+          trade_mode: job.trade_mode,
+          status: 'OPEN',
+          qty_remaining: { gt: 0 },
+        },
+        select: {
+          id: true,
+          symbol: true,
+          side: true,
+          qty_remaining: true,
+        },
+        take: 20,
+      });
+      
+      console.log(`[ADMIN] ℹ️ DEBUG: ${allOpenPositions.length} posições OPEN encontradas na conta ${job.exchange_account_id} (${job.trade_mode}):`);
+      allOpenPositions.forEach(pos => {
+        console.log(`[ADMIN]   - Posição #${pos.id}: symbol='${pos.symbol}', side='${pos.side}', qty=${pos.qty_remaining.toNumber()}`);
+      });
+    }
 
     return {
       jobId,
