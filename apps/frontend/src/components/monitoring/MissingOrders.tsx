@@ -226,7 +226,7 @@ export function MissingOrders() {
                             <SelectContent>
                                 {accounts?.map((account) => (
                                     <SelectItem key={account.id} value={account.id.toString()}>
-                                        {account.name} ({account.exchange_type})
+                                        {account.label} ({account.exchange}) - {account.is_simulation ? 'SIMULATION' : 'REAL'}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
