@@ -3198,6 +3198,13 @@ export class AdminSystemController {
 
     const needsAlternative = !originalPosition || originalPosition.status !== 'OPEN';
 
+    console.log(`[ADMIN] Job ${jobId} - Detalhes para busca de alternativas:`);
+    console.log(`[ADMIN]   - exchange_account_id: ${job.exchange_account_id}`);
+    console.log(`[ADMIN]   - symbol: ${job.symbol}`);
+    console.log(`[ADMIN]   - trade_mode: ${job.trade_mode}`);
+    console.log(`[ADMIN]   - originalPosition: ${originalPosition ? `#${originalPosition.id} (${originalPosition.status})` : 'null'}`);
+    console.log(`[ADMIN]   - needsAlternative: ${needsAlternative}`);
+
     if (!needsAlternative) {
       return {
         jobId,
@@ -3220,6 +3227,7 @@ export class AdminSystemController {
         exchange_account_id: job.exchange_account_id,
         symbol: job.symbol,
         trade_mode: job.trade_mode,
+        side: 'LONG', // ← IMPORTANTE: Apenas posições LONG podem ser fechadas
         status: 'OPEN',
         qty_remaining: { gt: 0 },
       },
@@ -3227,6 +3235,7 @@ export class AdminSystemController {
       take: 10,
     });
 
+    console.log(`[ADMIN] Query executada: exchange_account_id=${job.exchange_account_id}, symbol=${job.symbol}, trade_mode=${job.trade_mode}, side=LONG, status=OPEN`);
     console.log(`[ADMIN] Encontradas ${alternatives.length} posições alternativas para job ${jobId}`);
 
     return {
