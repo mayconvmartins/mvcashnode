@@ -182,6 +182,24 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         // Check Stop Loss
         if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
           if (!position.sl_triggered) {
+            // ✅ NOVO: Verificar se já existe job PENDING/EXECUTING para essa posição
+            const existingJob = await this.prisma.tradeJob.findFirst({
+              where: {
+                position_id_to_close: position.id,
+                status: {
+                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING'],
+                },
+              },
+              select: { id: true, status: true },
+            });
+
+            if (existingJob) {
+              this.logger.warn(
+                `[SL-TP-MONITOR-SIM] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, pulando criação de novo job de SL`
+              );
+              continue; // Pular esta posição
+            }
+
             try {
               // Calcular preço LIMIT para Stop Loss: price_open * (1 - sl_pct / 100)
               const slPct = position.sl_pct.toNumber();
@@ -225,6 +243,24 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         // Check Take Profit
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
           if (!position.tp_triggered) {
+            // ✅ NOVO: Verificar se já existe job PENDING/EXECUTING para essa posição
+            const existingJob = await this.prisma.tradeJob.findFirst({
+              where: {
+                position_id_to_close: position.id,
+                status: {
+                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING'],
+                },
+              },
+              select: { id: true, status: true },
+            });
+
+            if (existingJob) {
+              this.logger.warn(
+                `[SL-TP-MONITOR-SIM] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, pulando criação de novo job de TP`
+              );
+              continue; // Pular esta posição
+            }
+
             // Calcular preço LIMIT para Take Profit: price_open * (1 + tp_pct / 100)
             const tpPct = position.tp_pct.toNumber();
             const limitPrice = priceOpen * (1 + tpPct / 100);

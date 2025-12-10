@@ -889,6 +889,25 @@ export class PositionService {
             reason_message: `Position ${job.position_id_to_close} not found`,
           },
         });
+
+        // ✅ NOVO: Limpar flags da posição para permitir nova tentativa (se posição existir)
+        if (job.position_id_to_close) {
+          try {
+            await tx.tradePosition.update({
+              where: { id: job.position_id_to_close },
+              data: {
+                tp_triggered: false,
+                sl_triggered: false,
+                trailing_triggered: false,
+              },
+            });
+            console.log(`[POSITION-SERVICE] Flags de trigger limpas na posição ${job.position_id_to_close} após job ${jobId} ser marcado como SKIPPED (POSITION_NOT_FOUND)`);
+          } catch (error: any) {
+            // Se posição não existe, não há flags para limpar
+            console.debug(`[POSITION-SERVICE] Não foi possível limpar flags da posição ${job.position_id_to_close} (posição não existe)`);
+          }
+        }
+
         return;
       }
 
@@ -897,26 +916,93 @@ export class PositionService {
       console.log(`[POSITION-SERVICE]   - flags: tp_triggered=${targetPosition.tp_triggered}, sl_triggered=${targetPosition.sl_triggered}, trailing_triggered=${targetPosition.trailing_triggered}`);
       console.log(`[POSITION-SERVICE]   - origin=${origin}, executedQty=${executedQty}, avgPrice=${avgPrice}`);
 
-      // Validar se a posição é elegível
-      if (
-        targetPosition.exchange_account_id !== job.exchange_account_id ||
-        targetPosition.trade_mode !== job.trade_mode ||
-        targetPosition.symbol !== job.symbol ||
-        targetPosition.side !== 'LONG' ||
-        targetPosition.status !== PositionStatus.OPEN ||
-        targetPosition.qty_remaining.toNumber() <= 0
-      ) {
-        console.warn(`[POSITION-SERVICE] Posição ${targetPosition.id} não é elegível para fechamento`);
+      // ✅ DEBUG: Logs detalhados de validação de elegibilidade
+      console.log(`[POSITION-SERVICE] ========== VALIDAÇÃO DE ELEGIBILIDADE - Posição ${targetPosition.id} ==========`);
+      console.log(`[POSITION-SERVICE]   - position.exchange_account_id: ${targetPosition.exchange_account_id} (type: ${typeof targetPosition.exchange_account_id})`);
+      console.log(`[POSITION-SERVICE]   - job.exchange_account_id: ${job.exchange_account_id} (type: ${typeof job.exchange_account_id})`);
+      
+      console.log(`[POSITION-SERVICE]   - position.trade_mode: '${targetPosition.trade_mode}' (type: ${typeof targetPosition.trade_mode})`);
+      console.log(`[POSITION-SERVICE]   - job.trade_mode: '${job.trade_mode}' (type: ${typeof job.trade_mode})`);
+      
+      console.log(`[POSITION-SERVICE]   - position.symbol: '${targetPosition.symbol}'`);
+      console.log(`[POSITION-SERVICE]   - job.symbol: '${job.symbol}'`);
+      
+      console.log(`[POSITION-SERVICE]   - position.side: '${targetPosition.side}'`);
+      console.log(`[POSITION-SERVICE]   - Expected side: 'LONG'`);
+      
+      console.log(`[POSITION-SERVICE]   - position.status: '${targetPosition.status}'`);
+      console.log(`[POSITION-SERVICE]   - Expected status: '${PositionStatus.OPEN}'`);
+      
+      console.log(`[POSITION-SERVICE]   - position.qty_remaining: ${targetPosition.qty_remaining.toNumber()}`);
+
+      // Normalizar valores para comparação type-safe
+      const positionAccountId = Number(targetPosition.exchange_account_id);
+      const jobAccountId = Number(job.exchange_account_id);
+      
+      const positionTradeMode = String(targetPosition.trade_mode).toUpperCase();
+      const jobTradeMode = String(job.trade_mode).toUpperCase();
+      
+      const positionSymbol = String(targetPosition.symbol).toUpperCase();
+      const jobSymbol = String(job.symbol).toUpperCase();
+      
+      const positionStatus = String(targetPosition.status).toUpperCase();
+      const expectedStatus = String(PositionStatus.OPEN).toUpperCase();
+      
+      const qtyRemaining = targetPosition.qty_remaining.toNumber();
+
+      // Validar se a posição é elegível (com comparações normalizadas)
+      const failedChecks: string[] = [];
+      
+      if (positionAccountId !== jobAccountId) {
+        failedChecks.push(`account_id (${positionAccountId} !== ${jobAccountId})`);
+      }
+      if (positionTradeMode !== jobTradeMode) {
+        failedChecks.push(`trade_mode ('${positionTradeMode}' !== '${jobTradeMode}')`);
+      }
+      if (positionSymbol !== jobSymbol) {
+        failedChecks.push(`symbol ('${positionSymbol}' !== '${jobSymbol}')`);
+      }
+      if (targetPosition.side !== 'LONG') {
+        failedChecks.push(`side ('${targetPosition.side}' !== 'LONG')`);
+      }
+      if (positionStatus !== expectedStatus) {
+        failedChecks.push(`status ('${positionStatus}' !== '${expectedStatus}')`);
+      }
+      if (qtyRemaining <= 0) {
+        failedChecks.push(`qty_remaining (${qtyRemaining} <= 0)`);
+      }
+
+      if (failedChecks.length > 0) {
+        console.error(`[POSITION-SERVICE] ❌ Posição ${targetPosition.id} NÃO ELEGÍVEL para fechamento`);
+        console.error(`[POSITION-SERVICE] ❌ Falhas na validação: ${failedChecks.join(', ')}`);
+        console.error(`[POSITION-SERVICE] ❌ Job ${jobId} será marcado como SKIPPED`);
+        
         await tx.tradeJob.update({
           where: { id: jobId },
           data: {
             status: 'SKIPPED',
             reason_code: 'POSITION_NOT_ELIGIBLE',
-            reason_message: `Position ${job.position_id_to_close} is not eligible for closing`,
+            reason_message: `Position ${job.position_id_to_close} is not eligible for closing. Failed checks: ${failedChecks.join(', ')}`,
           },
         });
+
+        // ✅ NOVO: Limpar flags da posição para permitir nova tentativa
+        if (job.position_id_to_close) {
+          await tx.tradePosition.update({
+            where: { id: job.position_id_to_close },
+            data: {
+              tp_triggered: false,
+              sl_triggered: false,
+              trailing_triggered: false,
+            },
+          });
+          console.log(`[POSITION-SERVICE] Flags de trigger limpas na posição ${job.position_id_to_close} após job ${jobId} ser marcado como SKIPPED (POSITION_NOT_ELIGIBLE)`);
+        }
+
         return;
       }
+
+      console.log(`[POSITION-SERVICE] ✅ Posição ${targetPosition.id} é ELEGÍVEL para fechamento - todas as validações passaram`);
 
       // Verificar lock para webhook
       if (origin === 'WEBHOOK' && targetPosition.lock_sell_by_webhook) {
@@ -929,6 +1015,20 @@ export class PositionService {
             reason_message: 'Position is locked for webhook sells',
           },
         });
+
+        // ✅ NOVO: Limpar flags da posição para permitir nova tentativa
+        if (job.position_id_to_close) {
+          await tx.tradePosition.update({
+            where: { id: job.position_id_to_close },
+            data: {
+              tp_triggered: false,
+              sl_triggered: false,
+              trailing_triggered: false,
+            },
+          });
+          console.log(`[POSITION-SERVICE] Flags de trigger limpas na posição ${job.position_id_to_close} após job ${jobId} ser marcado como SKIPPED (WEBHOOK_LOCK)`);
+        }
+
         return;
       }
 
@@ -947,6 +1047,20 @@ export class PositionService {
             reason_message: `Position ${targetPosition.id} is no longer available`,
           },
         });
+
+        // ✅ NOVO: Limpar flags da posição para permitir nova tentativa
+        if (job.position_id_to_close) {
+          await tx.tradePosition.update({
+            where: { id: job.position_id_to_close },
+            data: {
+              tp_triggered: false,
+              sl_triggered: false,
+              trailing_triggered: false,
+            },
+          });
+          console.log(`[POSITION-SERVICE] Flags de trigger limpas na posição ${job.position_id_to_close} após job ${jobId} ser marcado como SKIPPED (POSITION_NOT_AVAILABLE)`);
+        }
+
         return;
       }
 

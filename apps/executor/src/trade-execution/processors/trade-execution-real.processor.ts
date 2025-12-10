@@ -521,6 +521,25 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               reason_message: `Position ${tradeJob.position_id_to_close} not found`,
             },
           });
+
+          // ✅ NOVO: Limpar flags da posição para permitir nova tentativa (se posição existir)
+          if (tradeJob.position_id_to_close) {
+            try {
+              await this.prisma.tradePosition.update({
+                where: { id: tradeJob.position_id_to_close },
+                data: {
+                  tp_triggered: false,
+                  sl_triggered: false,
+                  trailing_triggered: false,
+                },
+              });
+              this.logger.log(`[EXECUTOR] Flags de trigger limpas na posição ${tradeJob.position_id_to_close} após job ${tradeJobId} ser marcado como SKIPPED (POSITION_NOT_FOUND)`);
+            } catch (error: any) {
+              // Se posição não existe, não há flags para limpar
+              this.logger.debug(`[EXECUTOR] Não foi possível limpar flags da posição ${tradeJob.position_id_to_close} (posição não existe)`);
+            }
+          }
+
           return {
             success: false,
             skipped: true,
@@ -529,30 +548,93 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           };
         }
         
-        // Validar elegibilidade (MESMA LÓGICA de onSellExecuted)
-        const isEligible = 
-          targetPosition.exchange_account_id === tradeJob.exchange_account_id &&
-          targetPosition.trade_mode === tradeJob.trade_mode &&
-          targetPosition.symbol === tradeJob.symbol &&
-          targetPosition.side === 'LONG' &&
-          targetPosition.status === 'OPEN' &&
-          targetPosition.qty_remaining.toNumber() > 0;
+        // ✅ DEBUG: Logs detalhados de validação de elegibilidade
+        this.logger.log(`[EXECUTOR] ========== VALIDAÇÃO DE ELEGIBILIDADE - Posição ${targetPosition.id} ==========`);
+        this.logger.log(`[EXECUTOR]   - position.exchange_account_id: ${targetPosition.exchange_account_id} (type: ${typeof targetPosition.exchange_account_id})`);
+        this.logger.log(`[EXECUTOR]   - job.exchange_account_id: ${tradeJob.exchange_account_id} (type: ${typeof tradeJob.exchange_account_id})`);
         
-        if (!isEligible) {
-          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} não é elegível para fechamento`);
+        this.logger.log(`[EXECUTOR]   - position.trade_mode: '${targetPosition.trade_mode}' (type: ${typeof targetPosition.trade_mode})`);
+        this.logger.log(`[EXECUTOR]   - job.trade_mode: '${tradeJob.trade_mode}' (type: ${typeof tradeJob.trade_mode})`);
+        
+        this.logger.log(`[EXECUTOR]   - position.symbol: '${targetPosition.symbol}'`);
+        this.logger.log(`[EXECUTOR]   - job.symbol: '${tradeJob.symbol}'`);
+        
+        this.logger.log(`[EXECUTOR]   - position.side: '${targetPosition.side}'`);
+        this.logger.log(`[EXECUTOR]   - Expected side: 'LONG'`);
+        
+        this.logger.log(`[EXECUTOR]   - position.status: '${targetPosition.status}'`);
+        this.logger.log(`[EXECUTOR]   - Expected status: 'OPEN'`);
+        
+        this.logger.log(`[EXECUTOR]   - position.qty_remaining: ${targetPosition.qty_remaining.toNumber()}`);
+
+        // Normalizar valores para comparação type-safe
+        const positionAccountId = Number(targetPosition.exchange_account_id);
+        const jobAccountId = Number(tradeJob.exchange_account_id);
+        
+        const positionTradeMode = String(targetPosition.trade_mode).toUpperCase();
+        const jobTradeMode = String(tradeJob.trade_mode).toUpperCase();
+        
+        const positionSymbol = String(targetPosition.symbol).toUpperCase();
+        const jobSymbol = String(tradeJob.symbol).toUpperCase();
+        
+        const positionStatus = String(targetPosition.status).toUpperCase();
+        const expectedStatus = 'OPEN';
+        
+        const qtyRemaining = targetPosition.qty_remaining.toNumber();
+
+        // Validar elegibilidade (com comparações normalizadas)
+        const failedChecks: string[] = [];
+        
+        if (positionAccountId !== jobAccountId) {
+          failedChecks.push(`account_id (${positionAccountId} !== ${jobAccountId})`);
+        }
+        if (positionTradeMode !== jobTradeMode) {
+          failedChecks.push(`trade_mode ('${positionTradeMode}' !== '${jobTradeMode}')`);
+        }
+        if (positionSymbol !== jobSymbol) {
+          failedChecks.push(`symbol ('${positionSymbol}' !== '${jobSymbol}')`);
+        }
+        if (targetPosition.side !== 'LONG') {
+          failedChecks.push(`side ('${targetPosition.side}' !== 'LONG')`);
+        }
+        if (positionStatus !== expectedStatus) {
+          failedChecks.push(`status ('${positionStatus}' !== '${expectedStatus}')`);
+        }
+        if (qtyRemaining <= 0) {
+          failedChecks.push(`qty_remaining (${qtyRemaining} <= 0)`);
+        }
+        
+        if (failedChecks.length > 0) {
+          this.logger.error(`[EXECUTOR] ❌ Job ${tradeJobId} - Posição ${targetPosition.id} NÃO ELEGÍVEL para fechamento`);
+          this.logger.error(`[EXECUTOR] ❌ Falhas na validação: ${failedChecks.join(', ')}`);
+          
           await this.prisma.tradeJob.update({
             where: { id: tradeJobId },
             data: {
               status: TradeJobStatus.SKIPPED,
               reason_code: 'POSITION_NOT_ELIGIBLE',
-              reason_message: `Position ${tradeJob.position_id_to_close} is not eligible for closing`,
+              reason_message: `Position ${tradeJob.position_id_to_close} is not eligible for closing. Failed checks: ${failedChecks.join(', ')}`,
             },
           });
+
+          // ✅ NOVO: Limpar flags da posição para permitir nova tentativa
+          if (tradeJob.position_id_to_close) {
+            await this.prisma.tradePosition.update({
+              where: { id: tradeJob.position_id_to_close },
+              data: {
+                tp_triggered: false,
+                sl_triggered: false,
+                trailing_triggered: false,
+              },
+            });
+            this.logger.log(`[EXECUTOR] Flags de trigger limpas na posição ${tradeJob.position_id_to_close} após job ${tradeJobId} ser marcado como SKIPPED (POSITION_NOT_ELIGIBLE)`);
+          }
+
           return {
             success: false,
             skipped: true,
             reason: 'POSITION_NOT_ELIGIBLE',
-            message: `Position ${tradeJob.position_id_to_close} is not eligible for closing`,
+            message: `Position ${tradeJob.position_id_to_close} is not eligible for closing. Failed checks: ${failedChecks.join(', ')}`,
           };
         }
         
@@ -576,7 +658,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           };
         }
         
-        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} validada com sucesso, elegível para fechamento`);
+        this.logger.log(`[EXECUTOR] ✅ Job ${tradeJobId} - Posição ${targetPosition.id} é ELEGÍVEL para fechamento - todas as validações passaram`);
       }
 
       // Execute order
