@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsBoolean } from 'class-validator';
 
 export class LoginDto {
   @ApiProperty({ example: 'user@example.com' })
@@ -15,5 +15,10 @@ export class LoginDto {
   @IsOptional()
   @IsString()
   twoFactorCode?: string;
+
+  @ApiProperty({ required: false, example: false, description: 'Se true, o token terá validade estendida' })
+  @IsOptional()
+  @IsBoolean()
+  rememberMe?: boolean;
 }
 

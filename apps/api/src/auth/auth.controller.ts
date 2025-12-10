@@ -69,6 +69,7 @@ export class AuthController {
           email: loginDto.email,
           password: loginDto.password,
           twoFactorCode: loginDto.twoFactorCode,
+          rememberMe: loginDto.rememberMe,
         },
         ip,
         userAgent
