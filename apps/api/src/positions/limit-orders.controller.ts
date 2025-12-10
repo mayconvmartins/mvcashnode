@@ -231,6 +231,132 @@ export class LimitOrdersController {
     }
   }
 
+  @Get('history')
+  @ApiOperation({
+    summary: 'Histórico de ordens LIMIT',
+    description: 'Retorna o histórico completo de ordens LIMIT finalizadas (executadas, canceladas e expiradas) do usuário. Útil para análise de performance e auditoria.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Histórico de ordens LIMIT retornado com sucesso',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', example: 1 },
+          symbol: { type: 'string', example: 'SOLUSDT' },
+          side: { type: 'string', enum: ['BUY', 'SELL'], example: 'SELL' },
+          limit_price: { type: 'number', example: 220.50 },
+          base_quantity: { type: 'number', example: 5.0 },
+          status: { type: 'string', enum: ['FILLED', 'CANCELED', 'EXPIRED'], example: 'FILLED' },
+          reason_code: { type: 'string', nullable: true, example: null, description: 'Código do motivo (se cancelada ou expirada)' },
+          exchange_order_id: { type: 'string', nullable: true, example: '12345678' },
+          exchange_account: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', example: 1 },
+              label: { type: 'string', example: 'Binance Spot Real' },
+              exchange: { type: 'string', example: 'BINANCE_SPOT' },
+            },
+          },
+          filled_at: { type: 'string', nullable: true, format: 'date-time', example: '2025-02-12T11:00:00.000Z', description: 'Data de execução (se FILLED)' },
+          created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+        },
+      },
+    },
+  })
+  async history(
+    @CurrentUser() user: any,
+    @Query() query: LimitOrdersHistoryQueryDto
+  ): Promise<any[]> {
+    const { from, to, symbol, status, trade_mode: tradeMode } = query;
+    try {
+      // Buscar IDs das exchange accounts do usuário
+      const userAccounts = await this.prisma.exchangeAccount.findMany({
+        where: { user_id: user.userId },
+        select: { id: true },
+      });
+
+      const accountIds = userAccounts.map((acc) => acc.id);
+
+      if (accountIds.length === 0) {
+        return [];
+      }
+
+      const where: any = {
+        exchange_account_id: { in: accountIds },
+        order_type: 'LIMIT',
+        status: { in: ['FILLED', 'CANCELED', 'EXPIRED'] },
+      };
+
+      if (status) {
+        where.status = status;
+      }
+
+      if (tradeMode) {
+        where.trade_mode = tradeMode;
+      }
+
+      if (symbol) {
+        where.symbol = symbol;
+      }
+
+      if (from || to) {
+        where.created_at = {};
+        if (from) {
+          where.created_at.gte = new Date(from);
+        }
+        if (to) {
+          where.created_at.lte = new Date(to);
+        }
+      }
+
+      const jobs = await this.prisma.tradeJob.findMany({
+        where,
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+            },
+          },
+          executions: {
+            take: 1,
+            orderBy: { id: 'desc' },
+            select: {
+              exchange_order_id: true,
+              created_at: true,
+            },
+          },
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+      });
+
+      return jobs.map((job) => {
+        const execution = job.executions[0];
+        return {
+          id: job.id,
+          symbol: job.symbol,
+          side: job.side,
+          limit_price: job.limit_price?.toNumber() || null,
+          base_quantity: job.base_quantity?.toNumber() || null,
+          status: job.status,
+          reason_code: job.reason_code,
+          exchange_order_id: execution?.exchange_order_id || null,
+          exchange_account: job.exchange_account,
+          filled_at: execution?.created_at || null,
+          created_at: job.created_at,
+        };
+      });
+    } catch (error: any) {
+      throw new BadRequestException('Erro ao buscar histórico de ordens LIMIT');
+    }
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Detalhes de ordem LIMIT',
@@ -557,132 +683,6 @@ export class LimitOrdersController {
       }
 
       throw new BadRequestException('Erro ao cancelar ordem LIMIT');
-    }
-  }
-
-  @Get('history')
-  @ApiOperation({
-    summary: 'Histórico de ordens LIMIT',
-    description: 'Retorna o histórico completo de ordens LIMIT finalizadas (executadas, canceladas e expiradas) do usuário. Útil para análise de performance e auditoria.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Histórico de ordens LIMIT retornado com sucesso',
-    schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          id: { type: 'number', example: 1 },
-          symbol: { type: 'string', example: 'SOLUSDT' },
-          side: { type: 'string', enum: ['BUY', 'SELL'], example: 'SELL' },
-          limit_price: { type: 'number', example: 220.50 },
-          base_quantity: { type: 'number', example: 5.0 },
-          status: { type: 'string', enum: ['FILLED', 'CANCELED', 'EXPIRED'], example: 'FILLED' },
-          reason_code: { type: 'string', nullable: true, example: null, description: 'Código do motivo (se cancelada ou expirada)' },
-          exchange_order_id: { type: 'string', nullable: true, example: '12345678' },
-          exchange_account: {
-            type: 'object',
-            properties: {
-              id: { type: 'number', example: 1 },
-              label: { type: 'string', example: 'Binance Spot Real' },
-              exchange: { type: 'string', example: 'BINANCE_SPOT' },
-            },
-          },
-          filled_at: { type: 'string', nullable: true, format: 'date-time', example: '2025-02-12T11:00:00.000Z', description: 'Data de execução (se FILLED)' },
-          created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
-        },
-      },
-    },
-  })
-  async history(
-    @CurrentUser() user: any,
-    @Query() query: LimitOrdersHistoryQueryDto
-  ): Promise<any[]> {
-    const { from, to, symbol, status, trade_mode: tradeMode } = query;
-    try {
-      // Buscar IDs das exchange accounts do usuário
-      const userAccounts = await this.prisma.exchangeAccount.findMany({
-        where: { user_id: user.userId },
-        select: { id: true },
-      });
-
-      const accountIds = userAccounts.map((acc) => acc.id);
-
-      if (accountIds.length === 0) {
-        return [];
-      }
-
-      const where: any = {
-        exchange_account_id: { in: accountIds },
-        order_type: 'LIMIT',
-        status: { in: ['FILLED', 'CANCELED', 'EXPIRED'] },
-      };
-
-      if (status) {
-        where.status = status;
-      }
-
-      if (tradeMode) {
-        where.trade_mode = tradeMode;
-      }
-
-      if (symbol) {
-        where.symbol = symbol;
-      }
-
-      if (from || to) {
-        where.created_at = {};
-        if (from) {
-          where.created_at.gte = new Date(from);
-        }
-        if (to) {
-          where.created_at.lte = new Date(to);
-        }
-      }
-
-      const jobs = await this.prisma.tradeJob.findMany({
-        where,
-        include: {
-          exchange_account: {
-            select: {
-              id: true,
-              label: true,
-              exchange: true,
-            },
-          },
-          executions: {
-            take: 1,
-            orderBy: { id: 'desc' },
-            select: {
-              exchange_order_id: true,
-              created_at: true,
-            },
-          },
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-      });
-
-      return jobs.map((job) => {
-        const execution = job.executions[0];
-        return {
-          id: job.id,
-          symbol: job.symbol,
-          side: job.side,
-          limit_price: job.limit_price?.toNumber() || null,
-          base_quantity: job.base_quantity?.toNumber() || null,
-          status: job.status,
-          reason_code: job.reason_code,
-          exchange_order_id: execution?.exchange_order_id || null,
-          exchange_account: job.exchange_account,
-          filled_at: execution?.created_at || null,
-          created_at: job.created_at,
-        };
-      });
-    } catch (error: any) {
-      throw new BadRequestException('Erro ao buscar histórico de ordens LIMIT');
     }
   }
 }
