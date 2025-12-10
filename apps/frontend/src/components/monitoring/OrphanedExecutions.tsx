@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
-import { useToast } from '@/hooks/use-toast'
+import { toast } from 'sonner'
 
 interface OrphanedExecution {
     jobId: number
@@ -26,7 +26,6 @@ export function OrphanedExecutions() {
     const [orphaned, setOrphaned] = useState<OrphanedExecution[]>([])
     const [selected, setSelected] = useState<number[]>([])
     const [loading, setLoading] = useState(false)
-    const { toast } = useToast()
 
     const detectOrphaned = async () => {
         try {
@@ -35,17 +34,13 @@ export function OrphanedExecutions() {
             if (!res.ok) throw new Error('Erro ao buscar executions órfãs')
             const data = await res.json()
             setOrphaned(data)
-            toast({
-                title: 'Detecção concluída',
-                description: `${data.length} execution(s) órfã(s) encontrada(s)`,
-                variant: data.length > 0 ? 'destructive' : 'default',
-            })
+            if (data.length > 0) {
+                toast.warning(`${data.length} execution(s) órfã(s) encontrada(s)`)
+            } else {
+                toast.success('Nenhuma execution órfã encontrada')
+            }
         } catch (error: any) {
-            toast({
-                title: 'Erro',
-                description: error.message,
-                variant: 'destructive',
-            })
+            toast.error(`Erro ao buscar executions órfãs: ${error.message}`)
         } finally {
             setLoading(false)
         }
@@ -73,20 +68,16 @@ export function OrphanedExecutions() {
             
             const result = await res.json()
             
-            toast({
-                title: 'Correção concluída',
-                description: `${result.fixed} corrigidas, ${result.failed} falhadas`,
-                variant: result.failed > 0 ? 'destructive' : 'default',
-            })
+            if (result.failed > 0) {
+                toast.warning(`Correção concluída: ${result.fixed} corrigidas, ${result.failed} falhadas`)
+            } else {
+                toast.success(`${result.fixed} execution(s) corrigida(s) com sucesso`)
+            }
             
             setSelected([])
             await detectOrphaned() // Recarregar
         } catch (error: any) {
-            toast({
-                title: 'Erro',
-                description: error.message,
-                variant: 'destructive',
-            })
+            toast.error(`Erro ao corrigir executions: ${error.message}`)
         } finally {
             setLoading(false)
         }

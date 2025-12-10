@@ -3024,8 +3024,7 @@ export class AdminSystemController {
             data: {
               qty_remaining: { decrement: qtyToClose },
               status: isClosed ? 'CLOSED' : 'OPEN',
-              price_close: execution.avg_price,
-              profit_usd: { increment: netProfit },
+              realized_profit_usd: { increment: netProfit },
               close_reason: 'MANUAL_FIX',
               closed_at: isClosed ? new Date() : position.closed_at,
             },
