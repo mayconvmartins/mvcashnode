@@ -562,7 +562,6 @@ export class WebhookMonitorService {
 
     const config = await this.getConfig();
     const priceMaximum = alert.price_maximum?.toNumber() || alert.price_alert.toNumber();
-    const priceAlert = alert.price_alert.toNumber();
     let newPriceMaximum = priceMaximum;
     let cyclesWithoutNewHigh = alert.cycles_without_new_high || 0;
     let trend: PriceTrend = PriceTrend.RISING;
