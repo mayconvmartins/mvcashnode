@@ -3290,5 +3290,293 @@ export class AdminSystemController {
       })),
     };
   }
+
+  @Get('detect-missing-orders/:accountId')
+  @ApiOperation({ 
+    summary: 'Detectar ordens da exchange que não estão no sistema',
+    description: 'Busca ordens BUY e SELL dos últimos 7 dias na exchange e compara com TradeExecution no sistema.'
+  })
+  @ApiParam({ 
+    name: 'accountId', 
+    type: 'number',
+    description: 'ID da ExchangeAccount',
+  })
+  async detectMissingOrders(@Param('accountId', ParseIntPipe) accountId: number) {
+    console.log(`[ADMIN] Detectando ordens faltantes para conta ${accountId}...`);
+
+    const account = await this.prisma.exchangeAccount.findUnique({
+      where: { id: accountId },
+    });
+
+    if (!account) {
+      throw new NotFoundException(`ExchangeAccount ${accountId} not found`);
+    }
+
+    // Descriptografar credenciais
+    const apiKey = await this.encryptionService.decrypt(account.api_key_enc);
+    const apiSecret = await this.encryptionService.decrypt(account.api_secret_enc);
+
+    // Criar adapter usando AdapterFactory.createAdapter (método estático)
+    const adapter = AdapterFactory.createAdapter(
+      account.exchange as ExchangeType,
+      apiKey,
+      apiSecret,
+      { testnet: account.testnet }
+    );
+
+    // Data limite: 7 dias atrás
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const since = sevenDaysAgo.getTime();
+
+    console.log(`[ADMIN] Buscando trades desde ${sevenDaysAgo.toISOString()}...`);
+
+    // Buscar todos os jobs para obter símbolos
+    const systemJobs = await this.prisma.tradeJob.findMany({
+      where: {
+        exchange_account_id: accountId,
+        created_at: { gte: sevenDaysAgo },
+      },
+      select: { symbol: true },
+      distinct: ['symbol'],
+    });
+
+    // Buscar também símbolos com posições abertas
+    const openPositionSymbols = await this.prisma.tradePosition.findMany({
+      where: {
+        exchange_account_id: accountId,
+        status: 'OPEN',
+      },
+      select: { symbol: true },
+      distinct: ['symbol'],
+    });
+
+    const allSymbols = [...new Set([
+      ...systemJobs.map(s => s.symbol),
+      ...openPositionSymbols.map(s => s.symbol),
+    ])];
+
+    console.log(`[ADMIN] Símbolos a verificar (${allSymbols.length}): ${allSymbols.join(', ')}`);
+
+    const missingOrders = [];
+
+    for (const symbol of allSymbols) {
+      try {
+        // Buscar trades da exchange
+        const exchangeTrades = await adapter.fetchMyTrades(symbol, since, 500);
+        
+        console.log(`[ADMIN] ${symbol}: ${exchangeTrades.length} trades na exchange`);
+
+        for (const trade of exchangeTrades) {
+          // Verificar se existe no sistema
+          const existsInSystem = await this.prisma.tradeExecution.findFirst({
+            where: {
+              exchange_account_id: accountId,
+              exchange_order_id: trade.order,
+            },
+          });
+
+          if (!existsInSystem) {
+            missingOrders.push({
+              exchangeOrderId: trade.order,
+              symbol: trade.symbol,
+              side: trade.side.toUpperCase(),
+              qty: trade.amount,
+              price: trade.price,
+              cost: trade.cost,
+              fee: trade.fee?.cost || 0,
+              feeCurrency: trade.fee?.currency || '',
+              timestamp: new Date(trade.timestamp),
+              info: trade.info,
+            });
+          }
+        }
+      } catch (error: any) {
+        console.error(`[ADMIN] Erro ao buscar trades de ${symbol}:`, error.message);
+      }
+    }
+
+    console.log(`[ADMIN] Detectadas ${missingOrders.length} ordens faltantes`);
+
+    return {
+      accountId,
+      accountName: account.label,
+      missing: missingOrders,
+      total: missingOrders.length,
+    };
+  }
+
+  @Post('import-missing-orders')
+  @ApiOperation({ 
+    summary: 'Importar ordens faltantes para o sistema',
+    description: 'Cria TradeExecution, TradeJob e TradePosition (se BUY) ou vincula a posição existente (se SELL).'
+  })
+  async importMissingOrders(
+    @Body() dto: { 
+      accountId: number; 
+      orders: Array<{
+        exchangeOrderId: string;
+        symbol: string;
+        side: 'BUY' | 'SELL';
+        qty: number;
+        price: number;
+        cost: number;
+        fee: number;
+        feeCurrency: string;
+        timestamp: string;
+        positionId?: number; // Para SELL, ID da posição a vincular
+      }>
+    }
+  ) {
+    console.log(`[ADMIN] Importando ${dto.orders.length} ordens para conta ${dto.accountId}...`);
+
+    const account = await this.prisma.exchangeAccount.findUnique({
+      where: { id: dto.accountId },
+    });
+
+    if (!account) {
+      throw new BadRequestException(`ExchangeAccount ${dto.accountId} not found`);
+    }
+
+    const results = [];
+
+    for (const order of dto.orders) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          // 1. Criar TradeJob
+          const job = await tx.tradeJob.create({
+            data: {
+              exchange_account_id: dto.accountId,
+              symbol: order.symbol,
+              side: order.side,
+              base_quantity: order.qty,
+              order_type: 'MARKET',
+              trade_mode: account.is_simulation ? 'SIMULATION' : 'REAL',
+              status: 'FILLED',
+              reason_code: 'IMPORTED',
+              reason_message: 'Ordem importada via admin tools',
+              position_id_to_close: order.side === 'SELL' ? order.positionId : null,
+            },
+          });
+
+          // 2. Criar TradeExecution
+          const execution = await tx.tradeExecution.create({
+            data: {
+              trade_job_id: job.id,
+              exchange_account_id: dto.accountId,
+              trade_mode: account.is_simulation ? 'SIMULATION' : 'REAL',
+              exchange: account.exchange,
+              exchange_order_id: order.exchangeOrderId,
+              client_order_id: `IMPORTED_${order.exchangeOrderId}`,
+              status_exchange: 'FILLED',
+              executed_qty: order.qty,
+              avg_price: order.price,
+              cumm_quote_qty: order.cost,
+              fee_amount: order.fee,
+              fee_currency: order.feeCurrency,
+              created_at: new Date(order.timestamp),
+            },
+          });
+
+          // 3. Se BUY, criar TradePosition
+          if (order.side === 'BUY') {
+            const position = await tx.tradePosition.create({
+              data: {
+                exchange_account: {
+                  connect: { id: dto.accountId },
+                },
+                open_job: {
+                  connect: { id: job.id },
+                },
+                symbol: order.symbol,
+                side: 'LONG',
+                trade_mode: account.is_simulation ? 'SIMULATION' : 'REAL',
+                qty_total: order.qty,
+                qty_remaining: order.qty,
+                price_open: order.price,
+                status: 'OPEN',
+                created_at: new Date(order.timestamp),
+              },
+            });
+
+            // Criar PositionFill
+            await tx.positionFill.create({
+              data: {
+                position_id: position.id,
+                trade_execution_id: execution.id,
+                side: 'BUY',
+                qty: order.qty,
+                price: order.price,
+              },
+            });
+
+            console.log(`[ADMIN] BUY importado: Posição #${position.id} criada`);
+          }
+
+          // 4. Se SELL, vincular a posição
+          if (order.side === 'SELL' && order.positionId) {
+            const position = await tx.tradePosition.findUnique({
+              where: { id: order.positionId },
+            });
+
+            if (!position) {
+              throw new Error(`Posição #${order.positionId} não encontrada`);
+            }
+
+            const qtyToClose = Math.min(position.qty_remaining.toNumber(), order.qty);
+            const grossProfit = (order.price - position.price_open.toNumber()) * qtyToClose;
+            const netProfit = grossProfit - order.fee;
+            const newQtyRemaining = position.qty_remaining.toNumber() - qtyToClose;
+            const isClosed = newQtyRemaining <= 0.00001;
+
+            await tx.tradePosition.update({
+              where: { id: order.positionId },
+              data: {
+                qty_remaining: { decrement: qtyToClose },
+                status: isClosed ? 'CLOSED' : 'OPEN',
+                realized_profit_usd: { increment: netProfit },
+                close_reason: isClosed ? 'IMPORTED' : null,
+                closed_at: isClosed ? new Date(order.timestamp) : null,
+              },
+            });
+
+            // Criar PositionFill
+            await tx.positionFill.create({
+              data: {
+                position_id: order.positionId,
+                trade_execution_id: execution.id,
+                side: 'SELL',
+                qty: qtyToClose,
+                price: order.price,
+              },
+            });
+
+            console.log(`[ADMIN] SELL importado: Posição #${order.positionId} ${isClosed ? 'fechada' : 'parcialmente fechada'}`);
+          }
+
+          results.push({
+            exchangeOrderId: order.exchangeOrderId,
+            success: true,
+            jobId: job.id,
+            executionId: execution.id,
+          });
+        });
+      } catch (error: any) {
+        console.error(`[ADMIN] Erro ao importar ordem ${order.exchangeOrderId}:`, error.message);
+        results.push({
+          exchangeOrderId: order.exchangeOrderId,
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+
+    const imported = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+
+    console.log(`[ADMIN] Importação concluída: ${imported} importadas, ${failed} falhadas`);
+
+    return { imported, failed, results };
+  }
 }
 

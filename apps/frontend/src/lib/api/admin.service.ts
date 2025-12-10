@@ -860,5 +860,60 @@ export const adminService = {
         })
         return response.data
     },
+
+    // Missing Orders Detection
+    detectMissingOrders: async (accountId: number): Promise<{
+        accountId: number;
+        accountName: string;
+        missing: Array<{
+            exchangeOrderId: string;
+            symbol: string;
+            side: 'BUY' | 'SELL';
+            qty: number;
+            price: number;
+            cost: number;
+            fee: number;
+            feeCurrency: string;
+            timestamp: string;
+            info: any;
+        }>;
+        total: number;
+    }> => {
+        const response = await apiClient.get(`/admin/detect-missing-orders/${accountId}`, {
+            timeout: 300000, // 5 minutos
+        })
+        return response.data
+    },
+
+    importMissingOrders: async (data: {
+        accountId: number;
+        orders: Array<{
+            exchangeOrderId: string;
+            symbol: string;
+            side: 'BUY' | 'SELL';
+            qty: number;
+            price: number;
+            cost: number;
+            fee: number;
+            feeCurrency: string;
+            timestamp: string;
+            positionId?: number;
+        }>;
+    }): Promise<{
+        imported: number;
+        failed: number;
+        results: Array<{
+            exchangeOrderId: string;
+            success: boolean;
+            jobId?: number;
+            executionId?: number;
+            error?: string;
+        }>;
+    }> => {
+        const response = await apiClient.post('/admin/import-missing-orders', data, {
+            timeout: 300000, // 5 minutos
+        })
+        return response.data
+    },
 }
 

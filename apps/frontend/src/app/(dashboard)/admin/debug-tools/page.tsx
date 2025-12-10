@@ -8,6 +8,7 @@ import { SuspiciousSellExecutions } from '@/components/monitoring/SuspiciousSell
 import { AuditFifoPositions } from '@/components/monitoring/AuditFifoPositions'
 import { CancelAllPendingOrders } from '@/components/monitoring/CancelAllPendingOrders'
 import { OrphanedExecutions } from '@/components/monitoring/OrphanedExecutions'
+import { MissingOrders } from '@/components/monitoring/MissingOrders'
 import { Wrench } from 'lucide-react'
 
 export default function DebugToolsPage() {
@@ -26,6 +27,9 @@ export default function DebugToolsPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {/* Executions Órfãs (NOVO) */}
                 <OrphanedExecutions />
+
+                {/* Ordens Faltantes da Exchange (NOVO) */}
+                <MissingOrders />
 
                 {/* Limpeza de Posições Órfãs */}
                 <CleanupOrphanedPositions />
