@@ -778,6 +778,7 @@ export class WebhookMonitorService {
       where: { id: alertId },
     });
     const executionPrice = alertBeforeUpdate?.current_price || alertBeforeUpdate?.price_alert;
+    const executionTime = new Date(); // Momento da execução
 
     // Criar detalhes de saída
     const exitDetails = alertBeforeUpdate?.monitoring_status === 'LATERAL'
@@ -794,27 +795,35 @@ export class WebhookMonitorService {
     let efficiencyPct = 0;
 
     if (alertBeforeUpdate) {
+      // Usar o momento da execução para calcular a duração
       monitoringDurationMinutes = Math.round(
-        (new Date().getTime() - new Date(alertBeforeUpdate.created_at).getTime()) / 60000
+        (executionTime.getTime() - new Date(alertBeforeUpdate.created_at).getTime()) / 60000
       );
 
       const priceAlert = alertBeforeUpdate.price_alert.toNumber();
-      const currentPrice = executionPrice?.toNumber() || priceAlert;
+      const execPrice = executionPrice?.toNumber() || priceAlert;
       const side = (alertBeforeUpdate as any).side || 'BUY';
 
       // Calcular economia vs preço inicial
-      savingsPct = ((priceAlert - currentPrice) / priceAlert) * 100;
+      // Para BUY: economia positiva quando executa abaixo do preço do alerta
+      // Para SELL: economia positiva quando executa acima do preço do alerta
+      if (side === 'BUY') {
+        savingsPct = ((priceAlert - execPrice) / priceAlert) * 100;
+      } else {
+        // SELL: economia é quando vende acima do preço do alerta
+        savingsPct = ((execPrice - priceAlert) / priceAlert) * 100;
+      }
 
       // Calcular eficiência (proximidade do melhor preço)
       if (side === 'BUY' && alertBeforeUpdate.price_minimum) {
         const priceMin = alertBeforeUpdate.price_minimum.toNumber();
         if (priceAlert !== priceMin) {
-          efficiencyPct = ((priceAlert - currentPrice) / (priceAlert - priceMin)) * 100;
+          efficiencyPct = ((priceAlert - execPrice) / (priceAlert - priceMin)) * 100;
         }
       } else if (side === 'SELL' && alertBeforeUpdate.price_maximum) {
         const priceMax = alertBeforeUpdate.price_maximum.toNumber();
         if (priceMax !== priceAlert) {
-          efficiencyPct = ((currentPrice - priceAlert) / (priceMax - priceAlert)) * 100;
+          efficiencyPct = ((execPrice - priceAlert) / (priceMax - priceAlert)) * 100;
         }
       }
     }
@@ -1145,7 +1154,7 @@ export class WebhookMonitorService {
     const ids = latestIds.map((row) => row.id);
 
     // Buscar os detalhes completos dos alertas usando Prisma
-    return this.prisma.webhookMonitorAlert.findMany({
+    const alerts = await this.prisma.webhookMonitorAlert.findMany({
       where: {
         id: {
           in: ids,
@@ -1178,6 +1187,46 @@ export class WebhookMonitorService {
         created_at: 'desc',
       },
     });
+
+    // Calcular métricas para alertas que não têm esses valores calculados
+    const alertsToUpdate: number[] = [];
+    for (const alert of alerts) {
+      if (alert.state === 'EXECUTED' && (
+        alert.monitoring_duration_minutes === null ||
+        alert.savings_pct === null ||
+        alert.efficiency_pct === null
+      )) {
+        alertsToUpdate.push(alert.id);
+      }
+    }
+
+    // Calcular métricas em lote para alertas que precisam
+    if (alertsToUpdate.length > 0) {
+      try {
+        await this.calculateMetricsForExecutedAlerts(alertsToUpdate);
+        // Buscar novamente os alertas atualizados
+        const updatedAlerts = await this.prisma.webhookMonitorAlert.findMany({
+          where: {
+            id: { in: alertsToUpdate },
+          },
+        });
+        // Atualizar os alertas na lista original com os valores calculados
+        const updatedMap = new Map(updatedAlerts.map(a => [a.id, a]));
+        for (const alert of alerts) {
+          const updated = updatedMap.get(alert.id);
+          if (updated) {
+            (alert as any).monitoring_duration_minutes = updated.monitoring_duration_minutes;
+            (alert as any).savings_pct = updated.savings_pct;
+            (alert as any).efficiency_pct = updated.efficiency_pct;
+          }
+        }
+      } catch (error: any) {
+        console.error('[WEBHOOK-MONITOR] Erro ao calcular métricas no listHistory:', error.message);
+        // Continuar mesmo se houver erro no cálculo
+      }
+    }
+
+    return alerts;
   }
 
   /**
@@ -1233,7 +1282,15 @@ export class WebhookMonitorService {
         const side = (alert as any).side || 'BUY';
 
         // Calcular economia vs preço inicial
-        const savingsPct = ((priceAlert - executionPrice) / priceAlert) * 100;
+        // Para BUY: economia positiva quando executa abaixo do preço do alerta
+        // Para SELL: economia positiva quando executa acima do preço do alerta
+        let savingsPct = 0;
+        if (side === 'BUY') {
+          savingsPct = ((priceAlert - executionPrice) / priceAlert) * 100;
+        } else {
+          // SELL: economia é quando vende acima do preço do alerta
+          savingsPct = ((executionPrice - priceAlert) / priceAlert) * 100;
+        }
 
         // Calcular eficiência (proximidade do melhor preço)
         let efficiencyPct = 0;
