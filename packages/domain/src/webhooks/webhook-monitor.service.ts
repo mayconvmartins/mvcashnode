@@ -30,7 +30,6 @@ export interface WebhookMonitorConfig {
   sell_lateral_cycles_min: number;
   sell_fall_trigger_pct: number;
   sell_fall_cycles_min: number;
-  sell_max_rise_pct: number;
   sell_max_monitoring_time_min: number;
   sell_cooldown_after_execution_min: number;
 }
@@ -62,7 +61,6 @@ export class WebhookMonitorService {
     sell_lateral_cycles_min: 4,
     sell_fall_trigger_pct: 0.5,
     sell_fall_cycles_min: 2,
-    sell_max_rise_pct: 6.0,
     sell_max_monitoring_time_min: 60,
     sell_cooldown_after_execution_min: 30,
   };
@@ -73,21 +71,10 @@ export class WebhookMonitorService {
   ) {}
 
   /**
-   * Obter configuração de monitoramento (global ou por usuário)
+   * Obter configuração de monitoramento (apenas global)
    */
-  async getConfig(userId?: number): Promise<WebhookMonitorConfig> {
-    if (userId) {
-      const userConfig = await this.prisma.webhookMonitorConfig.findUnique({
-        where: { user_id: userId },
-      });
-
-      if (userConfig) {
-        // ✅ BUG-MED-003 FIX: Usar função helper para converter sem `as any`
-        return this.convertPrismaConfigToInterface(userConfig);
-      }
-    }
-
-    // Buscar configuração global (user_id = null)
+  async getConfig(_userId?: number): Promise<WebhookMonitorConfig> {
+    // Sempre buscar configuração global (user_id = null)
     const globalConfig = await this.prisma.webhookMonitorConfig.findFirst({
       where: { user_id: null },
     });
@@ -97,6 +84,8 @@ export class WebhookMonitorService {
       return this.convertPrismaConfigToInterface(globalConfig);
     }
 
+    // Se não existe no banco, usar valores default do código
+    console.log('[WEBHOOK-MONITOR] Usando configuração padrão (não encontrada no banco)');
     return this.defaultConfig;
   }
 
@@ -118,7 +107,6 @@ export class WebhookMonitorService {
       sell_lateral_cycles_min: config.sell_lateral_cycles_min,
       sell_fall_trigger_pct: config.sell_fall_trigger_pct?.toNumber() || 0.5,
       sell_fall_cycles_min: config.sell_fall_cycles_min,
-      sell_max_rise_pct: config.sell_max_rise_pct?.toNumber() || 6.0,
       sell_max_monitoring_time_min: config.sell_max_monitoring_time_min,
       sell_cooldown_after_execution_min: config.sell_cooldown_after_execution_min,
     };
@@ -616,13 +604,6 @@ export class WebhookMonitorService {
       }
     }
 
-    // Verificar proteções (para SELL: cancelar se subiu muito desde o alerta)
-    const riseFromAlertPct = ((newPriceMaximum - priceAlert) / priceAlert) * 100;
-    if (riseFromAlertPct > config.sell_max_rise_pct) {
-      shouldCancel = true;
-      cancelReason = `Alta máxima excedida: ${riseFromAlertPct.toFixed(2)}% > ${config.sell_max_rise_pct}%`;
-    }
-
     // Verificar tempo máximo de monitoramento
     const monitoringTimeMinutes = (Date.now() - alert.created_at.getTime()) / (1000 * 60);
     if (monitoringTimeMinutes > config.sell_max_monitoring_time_min) {
@@ -898,11 +879,34 @@ export class WebhookMonitorService {
 
     console.log(`[WEBHOOK-MONITOR] Cancelando alerta ${alertId}: ${reason}`);
 
+    // Determinar exit_reason baseado no motivo
+    let exitReason = 'CANCELLED';
+    if (reason.includes('Tempo máximo')) {
+      exitReason = 'MAX_TIME';
+    } else if (reason.includes('Queda máxima') || reason.includes('Alta máxima')) {
+      exitReason = 'MAX_FALL';
+    } else if (reason.includes('Substituído')) {
+      exitReason = 'REPLACED';
+    } else if (reason.includes('manual')) {
+      exitReason = 'MANUAL';
+    }
+
+    // Calcular duração do monitoramento
+    const monitoringDurationMinutes = Math.round(
+      (Date.now() - alert.created_at.getTime()) / 60000
+    );
+
+    // Criar exit_details com informações detalhadas
+    const exitDetails = reason;
+
     const updatedAlert = await this.prisma.webhookMonitorAlert.update({
       where: { id: alertId },
       data: {
         state: WebhookMonitorAlertState.CANCELLED,
         cancel_reason: reason,
+        exit_reason: exitReason,
+        exit_details: exitDetails,
+        monitoring_duration_minutes: monitoringDurationMinutes,
       },
     });
 

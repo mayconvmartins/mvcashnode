@@ -257,7 +257,6 @@ Configurações de monitoramento (global ou por usuário):
 - sell_lateral_cycles_min (INT, default: 4)
 - sell_fall_trigger_pct (DECIMAL(5,2), default: 0.50)
 - sell_fall_cycles_min (INT, default: 2)
-- sell_max_rise_pct (DECIMAL(5,2), default: 6.00)
 - sell_max_monitoring_time_min (INT, default: 60)
 - sell_cooldown_after_execution_min (INT, default: 30)
 - created_at, updated_at
@@ -290,14 +289,12 @@ Todos os parâmetros podem ser configurados na interface (`/webhooks/monitor` �
 | `sell_lateral_cycles_min` | 4 | Ciclos sem novo topo para executar venda em lateral |
 | `sell_fall_trigger_pct` | 0.5% | Percentual de queda a partir do máximo para executar venda |
 | `sell_fall_cycles_min` | 2 | Ciclos mínimos após queda para executar venda |
-| `sell_max_rise_pct` | 6% | Alta máxima desde o alerta para cancelar venda |
 | `sell_max_monitoring_time_min` | 60 | Tempo máximo de monitoramento para venda (minutos) |
 | `sell_cooldown_after_execution_min` | 30 | Cooldown após execução de venda (minutos) |
 
-### Configuração Global vs. por Usuário
+### Configuração
 
-- **Configuração Global** (`user_id = null`): Aplicada a todos os usuários que não têm configuração própria
-- **Configuração por Usuário**: Cada usuário pode ter suas próprias configurações, que sobrescrevem a global
+- **Configuração Global** (`user_id = null`): A configuração é única e global para todos os usuários. Não há mais suporte a configurações por usuário para simplificar o sistema e garantir consistência.
 
 ## API Endpoints
 

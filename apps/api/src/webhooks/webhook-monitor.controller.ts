@@ -315,7 +315,6 @@ export class WebhookMonitorController {
           sell_lateral_cycles_min: configData.sell_lateral_cycles_min ?? (globalConfig as any)?.sell_lateral_cycles_min ?? 4,
           sell_fall_trigger_pct: configData.sell_fall_trigger_pct ?? (globalConfig as any)?.sell_fall_trigger_pct ?? 0.5,
           sell_fall_cycles_min: configData.sell_fall_cycles_min ?? (globalConfig as any)?.sell_fall_cycles_min ?? 2,
-          sell_max_rise_pct: configData.sell_max_rise_pct ?? (globalConfig as any)?.sell_max_rise_pct ?? 6.0,
           sell_max_monitoring_time_min: configData.sell_max_monitoring_time_min ?? (globalConfig as any)?.sell_max_monitoring_time_min ?? 60,
           sell_cooldown_after_execution_min: configData.sell_cooldown_after_execution_min ?? (globalConfig as any)?.sell_cooldown_after_execution_min ?? 30,
         },
@@ -371,7 +370,6 @@ export class WebhookMonitorController {
       sell_lateral_cycles_min: (config as any).sell_lateral_cycles_min || 4,
       sell_fall_trigger_pct: (config as any).sell_fall_trigger_pct?.toNumber() || 0.5,
       sell_fall_cycles_min: (config as any).sell_fall_cycles_min || 2,
-      sell_max_rise_pct: (config as any).sell_max_rise_pct?.toNumber() || 6.0,
       sell_max_monitoring_time_min: (config as any).sell_max_monitoring_time_min || 60,
       sell_cooldown_after_execution_min: (config as any).sell_cooldown_after_execution_min || 30,
     };

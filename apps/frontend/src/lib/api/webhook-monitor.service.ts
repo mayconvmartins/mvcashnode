@@ -71,7 +71,6 @@ export interface WebhookMonitorConfig {
   sell_lateral_cycles_min: number
   sell_fall_trigger_pct: number
   sell_fall_cycles_min: number
-  sell_max_rise_pct: number
   sell_max_monitoring_time_min: number
   sell_cooldown_after_execution_min: number
 }

@@ -431,11 +431,15 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           
           // Validar quantidade vs disponível
           if (baseQty > available) {
-            const MIN_AMOUNT = 0.001;
-            
-            if (available >= MIN_AMOUNT) {
-              // Ajustar quantidade para o disponível
+            if (available > 0) {
+              // Ajustar quantidade para o disponível (qualquer valor acima de zero)
               this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Quantidade solicitada (${baseQty}) > disponível (${available}). Ajustando para ${available}`);
+              
+              // Adicionar warning se quantidade ajustada for muito pequena
+              if (available < 0.001) {
+                this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - ⚠️ Quantidade ajustada é muito pequena (${available} ${baseAsset}). A exchange pode rejeitar a ordem.`);
+              }
+              
               baseQty = available;
               
               // Atualizar job no banco
@@ -444,8 +448,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                 data: { base_quantity: baseQty },
               });
             } else {
-              // Saldo muito pequeno, falhar
-              throw new Error(`Saldo insuficiente na exchange. Disponível: ${available} ${baseAsset}, Mínimo necessário: ${MIN_AMOUNT} ${baseAsset}`);
+              // Saldo zero, falhar
+              throw new Error(`Saldo insuficiente na exchange. Disponível: ${available} ${baseAsset}`);
             }
           }
           
@@ -473,11 +477,10 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           throw new Error(`Quantidade inválida para criar ordem: baseQty=${baseQty}, quoteAmount=${quoteAmount}, amountToUse=${amountToUse}`);
         }
         
-        // Validação básica de quantidade mínima (0.001 é um valor conservador comum)
-        // A validação real será feita pela exchange, mas isso evita erros óbvios
-        const MIN_AMOUNT = 0.001;
-        if (amountToUse < MIN_AMOUNT) {
-          this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Quantidade muito pequena: ${amountToUse} < ${MIN_AMOUNT}. A exchange pode rejeitar.`);
+        // Log informativo sobre quantidade que será enviada
+        // A validação real de quantidade mínima será feita pela exchange
+        if (amountToUse < 0.001) {
+          this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - ⚠️ Quantidade muito pequena: ${amountToUse} ${tradeJob.symbol}. A exchange pode rejeitar se não atender aos requisitos mínimos.`);
         }
         
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Criando ordem na exchange: ${orderType} ${tradeJob.side} amount=${amountToUse} ${tradeJob.symbol}`);
@@ -533,15 +536,17 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               
               this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível: ${available} ${baseAsset}, Quantidade solicitada: ${baseQty} ${baseAsset}`);
               
-              // Quantidade mínima para evitar ordens muito pequenas
-              const MIN_AMOUNT = 0.001;
-              
-              if (available > 0 && available < baseQty && available >= MIN_AMOUNT) {
-                // Ajustar quantidade para o disponível
+              if (available > 0 && available < baseQty) {
+                // Ajustar quantidade para o disponível (qualquer valor acima de zero)
                 const oldBaseQty = baseQty;
                 baseQty = available;
                 
                 this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ajustando quantidade de ${oldBaseQty} para ${baseQty} ${baseAsset}`);
+                
+                // Adicionar warning se quantidade ajustada for muito pequena
+                if (available < 0.001) {
+                  this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - ⚠️ Quantidade ajustada é muito pequena (${available} ${baseAsset}). A exchange pode rejeitar a ordem.`);
+                }
                 
                 // Atualizar job no banco
                 await this.prisma.tradeJob.update({
@@ -595,9 +600,18 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                   const retryErrorMessage = retryError?.message || 'Erro desconhecido';
                   this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao criar ordem após ajuste de quantidade: ${retryErrorMessage}`);
                   
-                  // Se ainda falhar, marcar como FAILED
-                  reasonCode = 'INSUFFICIENT_BALANCE';
-                  reasonMessage = `Saldo insuficiente mesmo após ajuste. Disponível: ${available} ${baseAsset}, Tentado: ${newAmountToUse} ${baseAsset}`;
+                  // Capturar erros da exchange sobre quantidade mínima e logar adequadamente
+                  if (retryErrorMessage.includes('min notional') || 
+                      retryErrorMessage.includes('MIN_NOTIONAL') ||
+                      retryErrorMessage.includes('LOT_SIZE') ||
+                      retryErrorMessage.includes('minimum amount') ||
+                      retryErrorMessage.includes('PRECISION')) {
+                    reasonCode = 'MIN_NOTIONAL_NOT_MET';
+                    reasonMessage = `A exchange rejeitou a ordem: quantidade muito pequena (${newAmountToUse} ${baseAsset}). Erro: ${retryErrorMessage}`;
+                  } else {
+                    reasonCode = 'INSUFFICIENT_BALANCE';
+                    reasonMessage = `Saldo insuficiente mesmo após ajuste. Disponível: ${available} ${baseAsset}, Tentado: ${newAmountToUse} ${baseAsset}`;
+                  }
                   
                   await this.prisma.tradeJob.update({
                     where: { id: tradeJobId },
@@ -610,11 +624,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                   
                   throw new Error(`${reasonCode}: ${reasonMessage}`);
                 }
-              } else if (available === 0 || available < MIN_AMOUNT) {
-                // Saldo zero ou muito pequeno, marcar como FAILED
-                this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível é zero ou muito pequeno: ${available} ${baseAsset}`);
+              } else if (available === 0) {
+                // Saldo zero, marcar como FAILED
+                this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível é zero: ${available} ${baseAsset}`);
                 reasonCode = 'INSUFFICIENT_BALANCE';
-                reasonMessage = `Saldo insuficiente na exchange. Disponível: ${available} ${baseAsset}, Mínimo necessário: ${MIN_AMOUNT} ${baseAsset}`;
+                reasonMessage = `Saldo insuficiente na exchange. Disponível: ${available} ${baseAsset}`;
                 
                 await this.prisma.tradeJob.update({
                   where: { id: tradeJobId },

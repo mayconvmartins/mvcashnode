@@ -490,7 +490,15 @@ export default function WebhookMonitorPage() {
                 <TabsContent value="config">
                     <Card className="glass">
                         <CardHeader>
-                            <CardTitle>Configurações do Monitor</CardTitle>
+                            <div className="flex items-center justify-between">
+                                <CardTitle>Configurações Globais do Monitor</CardTitle>
+                                <Badge variant="secondary" className="ml-2">
+                                    Global
+                                </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground mt-2">
+                                Estas configurações são aplicadas globalmente para todos os usuários do sistema.
+                            </p>
                         </CardHeader>
                         <CardContent>
                             <WebhookMonitorConfigForm />

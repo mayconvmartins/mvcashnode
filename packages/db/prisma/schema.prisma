@@ -432,7 +432,7 @@ model WebhookMonitorConfig {
   sell_lateral_cycles_min      Int      @default(4)
   sell_fall_trigger_pct        Decimal  @default(0.5) @db.Decimal(5, 2) // Quando considerar "caindo" para executar
   sell_fall_cycles_min         Int      @default(2)
-  sell_max_rise_pct            Decimal  @default(6.0) @db.Decimal(5, 2) // Proteção: cancelar se subiu muito
+  sell_max_rise_pct            Decimal  @default(6.0) @db.Decimal(5, 2) // DEPRECADO: Não faz sentido cancelar venda se preço sobe (mais lucro). Mantido apenas para compatibilidade.
   sell_max_monitoring_time_min Int      @default(60)
   sell_cooldown_after_execution_min Int @default(30)
   

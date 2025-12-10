@@ -94,9 +94,6 @@ export function WebhookMonitorConfigForm() {
         if (formData.sell_fall_cycles_min !== undefined && formData.sell_fall_cycles_min !== null && !isNaN(formData.sell_fall_cycles_min)) {
             dataToSend.sell_fall_cycles_min = formData.sell_fall_cycles_min
         }
-        if (formData.sell_max_rise_pct !== undefined && formData.sell_max_rise_pct !== null && !isNaN(formData.sell_max_rise_pct)) {
-            dataToSend.sell_max_rise_pct = formData.sell_max_rise_pct
-        }
         if (formData.sell_max_monitoring_time_min !== undefined && formData.sell_max_monitoring_time_min !== null && !isNaN(formData.sell_max_monitoring_time_min)) {
             dataToSend.sell_max_monitoring_time_min = formData.sell_max_monitoring_time_min
         }
@@ -128,6 +125,11 @@ export function WebhookMonitorConfigForm() {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                    <strong>Configuração Global:</strong> As alterações aqui serão aplicadas a todos os alertas de monitoramento do sistema.
+                </p>
+            </div>
             <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Parâmetros para Compra (BUY)</h3>
             </div>
@@ -352,25 +354,6 @@ export function WebhookMonitorConfigForm() {
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                         Ciclos mínimos após queda para executar venda (padrão: 2)
-                    </p>
-                </div>
-
-                <div>
-                    <Label htmlFor="sell_max_rise_pct">Alta Máxima SELL (%)</Label>
-                    <Input
-                        id="sell_max_rise_pct"
-                        type="number"
-                        step="0.1"
-                        min="1"
-                        max="20"
-                        value={formData.sell_max_rise_pct || 6.0}
-                        onChange={(e) => {
-                            const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
-                            handleChange('sell_max_rise_pct', value !== undefined && !isNaN(value) ? value : undefined)
-                        }}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                        Alta máxima desde o alerta para cancelar venda (padrão: 6%)
                     </p>
                 </div>
 
