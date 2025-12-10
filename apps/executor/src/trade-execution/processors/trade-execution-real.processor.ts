@@ -1544,6 +1544,15 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         reasonMessage = errorMessage;
       }
 
+      // Lista de erros não recuperáveis (não adianta tentar de novo)
+      const nonRecoverableErrors = [
+        'INVALID_PRECISION',
+        'INVALID_QUANTITY',
+        'INVALID_SYMBOL',
+        'INVALID_PRICE',
+        'INSUFFICIENT_BALANCE',
+      ];
+
       // Update job status to FAILED ou SKIPPED (apenas se ainda não foi atualizado)
       // Para INSUFFICIENT_BALANCE, usar SKIPPED; para outros erros, usar FAILED
       try {
@@ -1572,26 +1581,17 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             },
           });
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
-          
-          // Lista de erros não recuperáveis (não adianta tentar de novo)
-          const nonRecoverableErrors = [
-            'INVALID_PRECISION',
-            'INVALID_QUANTITY',
-            'INVALID_SYMBOL',
-            'INVALID_PRICE',
-            'INSUFFICIENT_BALANCE', // Já estava aqui
-          ];
-          
-          // Se for erro não recuperável, retornar sem lançar (evita retry do BullMQ)
-          if (nonRecoverableErrors.includes(reasonCode)) {
-            this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Erro não recuperável (${reasonCode}), não será retentado`);
-            return; // Retornar sem lançar erro
-          }
         } else {
           this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já atualizado (${currentJob?.status}), não atualizando novamente`);
         }
       } catch (updateError: any) {
         this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao atualizar status do job: ${updateError?.message}`);
+      }
+
+      // Se for erro não recuperável, retornar sem lançar (evita retry do BullMQ)
+      if (nonRecoverableErrors.includes(reasonCode)) {
+        this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Erro não recuperável (${reasonCode}), não será retentado`);
+        return; // Retornar sem lançar erro
       }
 
       // Para erros recuperáveis, lançar para permitir retry do BullMQ
