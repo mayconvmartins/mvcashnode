@@ -56,10 +56,11 @@ export enum WebhookAction {
 
 export enum WebhookEventStatus {
   RECEIVED = 'RECEIVED',
+  MONITORING = 'MONITORING',
   JOB_CREATED = 'JOB_CREATED',
   SKIPPED = 'SKIPPED',
   FAILED = 'FAILED',
-  MONITORING = 'MONITORING',
+  REPLACED = 'REPLACED', // Quando um alerta substitui outro
 }
 
 export enum VaultTransactionType {

@@ -210,6 +210,13 @@ export class WebhookMonitorController {
     }));
   }
 
+  @Get('summary')
+  @ApiOperation({ summary: 'Obter resumo de métricas do monitor' })
+  @ApiResponse({ status: 200, description: 'Resumo de métricas' })
+  async getSummary(@CurrentUser() user: any) {
+    return this.monitorService.getSummary();
+  }
+
   @Get('config')
   @ApiOperation({ summary: 'Obter configurações de monitoramento' })
   @ApiResponse({ status: 200, description: 'Configurações de monitoramento' })

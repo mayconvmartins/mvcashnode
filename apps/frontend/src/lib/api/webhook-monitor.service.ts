@@ -23,6 +23,9 @@ export interface WebhookMonitorAlert {
   cancel_reason: string | null
   exit_reason: string | null
   exit_details: string | null
+  monitoring_duration_minutes: number | null
+  savings_pct: number | null
+  efficiency_pct: number | null
   created_at: string
   updated_at: string
   webhook_source?: {
@@ -40,6 +43,16 @@ export interface WebhookMonitorAlert {
     action: string
     created_at: string
   }
+}
+
+export interface WebhookMonitorSummary {
+  monitoring_count: number
+  executed_30d: number
+  avg_savings_pct: number
+  avg_efficiency_pct: number
+  avg_monitoring_time_minutes: number
+  best_result: { symbol: string; savings_pct: number } | null
+  worst_result: { symbol: string; savings_pct: number } | null
 }
 
 export interface WebhookMonitorConfig {
@@ -103,6 +116,11 @@ export const webhookMonitorService = {
 
   async updateConfig(config: Partial<WebhookMonitorConfig>): Promise<WebhookMonitorConfig> {
     const response = await apiClient.put<WebhookMonitorConfig>('/webhooks/monitor/config', config)
+    return response.data
+  },
+
+  async getSummary(): Promise<WebhookMonitorSummary> {
+    const response = await apiClient.get<WebhookMonitorSummary>('/webhooks/monitor/summary')
     return response.data
   },
 }

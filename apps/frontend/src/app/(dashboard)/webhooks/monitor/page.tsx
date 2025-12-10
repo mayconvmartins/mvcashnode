@@ -10,7 +10,7 @@ import { DataTable, type Column } from '@/components/shared/DataTable'
 import { webhookMonitorService, type WebhookMonitorAlert, type WebhookMonitorConfig } from '@/lib/api/webhook-monitor.service'
 import { toast } from 'sonner'
 import { formatDateTime } from '@/lib/utils/format'
-import { X, TrendingDown, TrendingUp, Minus, Settings, History, Activity, RefreshCw } from 'lucide-react'
+import { X, TrendingDown, TrendingUp, Minus, Settings, History, Activity, RefreshCw, Clock, Target } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -31,6 +31,12 @@ export default function WebhookMonitorPage() {
     const { data: history, isLoading: historyLoading } = useQuery({
         queryKey: ['webhook-monitor-history'],
         queryFn: () => webhookMonitorService.getHistory({ limit: 50 }),
+    })
+
+    const { data: summary } = useQuery({
+        queryKey: ['webhook-monitor-summary'],
+        queryFn: webhookMonitorService.getSummary,
+        refetchInterval: 10000, // Atualizar a cada 10 segundos
     })
 
     const cancelMutation = useMutation({
@@ -312,6 +318,39 @@ export default function WebhookMonitorPage() {
             },
         },
         {
+            key: 'savings_pct',
+            label: 'Economia',
+            render: (alert: any) => {
+                if (alert.savings_pct !== null && alert.savings_pct !== undefined) {
+                    const savings = typeof alert.savings_pct === 'number' ? alert.savings_pct : Number(alert.savings_pct)
+                    const color = savings > 0 ? 'text-green-600' : 'text-red-600'
+                    return <span className={`font-mono ${color}`}>{savings.toFixed(2)}%</span>
+                }
+                return <span className="text-sm text-muted-foreground">-</span>
+            },
+        },
+        {
+            key: 'efficiency_pct',
+            label: 'Eficiência',
+            render: (alert: any) => {
+                if (alert.efficiency_pct !== null && alert.efficiency_pct !== undefined) {
+                    const efficiency = typeof alert.efficiency_pct === 'number' ? alert.efficiency_pct : Number(alert.efficiency_pct)
+                    return <span className="font-mono">{efficiency.toFixed(1)}%</span>
+                }
+                return <span className="text-sm text-muted-foreground">-</span>
+            },
+        },
+        {
+            key: 'monitoring_duration_minutes',
+            label: 'Tempo',
+            render: (alert: any) => {
+                if (alert.monitoring_duration_minutes) {
+                    return <span className="text-sm">{alert.monitoring_duration_minutes}m</span>
+                }
+                return <span className="text-sm text-muted-foreground">-</span>
+            },
+        },
+        {
             key: 'webhook_source',
             label: 'Webhook',
             render: (alert: any) => (
@@ -341,6 +380,61 @@ export default function WebhookMonitorPage() {
                     </p>
                 </div>
             </div>
+
+            {/* Cards de Resumo */}
+            {summary && (
+                <div className="grid gap-4 md:grid-cols-4 mb-6">
+                    <Card className="glass">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Monitorando</CardTitle>
+                            <Activity className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{summary.monitoring_count}</div>
+                            <p className="text-xs text-muted-foreground">alertas ativos</p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="glass">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Economia Média</CardTitle>
+                            <TrendingDown className="h-4 w-4 text-green-500" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-green-600">
+                                {summary.avg_savings_pct.toFixed(2)}%
+                            </div>
+                            <p className="text-xs text-muted-foreground">últimos 30 dias</p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="glass">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Eficiência</CardTitle>
+                            <Target className="h-4 w-4 text-blue-500" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-blue-600">
+                                {summary.avg_efficiency_pct.toFixed(1)}%
+                            </div>
+                            <p className="text-xs text-muted-foreground">proximidade ideal</p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="glass">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Tempo Médio</CardTitle>
+                            <Clock className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">
+                                {Math.round(summary.avg_monitoring_time_minutes)}m
+                            </div>
+                            <p className="text-xs text-muted-foreground">monitoramento</p>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
 
             <Tabs defaultValue="active" className="space-y-4">
                 <TabsList>

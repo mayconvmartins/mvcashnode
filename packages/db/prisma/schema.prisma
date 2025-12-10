@@ -337,7 +337,7 @@ model WebhookEvent {
   price_reference   Decimal?  @db.Decimal(36, 18)
   raw_text          String?   @db.Text
   raw_payload_json  Json?     @db.Json
-  status            String    @default("RECEIVED") @db.VarChar(50)
+  status            String    @default("RECEIVED") @db.VarChar(50) // 'RECEIVED' | 'MONITORING' | 'JOB_CREATED' | 'SKIPPED' | 'FAILED' | 'REPLACED'
   validation_error  String?   @db.Text
   created_at        DateTime  @default(now())
   processed_at      DateTime?
@@ -394,6 +394,9 @@ model WebhookMonitorAlert {
   cancel_reason            String?   @db.Text
   exit_reason              String?   @db.VarChar(100) // Motivo de saída: 'EXECUTED', 'CANCELLED', 'MAX_FALL', 'MAX_TIME', etc.
   exit_details             String?   @db.Text // Detalhes do motivo (ex: "Lateralizado por 5 ciclos", "Em alta por 3 ciclos")
+  monitoring_duration_minutes Int?   // Tempo total em monitoramento (minutos)
+  savings_pct                 Decimal?  @db.Decimal(10, 4) // % economia vs preço alerta inicial
+  efficiency_pct              Decimal?  @db.Decimal(10, 4) // % proximidade do melhor preço (min/max)
   created_at               DateTime  @default(now())
   updated_at               DateTime  @updatedAt
 

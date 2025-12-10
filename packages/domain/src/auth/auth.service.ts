@@ -8,6 +8,7 @@ export interface LoginCredentials {
   email: string;
   password: string;
   twoFactorCode?: string;
+  rememberMe?: boolean;
 }
 
 export interface LoginResult {
@@ -64,10 +65,16 @@ export class AuthService {
     return isValid;
   }
 
-  generateJWT(payload: JwtPayload): string {
-    return jwt.sign(payload, this.jwtSecret, {
-      expiresIn: this.jwtExpiresIn,
-    });
+  generateJWT(payload: JwtPayload, rememberMe: boolean = false): string {
+    const expiresIn = rememberMe 
+      ? 7 * 24 * 60 * 60  // 7 dias se lembrar de mim
+      : this.jwtExpiresIn;  // 1 hora (padrão atual)
+      
+    return jwt.sign(
+      { ...payload, rememberMe },  // Incluir flag no payload
+      this.jwtSecret,
+      { expiresIn }
+    );
   }
 
   verifyJWT(token: string): JwtPayload {
@@ -231,14 +238,18 @@ export class AuthService {
       roles,
     };
 
-    const accessToken = this.generateJWT(payload);
+    const accessToken = this.generateJWT(payload, credentials.rememberMe || false);
     const refreshToken = this.generateRefreshToken(payload);
+
+    const expiresIn = credentials.rememberMe
+      ? 7 * 24 * 60 * 60  // 7 dias
+      : this.jwtExpiresIn; // 1 hora
 
     return {
       requires2FA: false,
       accessToken,
       refreshToken,
-      expiresIn: this.jwtExpiresIn,
+      expiresIn,
       user: {
         id: user.id,
         email: user.email,
@@ -267,8 +278,12 @@ export class AuthService {
       roles: user.roles.map((r: { role: string }) => r.role),
     };
 
+    // Preservar o rememberMe do token antigo se existir
+    const oldPayload = payload as any;
+    const rememberMe = oldPayload.rememberMe || false;
+
     return {
-      accessToken: this.generateJWT(newPayload),
+      accessToken: this.generateJWT(newPayload, rememberMe),
       refreshToken: this.generateRefreshToken(newPayload),
     };
   }

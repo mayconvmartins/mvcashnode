@@ -123,7 +123,8 @@ function LoginPageContent() {
             // Primeira etapa: validar email e senha
             loginMutation.mutate({ 
                 email, 
-                password
+                password,
+                rememberMe
             })
         }
     }

@@ -83,7 +83,7 @@ export class WebhookMonitorService {
 
       if (userConfig) {
         // ✅ BUG-MED-003 FIX: Usar função helper para converter sem `as any`
-        return this.convertPrismaConfigToInterface(userConfig);
+        return convertPrismaConfigToInterface(userConfig);
       }
     }
 
@@ -94,10 +94,84 @@ export class WebhookMonitorService {
 
     if (globalConfig) {
       // ✅ BUG-MED-003 FIX: Usar função helper para converter sem `as any`
-      return this.convertPrismaConfigToInterface(globalConfig);
+      return convertPrismaConfigToInterface(globalConfig);
     }
 
     return this.defaultConfig;
+  }
+
+  /**
+   * Helper para converter config do Prisma para interface
+   */
+  private convertPrismaConfigToInterface(config: any): WebhookMonitorConfig {
+    return convertPrismaConfigToInterface(config);
+  }
+
+  /**
+   * Obter resumo de métricas do monitor
+   */
+  async getSummary(): Promise<{
+    monitoring_count: number;
+    executed_30d: number;
+    avg_savings_pct: number;
+    avg_efficiency_pct: number;
+    avg_monitoring_time_minutes: number;
+    best_result: { symbol: string; savings_pct: number } | null;
+    worst_result: { symbol: string; savings_pct: number } | null;
+  }> {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // Contar alertas em monitoramento
+    const monitoringCount = await this.prisma.webhookMonitorAlert.count({
+      where: { state: 'MONITORING' },
+    });
+
+    // Buscar alertas executados nos últimos 30 dias
+    const executed = await this.prisma.webhookMonitorAlert.findMany({
+      where: {
+        state: 'EXECUTED',
+        updated_at: { gte: thirtyDaysAgo },
+      },
+      select: {
+        symbol: true,
+        savings_pct: true,
+        efficiency_pct: true,
+        monitoring_duration_minutes: true,
+      },
+    });
+
+    // Calcular médias
+    const avgSavings = executed.length > 0
+      ? executed.reduce((sum, a) => sum + (a.savings_pct?.toNumber() || 0), 0) / executed.length
+      : 0;
+    
+    const avgEfficiency = executed.length > 0
+      ? executed.reduce((sum, a) => sum + (a.efficiency_pct?.toNumber() || 0), 0) / executed.length
+      : 0;
+    
+    const avgMonitoringTime = executed.length > 0
+      ? executed.reduce((sum, a) => sum + (a.monitoring_duration_minutes || 0), 0) / executed.length
+      : 0;
+
+    // Melhor e pior resultado
+    const sortedBySavings = [...executed].sort((a, b) => 
+      (b.savings_pct?.toNumber() || 0) - (a.savings_pct?.toNumber() || 0)
+    );
+
+    return {
+      monitoring_count: monitoringCount,
+      executed_30d: executed.length,
+      avg_savings_pct: avgSavings,
+      avg_efficiency_pct: avgEfficiency,
+      avg_monitoring_time_minutes: avgMonitoringTime,
+      best_result: sortedBySavings[0] 
+        ? { symbol: sortedBySavings[0].symbol, savings_pct: sortedBySavings[0].savings_pct?.toNumber() || 0 }
+        : null,
+      worst_result: sortedBySavings[sortedBySavings.length - 1]
+        ? { symbol: sortedBySavings[sortedBySavings.length - 1].symbol, savings_pct: sortedBySavings[sortedBySavings.length - 1].savings_pct?.toNumber() || 0 }
+        : null,
+    };
   }
 
   /**
@@ -149,6 +223,14 @@ export class WebhookMonitorService {
                 },
               });
 
+              // Atualizar webhook_event para REPLACED
+              if (existingAlert.webhook_event_id) {
+                await tx.webhookEvent.update({
+                  where: { id: existingAlert.webhook_event_id },
+                  data: { status: 'REPLACED' },
+                });
+              }
+
               return await this.createNewAlertInTransaction(tx, dto);
             } else {
               console.log(`[WEBHOOK-MONITOR] Ignorando alerta BUY mais caro (existente: ${existingMinPrice}, novo: ${dto.priceAlert})`);
@@ -169,6 +251,14 @@ export class WebhookMonitorService {
                   exit_reason: 'REPLACED',
                 },
               });
+
+              // Atualizar webhook_event para REPLACED
+              if (existingAlert.webhook_event_id) {
+                await tx.webhookEvent.update({
+                  where: { id: existingAlert.webhook_event_id },
+                  data: { status: 'REPLACED' },
+                });
+              }
 
               return await this.createNewAlertInTransaction(tx, dto);
             } else {
@@ -631,7 +721,38 @@ export class WebhookMonitorService {
       ? `Em queda por ${alertBeforeUpdate.cycles_without_new_low || alertBeforeUpdate.cycles_without_new_high || 0} ciclos`
       : 'Executado';
 
-    // Atualizar alerta como executado
+    // Calcular métricas de performance se alertBeforeUpdate está disponível
+    let monitoringDurationMinutes = 0;
+    let savingsPct = 0;
+    let efficiencyPct = 0;
+
+    if (alertBeforeUpdate) {
+      monitoringDurationMinutes = Math.round(
+        (new Date().getTime() - new Date(alertBeforeUpdate.created_at).getTime()) / 60000
+      );
+
+      const priceAlert = alertBeforeUpdate.price_alert.toNumber();
+      const currentPrice = executionPrice?.toNumber() || priceAlert;
+      const side = (alertBeforeUpdate as any).side || 'BUY';
+
+      // Calcular economia vs preço inicial
+      savingsPct = ((priceAlert - currentPrice) / priceAlert) * 100;
+
+      // Calcular eficiência (proximidade do melhor preço)
+      if (side === 'BUY' && alertBeforeUpdate.price_minimum) {
+        const priceMin = alertBeforeUpdate.price_minimum.toNumber();
+        if (priceAlert !== priceMin) {
+          efficiencyPct = ((priceAlert - currentPrice) / (priceAlert - priceMin)) * 100;
+        }
+      } else if (side === 'SELL' && alertBeforeUpdate.price_maximum) {
+        const priceMax = alertBeforeUpdate.price_maximum.toNumber();
+        if (priceMax !== priceAlert) {
+          efficiencyPct = ((currentPrice - priceAlert) / (priceMax - priceAlert)) * 100;
+        }
+      }
+    }
+
+    // Atualizar alerta como executado com métricas
     const updatedAlert = await this.prisma.webhookMonitorAlert.update({
       where: { id: alertId },
       data: {
@@ -641,6 +762,9 @@ export class WebhookMonitorService {
         execution_price: executionPrice,
         exit_reason: 'EXECUTED',
         exit_details: exitDetails,
+        monitoring_duration_minutes: monitoringDurationMinutes,
+        savings_pct: savingsPct,
+        efficiency_pct: Math.min(100, Math.max(0, efficiencyPct)),
       },
     });
 

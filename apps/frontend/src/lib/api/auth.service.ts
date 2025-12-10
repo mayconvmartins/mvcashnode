@@ -5,6 +5,7 @@ export interface LoginDto {
     email: string
     password: string
     twoFactorCode?: string
+    rememberMe?: boolean
 }
 
 export interface Verify2FADto {
