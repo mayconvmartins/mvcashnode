@@ -1573,9 +1573,19 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           });
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
           
-          // Se for saldo insuficiente, retornar sem lançar erro
-          if (reasonCode === 'INSUFFICIENT_BALANCE') {
-            return;
+          // Lista de erros não recuperáveis (não adianta tentar de novo)
+          const nonRecoverableErrors = [
+            'INVALID_PRECISION',
+            'INVALID_QUANTITY',
+            'INVALID_SYMBOL',
+            'INVALID_PRICE',
+            'INSUFFICIENT_BALANCE', // Já estava aqui
+          ];
+          
+          // Se for erro não recuperável, retornar sem lançar (evita retry do BullMQ)
+          if (nonRecoverableErrors.includes(reasonCode)) {
+            this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Erro não recuperável (${reasonCode}), não será retentado`);
+            return; // Retornar sem lançar erro
           }
         } else {
           this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já atualizado (${currentJob?.status}), não atualizando novamente`);
@@ -1584,6 +1594,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao atualizar status do job: ${updateError?.message}`);
       }
 
+      // Para erros recuperáveis, lançar para permitir retry do BullMQ
       throw error;
     }
   }

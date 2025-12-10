@@ -589,10 +589,25 @@ export class TradeExecutionSimProcessor extends WorkerHost {
             reason_message: reasonMessage,
           },
         });
+        
+        // Lista de erros não recuperáveis (não adianta tentar de novo)
+        const nonRecoverableErrors = [
+          'INVALID_PRECISION',
+          'INVALID_QUANTITY',
+          'INVALID_SYMBOL',
+          'INVALID_PRICE',
+        ];
+        
+        // Se for erro não recuperável, retornar sem lançar (evita retry do BullMQ)
+        if (nonRecoverableErrors.includes(reasonCode)) {
+          this.logger.warn(`[EXECUTOR-SIM] Job ${tradeJobId} - Erro não recuperável (${reasonCode}), não será retentado`);
+          return; // Retornar sem lançar erro
+        }
       } catch (updateError) {
         this.logger.error(`[EXECUTOR-SIM] Erro ao atualizar status do job para FAILED: ${updateError}`);
       }
 
+      // Para erros recuperáveis, lançar para permitir retry do BullMQ
       throw error;
     }
   }
