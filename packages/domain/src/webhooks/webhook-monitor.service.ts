@@ -145,36 +145,76 @@ export class WebhookMonitorService {
     });
 
     // Buscar alertas executados nos últimos 30 dias
-    const executed = await this.prisma.webhookMonitorAlert.findMany({
-      where: {
-        state: 'EXECUTED',
-        updated_at: { gte: thirtyDaysAgo },
-      },
-      select: {
-        symbol: true,
-        savings_pct: true,
-        efficiency_pct: true,
-        monitoring_duration_minutes: true,
-      },
-    });
+    // Verificar se os campos existem antes de tentar buscar
+    let executed: any[] = [];
+    try {
+      // Tentar buscar com todos os campos primeiro
+      executed = await this.prisma.webhookMonitorAlert.findMany({
+        where: {
+          state: 'EXECUTED',
+          updated_at: { gte: thirtyDaysAgo },
+        },
+        select: {
+          symbol: true,
+          savings_pct: true,
+          efficiency_pct: true,
+          monitoring_duration_minutes: true,
+        },
+      });
+    } catch (error: any) {
+      // Se os campos não existem (erro de coluna não encontrada), buscar sem eles
+      if (error.message?.includes('Unknown column') || error.message?.includes('does not exist')) {
+        console.warn('[WEBHOOK-MONITOR] Campos de métricas não encontrados no banco, buscando sem eles. Execute a migration para adicionar os campos.');
+        executed = await this.prisma.webhookMonitorAlert.findMany({
+          where: {
+            state: 'EXECUTED',
+            updated_at: { gte: thirtyDaysAgo },
+          },
+          select: {
+            symbol: true,
+          },
+        });
+      } else {
+        // Se for outro erro, relançar
+        throw error;
+      }
+    }
 
-    // Calcular médias
+    // Calcular médias com proteção para campos que podem não existir
     const avgSavings = executed.length > 0
-      ? executed.reduce((sum, a) => sum + (a.savings_pct?.toNumber() || 0), 0) / executed.length
+      ? executed.reduce((sum, a) => {
+          try {
+            return sum + (a.savings_pct?.toNumber ? a.savings_pct.toNumber() : (a.savings_pct || 0));
+          } catch {
+            return sum + 0;
+          }
+        }, 0) / executed.length
       : 0;
     
     const avgEfficiency = executed.length > 0
-      ? executed.reduce((sum, a) => sum + (a.efficiency_pct?.toNumber() || 0), 0) / executed.length
+      ? executed.reduce((sum, a) => {
+          try {
+            return sum + (a.efficiency_pct?.toNumber ? a.efficiency_pct.toNumber() : (a.efficiency_pct || 0));
+          } catch {
+            return sum + 0;
+          }
+        }, 0) / executed.length
       : 0;
     
     const avgMonitoringTime = executed.length > 0
       ? executed.reduce((sum, a) => sum + (a.monitoring_duration_minutes || 0), 0) / executed.length
       : 0;
 
-    // Melhor e pior resultado
-    const sortedBySavings = [...executed].sort((a, b) => 
-      (b.savings_pct?.toNumber() || 0) - (a.savings_pct?.toNumber() || 0)
-    );
+    // Melhor e pior resultado com proteção
+    const sortedBySavings = [...executed].sort((a, b) => {
+      try {
+        const aVal = a.savings_pct?.toNumber ? a.savings_pct.toNumber() : (a.savings_pct || 0);
+        const bVal = b.savings_pct?.toNumber ? b.savings_pct.toNumber() : (b.savings_pct || 0);
+        return bVal - aVal;
+      } catch {
+        return 0;
+      }
+    });
 
     return {
       monitoring_count: monitoringCount,
@@ -182,11 +222,21 @@ export class WebhookMonitorService {
       avg_savings_pct: avgSavings,
       avg_efficiency_pct: avgEfficiency,
       avg_monitoring_time_minutes: avgMonitoringTime,
-      best_result: sortedBySavings[0] 
-        ? { symbol: sortedBySavings[0].symbol, savings_pct: sortedBySavings[0].savings_pct?.toNumber() || 0 }
+      best_result: sortedBySavings[0] && sortedBySavings[0].symbol
+        ? { 
+            symbol: sortedBySavings[0].symbol, 
+            savings_pct: sortedBySavings[0].savings_pct?.toNumber 
+              ? sortedBySavings[0].savings_pct.toNumber() 
+              : (sortedBySavings[0].savings_pct || 0)
+          }
         : null,
-      worst_result: sortedBySavings[sortedBySavings.length - 1]
-        ? { symbol: sortedBySavings[sortedBySavings.length - 1].symbol, savings_pct: sortedBySavings[sortedBySavings.length - 1].savings_pct?.toNumber() || 0 }
+      worst_result: sortedBySavings.length > 0 && sortedBySavings[sortedBySavings.length - 1]?.symbol
+        ? { 
+            symbol: sortedBySavings[sortedBySavings.length - 1].symbol, 
+            savings_pct: sortedBySavings[sortedBySavings.length - 1].savings_pct?.toNumber
+              ? sortedBySavings[sortedBySavings.length - 1].savings_pct.toNumber()
+              : (sortedBySavings[sortedBySavings.length - 1].savings_pct || 0)
+          }
         : null,
     };
   }

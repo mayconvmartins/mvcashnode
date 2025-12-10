@@ -197,24 +197,42 @@ export class WebhookMonitorController {
     }
 
     if (limit) {
-      filters.limit = parseInt(limit, 10);
+      const limitNum = parseInt(limit, 10);
+      if (!isNaN(limitNum) && limitNum > 0) {
+        filters.limit = limitNum;
+      }
     }
 
-    const history = await this.monitorService.listHistory(filters);
-    // Converter Decimal para número
-    return history.map((alert: any) => ({
-      ...alert,
-      price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
-      price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : Number(alert.price_minimum),
-      current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
-    }));
+    try {
+      const history = await this.monitorService.listHistory(filters);
+      // Converter Decimal para número e incluir campos de métricas se existirem
+      return history.map((alert: any) => ({
+        ...alert,
+        price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
+        price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : (alert.price_minimum ? Number(alert.price_minimum) : null),
+        price_maximum: alert.price_maximum?.toNumber ? alert.price_maximum.toNumber() : (alert.price_maximum ? Number(alert.price_maximum) : null),
+        current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
+        execution_price: alert.execution_price?.toNumber ? alert.execution_price.toNumber() : (alert.execution_price ? Number(alert.execution_price) : null),
+        savings_pct: alert.savings_pct?.toNumber ? alert.savings_pct.toNumber() : (alert.savings_pct ? Number(alert.savings_pct) : null),
+        efficiency_pct: alert.efficiency_pct?.toNumber ? alert.efficiency_pct.toNumber() : (alert.efficiency_pct ? Number(alert.efficiency_pct) : null),
+        monitoring_duration_minutes: alert.monitoring_duration_minutes || null,
+      }));
+    } catch (error: any) {
+      console.error('[WEBHOOK-MONITOR] Erro ao obter histórico:', error);
+      throw new BadRequestException(`Erro ao obter histórico: ${error.message}`);
+    }
   }
 
   @Get('summary')
   @ApiOperation({ summary: 'Obter resumo de métricas do monitor' })
   @ApiResponse({ status: 200, description: 'Resumo de métricas' })
   async getSummary(@CurrentUser() user: any) {
-    return this.monitorService.getSummary();
+    try {
+      return await this.monitorService.getSummary();
+    } catch (error: any) {
+      console.error('[WEBHOOK-MONITOR] Erro ao obter summary:', error);
+      throw new BadRequestException(`Erro ao obter resumo: ${error.message}`);
+    }
   }
 
   @Get('config')
