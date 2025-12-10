@@ -1483,6 +1483,37 @@ export class PositionService {
       const positionsToDelete = positions.filter(p => p.id !== basePosition.id);
       const positionsToDeleteIds = positionsToDelete.map(p => p.id);
 
+      // ✅ BUG 4 FIX: Validar que posições não têm ordens LIMIT pendentes antes de deletar
+      if (positionsToDeleteIds.length > 0) {
+        const pendingJobs = await tx.tradeJob.findMany({
+          where: {
+            position_id_to_close: { in: positionsToDeleteIds },
+            status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING'] },
+          },
+        });
+
+        if (pendingJobs.length > 0) {
+          const errorMsg = `Não é possível agrupar posições com ordens pendentes. Jobs pendentes: ${pendingJobs.map(j => j.id).join(', ')}`;
+          console.error(`[POSITION-SERVICE] ❌ ${errorMsg}`);
+          throw new Error(errorMsg);
+        }
+
+        // Validar integridade de qty_remaining antes de agrupar
+        for (const position of positions) {
+          const qtyRemaining = position.qty_remaining.toNumber();
+          const qtyTotal = position.qty_total.toNumber();
+          
+          if (qtyRemaining < 0) {
+            throw new Error(`Posição ${position.id} tem qty_remaining negativo: ${qtyRemaining}`);
+          }
+          if (qtyRemaining > qtyTotal) {
+            throw new Error(`Posição ${position.id} tem qty_remaining (${qtyRemaining}) maior que qty_total (${qtyTotal})`);
+          }
+        }
+
+        console.log(`[POSITION-SERVICE] ✅ Validações passadas: ${positionsToDeleteIds.length} posição(ões) pronta(s) para agrupamento`);
+      }
+
       // Mover PositionFill das posições agrupadas para a base
       if (positionsToDeleteIds.length > 0) {
         await tx.positionFill.updateMany({
@@ -1628,8 +1659,43 @@ export class PositionService {
         }
       }
 
+      // ✅ BUG 4 FIX: Verificação final de integridade após agrupamento
+      const finalPosition = await tx.tradePosition.findUnique({
+        where: { id: updatedPosition.id },
+        select: {
+          id: true,
+          qty_total: true,
+          qty_remaining: true,
+          price_open: true,
+          status: true,
+        },
+      });
+
+      if (!finalPosition) {
+        throw new Error(`Posição agrupada ${updatedPosition.id} não encontrada após agrupamento`);
+      }
+
+      const finalQtyTotal = finalPosition.qty_total.toNumber();
+      const finalQtyRemaining = finalPosition.qty_remaining.toNumber();
+
+      // Validar que qty_remaining não excede qty_total
+      if (finalQtyRemaining > finalQtyTotal) {
+        throw new Error(`Erro de integridade: Posição agrupada ${finalPosition.id} tem qty_remaining (${finalQtyRemaining}) > qty_total (${finalQtyTotal})`);
+      }
+
+      // Validar que a soma bate
+      const expectedQtyTotal = totalQty;
+      const expectedQtyRemaining = totalQtyRemaining;
+      if (Math.abs(finalQtyTotal - expectedQtyTotal) > 0.00000001) {
+        console.warn(`[POSITION-SERVICE] ⚠️ Diferença em qty_total: esperado ${expectedQtyTotal}, obtido ${finalQtyTotal}`);
+      }
+      if (Math.abs(finalQtyRemaining - expectedQtyRemaining) > 0.00000001) {
+        console.warn(`[POSITION-SERVICE] ⚠️ Diferença em qty_remaining: esperado ${expectedQtyRemaining}, obtido ${finalQtyRemaining}`);
+      }
+
       console.log(`[POSITION-SERVICE] ✅ Posições agrupadas: ${positionsToDeleteIds.length} posição(ões) agrupada(s) na posição base ${basePosition.id}`);
-      console.log(`[POSITION-SERVICE]   - Qty total: ${totalQty}, Qty restante: ${totalQtyRemaining}, Preço médio: ${weightedAvgPrice.toFixed(8)}`);
+      console.log(`[POSITION-SERVICE]   - Qty total: ${totalQty} (verificado: ${finalQtyTotal}), Qty restante: ${totalQtyRemaining} (verificado: ${finalQtyRemaining}), Preço médio: ${weightedAvgPrice.toFixed(8)}`);
+      console.log(`[POSITION-SERVICE]   - Status final: ${finalPosition.status}`);
 
       return updatedPosition.id;
     });

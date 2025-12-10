@@ -859,17 +859,13 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         this.logger.warn(`[EXECUTOR] Erro ao extrair taxas: ${feeError.message}`);
       }
 
-      // Ajustar quantidade executada se taxa for em base asset (BUY)
-      let adjustedExecutedQty = executedQty;
-      if (tradeJob.side === 'BUY' && feeAmount && feeCurrency) {
-        const baseAsset = tradeJob.symbol.split('/')[0];
-        if (feeCurrency === baseAsset) {
-          adjustedExecutedQty = Math.max(0, executedQty - feeAmount);
-          this.logger.log(`[EXECUTOR] Quantidade ajustada por taxa (base asset): ${executedQty} -> ${adjustedExecutedQty}`);
-        }
-      }
+      // ✅ BUG 3 FIX: NÃO ajustar quantidade executada para taxas em base asset
+      // A exchange mantém a quantidade BRUTA (incluindo taxa), então devemos salvar a quantidade bruta
+      // na execution e posição para que bata com o saldo na exchange
+      // As taxas são mantidas separadas nos campos fee_amount e fee_currency
+      let adjustedExecutedQty = executedQty; // Usar quantidade bruta (sem ajuste)
 
-      // Ajustar cumm_quote_qty se taxa for em quote asset (SELL)
+      // Ajustar cumm_quote_qty se taxa for em quote asset (SELL) - isso está correto
       let adjustedCummQuoteQty = cummQuoteQty;
       if (tradeJob.side === 'SELL' && feeAmount && feeCurrency) {
         const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';

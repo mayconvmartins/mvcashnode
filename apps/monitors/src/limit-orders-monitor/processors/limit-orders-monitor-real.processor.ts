@@ -117,15 +117,12 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
           let cummQuoteQty = exchangeOrder.cost || 0;
           const avgPrice = exchangeOrder.average || exchangeOrder.price || 0;
 
-          // Ajustar quantidade se taxa for em base asset (BUY)
-          if (order.side === 'BUY' && feeAmount && feeCurrency) {
-            const baseAsset = order.symbol.split('/')[0];
-            if (feeCurrency === baseAsset) {
-              executedQty = Math.max(0, executedQty - feeAmount);
-            }
-          }
+          // ✅ BUG 3 FIX: NÃO ajustar quantidade executada para taxas em base asset
+          // A exchange mantém a quantidade BRUTA (incluindo taxa), então devemos salvar a quantidade bruta
+          // na execution e posição para que bata com o saldo na exchange
+          // As taxas são mantidas separadas nos campos fee_amount e fee_currency
 
-          // Ajustar cumm_quote_qty se taxa for em quote asset (SELL)
+          // Ajustar cumm_quote_qty se taxa for em quote asset (SELL) - isso está correto
           if (order.side === 'SELL' && feeAmount && feeCurrency) {
             const quoteAsset = order.symbol.split('/')[1] || 'USDT';
             if (feeCurrency === quoteAsset) {
@@ -133,25 +130,49 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
             }
           }
 
-          // Create execution
-          const execution = await this.prisma.tradeExecution.create({
-            data: {
-              trade_job_id: order.id,
-              exchange_account_id: order.exchange_account_id,
-              trade_mode: order.trade_mode,
-              exchange: order.exchange_account.exchange,
-              exchange_order_id: exchangeOrder.id,
-              client_order_id: `client-${order.id}`,
-              status_exchange: exchangeOrder.status,
-              executed_qty: executedQty,
-              cumm_quote_qty: cummQuoteQty,
-              avg_price: avgPrice,
-              fee_amount: feeAmount || undefined,
-              fee_currency: feeCurrency || undefined,
-              fee_rate: feeRate || undefined,
-              raw_response_json: JSON.parse(JSON.stringify(exchangeOrder)),
-            },
-          });
+          // ✅ BUG 2 FIX: ATUALIZAR execution existente em vez de criar nova
+          // O executor já criou uma execution com exchange_order_id quando a ordem foi criada
+          // Devemos atualizar essa execution com os dados finais da ordem preenchida
+          let execution = existingExecution;
+          
+          if (execution) {
+            // Atualizar execution existente
+            execution = await this.prisma.tradeExecution.update({
+              where: { id: execution.id },
+              data: {
+                status_exchange: exchangeOrder.status,
+                executed_qty: executedQty,
+                cumm_quote_qty: cummQuoteQty,
+                avg_price: avgPrice,
+                fee_amount: feeAmount || undefined,
+                fee_currency: feeCurrency || undefined,
+                fee_rate: feeRate || undefined,
+                raw_response_json: JSON.parse(JSON.stringify(exchangeOrder)),
+              },
+            });
+            this.logger.log(`[LIMIT-ORDERS-MONITOR] Execution ${execution.id} atualizada para ordem ${order.id}`);
+          } else {
+            // Fallback: criar nova execution se não existir (não deveria acontecer)
+            this.logger.warn(`[LIMIT-ORDERS-MONITOR] Execution não encontrada para ordem ${order.id}, criando nova...`);
+            execution = await this.prisma.tradeExecution.create({
+              data: {
+                trade_job_id: order.id,
+                exchange_account_id: order.exchange_account_id,
+                trade_mode: order.trade_mode,
+                exchange: order.exchange_account.exchange,
+                exchange_order_id: exchangeOrder.id,
+                client_order_id: `client-${order.id}`,
+                status_exchange: exchangeOrder.status,
+                executed_qty: executedQty,
+                cumm_quote_qty: cummQuoteQty,
+                avg_price: avgPrice,
+                fee_amount: feeAmount || undefined,
+                fee_currency: feeCurrency || undefined,
+                fee_rate: feeRate || undefined,
+                raw_response_json: JSON.parse(JSON.stringify(exchangeOrder)),
+              },
+            });
+          }
 
           // Update position
           if (order.side === 'BUY') {
