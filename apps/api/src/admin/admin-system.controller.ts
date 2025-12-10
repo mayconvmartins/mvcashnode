@@ -2963,16 +2963,28 @@ export class AdminSystemController {
   @Post('fix-orphaned-executions')
   @ApiOperation({ 
     summary: 'Corrigir executions órfãs selecionadas',
-    description: 'Vincula manualmente executions órfãs às suas posições, fechando as posições retroativamente e recalculando lucros.'
+    description: 'Vincula manualmente executions órfãs às suas posições, fechando as posições retroativamente e recalculando lucros. Suporta posições alternativas para casos onde a posição original já foi fechada.'
   })
   @ApiResponse({ 
     status: 200, 
     description: 'Resultado da correção',
   })
-  async fixOrphanedExecutions(@Body() dto: { jobIds: number[] }) {
+  async fixOrphanedExecutions(@Body() dto: { 
+    jobIds: number[];
+    alternativePositions?: Array<{ jobId: number; positionId: number }>;
+  }) {
     console.log(`[ADMIN] Corrigindo ${dto.jobIds.length} executions órfãs...`);
+    if (dto.alternativePositions) {
+      console.log(`[ADMIN] ${dto.alternativePositions.length} posições alternativas fornecidas`);
+    }
     
     const results = [];
+    const needsAlternative: Array<{
+      jobId: number;
+      reason: string;
+      originalPositionId: number;
+      originalPositionStatus: string;
+    }> = [];
     
     for (const jobId of dto.jobIds) {
       try {
@@ -2984,6 +2996,7 @@ export class AdminSystemController {
               take: 1,
             },
             position_to_close: true,
+            exchange_account: true,
           },
         });
         
@@ -2997,53 +3010,131 @@ export class AdminSystemController {
           continue;
         }
 
-        if (!job.position_to_close) {
-          results.push({ jobId, success: false, error: 'Position not found' });
+        const execution = job.executions[0];
+        
+        // Determinar qual posição usar
+        let targetPosition = job.position_to_close;
+        
+        // Se não tem posição original, procurar alternativa
+        if (!targetPosition) {
+          const alternative = dto.alternativePositions?.find(alt => alt.jobId === jobId);
+          if (alternative) {
+            targetPosition = await this.prisma.tradePosition.findUnique({
+              where: { id: alternative.positionId },
+            });
+          }
+        }
+        
+        // Se posição original está CLOSED, verificar se há alternativa
+        if (targetPosition && targetPosition.status === 'CLOSED') {
+          const alternative = dto.alternativePositions?.find(alt => alt.jobId === jobId);
+          if (alternative) {
+            console.log(`[ADMIN] Job ${jobId}: Usando posição alternativa ${alternative.positionId} (original ${targetPosition.id} está CLOSED)`);
+            targetPosition = await this.prisma.tradePosition.findUnique({
+              where: { id: alternative.positionId },
+            });
+          } else {
+            // Precisa de alternativa mas não foi fornecida
+            needsAlternative.push({
+              jobId,
+              reason: 'Position is CLOSED',
+              originalPositionId: targetPosition.id,
+              originalPositionStatus: targetPosition.status,
+            });
+            results.push({ 
+              jobId, 
+              success: false, 
+              error: 'Position is CLOSED, needs alternative',
+              needsAlternative: true,
+            });
+            continue;
+          }
+        }
+        
+        if (!targetPosition) {
+          results.push({ jobId, success: false, error: 'No valid position found' });
           continue;
         }
         
-        const execution = job.executions[0];
-        const position = job.position_to_close;
+        // Verificar se posição está OPEN
+        if (targetPosition.status !== 'OPEN') {
+          needsAlternative.push({
+            jobId,
+            reason: `Position status is ${targetPosition.status}`,
+            originalPositionId: targetPosition.id,
+            originalPositionStatus: targetPosition.status,
+          });
+          results.push({ 
+            jobId, 
+            success: false, 
+            error: `Position ${targetPosition.id} is ${targetPosition.status}`,
+            needsAlternative: true,
+          });
+          continue;
+        }
         
         // Reprocessar vinculação
         await this.prisma.$transaction(async (tx) => {
           // Fechar posição retroativamente
           const qtyToClose = Math.min(
-            position.qty_remaining.toNumber(),
+            targetPosition.qty_remaining.toNumber(),
             execution.executed_qty.toNumber()
           );
           
-          const grossProfit = (execution.avg_price.toNumber() - position.price_open.toNumber()) * qtyToClose;
-          const netProfit = grossProfit - (execution.fee_amount?.toNumber() || 0);
+          const grossProfit = (execution.avg_price.toNumber() - targetPosition.price_open.toNumber()) * qtyToClose;
+          const feeUsd = execution.fee_amount?.toNumber() || 0;
+          const netProfit = grossProfit - feeUsd;
 
-          const newQtyRemaining = position.qty_remaining.toNumber() - qtyToClose;
+          const newQtyRemaining = targetPosition.qty_remaining.toNumber() - qtyToClose;
           const isClosed = newQtyRemaining <= 0.00001;
           
+          // Atualizar posição
           await tx.tradePosition.update({
-            where: { id: position.id },
+            where: { id: targetPosition.id },
             data: {
               qty_remaining: { decrement: qtyToClose },
               status: isClosed ? 'CLOSED' : 'OPEN',
               realized_profit_usd: { increment: netProfit },
-              close_reason: 'MANUAL_FIX',
-              closed_at: isClosed ? new Date() : position.closed_at,
+              fees_on_sell_usd: { increment: feeUsd },
+              total_fees_paid_usd: { increment: feeUsd },
+              close_reason: isClosed ? 'MANUAL_FIX' : targetPosition.close_reason,
+              closed_at: isClosed ? new Date() : targetPosition.closed_at,
             },
           });
           
-          // Atualizar job para FILLED
+          // ✅ CRIAR POSITION FILL (vínculo entre execution e posição)
+          await tx.positionFill.create({
+            data: {
+              position_id: targetPosition.id,
+              trade_execution_id: execution.id,
+              side: 'SELL',
+              qty: qtyToClose,
+              price: execution.avg_price.toNumber(),
+            },
+          });
+          
+          // ✅ ATUALIZAR JOB COM POSITION_ID_TO_CLOSE (vínculo do job com a posição)
           await tx.tradeJob.update({
             where: { id: jobId },
             data: {
+              position_id_to_close: targetPosition.id, // ← IMPORTANTE
               status: 'FILLED',
               reason_code: 'MANUALLY_FIXED',
-              reason_message: 'Execution vinculada manualmente via admin tools',
+              reason_message: targetPosition.id !== job.position_id_to_close 
+                ? `Execution vinculada manualmente via admin tools a posição alternativa ${targetPosition.id} (original: ${job.position_id_to_close})`
+                : 'Execution vinculada manualmente via admin tools',
             },
           });
 
-          console.log(`[ADMIN] Job ${jobId} corrigido: posição ${position.id} fechada com ${qtyToClose} units, lucro ${netProfit.toFixed(2)} USD`);
+          console.log(`[ADMIN] Job ${jobId} corrigido: posição ${targetPosition.id} atualizada com ${qtyToClose} units, lucro ${netProfit.toFixed(2)} USD, PositionFill criado`);
         });
         
-        results.push({ jobId, success: true, qtyFixed: execution.executed_qty.toNumber() });
+        results.push({ 
+          jobId, 
+          success: true, 
+          qtyFixed: execution.executed_qty.toNumber(),
+          positionId: targetPosition.id,
+        });
       } catch (error: any) {
         const errorMsg = error?.message || 'Unknown error';
         console.error(`[ADMIN] Erro ao corrigir job ${jobId}: ${errorMsg}`);
@@ -3052,14 +3143,110 @@ export class AdminSystemController {
     }
 
     const fixed = results.filter(r => r.success).length;
-    const failed = results.filter(r => !r.success).length;
+    const failed = results.filter(r => !r.success && !r.needsAlternative).length;
     
-    console.log(`[ADMIN] Correção concluída: ${fixed} corrigidas, ${failed} falhadas`);
+    console.log(`[ADMIN] Correção concluída: ${fixed} corrigidas, ${failed} falhadas, ${needsAlternative.length} precisam de alternativa`);
     
     return { 
       fixed,
       failed,
+      needsAlternative: needsAlternative.length > 0 ? needsAlternative : undefined,
       results 
+    };
+  }
+
+  @Get('orphaned-executions/:jobId/alternative-positions')
+  @ApiOperation({ 
+    summary: 'Buscar posições alternativas para execution órfã',
+    description: 'Quando a posição original de um job órfão já foi fechada, busca outras posições OPEN do mesmo símbolo e conta que podem ser usadas como alternativa.'
+  })
+  @ApiParam({ 
+    name: 'jobId', 
+    type: 'number',
+    description: 'ID do TradeJob órfão',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Posições alternativas disponíveis',
+  })
+  async getAlternativePositions(@Param('jobId', ParseIntPipe) jobId: number) {
+    console.log(`[ADMIN] Buscando posições alternativas para job ${jobId}...`);
+    
+    const job = await this.prisma.tradeJob.findUnique({
+      where: { id: jobId },
+      include: { 
+        position_to_close: true,
+        exchange_account: true,
+        executions: {
+          orderBy: { created_at: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+
+    const originalPosition = job.position_to_close;
+    const execution = job.executions[0];
+
+    if (!execution) {
+      throw new NotFoundException(`No execution found for job ${jobId}`);
+    }
+
+    const needsAlternative = !originalPosition || originalPosition.status !== 'OPEN';
+
+    if (!needsAlternative) {
+      return {
+        jobId,
+        symbol: job.symbol,
+        executedQty: execution.executed_qty?.toNumber() || 0,
+        originalPosition: {
+          id: originalPosition.id,
+          symbol: originalPosition.symbol,
+          status: originalPosition.status,
+          qty_remaining: originalPosition.qty_remaining.toNumber(),
+        },
+        needsAlternative: false,
+        alternatives: [],
+      };
+    }
+
+    // Buscar posições alternativas
+    const alternatives = await this.prisma.tradePosition.findMany({
+      where: {
+        exchange_account_id: job.exchange_account_id,
+        symbol: job.symbol,
+        trade_mode: job.trade_mode,
+        status: 'OPEN',
+        qty_remaining: { gt: 0 },
+      },
+      orderBy: { created_at: 'asc' }, // Mais antigas primeiro (FIFO)
+      take: 10,
+    });
+
+    console.log(`[ADMIN] Encontradas ${alternatives.length} posições alternativas para job ${jobId}`);
+
+    return {
+      jobId,
+      symbol: job.symbol,
+      executedQty: execution.executed_qty?.toNumber() || 0,
+      originalPosition: originalPosition ? {
+        id: originalPosition.id,
+        symbol: originalPosition.symbol,
+        status: originalPosition.status,
+        qty_remaining: originalPosition.qty_remaining.toNumber(),
+      } : null,
+      needsAlternative: true,
+      alternatives: alternatives.map(pos => ({
+        id: pos.id,
+        symbol: pos.symbol,
+        qty_remaining: pos.qty_remaining.toNumber(),
+        qty_total: pos.qty_total.toNumber(),
+        price_open: pos.price_open.toNumber(),
+        created_at: pos.created_at,
+      })),
     };
   }
 }
