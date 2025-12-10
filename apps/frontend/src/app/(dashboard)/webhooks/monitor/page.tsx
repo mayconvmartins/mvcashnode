@@ -70,11 +70,21 @@ export default function WebhookMonitorPage() {
     }
 
     const getTrendIcon = (alert: WebhookMonitorAlert) => {
-        if (!alert.current_price || !alert.price_minimum) return null
+        const side = (alert as any).side || 'BUY'
+        const currentPrice = alert.current_price ? (typeof alert.current_price === 'number' ? alert.current_price : Number(alert.current_price)) : null
+        
+        if (!currentPrice) return null
 
-        const currentPrice = typeof alert.current_price === 'number' ? alert.current_price : Number(alert.current_price)
-        const minPrice = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
-        const priceVariation = ((currentPrice - minPrice) / minPrice) * 100
+        let refPrice: number | null = null
+        if (side === 'BUY' && alert.price_minimum) {
+            refPrice = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
+        } else if (side === 'SELL' && (alert as any).price_maximum) {
+            refPrice = typeof (alert as any).price_maximum === 'number' ? (alert as any).price_maximum : Number((alert as any).price_maximum)
+        }
+
+        if (!refPrice) return null
+
+        const priceVariation = ((currentPrice - refPrice) / refPrice) * 100
 
         if (priceVariation < -0.1) {
             return <TrendingDown className="h-4 w-4 text-red-500" />
@@ -119,10 +129,30 @@ export default function WebhookMonitorPage() {
         },
         {
             key: 'price_minimum',
-            label: 'Preço Mínimo',
-            render: (alert) => {
-                const price = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
-                return <span className="font-mono text-green-600">${price.toFixed(8)}</span>
+            label: 'Preço Ref.',
+            render: (alert: any) => {
+                const side = alert.side || 'BUY'
+                let price: number | null = null
+                let label = ''
+                
+                if (side === 'BUY' && alert.price_minimum) {
+                    price = typeof alert.price_minimum === 'number' ? alert.price_minimum : Number(alert.price_minimum)
+                    label = 'Mín'
+                } else if (side === 'SELL' && alert.price_maximum) {
+                    price = typeof alert.price_maximum === 'number' ? alert.price_maximum : Number(alert.price_maximum)
+                    label = 'Máx'
+                }
+                
+                if (price === null || price === 0) {
+                    return <span className="font-mono text-muted-foreground">-</span>
+                }
+                
+                return (
+                    <div className="flex flex-col">
+                        <span className="font-mono text-green-600">${price.toFixed(8)}</span>
+                        <span className="text-xs text-muted-foreground">({label})</span>
+                    </div>
+                )
             },
         },
         {

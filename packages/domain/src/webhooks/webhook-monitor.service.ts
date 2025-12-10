@@ -465,6 +465,10 @@ export class WebhookMonitorService {
     }
 
     const config = await this.getConfig();
+    
+    // Log de configuração usada para debug
+    console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Config usada - lateral_cycles_min=${config.lateral_cycles_min}, lateral_tolerance_pct=${config.lateral_tolerance_pct}%, rise_cycles_min=${config.rise_cycles_min}, rise_trigger_pct=${config.rise_trigger_pct}%`);
+    
     const priceMinimum = alert.price_minimum?.toNumber() || alert.price_alert.toNumber();
     const priceAlert = alert.price_alert.toNumber();
     let newPriceMinimum = priceMinimum;
@@ -492,6 +496,7 @@ export class WebhookMonitorService {
         // Se está lateral há ciclos suficientes, pode executar
         if (cyclesWithoutNewLow >= config.lateral_cycles_min) {
           shouldExecute = true;
+          console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Condição de execução atendida - Lateral há ${cyclesWithoutNewLow} ciclos (>= ${config.lateral_cycles_min} configurado)`);
         }
       } else if (priceVariationPct >= config.rise_trigger_pct) {
         // Verificar se iniciou alta
@@ -500,6 +505,7 @@ export class WebhookMonitorService {
         // Se subiu o suficiente e já passou ciclos mínimos, pode executar
         if (cyclesWithoutNewLow >= config.rise_cycles_min) {
           shouldExecute = true;
+          console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Condição de execução atendida - Em alta há ${cyclesWithoutNewLow} ciclos (>= ${config.rise_cycles_min} configurado)`);
         }
       } else {
         // Ainda em queda, mas não fez novo fundo
@@ -561,6 +567,10 @@ export class WebhookMonitorService {
     }
 
     const config = await this.getConfig();
+    
+    // Log de configuração usada para debug
+    console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Config usada - sell_lateral_cycles_min=${config.sell_lateral_cycles_min}, sell_lateral_tolerance_pct=${config.sell_lateral_tolerance_pct}%, sell_fall_cycles_min=${config.sell_fall_cycles_min}, sell_fall_trigger_pct=${config.sell_fall_trigger_pct}%`);
+    
     const priceMaximum = alert.price_maximum?.toNumber() || alert.price_alert.toNumber();
     let newPriceMaximum = priceMaximum;
     let cyclesWithoutNewHigh = alert.cycles_without_new_high || 0;
@@ -588,6 +598,7 @@ export class WebhookMonitorService {
         // Se está lateral há ciclos suficientes, pode executar
         if (cyclesWithoutNewHigh >= config.sell_lateral_cycles_min) {
           shouldExecute = true;
+          console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Condição de execução atendida - Lateral há ${cyclesWithoutNewHigh} ciclos (>= ${config.sell_lateral_cycles_min} configurado)`);
         }
       } else if (fallFromMaxPct >= config.sell_fall_trigger_pct) {
         // Verificar se iniciou queda (caiu do máximo)
@@ -596,6 +607,7 @@ export class WebhookMonitorService {
         // Se caiu o suficiente e já passou ciclos mínimos, pode executar
         if (cyclesWithoutNewHigh >= config.sell_fall_cycles_min) {
           shouldExecute = true;
+          console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Condição de execução atendida - Em queda há ${cyclesWithoutNewHigh} ciclos (>= ${config.sell_fall_cycles_min} configurado)`);
         }
       } else {
         // Ainda próximo do máximo, mas não fez novo topo
@@ -752,8 +764,22 @@ export class WebhookMonitorService {
       }
     }
 
+    // Verificar se algum job foi criado
     if (tradeJobIds.length === 0) {
-      throw new Error(`Nenhum TradeJob foi criado para o alerta ${alertId}`);
+      // ✅ BUG-MED-003 FIX: Usar tipagem correta ao invés de as any
+      const side = alert.side || 'BUY';
+      
+      if (side === 'SELL') {
+        // Para SELL: se não há posições elegíveis, cancelar o alerta ao invés de falhar
+        console.warn(`[WEBHOOK-MONITOR] Nenhuma posição elegível encontrada para venda do alerta ${alertId}. Cancelando alerta.`);
+        await this.cancelAlert(alertId, 'Nenhuma posição aberta encontrada para venda. Não há o que vender neste símbolo.');
+        return await this.prisma.webhookMonitorAlert.findUnique({
+          where: { id: alertId },
+        });
+      } else {
+        // Para BUY: se não criou jobs, é um erro real
+        throw new Error(`Nenhum TradeJob foi criado para o alerta ${alertId}`);
+      }
     }
 
     // Buscar preço atual para armazenar como preço de execução
