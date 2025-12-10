@@ -322,7 +322,6 @@ export class AdminSystemController {
             },
           },
         },
-        take: 1000, // Limitar para não sobrecarregar
       });
 
       totalChecked = executionsWithoutFees.length;
