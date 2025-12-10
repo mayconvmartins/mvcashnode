@@ -65,7 +65,7 @@ export function MissingOrders() {
 
     const loadAccounts = async () => {
         try {
-            const data = await accountsService.listAccounts()
+            const data = await accountsService.list()
             setAccounts(data)
         } catch (error) {
             console.error('Erro ao carregar contas:', error)
