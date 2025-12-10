@@ -33,12 +33,32 @@ export class AdminSystemController {
     // Inicializar cache service Redis
     this.cacheService = new CacheService(
       process.env.REDIS_HOST || 'localhost',
-      parseInt(process.env.REDIS_PORT || '6379'),
+      this.safeParseInt(process.env.REDIS_PORT || '6379', 6379, 1, 65535),
       process.env.REDIS_PASSWORD
     );
     this.cacheService.connect().catch((err) => {
       console.error('[AdminSystemController] Erro ao conectar ao Redis:', err);
     });
+  }
+
+  /**
+   * ✅ BUG-ALTO-007 FIX: Validar e sanitizar parseInt com limites min/max
+   */
+  private safeParseInt(value: string | undefined | null, defaultValue: number, min: number = Number.MIN_SAFE_INTEGER, max: number = Number.MAX_SAFE_INTEGER): number {
+    if (!value) return defaultValue;
+    const parsed = parseInt(String(value), 10);
+    if (isNaN(parsed)) return defaultValue;
+    return Math.max(min, Math.min(max, parsed));
+  }
+
+  /**
+   * ✅ BUG-ALTO-007 FIX: Validar e sanitizar parseFloat com limites min/max
+   */
+  private safeParseFloat(value: string | undefined | null, defaultValue: number, min: number = Number.MIN_SAFE_INTEGER, max: number = Number.MAX_SAFE_INTEGER): number {
+    if (!value) return defaultValue;
+    const parsed = parseFloat(String(value));
+    if (isNaN(parsed)) return defaultValue;
+    return Math.max(min, Math.min(max, parsed));
   }
 
   @Get('health')
@@ -1996,7 +2016,8 @@ export class AdminSystemController {
             // fee_amount pode vir como string "0.001 BTC" ou número
             if (typeof corrections.fee_amount === 'string') {
               const parts = corrections.fee_amount.split(' ');
-              updateData.fee_amount = parseFloat(parts[0]);
+              // ✅ BUG-ALTO-007 FIX: Validar parseFloat com limites
+              updateData.fee_amount = this.safeParseFloat(parts[0], 0, 0, Number.MAX_SAFE_INTEGER);
               if (parts[1]) {
                 updateData.fee_currency = parts[1];
               }

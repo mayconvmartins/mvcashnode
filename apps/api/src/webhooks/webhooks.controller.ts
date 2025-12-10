@@ -46,6 +46,17 @@ export class WebhooksController {
     @Request() req: any,
     @Headers('x-signature') signature?: string
   ) {
+    // ✅ BUG-CRIT-004 FIX: Validar tamanho do payload antes de processar
+    const MAX_PAYLOAD_SIZE = 10 * 1024 * 1024; // 10MB
+    const payloadSize = req.rawBody?.length || (typeof req.body === 'string' ? Buffer.byteLength(req.body, 'utf8') : JSON.stringify(req.body || {}).length);
+    
+    if (payloadSize > MAX_PAYLOAD_SIZE) {
+      throw new HttpException(
+        `Payload size (${(payloadSize / 1024 / 1024).toFixed(2)}MB) exceeds maximum allowed size (10MB)`,
+        HttpStatus.PAYLOAD_TOO_LARGE
+      );
+    }
+    
     // Detectar IP do cliente (suporta proxies e load balancers)
     let ip = req?.ip || 
              req?.connection?.remoteAddress || 

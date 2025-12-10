@@ -245,8 +245,9 @@ export class AdminMercadoPagoController {
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ): Promise<any[]> {
-    const pageNum = page ? parseInt(page) : 1;
-    const limitNum = limit ? parseInt(limit) : 50;
+    // ✅ BUG-ALTO-007 FIX: Validar e sanitizar parseInt com limites
+    const pageNum = page ? Math.max(1, parseInt(page) || 1) : 1;
+    const limitNum = limit ? Math.min(100, Math.max(1, parseInt(limit) || 50)) : 50;
     const skip = (pageNum - 1) * limitNum;
 
     const where: any = {};
@@ -468,8 +469,9 @@ export class AdminMercadoPagoController {
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ): Promise<any[]> {
-    const pageNum = page ? parseInt(page) : 1;
-    const limitNum = limit ? parseInt(limit) : 50;
+    // ✅ BUG-ALTO-007 FIX: Validar e sanitizar parseInt com limites
+    const pageNum = page ? Math.max(1, parseInt(page) || 1) : 1;
+    const limitNum = limit ? Math.min(100, Math.max(1, parseInt(limit) || 50)) : 50;
     const skip = (pageNum - 1) * limitNum;
 
     const where: any = {};

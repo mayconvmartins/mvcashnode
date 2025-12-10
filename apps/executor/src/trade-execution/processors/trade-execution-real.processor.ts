@@ -26,6 +26,76 @@ export class TradeExecutionRealProcessor extends WorkerHost {
     this.notificationService = new NotificationHttpService(process.env.API_URL || 'http://localhost:4010');
   }
 
+  /**
+   * ✅ BUG-ALTO-003 FIX: Helper para retry de operações de rede com backoff exponencial
+   */
+  private async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    maxRetries: number = 3
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        lastError = error;
+        const errorMessage = error?.message || 'Erro desconhecido';
+        const errorCode = error?.code || error?.statusCode || '';
+        
+        // Verificar se é erro de rede
+        const isNetworkError = 
+          errorMessage.includes('timeout') || 
+          errorMessage.includes('network') ||
+          errorMessage.includes('ETIMEDOUT') ||
+          errorMessage.includes('ENOTFOUND') ||
+          errorMessage.includes('ECONNRESET') ||
+          errorMessage.includes('ECONNREFUSED') ||
+          errorCode === 'ETIMEDOUT' ||
+          errorCode === 'ENOTFOUND' ||
+          errorCode === 'ECONNRESET' ||
+          errorCode === 'ECONNREFUSED';
+        
+        if (isNetworkError && attempt < maxRetries) {
+          const delay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+          this.logger.warn(
+            `[EXECUTOR] Erro de rede em ${operationName} (tentativa ${attempt}/${maxRetries}). ` +
+            `Aguardando ${delay}ms antes de tentar novamente...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // Se não for erro de rede ou esgotou tentativas, lançar erro
+        throw error;
+      }
+    }
+    
+    throw lastError;
+  }
+
+  /**
+   * Verifica se um erro é de rede
+   */
+  private isNetworkError(error: any): boolean {
+    const errorMessage = error?.message || '';
+    const errorCode = error?.code || error?.statusCode || '';
+    
+    return (
+      errorMessage.includes('timeout') || 
+      errorMessage.includes('network') ||
+      errorMessage.includes('ETIMEDOUT') ||
+      errorMessage.includes('ENOTFOUND') ||
+      errorMessage.includes('ECONNRESET') ||
+      errorMessage.includes('ECONNREFUSED') ||
+      errorCode === 'ETIMEDOUT' ||
+      errorCode === 'ENOTFOUND' ||
+      errorCode === 'ECONNRESET' ||
+      errorCode === 'ECONNREFUSED'
+    );
+  }
+
   async process(job: Job<any>): Promise<any> {
     const { tradeJobId } = job.data;
     const startTime = Date.now();
@@ -271,7 +341,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       if (quoteAmount > 0 && baseQty <= 0 && side === 'BUY' && tradeJob.order_type === 'MARKET') {
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Convertendo quoteAmount (${quoteAmount} USDT) para baseQty...`);
         try {
-          const ticker = await adapter.fetchTicker(tradeJob.symbol);
+          // ✅ BUG-ALTO-003 FIX: Usar retry para erros de rede
+          const ticker = await this.executeWithRetry(
+            () => adapter.fetchTicker(tradeJob.symbol),
+            `fetchTicker(${tradeJob.symbol})`,
+            3
+          );
           const currentPrice = ticker.last;
           
           if (!currentPrice || currentPrice <= 0) {
@@ -318,7 +393,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // Verificar saldo antes de executar
       if (tradeJob.side === 'BUY') {
         try {
-          const balance = await adapter.fetchBalance();
+          // ✅ BUG-ALTO-003 FIX: Usar retry para erros de rede
+          const balance = await this.executeWithRetry(
+            () => adapter.fetchBalance(),
+            'fetchBalance()',
+            3
+          );
           const quoteAsset = getQuoteAsset(tradeJob.symbol);
           const available = balance.free[quoteAsset] || 0;
 
@@ -338,7 +418,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         try {
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Buscando saldo atualizado da exchange para venda...`);
           
-          const balance = await adapter.fetchBalance();
+          // ✅ BUG-ALTO-003 FIX: Usar retry para erros de rede
+          const balance = await this.executeWithRetry(
+            () => adapter.fetchBalance(),
+            'fetchBalance()',
+            3
+          );
           const baseAsset = getBaseAsset(tradeJob.symbol);
           const available = balance.free[baseAsset] || 0;
           
@@ -416,12 +501,17 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         }
         
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Criando ordem na exchange: ${orderType} ${tradeJob.side} amount=${amountToUse} ${tradeJob.symbol}`);
-        order = await adapter.createOrder(
-          tradeJob.symbol,
-          orderType,
-          tradeJob.side.toLowerCase(),
-          amountToUse,
-          tradeJob.limit_price?.toNumber()
+        // ✅ BUG-ALTO-003 FIX: Usar retry para erros de rede
+        order = await this.executeWithRetry(
+          () => adapter.createOrder(
+            tradeJob.symbol,
+            orderType,
+            tradeJob.side.toLowerCase(),
+            amountToUse,
+            tradeJob.limit_price?.toNumber()
+          ),
+          `createOrder(${tradeJob.symbol})`,
+          3
         );
 
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada na exchange: ${order.id}, status: ${order.status}`);
@@ -452,7 +542,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               this.logger.log(`[EXECUTOR] Job ${tradeJobId} - SELL com erro INSUFFICIENT_BALANCE, verificando saldo disponível...`);
               
               // Buscar saldo disponível
-              const balance = await adapter.fetchBalance();
+              // ✅ BUG-ALTO-003 FIX: Usar retry para erros de rede
+          const balance = await this.executeWithRetry(
+            () => adapter.fetchBalance(),
+            'fetchBalance()',
+            3
+          );
               const baseAsset = getBaseAsset(tradeJob.symbol);
               const available = balance.free[baseAsset] || 0;
               
@@ -499,12 +594,17 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                 
                 // Tentar criar ordem novamente com quantidade ajustada
                 try {
-                  order = await adapter.createOrder(
-                    tradeJob.symbol,
-                    orderType,
-                    tradeJob.side.toLowerCase(),
-                    newAmountToUse,
-                    tradeJob.limit_price?.toNumber()
+                  // ✅ BUG-ALTO-003 FIX: Usar retry para erros de rede
+                  order = await this.executeWithRetry(
+                    () => adapter.createOrder(
+                      tradeJob.symbol,
+                      orderType,
+                      tradeJob.side.toLowerCase(),
+                      newAmountToUse,
+                      tradeJob.limit_price?.toNumber()
+                    ),
+                    `createOrder(${tradeJob.symbol}) - retry after balance adjustment`,
+                    3
                   );
                   
                   this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada com sucesso após ajuste de quantidade: ${order.id}, status: ${order.status}`);
@@ -861,7 +961,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             await new Promise((resolve) => setTimeout(resolve, 2000));
             
             // Buscar ordem novamente
-            const refreshedOrder = await adapter.fetchOrder(order.id, tradeJob.symbol);
+            // ✅ BUG-ALTO-003 FIX: Usar retry para erros de rede
+            const refreshedOrder = await this.executeWithRetry(
+              () => adapter.fetchOrder(order.id, tradeJob.symbol),
+              `fetchOrder(${order.id})`,
+              3
+            );
             this.logger.log(`[EXECUTOR] Ordem buscada novamente, tentando extrair taxas...`);
             
             // Tentar extrair taxas novamente
@@ -949,7 +1054,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         
         try {
           // Buscar dados atualizados da exchange
-          const updatedOrder = await adapter.fetchOrder(order.id, tradeJob.symbol);
+          // ✅ BUG-ALTO-003 FIX: Usar retry para erros de rede
+          const updatedOrder = await this.executeWithRetry(
+            () => adapter.fetchOrder(order.id, tradeJob.symbol),
+            `fetchOrder(${order.id})`,
+            3
+          );
           this.logger.log(`[EXECUTOR] Dados atualizados da exchange para ordem ${order.id}:`, {
             status: updatedOrder.status,
             filled: updatedOrder.filled,

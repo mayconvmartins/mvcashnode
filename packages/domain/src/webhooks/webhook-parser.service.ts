@@ -12,6 +12,23 @@ export interface ParsedSignal {
 
 export class WebhookParserService {
   parseSignal(payload: string | Record<string, unknown>): ParsedSignal {
+    // ✅ BUG-ALTO-008 FIX: Validar tamanho do payload antes de processar
+    const MAX_PAYLOAD_SIZE = 1 * 1024 * 1024; // 1MB para parsing
+    const payloadSize = typeof payload === 'string' 
+      ? Buffer.byteLength(payload, 'utf8')
+      : Buffer.byteLength(JSON.stringify(payload || {}), 'utf8');
+    
+    if (payloadSize > MAX_PAYLOAD_SIZE) {
+      throw new Error(
+        `Payload size (${(payloadSize / 1024 / 1024).toFixed(2)}MB) exceeds maximum allowed size (1MB) for parsing`
+      );
+    }
+    
+    // Truncar payloads grandes nos logs
+    const logPayload = typeof payload === 'string'
+      ? (payload.length > 500 ? payload.substring(0, 500) + '...' : payload)
+      : (JSON.stringify(payload).length > 500 ? JSON.stringify(payload).substring(0, 500) + '...' : JSON.stringify(payload));
+    
     let text = '';
     let symbolRaw = '';
     let action = WebhookAction.UNKNOWN;
@@ -19,8 +36,7 @@ export class WebhookParserService {
     let priceReference: number | undefined;
     let patternName: string | undefined;
 
-    console.log(`[WEBHOOK-PARSER] Payload recebido (tipo: ${typeof payload}):`, 
-      typeof payload === 'string' ? payload : JSON.stringify(payload));
+    console.log(`[WEBHOOK-PARSER] Payload recebido (tipo: ${typeof payload}, tamanho: ${payloadSize} bytes):`, logPayload);
 
     if (typeof payload === 'string') {
       text = payload.trim();

@@ -24,6 +24,17 @@ export class CacheService {
         ? `redis://:${this.password}@${this.host}:${this.port}`
         : `redis://${this.host}:${this.port}`;
 
+      // ✅ BUG-ALTO-001 FIX: Configuração de limite de memória e eviction policy
+      // IMPORTANTE: Configure o Redis com as seguintes opções:
+      // maxmemory 512mb
+      // maxmemory-policy allkeys-lru
+      // Isso deve ser feito no arquivo redis.conf ou via comando:
+      // CONFIG SET maxmemory 512mb
+      // CONFIG SET maxmemory-policy allkeys-lru
+      // 
+      // A política allkeys-lru remove as chaves menos recentemente usadas quando
+      // a memória está cheia, evitando que o Redis consuma toda a memória do servidor.
+
       this.client = createClient({
         url,
       });
@@ -55,6 +66,8 @@ export class CacheService {
   async disconnect(): Promise<void> {
     if (this.client) {
       try {
+        // ✅ BUG-MED-001 FIX: Remover todos os listeners antes de desconectar
+        this.client.removeAllListeners();
         await this.client.quit();
       } catch (error) {
         // Ignorar erros ao desconectar

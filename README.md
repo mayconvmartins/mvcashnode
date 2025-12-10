@@ -37,6 +37,16 @@ Sistema de automação de trading para exchanges com suporte a webhooks, execuç
 - pnpm 8+
 - MySQL 8+ (instalação local ou serviço gerenciado)
 - Redis (instalação local ou serviço gerenciado)
+  - **Importante**: Configure o Redis com limite de memória e política de eviction:
+    ```bash
+    # Via redis.conf:
+    maxmemory 512mb
+    maxmemory-policy allkeys-lru
+    
+    # Ou via comando:
+    redis-cli CONFIG SET maxmemory 512mb
+    redis-cli CONFIG SET maxmemory-policy allkeys-lru
+    ```
 
 > **Nota**: Para instruções detalhadas de instalação e configuração, consulte [docs/SETUP.md](docs/SETUP.md)
 

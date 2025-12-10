@@ -82,26 +82,8 @@ export class WebhookMonitorService {
       });
 
       if (userConfig) {
-        return {
-          monitor_enabled: userConfig.monitor_enabled,
-          check_interval_sec: userConfig.check_interval_sec,
-          // BUY
-          lateral_tolerance_pct: userConfig.lateral_tolerance_pct.toNumber(),
-          lateral_cycles_min: userConfig.lateral_cycles_min,
-          rise_trigger_pct: userConfig.rise_trigger_pct.toNumber(),
-          rise_cycles_min: userConfig.rise_cycles_min,
-          max_fall_pct: userConfig.max_fall_pct.toNumber(),
-          max_monitoring_time_min: userConfig.max_monitoring_time_min,
-          cooldown_after_execution_min: userConfig.cooldown_after_execution_min,
-          // SELL
-          sell_lateral_tolerance_pct: (userConfig as any).sell_lateral_tolerance_pct?.toNumber() || 0.3,
-          sell_lateral_cycles_min: (userConfig as any).sell_lateral_cycles_min || 4,
-          sell_fall_trigger_pct: (userConfig as any).sell_fall_trigger_pct?.toNumber() || 0.5,
-          sell_fall_cycles_min: (userConfig as any).sell_fall_cycles_min || 2,
-          sell_max_rise_pct: (userConfig as any).sell_max_rise_pct?.toNumber() || 6.0,
-          sell_max_monitoring_time_min: (userConfig as any).sell_max_monitoring_time_min || 60,
-          sell_cooldown_after_execution_min: (userConfig as any).sell_cooldown_after_execution_min || 30,
-        };
+        // ✅ BUG-MED-003 FIX: Usar função helper para converter sem `as any`
+        return this.convertPrismaConfigToInterface(userConfig);
       }
     }
 
@@ -111,26 +93,8 @@ export class WebhookMonitorService {
     });
 
     if (globalConfig) {
-      return {
-        monitor_enabled: globalConfig.monitor_enabled,
-        check_interval_sec: globalConfig.check_interval_sec,
-        // BUY
-        lateral_tolerance_pct: globalConfig.lateral_tolerance_pct.toNumber(),
-        lateral_cycles_min: globalConfig.lateral_cycles_min,
-        rise_trigger_pct: globalConfig.rise_trigger_pct.toNumber(),
-        rise_cycles_min: globalConfig.rise_cycles_min,
-        max_fall_pct: globalConfig.max_fall_pct.toNumber(),
-        max_monitoring_time_min: globalConfig.max_monitoring_time_min,
-        cooldown_after_execution_min: globalConfig.cooldown_after_execution_min,
-        // SELL
-        sell_lateral_tolerance_pct: (globalConfig as any).sell_lateral_tolerance_pct?.toNumber() || 0.3,
-        sell_lateral_cycles_min: (globalConfig as any).sell_lateral_cycles_min || 4,
-        sell_fall_trigger_pct: (globalConfig as any).sell_fall_trigger_pct?.toNumber() || 0.5,
-        sell_fall_cycles_min: (globalConfig as any).sell_fall_cycles_min || 2,
-        sell_max_rise_pct: (globalConfig as any).sell_max_rise_pct?.toNumber() || 6.0,
-        sell_max_monitoring_time_min: (globalConfig as any).sell_max_monitoring_time_min || 60,
-        sell_cooldown_after_execution_min: (globalConfig as any).sell_cooldown_after_execution_min || 30,
-      };
+      // ✅ BUG-MED-003 FIX: Usar função helper para converter sem `as any`
+      return this.convertPrismaConfigToInterface(globalConfig);
     }
 
     return this.defaultConfig;

@@ -48,27 +48,18 @@ export class PositionService {
       
       const jobSymbolNorm = normalizeSymbol(job.symbol);
       
-      // Buscar todos os parâmetros da conta para verificar se algum contém o símbolo
-      const allBothParameters = await this.prisma.tradeParameter.findMany({
+      // ✅ BUG-ALTO-002 FIX: Consolidar 3 queries em uma única para evitar N+1
+      const allParameters = await this.prisma.tradeParameter.findMany({
         where: {
           exchange_account_id: job.exchange_account_id,
-          side: 'BOTH',
+          side: { in: ['BOTH', 'BUY', 'SELL'] },
         },
       });
       
-      const allBuyParameters = await this.prisma.tradeParameter.findMany({
-        where: {
-          exchange_account_id: job.exchange_account_id,
-          side: 'BUY',
-        },
-      });
-      
-      const allSellParameters = await this.prisma.tradeParameter.findMany({
-        where: {
-          exchange_account_id: job.exchange_account_id,
-          side: 'SELL',
-        },
-      });
+      // Filtrar por lado após buscar todos os parâmetros
+      const allBothParameters = allParameters.filter(p => p.side === 'BOTH');
+      const allBuyParameters = allParameters.filter(p => p.side === 'BUY');
+      const allSellParameters = allParameters.filter(p => p.side === 'SELL');
       
       // Função auxiliar para verificar se um parâmetro corresponde ao símbolo
       const parameterMatchesSymbol = (param: any): boolean => {
@@ -607,27 +598,18 @@ export class PositionService {
       
       const symbolNorm = normalizeSymbol(symbol);
       
-      // Buscar todos os parâmetros da conta para verificar se algum contém o símbolo
-      const allBothParameters = await this.prisma.tradeParameter.findMany({
+      // ✅ BUG-ALTO-002 FIX: Consolidar 3 queries em uma única para evitar N+1
+      const allParameters = await this.prisma.tradeParameter.findMany({
         where: {
           exchange_account_id: exchangeAccountId,
-          side: 'BOTH',
+          side: { in: ['BOTH', 'BUY', 'SELL'] },
         },
       });
       
-      const allBuyParameters = await this.prisma.tradeParameter.findMany({
-        where: {
-          exchange_account_id: exchangeAccountId,
-          side: 'BUY',
-        },
-      });
-      
-      const allSellParameters = await this.prisma.tradeParameter.findMany({
-        where: {
-          exchange_account_id: exchangeAccountId,
-          side: 'SELL',
-        },
-      });
+      // Filtrar por lado após buscar todos os parâmetros
+      const allBothParameters = allParameters.filter(p => p.side === 'BOTH');
+      const allBuyParameters = allParameters.filter(p => p.side === 'BUY');
+      const allSellParameters = allParameters.filter(p => p.side === 'SELL');
       
       // Função auxiliar para verificar se um parâmetro corresponde ao símbolo
       const parameterMatchesSymbol = (param: any): boolean => {
@@ -983,6 +965,17 @@ export class PositionService {
       const profitUsd = grossProfitUsd - feeUsd;
 
       const newQtyRemaining = currentPosition.qty_remaining.toNumber() - qtyToClose;
+      
+      // ✅ BUG-CRIT-003 FIX: Validar que qty_remaining não ficará negativo
+      if (newQtyRemaining < 0) {
+        throw new Error(
+          `Operation would result in negative remaining quantity. ` +
+          `Current qty_remaining: ${currentPosition.qty_remaining.toNumber()}, ` +
+          `qtyToClose: ${qtyToClose}, ` +
+          `newQtyRemaining: ${newQtyRemaining}`
+        );
+      }
+      
       const existingRealizedProfit = currentPosition.realized_profit_usd.toNumber();
       const existingFeesOnSell = currentPosition.fees_on_sell_usd.toNumber();
       const existingTotalFees = currentPosition.total_fees_paid_usd.toNumber();

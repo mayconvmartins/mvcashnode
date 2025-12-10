@@ -23,6 +23,37 @@ export interface WithdrawDto {
 export class VaultService {
   constructor(private prisma: PrismaClient) {}
 
+  /**
+   * ✅ BUG-MED-005 FIX: Executar transação com retry para deadlocks
+   */
+  private async executeTransactionWithDeadlockRetry<T>(
+    transactionFn: (tx: any) => Promise<T>,
+    maxRetries: number = 3
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.prisma.$transaction(transactionFn);
+      } catch (error: any) {
+        lastError = error;
+        
+        // Verificar se é erro de deadlock (P2034)
+        if (error?.code === 'P2034' && attempt < maxRetries) {
+          // Delay aleatório entre 50ms e 200ms para evitar conflitos
+          const delay = 50 + Math.random() * 150;
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // Se não for deadlock ou esgotou tentativas, lançar erro
+        throw error;
+      }
+    }
+    
+    throw lastError;
+  }
+
   async createVault(dto: CreateVaultDto) {
     return this.prisma.vault.create({
       data: {
@@ -56,7 +87,8 @@ export class VaultService {
   }
 
   async deposit(dto: DepositDto): Promise<void> {
-    await this.prisma.$transaction(async (tx: any) => {
+    // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
+    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
       // Lock the balance row
       const balance = await tx.vaultBalance.findUnique({
         where: {
@@ -103,7 +135,8 @@ export class VaultService {
   }
 
   async withdraw(dto: WithdrawDto): Promise<void> {
-    await this.prisma.$transaction(async (tx: any) => {
+    // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
+    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
       const balance = await tx.vaultBalance.findUnique({
         where: {
           vault_id_asset: {
@@ -113,8 +146,20 @@ export class VaultService {
         },
       });
 
-      if (!balance || balance.balance.toNumber() < dto.amount) {
-        throw new Error('Insufficient balance');
+      // ✅ BUG-CRIT-001 FIX: Validar saldo disponível considerando reservas
+      if (!balance) {
+        throw new Error('Balance not found');
+      }
+
+      const totalBalance = balance.balance.toNumber();
+      const reservedBalance = balance.reserved?.toNumber() || 0;
+      const availableBalance = totalBalance - reservedBalance;
+
+      if (availableBalance < dto.amount) {
+        throw new Error(
+          `Insufficient available balance (considering reservations). ` +
+          `Total: ${totalBalance}, Reserved: ${reservedBalance}, Available: ${availableBalance}, Requested: ${dto.amount}`
+        );
       }
 
       await tx.vaultBalance.update({
@@ -143,19 +188,37 @@ export class VaultService {
   }
 
   async reserveForBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
-    await this.prisma.$transaction(async (tx: any) => {
-      // SELECT FOR UPDATE to lock the row
-      const balance = await tx.vaultBalance.findUnique({
-        where: {
-          vault_id_asset: {
-            vault_id: vaultId,
-            asset,
-          },
-        },
-      });
+    // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
+    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
+      // ✅ BUG-CRIT-002 FIX: Implementar row-level locking com FOR UPDATE
+      // Usar $queryRaw para garantir lock pessimista e evitar race conditions
+      const balances = await tx.$queryRaw<Array<{ balance: any; reserved: any }>>`
+        SELECT balance, reserved 
+        FROM vault_balances 
+        WHERE vault_id = ${vaultId} AND asset = ${asset}
+        FOR UPDATE
+      `;
 
-      if (!balance || balance.balance.toNumber() < amount) {
-        throw new Error('Insufficient balance for reservation');
+      if (!balances || balances.length === 0) {
+        throw new Error('Balance not found for reservation');
+      }
+
+      const balance = balances[0];
+      const totalBalance = typeof balance.balance === 'object' 
+        ? balance.balance.toNumber() 
+        : Number(balance.balance);
+      const reservedBalance = balance.reserved 
+        ? (typeof balance.reserved === 'object' 
+          ? balance.reserved.toNumber() 
+          : Number(balance.reserved))
+        : 0;
+      const availableBalance = totalBalance - reservedBalance;
+
+      if (availableBalance < amount) {
+        throw new Error(
+          `Insufficient available balance for reservation. ` +
+          `Total: ${totalBalance}, Reserved: ${reservedBalance}, Available: ${availableBalance}, Requested: ${amount}`
+        );
       }
 
       await tx.vaultBalance.update({
@@ -188,7 +251,30 @@ export class VaultService {
   }
 
   async confirmBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
-    await this.prisma.$transaction(async (tx: any) => {
+    // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
+    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
+      // ✅ BUG-ALTO-005 FIX: Validar que reserva existe e é suficiente antes de decrementar
+      const balance = await tx.vaultBalance.findUnique({
+        where: {
+          vault_id_asset: {
+            vault_id: vaultId,
+            asset,
+          },
+        },
+      });
+
+      if (!balance) {
+        throw new Error(`Balance not found for vault ${vaultId} and asset ${asset}`);
+      }
+
+      const reservedBalance = balance.reserved?.toNumber() || 0;
+      if (reservedBalance < amount) {
+        throw new Error(
+          `Reservation not found or insufficient. ` +
+          `Reserved: ${reservedBalance}, Requested: ${amount}`
+        );
+      }
+
       await tx.vaultBalance.update({
         where: {
           vault_id_asset: {
@@ -216,7 +302,8 @@ export class VaultService {
   }
 
   async cancelBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
-    await this.prisma.$transaction(async (tx: any) => {
+    // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
+    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
       await tx.vaultBalance.update({
         where: {
           vault_id_asset: {
@@ -247,7 +334,8 @@ export class VaultService {
   }
 
   async creditOnSell(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
-    await this.prisma.$transaction(async (tx: any) => {
+    // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
+    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
       const balance = await tx.vaultBalance.findUnique({
         where: {
           vault_id_asset: {

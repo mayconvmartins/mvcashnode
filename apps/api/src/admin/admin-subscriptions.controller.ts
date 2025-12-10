@@ -49,7 +49,12 @@ export class AdminSubscriptionsController {
     }
     
     if (planId) {
-      where.plan_id = parseInt(planId);
+      // ✅ BUG-ALTO-007 FIX: Validar parseInt
+      const parsedPlanId = parseInt(planId);
+      if (isNaN(parsedPlanId) || parsedPlanId < 1) {
+        throw new BadRequestException('Invalid plan_id');
+      }
+      where.plan_id = parsedPlanId;
     }
 
     return this.prisma.subscription.findMany({
