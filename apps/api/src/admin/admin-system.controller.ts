@@ -495,56 +495,15 @@ export class AdminSystemController {
             }
           }
           
-          // 3. IMPORTANTE: Só usar taxas configuradas na conta como FALLBACK
-          // quando realmente não encontrou taxas na resposta da exchange
-          // (fees.feeAmount === 0 significa que não encontrou taxas na ordem nem nos trades)
-          if (fees.feeAmount === 0 && order.cost && order.filled) {
+          // ✅ TAXAS FIX: Removido fallback para taxas configuradas na conta
+          // Agora usamos APENAS taxas retornadas pela exchange para manter consistência
+          if (fees.feeAmount === 0 || !fees.feeCurrency) {
             const side = execution.trade_job.side.toLowerCase();
-            const orderType = execution.trade_job.order_type?.toLowerCase() || 'market'; // Assumir market se não especificado
-            
-            // Determinar qual taxa usar baseado no lado e tipo de ordem
-            let feeRate: number | null = null;
-            if (side === 'buy') {
-              feeRate = orderType === 'limit' 
-                ? account.fee_rate_buy_limit?.toNumber() || null
-                : account.fee_rate_buy_market?.toNumber() || null;
-            } else {
-              feeRate = orderType === 'limit'
-                ? account.fee_rate_sell_limit?.toNumber() || null
-                : account.fee_rate_sell_market?.toNumber() || null;
-            }
-
-            if (feeRate !== null && feeRate > 0) {
-              // Determinar em qual moeda a taxa é paga baseado na exchange e lado da ordem
-              // Binance geralmente paga taxa em base asset para BUY e quote asset para SELL
-              // Bybit geralmente paga taxa em base asset para BUY
-              const baseAsset = execution.trade_job.symbol.split('/')[0];
-              const quoteAsset = execution.trade_job.symbol.split('/')[1] || 'USDT';
-              
-              // Para compras, taxa geralmente é em base asset (ex: BTC)
-              // Para vendas, taxa geralmente é em quote asset (ex: USDT)
-              if (side === 'buy') {
-                // Taxa em base asset: calcular baseado na quantidade executada
-                const calculatedFee = order.filled * feeRate;
-                fees.feeAmount = calculatedFee;
-                fees.feeCurrency = baseAsset;
-                console.log(
-                  `[ADMIN] Execução ${execution.id}: Não encontrou taxas na ordem, usando taxa configurada na conta (${(feeRate * 100).toFixed(4)}%): ${calculatedFee} ${baseAsset}`
-                );
-              } else {
-                // Taxa em quote asset: calcular baseado no valor (cost)
-                const calculatedFee = order.cost * feeRate;
-                fees.feeAmount = calculatedFee;
-                fees.feeCurrency = quoteAsset;
-                console.log(
-                  `[ADMIN] Execução ${execution.id}: Não encontrou taxas na ordem, usando taxa configurada na conta (${(feeRate * 100).toFixed(4)}%): ${calculatedFee} ${quoteAsset}`
-                );
-              }
-            } else {
-              console.warn(
-                `[ADMIN] ⚠️ Execução ${execution.id}: Não encontrou taxas na ordem e não há taxa configurada na conta para ${side.toUpperCase()} ${orderType.toUpperCase()}`
-              );
-            }
+            const orderType = execution.trade_job.order_type?.toLowerCase() || 'market';
+            console.warn(
+              `[ADMIN] ⚠️ Execução ${execution.id}: Não foi possível obter taxas da exchange para ${side.toUpperCase()} ${orderType.toUpperCase()}. ` +
+              `Taxas devem vir diretamente da exchange para manter consistência no saldo.`
+            );
           }
 
           console.log(`[ADMIN] Execução ${execution.id}: Taxas extraídas:`, {
@@ -2848,25 +2807,39 @@ export class AdminSystemController {
       try {
         // Se tem exchange_order_id, cancelar na exchange
         if (order.executions.length > 0 && order.executions[0].exchange_order_id) {
-          try {
-            const keys = await accountService.decryptApiKeys(order.exchange_account_id);
-            if (keys && keys.apiKey && keys.apiSecret) {
-              const adapter = AdapterFactory.createAdapter(
-                order.exchange_account.exchange as ExchangeType,
-                keys.apiKey,
-                keys.apiSecret,
-                { testnet: order.exchange_account.testnet }
-              );
+          const exchangeOrderId = order.executions[0].exchange_order_id;
+          
+          // ✅ BUG 1 FIX: Validar se exchange_order_id é numérico (válido para exchange)
+          // IDs como "DUST-123-1234567890" ou "TEST-456" não são válidos para cancelar na exchange
+          const isValidOrderId = /^\d+$/.test(String(exchangeOrderId));
+          
+          if (!isValidOrderId) {
+            console.log(
+              `[ADMIN] Pulando cancelamento na exchange para job ${order.id}: ` +
+              `exchange_order_id "${exchangeOrderId}" não é numérico (provavelmente ordem DUST/TEST)`
+            );
+            // Continuar para cancelar no banco mesmo sem cancelar na exchange
+          } else {
+            try {
+              const keys = await accountService.decryptApiKeys(order.exchange_account_id);
+              if (keys && keys.apiKey && keys.apiSecret) {
+                const adapter = AdapterFactory.createAdapter(
+                  order.exchange_account.exchange as ExchangeType,
+                  keys.apiKey,
+                  keys.apiSecret,
+                  { testnet: order.exchange_account.testnet }
+                );
 
-              await adapter.cancelOrder(order.executions[0].exchange_order_id, order.symbol);
-              results.canceledInExchange++;
-              console.log(`[ADMIN] Ordem ${order.executions[0].exchange_order_id} cancelada na exchange para job ${order.id}`);
-            } else {
-              console.warn(`[ADMIN] Não foi possível obter API keys para conta ${order.exchange_account_id}, pulando cancelamento na exchange`);
+                await adapter.cancelOrder(exchangeOrderId, order.symbol);
+                results.canceledInExchange++;
+                console.log(`[ADMIN] Ordem ${exchangeOrderId} cancelada na exchange para job ${order.id}`);
+              } else {
+                console.warn(`[ADMIN] Não foi possível obter API keys para conta ${order.exchange_account_id}, pulando cancelamento na exchange`);
+              }
+            } catch (exchangeError: any) {
+              console.error(`[ADMIN] Erro ao cancelar ordem ${exchangeOrderId} na exchange: ${exchangeError.message}`);
+              // Continuar mesmo se falhar na exchange, ainda vamos cancelar no banco
             }
-          } catch (exchangeError: any) {
-            console.error(`[ADMIN] Erro ao cancelar ordem ${order.executions[0].exchange_order_id} na exchange: ${exchangeError.message}`);
-            // Continuar mesmo se falhar na exchange, ainda vamos cancelar no banco
           }
         }
 

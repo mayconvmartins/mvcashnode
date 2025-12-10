@@ -438,7 +438,7 @@ export abstract class ExchangeAdapter {
     }
 
     // Se ainda não encontrou moeda, inferir baseado no lado da ordem e símbolo
-    if (!feeCurrency && order.symbol) {
+    if (!feeCurrency && order.symbol && totalFeeAmount > 0) {
       const symbolParts = String(order.symbol).split('/');
       if (side === 'buy') {
         // Para compra, taxa geralmente é em quote asset (ex: USDT)
@@ -449,9 +449,17 @@ export abstract class ExchangeAdapter {
       }
     }
 
+    // ✅ TAXAS FIX: Se não encontrou nenhuma taxa, retornar null em vez de valores zero
+    if (totalFeeAmount === 0 || !feeCurrency) {
+      return {
+        feeAmount: 0,
+        feeCurrency: '',
+      };
+    }
+
     return {
       feeAmount: totalFeeAmount,
-      feeCurrency: feeCurrency || 'USDT', // Fallback para USDT
+      feeCurrency: feeCurrency,
     };
   }
 }

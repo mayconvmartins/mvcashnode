@@ -66,3 +66,113 @@ export function normalizeSymbol(symbol: string): string {
   return symbol.replace(/\.(P|F|PERP)$/i, '').toUpperCase();
 }
 
+/**
+ * Garante que o símbolo está no formato "BASE/QUOTE"
+ * Se o símbolo já tem barra, normaliza e retorna
+ * Se não tem barra, tenta detectar usando QUOTE assets comuns
+ * @param symbol Símbolo a normalizar (ex: "BNBUSDT" ou "BNB/USDT")
+ * @returns Símbolo no formato "BASE/QUOTE"
+ * @throws Error se não conseguir determinar o formato
+ */
+export function ensureSymbolFormat(symbol: string): string {
+  if (!symbol || typeof symbol !== 'string') {
+    throw new Error(`Símbolo inválido: ${symbol}`);
+  }
+
+  const normalized = normalizeSymbol(symbol.trim());
+
+  // Se já tem barra, validar e retornar
+  if (normalized.includes('/')) {
+    const parts = normalized.split('/');
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      return `${parts[0]}/${parts[1]}`;
+    }
+    throw new Error(`Formato de símbolo inválido (múltiplas barras?): ${normalized}`);
+  }
+
+  // Lista de QUOTE assets comuns (em ordem de prioridade)
+  const commonQuoteAssets = ['USDT', 'BUSD', 'BTC', 'ETH', 'BNB', 'USDC', 'DAI', 'TUSD', 'PAX'];
+
+  // Tentar detectar QUOTE asset no final do símbolo
+  for (const quoteAsset of commonQuoteAssets) {
+    if (normalized.endsWith(quoteAsset)) {
+      const baseAsset = normalized.slice(0, -quoteAsset.length);
+      if (baseAsset && baseAsset.length > 0) {
+        return `${baseAsset}/${quoteAsset}`;
+      }
+    }
+  }
+
+  // Se não encontrou, tentar padrões conhecidos
+  // Ex: SOLUSDT -> SOL/USDT (se USDT não foi encontrado acima)
+  // Mas isso é mais arriscado, então vamos lançar erro
+  throw new Error(
+    `Não foi possível determinar formato do símbolo "${symbol}". ` +
+    `Formato esperado: "BASE/QUOTE" (ex: "BTC/USDT") ou símbolo sem barra com QUOTE asset conhecido (ex: "BNBUSDT"). ` +
+    `QUOTE assets suportados: ${commonQuoteAssets.join(', ')}`
+  );
+}
+
+/**
+ * Extrai o ativo base de um símbolo
+ * @param symbol Símbolo no formato "BASE/QUOTE" ou sem barra
+ * @returns Ativo base (ex: "BTC" de "BTC/USDT")
+ * @throws Error se não conseguir extrair
+ */
+export function getBaseAsset(symbol: string): string {
+  if (!symbol || typeof symbol !== 'string') {
+    throw new Error(`Símbolo inválido para extrair base asset: ${symbol}`);
+  }
+
+  // Tentar split primeiro
+  if (symbol.includes('/')) {
+    const parts = symbol.split('/');
+    if (parts[0] && parts[0].trim()) {
+      return parts[0].trim().toUpperCase();
+    }
+  }
+
+  // Se não tem barra, usar ensureSymbolFormat
+  try {
+    const formatted = ensureSymbolFormat(symbol);
+    return formatted.split('/')[0];
+  } catch (error: any) {
+    throw new Error(
+      `Não foi possível extrair base asset de "${symbol}": ${error.message}`
+    );
+  }
+}
+
+/**
+ * Extrai o ativo quote de um símbolo
+ * @param symbol Símbolo no formato "BASE/QUOTE" ou sem barra
+ * @returns Ativo quote (ex: "USDT" de "BTC/USDT")
+ * @throws Error se não conseguir extrair
+ */
+export function getQuoteAsset(symbol: string): string {
+  if (!symbol || typeof symbol !== 'string') {
+    throw new Error(`Símbolo inválido para extrair quote asset: ${symbol}`);
+  }
+
+  // Tentar split primeiro
+  if (symbol.includes('/')) {
+    const parts = symbol.split('/');
+    if (parts[1] && parts[1].trim()) {
+      return parts[1].trim().toUpperCase();
+    }
+    // Se tem barra mas não tem quote, usar USDT como padrão
+    return 'USDT';
+  }
+
+  // Se não tem barra, usar ensureSymbolFormat
+  try {
+    const formatted = ensureSymbolFormat(symbol);
+    const parts = formatted.split('/');
+    return parts[1] || 'USDT';
+  } catch (error: any) {
+    throw new Error(
+      `Não foi possível extrair quote asset de "${symbol}": ${error.message}`
+    );
+  }
+}
+

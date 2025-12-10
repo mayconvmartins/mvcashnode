@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, PositionStatus, CloseReason, ExchangeType } from '@mvcashnode/shared';
+import { TradeMode, PositionStatus, CloseReason, ExchangeType, getBaseAsset, getQuoteAsset } from '@mvcashnode/shared';
 
 export interface PositionFill {
   executionId: number;
@@ -377,11 +377,11 @@ export class PositionService {
     // Calcular taxa em USD para atualização da posição
     let feeUsd = 0;
     if (feeAmount && feeAmount > 0 && feeCurrency) {
-      const quoteAsset = job.symbol.split('/')[1] || 'USDT';
+      const quoteAsset = getQuoteAsset(job.symbol);
       if (feeCurrency === 'USDT' || feeCurrency === 'USD' || feeCurrency === quoteAsset) {
         // Taxa já está em USD ou em quote asset (que geralmente é USDT)
         feeUsd = feeAmount;
-      } else if (feeCurrency === job.symbol.split('/')[0]) {
+      } else if (feeCurrency === getBaseAsset(job.symbol)) {
         // Taxa em base asset, converter usando preço médio
         feeUsd = feeAmount * avgPrice;
       } else {

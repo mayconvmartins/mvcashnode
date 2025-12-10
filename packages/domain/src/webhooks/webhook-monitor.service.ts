@@ -681,6 +681,26 @@ export class WebhookMonitorService {
     });
 
     console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${alertId} executado, ${tradeJobIds.length} TradeJob(s) criado(s): ${tradeJobIds.join(', ')}`);
+
+    // ✅ BUG 5 FIX: Atualizar webhook_event para JOB_CREATED após criar jobs
+    if (alert.webhook_event_id) {
+      try {
+        await this.prisma.webhookEvent.update({
+          where: { id: alert.webhook_event_id },
+          data: {
+            status: 'JOB_CREATED',
+            processed_at: new Date(),
+          },
+        });
+        console.log(`[WEBHOOK-MONITOR] ✅ Webhook event ${alert.webhook_event_id} atualizado para JOB_CREATED`);
+      } catch (error: any) {
+        console.warn(`[WEBHOOK-MONITOR] ⚠️ Erro ao atualizar webhook_event ${alert.webhook_event_id}: ${error.message}`);
+        // Não falhar o processo se não conseguir atualizar o evento
+      }
+    } else {
+      console.warn(`[WEBHOOK-MONITOR] ⚠️ Alerta ${alertId} não tem webhook_event_id, pulando atualização de status`);
+    }
+
     return updatedAlert;
   }
 
@@ -698,13 +718,34 @@ export class WebhookMonitorService {
 
     console.log(`[WEBHOOK-MONITOR] Cancelando alerta ${alertId}: ${reason}`);
 
-    return this.prisma.webhookMonitorAlert.update({
+    const updatedAlert = await this.prisma.webhookMonitorAlert.update({
       where: { id: alertId },
       data: {
         state: WebhookMonitorAlertState.CANCELLED,
         cancel_reason: reason,
       },
     });
+
+    // ✅ BUG 6 FIX: Atualizar webhook_event para SKIPPED após cancelar alerta
+    if (alert.webhook_event_id) {
+      try {
+        await this.prisma.webhookEvent.update({
+          where: { id: alert.webhook_event_id },
+          data: {
+            status: 'SKIPPED',
+            processed_at: new Date(),
+          },
+        });
+        console.log(`[WEBHOOK-MONITOR] ✅ Webhook event ${alert.webhook_event_id} atualizado para SKIPPED`);
+      } catch (error: any) {
+        console.warn(`[WEBHOOK-MONITOR] ⚠️ Erro ao atualizar webhook_event ${alert.webhook_event_id}: ${error.message}`);
+        // Não falhar o processo se não conseguir atualizar o evento
+      }
+    } else {
+      console.warn(`[WEBHOOK-MONITOR] ⚠️ Alerta ${alertId} não tem webhook_event_id, pulando atualização de status`);
+    }
+
+    return updatedAlert;
   }
 
   /**

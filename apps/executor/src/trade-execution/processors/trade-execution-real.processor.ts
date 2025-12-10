@@ -8,7 +8,7 @@ import {
   VaultService,
   TradeParameterService,
 } from '@mvcashnode/domain';
-import { EncryptionService } from '@mvcashnode/shared';
+import { EncryptionService, getBaseAsset, getQuoteAsset } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { NotificationHttpService } from '@mvcashnode/notifications';
@@ -319,7 +319,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       if (tradeJob.side === 'BUY') {
         try {
           const balance = await adapter.fetchBalance();
-          const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
+          const quoteAsset = getQuoteAsset(tradeJob.symbol);
           const available = balance.free[quoteAsset] || 0;
 
           const requiredAmount = quoteAmount > 0 ? quoteAmount : baseQty * (tradeJob.limit_price?.toNumber() || 0);
@@ -339,7 +339,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Buscando saldo atualizado da exchange para venda...`);
           
           const balance = await adapter.fetchBalance();
-          const baseAsset = tradeJob.symbol.split('/')[0];
+          const baseAsset = getBaseAsset(tradeJob.symbol);
           const available = balance.free[baseAsset] || 0;
           
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível na exchange: ${available} ${baseAsset}, Quantidade solicitada: ${baseQty} ${baseAsset}`);
@@ -453,7 +453,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               
               // Buscar saldo disponível
               const balance = await adapter.fetchBalance();
-              const baseAsset = tradeJob.symbol.split('/')[0];
+              const baseAsset = getBaseAsset(tradeJob.symbol);
               const available = balance.free[baseAsset] || 0;
               
               this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível: ${available} ${baseAsset}, Quantidade solicitada: ${baseQty} ${baseAsset}`);
@@ -853,10 +853,43 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         if (feeAmount > 0) {
           this.logger.log(`[EXECUTOR] Taxas finais: ${feeAmount} ${feeCurrency}, taxa: ${feeRate?.toFixed(4)}%`);
         } else {
-          this.logger.warn(`[EXECUTOR] Nenhuma taxa encontrada na ordem ou trades`);
+          // ✅ TAXAS FIX: Se não encontrou taxa, tentar buscar ordem novamente após 2 segundos
+          this.logger.warn(`[EXECUTOR] Nenhuma taxa encontrada na ordem ou trades. Tentando buscar ordem novamente...`);
+          
+          try {
+            // Aguardar 2 segundos para a exchange processar
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            
+            // Buscar ordem novamente
+            const refreshedOrder = await adapter.fetchOrder(order.id, tradeJob.symbol);
+            this.logger.log(`[EXECUTOR] Ordem buscada novamente, tentando extrair taxas...`);
+            
+            // Tentar extrair taxas novamente
+            const refreshedFees = adapter.extractFeesFromOrder(refreshedOrder, tradeJob.side.toLowerCase() as 'buy' | 'sell');
+            if (refreshedFees.feeAmount > 0 && refreshedFees.feeCurrency) {
+              feeAmount = refreshedFees.feeAmount;
+              feeCurrency = refreshedFees.feeCurrency;
+              if (cummQuoteQty > 0) {
+                feeRate = (feeAmount / cummQuoteQty) * 100;
+              }
+              this.logger.log(`[EXECUTOR] ✅ Taxas encontradas após retry: ${feeAmount} ${feeCurrency}, taxa: ${feeRate?.toFixed(4)}%`);
+            } else {
+              this.logger.error(`[EXECUTOR] ❌ CRÍTICO: Ainda não foi possível obter taxas da exchange após retry. Continuando com taxa zero.`);
+              // Continuar com taxa zero para não bloquear a execução
+              feeAmount = 0;
+              feeCurrency = '';
+            }
+          } catch (retryError: any) {
+            this.logger.error(`[EXECUTOR] ❌ Erro ao tentar buscar ordem novamente: ${retryError.message}`);
+            // Continuar com taxa zero
+            feeAmount = 0;
+            feeCurrency = '';
+          }
         }
       } catch (feeError: any) {
         this.logger.warn(`[EXECUTOR] Erro ao extrair taxas: ${feeError.message}`);
+        feeAmount = 0;
+        feeCurrency = '';
       }
 
       // ✅ BUG 3 FIX: NÃO ajustar quantidade executada para taxas em base asset
@@ -1009,7 +1042,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             // Ajustar quantidade se taxa for em base asset (BUY)
             // IMPORTANTE: Se a taxa veio dos trades, finalExecutedQty pode estar bruto (não ajustado)
             if (tradeJob.side === 'BUY' && updatedFeeAmount && updatedFeeCurrency) {
-              const baseAsset = tradeJob.symbol.split('/')[0];
+              const baseAsset = getBaseAsset(tradeJob.symbol);
               if (updatedFeeCurrency === baseAsset) {
                 // Verificar se a quantidade já foi ajustada
                 // Se finalExecutedQty + updatedFeeAmount ≈ quantidade bruta esperada, então não foi ajustado
@@ -1031,7 +1064,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
             // Ajustar cumm_quote_qty se taxa for em quote asset (SELL)
             if (tradeJob.side === 'SELL' && updatedFeeAmount && updatedFeeCurrency) {
-              const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
+              const quoteAsset = getQuoteAsset(tradeJob.symbol);
               if (updatedFeeCurrency === quoteAsset) {
                 finalCummQuoteQty = Math.max(0, finalCummQuoteQty - updatedFeeAmount);
               }

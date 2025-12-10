@@ -8,7 +8,7 @@ import {
   TradeParameterService,
 } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
-import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
+import { ExchangeType, TradeJobStatus, TradeMode, getBaseAsset, getQuoteAsset } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
 
 @Processor('trade-execution-sim')
@@ -333,12 +333,12 @@ export class TradeExecutionSimProcessor extends WorkerHost {
       if (tradeJob.side === 'BUY') {
         // Para compra, taxa geralmente é em base asset ou quote asset
         // Vamos simular como quote asset (mais comum)
-        const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
+        const quoteAsset = getQuoteAsset(tradeJob.symbol);
         feeAmount = cummQuoteQty * DEFAULT_FEE_RATE;
         feeCurrency = quoteAsset;
       } else {
         // Para venda, taxa geralmente é em base asset
-        const baseAsset = tradeJob.symbol.split('/')[0];
+        const baseAsset = getBaseAsset(tradeJob.symbol);
         feeAmount = executedQty * DEFAULT_FEE_RATE;
         feeCurrency = baseAsset;
       }
@@ -351,7 +351,7 @@ export class TradeExecutionSimProcessor extends WorkerHost {
       // Ajustar cumm_quote_qty se taxa for em quote asset (SELL) - isso está correto
       let adjustedCummQuoteQty = cummQuoteQty;
       if (tradeJob.side === 'SELL' && feeAmount && feeCurrency) {
-        const quoteAsset = tradeJob.symbol.split('/')[1] || 'USDT';
+        const quoteAsset = getQuoteAsset(tradeJob.symbol);
         if (feeCurrency === quoteAsset) {
           adjustedCummQuoteQty = Math.max(0, cummQuoteQty - feeAmount);
         }

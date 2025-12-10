@@ -1,5 +1,5 @@
 import { WebhookAction } from '@mvcashnode/shared';
-import { normalizeSymbol } from '@mvcashnode/shared';
+import { normalizeSymbol, ensureSymbolFormat } from '@mvcashnode/shared';
 
 export interface ParsedSignal {
   symbolRaw: string;
@@ -169,8 +169,21 @@ export class WebhookParserService {
       }
     }
 
-    // Normalize symbol
-    const symbolNormalized = symbolRaw ? normalizeSymbol(symbolRaw) : '';
+    // Normalize symbol - garantir formato BASE/QUOTE
+    let symbolNormalized = '';
+    if (symbolRaw) {
+      try {
+        // Primeiro normalizar (remove sufixos .P, .F, etc)
+        const normalized = normalizeSymbol(symbolRaw);
+        // Depois garantir formato BASE/QUOTE
+        symbolNormalized = ensureSymbolFormat(normalized);
+        console.log(`[WEBHOOK-PARSER] Símbolo normalizado: "${symbolRaw}" -> "${symbolNormalized}"`);
+      } catch (error: any) {
+        console.error(`[WEBHOOK-PARSER] Erro ao normalizar símbolo "${symbolRaw}": ${error.message}`);
+        // Em caso de erro, usar o símbolo normalizado sem barra como fallback
+        symbolNormalized = normalizeSymbol(symbolRaw);
+      }
+    }
 
     const result: ParsedSignal = {
       symbolRaw: symbolRaw || '',

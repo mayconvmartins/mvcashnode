@@ -3,7 +3,7 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { PositionService } from '@mvcashnode/domain';
-import { EncryptionService } from '@mvcashnode/shared';
+import { EncryptionService, getQuoteAsset } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
@@ -108,9 +108,43 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
             
             if (feeAmount > 0 && cummQuoteQty > 0) {
               feeRate = (feeAmount / cummQuoteQty) * 100;
+            } else if (feeAmount === 0 || !feeCurrency) {
+              // ✅ TAXAS FIX: Se não encontrou taxa, tentar buscar ordem novamente após 2 segundos
+              console.warn(`[LIMIT-ORDERS-MONITOR] Nenhuma taxa encontrada na ordem. Tentando buscar ordem novamente...`);
+              
+              try {
+                // Aguardar 2 segundos para a exchange processar
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+                
+                // Buscar ordem novamente
+                const refreshedOrder = await adapter.fetchOrder(existingExecution.exchange_order_id, order.symbol);
+                console.log(`[LIMIT-ORDERS-MONITOR] Ordem buscada novamente, tentando extrair taxas...`);
+                
+                // Tentar extrair taxas novamente
+                const refreshedFees = adapter.extractFeesFromOrder(refreshedOrder, order.side.toLowerCase() as 'buy' | 'sell');
+                if (refreshedFees.feeAmount > 0 && refreshedFees.feeCurrency) {
+                  feeAmount = refreshedFees.feeAmount;
+                  feeCurrency = refreshedFees.feeCurrency;
+                  const refreshedCummQuoteQty = refreshedOrder.cost || exchangeOrder.cost || 0;
+                  if (refreshedCummQuoteQty > 0) {
+                    feeRate = (feeAmount / refreshedCummQuoteQty) * 100;
+                  }
+                  console.log(`[LIMIT-ORDERS-MONITOR] ✅ Taxas encontradas após retry: ${feeAmount} ${feeCurrency}, taxa: ${feeRate?.toFixed(4)}%`);
+                } else {
+                  console.error(`[LIMIT-ORDERS-MONITOR] ❌ CRÍTICO: Ainda não foi possível obter taxas da exchange após retry. Continuando com taxa zero.`);
+                  feeAmount = 0;
+                  feeCurrency = '';
+                }
+              } catch (retryError: any) {
+                console.error(`[LIMIT-ORDERS-MONITOR] ❌ Erro ao tentar buscar ordem novamente: ${retryError.message}`);
+                feeAmount = 0;
+                feeCurrency = '';
+              }
             }
           } catch (feeError: any) {
             console.warn(`[LIMIT-ORDERS-MONITOR] Erro ao extrair taxas: ${feeError.message}`);
+            feeAmount = 0;
+            feeCurrency = '';
           }
 
           let executedQty = exchangeOrder.filled || exchangeOrder.amount || 0;
@@ -124,7 +158,7 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
 
           // Ajustar cumm_quote_qty se taxa for em quote asset (SELL) - isso está correto
           if (order.side === 'SELL' && feeAmount && feeCurrency) {
-            const quoteAsset = order.symbol.split('/')[1] || 'USDT';
+            const quoteAsset = getQuoteAsset(order.symbol);
             if (feeCurrency === quoteAsset) {
               cummQuoteQty = Math.max(0, cummQuoteQty - feeAmount);
             }
