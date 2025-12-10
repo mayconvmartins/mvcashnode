@@ -83,7 +83,7 @@ export class WebhookMonitorService {
 
       if (userConfig) {
         // ✅ BUG-MED-003 FIX: Usar função helper para converter sem `as any`
-        return convertPrismaConfigToInterface(userConfig);
+        return this.convertPrismaConfigToInterface(userConfig);
       }
     }
 
@@ -94,7 +94,7 @@ export class WebhookMonitorService {
 
     if (globalConfig) {
       // ✅ BUG-MED-003 FIX: Usar função helper para converter sem `as any`
-      return convertPrismaConfigToInterface(globalConfig);
+      return this.convertPrismaConfigToInterface(globalConfig);
     }
 
     return this.defaultConfig;
@@ -104,7 +104,24 @@ export class WebhookMonitorService {
    * Helper para converter config do Prisma para interface
    */
   private convertPrismaConfigToInterface(config: any): WebhookMonitorConfig {
-    return convertPrismaConfigToInterface(config);
+    return {
+      monitor_enabled: config.monitor_enabled,
+      check_interval_sec: config.check_interval_sec,
+      lateral_tolerance_pct: config.lateral_tolerance_pct?.toNumber() || 0.3,
+      lateral_cycles_min: config.lateral_cycles_min,
+      rise_trigger_pct: config.rise_trigger_pct?.toNumber() || 0.75,
+      rise_cycles_min: config.rise_cycles_min,
+      max_fall_pct: config.max_fall_pct?.toNumber() || 6.0,
+      max_monitoring_time_min: config.max_monitoring_time_min,
+      cooldown_after_execution_min: config.cooldown_after_execution_min,
+      sell_lateral_tolerance_pct: config.sell_lateral_tolerance_pct?.toNumber() || 0.3,
+      sell_lateral_cycles_min: config.sell_lateral_cycles_min,
+      sell_fall_trigger_pct: config.sell_fall_trigger_pct?.toNumber() || 0.5,
+      sell_fall_cycles_min: config.sell_fall_cycles_min,
+      sell_max_rise_pct: config.sell_max_rise_pct?.toNumber() || 6.0,
+      sell_max_monitoring_time_min: config.sell_max_monitoring_time_min,
+      sell_cooldown_after_execution_min: config.sell_cooldown_after_execution_min,
+    };
   }
 
   /**

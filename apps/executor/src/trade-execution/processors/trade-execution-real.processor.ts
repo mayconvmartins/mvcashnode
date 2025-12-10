@@ -75,26 +75,6 @@ export class TradeExecutionRealProcessor extends WorkerHost {
     throw lastError;
   }
 
-  /**
-   * Verifica se um erro é de rede
-   */
-  private isNetworkError(error: any): boolean {
-    const errorMessage = error?.message || '';
-    const errorCode = error?.code || error?.statusCode || '';
-    
-    return (
-      errorMessage.includes('timeout') || 
-      errorMessage.includes('network') ||
-      errorMessage.includes('ETIMEDOUT') ||
-      errorMessage.includes('ENOTFOUND') ||
-      errorMessage.includes('ECONNRESET') ||
-      errorMessage.includes('ECONNREFUSED') ||
-      errorCode === 'ETIMEDOUT' ||
-      errorCode === 'ENOTFOUND' ||
-      errorCode === 'ECONNRESET' ||
-      errorCode === 'ECONNREFUSED'
-    );
-  }
 
   async process(job: Job<any>): Promise<any> {
     const { tradeJobId } = job.data;
