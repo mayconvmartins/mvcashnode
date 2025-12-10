@@ -537,19 +537,6 @@ export class WebhookEventService {
           }
         } else {
           // BUY - criar job normalmente (sem position_id)
-          // VALIDAÇÃO FINAL: Garantir que vendas via webhook são sempre LIMIT
-          if (side === 'SELL') {
-            if (orderType !== 'LIMIT') {
-              console.error(`[WEBHOOK-EVENT] ⚠️ ERRO: Venda via webhook deve ser LIMIT, mas orderType=${orderType}. Forçando LIMIT.`);
-              orderType = 'LIMIT';
-            }
-            if (!limitPrice || limitPrice <= 0) {
-              console.error(`[WEBHOOK-EVENT] ⚠️ ERRO: Venda via webhook requer limitPrice, mas limitPrice=${limitPrice}. Pulando criação do job.`);
-              skipReasons.push(`Venda via webhook requer limitPrice válido, mas limitPrice=${limitPrice}`);
-              continue;
-            }
-          }
-          
           console.log(`[WEBHOOK-EVENT] ========== CHAMANDO createJob (BUY) ==========`);
           console.log(`[WEBHOOK-EVENT] Parâmetros:`, {
             side,
@@ -568,7 +555,7 @@ export class WebhookEventService {
             orderType,
             baseQuantity,
             limitPrice,
-            skipParameterValidation: side === 'SELL' && baseQuantity !== undefined,
+            skipParameterValidation: false,
           });
           
           console.log(`[WEBHOOK-EVENT] ✅ Job criado: ID=${tradeJob.id}, orderType=${tradeJob.order_type}, limitPrice=${tradeJob.limit_price?.toNumber() || 'NULL'}, quantidade: ${baseQuantity || tradeJob.quote_amount || 'calculada automaticamente'}`);

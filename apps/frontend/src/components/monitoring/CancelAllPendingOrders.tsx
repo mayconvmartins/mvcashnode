@@ -46,8 +46,13 @@ export function CancelAllPendingOrders() {
   const dryRunMutation = useMutation({
     mutationFn: () => adminService.cancelAllPendingOrders({ dryRun: true }),
     onSuccess: (data) => {
-      setDryRunResult(data)
-      setShowConfirm(true)
+      if (data.ordersFound !== undefined && data.orders) {
+        setDryRunResult({
+          ordersFound: data.ordersFound,
+          orders: data.orders,
+        })
+        setShowConfirm(true)
+      }
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erro ao verificar ordens pendentes')

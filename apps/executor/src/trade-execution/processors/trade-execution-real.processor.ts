@@ -366,7 +366,6 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           
           // Validar quantidade vs disponível
           if (baseQty > available) {
-            const difference = baseQty - available;
             const MIN_AMOUNT = 0.001;
             
             if (available >= MIN_AMOUNT) {
