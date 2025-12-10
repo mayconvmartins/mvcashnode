@@ -1179,5 +1179,94 @@ export class WebhookMonitorService {
       },
     });
   }
+
+  /**
+   * Calcular métricas retroativamente para alertas já executados que não têm métricas
+   * Útil para popular dados históricos após adicionar os campos
+   */
+  async calculateMetricsForExecutedAlerts(alertIds?: number[]): Promise<{
+    processed: number;
+    errors: number;
+  }> {
+    const where: any = {
+      state: 'EXECUTED',
+    };
+
+    // Se IDs específicos foram fornecidos, processar apenas eles
+    if (alertIds && alertIds.length > 0) {
+      where.id = { in: alertIds };
+    } else {
+      // Processar apenas alertas que não têm métricas calculadas
+      where.OR = [
+        { monitoring_duration_minutes: null },
+        { savings_pct: null },
+        { efficiency_pct: null },
+      ];
+    }
+
+    const alerts = await this.prisma.webhookMonitorAlert.findMany({
+      where,
+      select: {
+        id: true,
+        created_at: true,
+        updated_at: true,
+        price_alert: true,
+        execution_price: true,
+        price_minimum: true,
+        price_maximum: true,
+        side: true,
+      },
+    });
+
+    let processed = 0;
+    let errors = 0;
+
+    for (const alert of alerts) {
+      try {
+        // Calcular duração do monitoramento
+        const monitoringDurationMinutes = Math.round(
+          (new Date(alert.updated_at).getTime() - new Date(alert.created_at).getTime()) / 60000
+        );
+
+        const priceAlert = alert.price_alert.toNumber();
+        const executionPrice = alert.execution_price?.toNumber() || priceAlert;
+        const side = (alert as any).side || 'BUY';
+
+        // Calcular economia vs preço inicial
+        const savingsPct = ((priceAlert - executionPrice) / priceAlert) * 100;
+
+        // Calcular eficiência (proximidade do melhor preço)
+        let efficiencyPct = 0;
+        if (side === 'BUY' && alert.price_minimum) {
+          const priceMin = alert.price_minimum.toNumber();
+          if (priceAlert !== priceMin) {
+            efficiencyPct = ((priceAlert - executionPrice) / (priceAlert - priceMin)) * 100;
+          }
+        } else if (side === 'SELL' && alert.price_maximum) {
+          const priceMax = alert.price_maximum.toNumber();
+          if (priceMax !== priceAlert) {
+            efficiencyPct = ((executionPrice - priceAlert) / (priceMax - priceAlert)) * 100;
+          }
+        }
+
+        // Atualizar alerta com métricas
+        await this.prisma.webhookMonitorAlert.update({
+          where: { id: alert.id },
+          data: {
+            monitoring_duration_minutes: monitoringDurationMinutes,
+            savings_pct: savingsPct,
+            efficiency_pct: Math.min(100, Math.max(0, efficiencyPct)),
+          },
+        });
+
+        processed++;
+      } catch (error: any) {
+        console.error(`[WEBHOOK-MONITOR] Erro ao calcular métricas para alerta ${alert.id}:`, error.message);
+        errors++;
+      }
+    }
+
+    return { processed, errors };
+  }
 }
 

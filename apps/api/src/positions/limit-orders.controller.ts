@@ -598,7 +598,7 @@ export class LimitOrdersController {
   async history(
     @CurrentUser() user: any,
     @Query() query: LimitOrdersHistoryQueryDto
-  ) {
+  ): Promise<any[]> {
     const { from, to, symbol, status, trade_mode: tradeMode } = query;
     try {
       // Buscar IDs das exchange accounts do usuário

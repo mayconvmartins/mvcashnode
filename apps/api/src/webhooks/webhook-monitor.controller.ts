@@ -235,6 +235,23 @@ export class WebhookMonitorController {
     }
   }
 
+  @Post('calculate-metrics')
+  @ApiOperation({ summary: 'Calcular métricas retroativamente para alertas já executados' })
+  @ApiResponse({ status: 200, description: 'Métricas calculadas' })
+  async calculateMetrics(@CurrentUser() user: any) {
+    try {
+      const result = await this.monitorService.calculateMetricsForExecutedAlerts();
+      return {
+        message: `Métricas calculadas para ${result.processed} alertas`,
+        processed: result.processed,
+        errors: result.errors,
+      };
+    } catch (error: any) {
+      console.error('[WEBHOOK-MONITOR] Erro ao calcular métricas:', error);
+      throw new BadRequestException(`Erro ao calcular métricas: ${error.message}`);
+    }
+  }
+
   @Get('config')
   @ApiOperation({ summary: 'Obter configurações de monitoramento' })
   @ApiResponse({ status: 200, description: 'Configurações de monitoramento' })

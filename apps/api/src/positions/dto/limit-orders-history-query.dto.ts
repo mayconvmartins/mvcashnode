@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsEnum } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsDateString } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class LimitOrdersHistoryQueryDto {
   @ApiProperty({
@@ -10,6 +11,7 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsString()
+  @Type(() => String)
   from?: string;
 
   @ApiProperty({
@@ -20,6 +22,7 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsString()
+  @Type(() => String)
   to?: string;
 
   @ApiProperty({
@@ -30,6 +33,7 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsString()
+  @Type(() => String)
   symbol?: string;
 
   @ApiProperty({
@@ -40,6 +44,7 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsEnum(['FILLED', 'CANCELED', 'EXPIRED'])
+  @Type(() => String)
   status?: string;
 
   @ApiProperty({
@@ -50,6 +55,7 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsEnum(['REAL', 'SIMULATION'])
+  @Type(() => String)
   trade_mode?: string;
 }
 

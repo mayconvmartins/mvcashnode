@@ -98,6 +98,13 @@ pnpm dev:monitors
 - `pnpm db:migrate` - Executar migrations
 - `pnpm db:studio` - Abrir Prisma Studio
 
+## Variáveis de Ambiente - Autenticação
+
+- `JWT_EXPIRES_IN`: Tempo de expiração do access token (padrão: 3600s = 1h)
+- `JWT_REFRESH_EXPIRES_IN`: Tempo de expiração do refresh token (padrão: 604800s = 7d)
+
+**Nota:** Com "Lembrar de mim" marcado, o access token expira em 7 dias em vez de 1 hora.
+
 ## Documentação
 
 - **API**: A documentação completa da API está disponível em `/api-docs` quando a API estiver rodando
