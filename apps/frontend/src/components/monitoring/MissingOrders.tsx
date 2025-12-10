@@ -336,9 +336,9 @@ export function MissingOrders() {
                                                             <>
                                                                 <Label className="text-xs">Vincular à posição:</Label>
                                                                 <Select
-                                                                    value={selectedPositions[order.exchangeOrderId]?.toString() || ''}
+                                                                    value={selectedPositions[order.exchangeOrderId]?.toString() || 'SKIP'}
                                                                     onValueChange={(value) => {
-                                                                        if (value) {
+                                                                        if (value && value !== 'SKIP') {
                                                                             setSelectedPositions(prev => ({
                                                                                 ...prev,
                                                                                 [order.exchangeOrderId]: parseInt(value),
@@ -356,7 +356,7 @@ export function MissingOrders() {
                                                                         <SelectValue placeholder="Selecione posição..." />
                                                                     </SelectTrigger>
                                                                     <SelectContent>
-                                                                        <SelectItem value="">Nenhuma (ignorar esta venda)</SelectItem>
+                                                                        <SelectItem value="SKIP">Nenhuma (ignorar esta venda)</SelectItem>
                                                                         {positions.map((pos) => (
                                                                             <SelectItem key={pos.id} value={pos.id.toString()}>
                                                                                 #{pos.id} - Restante: {pos.qty_remaining.toFixed(4)} | Abertura: ${pos.price_open.toFixed(2)} | {new Date(pos.created_at).toLocaleDateString('pt-BR')}
