@@ -2605,10 +2605,73 @@ export class PositionsController {
 
         // Buscar ordem na exchange
         let order;
-        if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
-          order = await adapter.fetchClosedOrder(createDto.exchange_order_id, createDto.symbol);
-        } else {
-          order = await adapter.fetchOrder(createDto.exchange_order_id, createDto.symbol);
+        try {
+          if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
+            order = await adapter.fetchClosedOrder(createDto.exchange_order_id, createDto.symbol);
+          } else {
+            order = await adapter.fetchOrder(createDto.exchange_order_id, createDto.symbol);
+          }
+        } catch (fetchError: any) {
+          // Se for erro de ordem arquivada na Binance (código -2026), tentar buscar via trades recentes
+          if (
+            account.exchange === 'BINANCE_SPOT' && 
+            (fetchError.message?.includes('-2026') || 
+             fetchError.message?.includes('archived') ||
+             fetchError.message?.includes('over 90 days'))
+          ) {
+            try {
+              // Buscar trades das últimas 24 horas
+              const since = Date.now() - 24 * 60 * 60 * 1000;
+              const trades = await adapter.fetchMyTrades(createDto.symbol, since, 1000);
+              
+              // Procurar trades que correspondem ao ID da ordem
+              const orderTrades = trades.filter((t: any) => {
+                const tradeOrderId = String(t.order || t.orderId || (t.info && (t.info.orderId || t.info.orderListId)) || '');
+                return tradeOrderId === String(createDto.exchange_order_id);
+              });
+
+              if (orderTrades.length === 0) {
+                throw new BadRequestException(
+                  `Ordem ${createDto.exchange_order_id} não encontrada. A ordem pode ter sido arquivada pela Binance (mais de 90 dias) ou o ID está incorreto. Tente usar o método MANUAL para inserir os dados manualmente.`
+                );
+              }
+
+              // Construir objeto order a partir dos trades
+              const totalFilled = orderTrades.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+              const totalCost = orderTrades.reduce((sum: number, t: any) => sum + (t.cost || (t.amount || 0) * (t.price || 0)), 0);
+              const avgPrice = totalFilled > 0 ? totalCost / totalFilled : 0;
+              const firstTrade = orderTrades[0];
+              const lastTrade = orderTrades[orderTrades.length - 1];
+
+              order = {
+                id: String(createDto.exchange_order_id),
+                symbol: createDto.symbol,
+                type: firstTrade.type || 'market',
+                side: firstTrade.side || createDto.side || 'BUY',
+                status: 'filled',
+                filled: totalFilled,
+                remaining: 0,
+                cost: totalCost,
+                average: avgPrice,
+                price: avgPrice,
+                timestamp: firstTrade.timestamp,
+                datetime: firstTrade.datetime,
+                fees: orderTrades.map((t: any) => t.fee).filter((f: any) => f),
+                fills: orderTrades.map((t: any) => ({
+                  price: t.price,
+                  amount: t.amount,
+                  cost: t.cost || (t.amount * t.price),
+                })),
+              };
+            } catch (tradesError: any) {
+              throw new BadRequestException(
+                `Não foi possível buscar a ordem ${createDto.exchange_order_id}. A ordem pode ter sido arquivada pela Binance (mais de 90 dias). Erro: ${tradesError.message || fetchError.message}. Tente usar o método MANUAL para inserir os dados manualmente.`
+              );
+            }
+          } else {
+            // Re-lançar o erro original se não for o caso específico
+            throw fetchError;
+          }
         }
 
         // Validar que o side da ordem corresponde ao side solicitado

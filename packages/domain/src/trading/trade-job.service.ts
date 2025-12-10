@@ -60,6 +60,16 @@ export class TradeJobService {
       }
     }
 
+    // ✅ NOVO: Validar SELL - position_id_to_close é obrigatório
+    if (dto.side === 'SELL') {
+      if (!dto.positionIdToClose || dto.positionIdToClose <= 0) {
+        throw new Error('SELL orders must have positionIdToClose. FIFO logic has been removed. All sell orders must specify which position to close.');
+      }
+      if (!dto.baseQuantity || dto.baseQuantity <= 0) {
+        throw new Error('SELL orders must have valid baseQuantity greater than zero.');
+      }
+    }
+
     // VALIDAÇÃO: Se for ordem LIMIT, limitPrice é obrigatório
     if (dto.orderType === 'LIMIT' && (!dto.limitPrice || dto.limitPrice <= 0)) {
       throw new Error(`Ordem LIMIT requer limitPrice válido. Recebido: ${dto.limitPrice}`);

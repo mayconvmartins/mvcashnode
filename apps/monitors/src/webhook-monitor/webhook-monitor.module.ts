@@ -10,6 +10,12 @@ import { CronExecutionService } from '../shared/cron-execution.service';
     BullModule.registerQueue({
       name: 'webhook-monitor',
     }),
+    BullModule.registerQueue({
+      name: 'trade-execution-real',
+    }),
+    BullModule.registerQueue({
+      name: 'trade-execution-sim',
+    }),
   ],
   providers: [
     PrismaService,

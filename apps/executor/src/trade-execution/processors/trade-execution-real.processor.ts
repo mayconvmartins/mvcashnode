@@ -315,7 +315,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         }
       }
 
-      // Verificar saldo antes de executar (apenas para BUY)
+      // Verificar saldo antes de executar
       if (tradeJob.side === 'BUY') {
         try {
           const balance = await adapter.fetchBalance();
@@ -332,6 +332,64 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         } catch (error: any) {
           // Se falhar ao verificar saldo, logar mas continuar (pode ser problema de API)
           this.logger.warn(`[EXECUTOR] Aviso: Não foi possível verificar saldo: ${error.message}`);
+        }
+      } else if (tradeJob.side === 'SELL') {
+        // ✅ NOVO: Para SELL, sempre buscar saldo atualizado da exchange antes de executar
+        try {
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Buscando saldo atualizado da exchange para venda...`);
+          
+          const balance = await adapter.fetchBalance();
+          const baseAsset = tradeJob.symbol.split('/')[0];
+          const available = balance.free[baseAsset] || 0;
+          
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Saldo disponível na exchange: ${available} ${baseAsset}, Quantidade solicitada: ${baseQty} ${baseAsset}`);
+          
+          // Atualizar cache de saldo
+          const accountService = new ExchangeAccountService(
+            this.prisma,
+            this.encryptionService
+          );
+          const balances: Record<string, { free: number; locked: number }> = {};
+          for (const [asset, amount] of Object.entries(balance.free || {})) {
+            balances[asset] = {
+              free: amount,
+              locked: balance.used?.[asset] || 0,
+            };
+          }
+          await accountService.syncBalance(
+            tradeJob.exchange_account_id,
+            tradeJob.trade_mode as TradeMode,
+            balances
+          );
+          
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Cache de saldo atualizado`);
+          
+          // Validar quantidade vs disponível
+          if (baseQty > available) {
+            const difference = baseQty - available;
+            const MIN_AMOUNT = 0.001;
+            
+            if (available >= MIN_AMOUNT) {
+              // Ajustar quantidade para o disponível
+              this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Quantidade solicitada (${baseQty}) > disponível (${available}). Ajustando para ${available}`);
+              baseQty = available;
+              
+              // Atualizar job no banco
+              await this.prisma.tradeJob.update({
+                where: { id: tradeJobId },
+                data: { base_quantity: baseQty },
+              });
+            } else {
+              // Saldo muito pequeno, falhar
+              throw new Error(`Saldo insuficiente na exchange. Disponível: ${available} ${baseAsset}, Mínimo necessário: ${MIN_AMOUNT} ${baseAsset}`);
+            }
+          }
+          
+          this.logger.debug(`[EXECUTOR] Saldo verificado para venda: ${available} ${baseAsset} disponível, quantidade a vender: ${baseQty} ${baseAsset}`);
+        } catch (error: any) {
+          this.logger.error(`[EXECUTOR] Erro ao verificar/atualizar saldo para venda: ${error.message}`);
+          // Para vendas, é crítico ter saldo correto, então lançar erro
+          throw error;
         }
       }
 
@@ -737,48 +795,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         }
       }
 
-      // Se é ordem LIMIT e não foi preenchida, manter como PENDING_LIMIT
-      // IMPORTANTE: Verificar se realmente não foi preenchida (pode estar FILLED mas com dados faltando)
-      if (isLimitOrder && isOrderNew && executedQty === 0 && !isOrderFilled) {
-        // Criar execution apenas para registrar o exchange_order_id
-        const execution = await this.prisma.tradeExecution.create({
-          data: {
-            trade_job_id: tradeJobId,
-            exchange_account_id: tradeJob.exchange_account_id,
-            trade_mode: tradeJob.trade_mode,
-            exchange: tradeJob.exchange_account.exchange,
-            exchange_order_id: order.id,
-            client_order_id: `client-${tradeJobId}-${Date.now()}`,
-            status_exchange: order.status,
-            executed_qty: 0,
-            cumm_quote_qty: 0,
-            avg_price: tradeJob.limit_price?.toNumber() || 0,
-            fills_json: order.fills || undefined,
-            raw_response_json: JSON.parse(JSON.stringify(order)),
-          },
-        });
-
-        // Manter status como PENDING_LIMIT para o monitor verificar depois
-        await this.prisma.tradeJob.update({
-          where: { id: tradeJobId },
-          data: {
-            status: TradeJobStatus.PENDING_LIMIT,
-            reason_code: 'LIMIT_ORDER_PLACED',
-            reason_message: `Ordem LIMIT criada na exchange (${order.id}), aguardando preenchimento`,
-          },
-        });
-
-        this.logger.log(`[EXECUTOR] Ordem LIMIT ${order.id} criada na exchange, aguardando preenchimento. Execution: ${execution.id}`);
-        return {
-          success: true,
-          executionId: execution.id,
-          executedQty: 0,
-          avgPrice: tradeJob.limit_price?.toNumber() || 0,
-          isPartiallyFilled: false,
-          limitOrderPlaced: true,
-          exchangeOrderId: order.id,
-        };
-      }
+      // ✅ REMOVIDO: Early return para ordens LIMIT não preenchidas
+      // Agora o código continua normalmente. Se executedQty === 0, não será chamado onBuyExecuted/onSellExecuted
+      // mas a execution será criada com exchange_order_id para o limit-orders-monitor processar depois
 
       // Verificar se ordem foi parcialmente preenchida
       const isPartiallyFilled = isOrderPartiallyFilled || (order.filled && order.filled < order.amount);
@@ -1048,6 +1067,32 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           this.logger.error(`[EXECUTOR] ❌ Erro ao buscar dados atualizados da exchange para ordem ${order.id}: ${fetchError.message}`);
           // Continuar com os dados originais se não conseguir buscar
         }
+      }
+
+      // ✅ NOVO: Se ordem LIMIT não foi preenchida (executedQty === 0), manter PENDING_LIMIT
+      if (isLimitOrder && finalExecutedQty === 0 && isOrderNew) {
+        this.logger.log(`[EXECUTOR] Ordem LIMIT ${order.id} não foi preenchida, mantendo status PENDING_LIMIT. Execution criada: ${execution.id}`);
+        
+        // Atualizar status para PENDING_LIMIT
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.PENDING_LIMIT,
+            reason_code: 'LIMIT_ORDER_PLACED',
+            reason_message: `Ordem LIMIT criada na exchange (${order.id}), aguardando preenchimento`,
+          },
+        });
+        
+        // Retornar sem processar posições (não há quantidade executada)
+        return {
+          success: true,
+          executionId: execution.id,
+          executedQty: 0,
+          avgPrice: tradeJob.limit_price?.toNumber() || 0,
+          isPartiallyFilled: false,
+          limitOrderPlaced: true,
+          exchangeOrderId: order.id,
+        };
       }
 
       // Update position apenas se quantidade executada > 0

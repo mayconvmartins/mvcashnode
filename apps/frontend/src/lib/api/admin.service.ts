@@ -755,5 +755,38 @@ export const adminService = {
         const response = await apiClient.post(`/admin/email-templates/${name}/preview`, { variables })
         return response.data
     },
+
+    cancelAllPendingOrders: async (params?: {
+        accountIds?: number[];
+        symbol?: string;
+        side?: 'BUY' | 'SELL';
+        orderType?: 'MARKET' | 'LIMIT';
+        dryRun?: boolean;
+    }): Promise<{
+        success: boolean;
+        dryRun?: boolean;
+        ordersFound?: number;
+        orders?: Array<{
+            id: number;
+            symbol: string;
+            side: string;
+            orderType: string;
+            status: string;
+            hasExchangeOrder: boolean;
+            exchangeOrderId: string | null;
+            accountId: number;
+            accountLabel: string;
+        }>;
+        total?: number;
+        canceledInExchange?: number;
+        canceledInDb?: number;
+        errors?: number;
+        errorDetails?: Array<{ orderId: number; error: string }>;
+    }> => {
+        const response = await apiClient.post('/admin/cancel-all-pending-orders', params || {}, {
+            timeout: 300000, // 5 minutos
+        })
+        return response.data
+    },
 }
 

@@ -578,35 +578,71 @@ export class WebhookMonitorService {
         // Usar o side do alerta (BUY ou SELL)
         const side = (alert as any).side || 'BUY';
         
-        // Para vendas (SELL), usar LIMIT com preço do alerta
-        let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
-        let limitPrice: number | undefined = undefined;
-        
+        // Para vendas (SELL), buscar posições elegíveis e criar um job por posição
         if (side === 'SELL') {
-          orderType = 'LIMIT';
-          // Usar current_price ou price_alert como limitPrice
-          limitPrice = alert.current_price?.toNumber() || alert.price_alert?.toNumber();
+          // ✅ NOVO: Buscar todas as posições elegíveis
+          const eligiblePositions = await this.prisma.tradePosition.findMany({
+            where: {
+              exchange_account_id: binding.exchange_account.id,
+              symbol: alert.symbol,
+              trade_mode: alert.trade_mode,
+              status: 'OPEN',
+              qty_remaining: { gt: 0 },
+              lock_sell_by_webhook: false,
+            },
+            orderBy: { created_at: 'asc' },
+          });
+
+          if (eligiblePositions.length === 0) {
+            console.warn(`[WEBHOOK-MONITOR] Nenhuma posição elegível encontrada para venda do alerta ${alertId} na conta ${binding.exchange_account.id}`);
+            continue;
+          }
+
+          // Usar LIMIT com preço do alerta
+          const limitPrice = alert.current_price?.toNumber() || alert.price_alert?.toNumber();
           
           if (!limitPrice || limitPrice <= 0) {
             console.error(`[WEBHOOK-MONITOR] ❌ Não foi possível obter limitPrice para venda do alerta ${alertId}. current_price: ${alert.current_price?.toNumber()}, price_alert: ${alert.price_alert?.toNumber()}`);
             throw new Error(`Venda via webhook requer limitPrice válido. Alerta ${alertId} não tem preço disponível.`);
           }
           
-          console.log(`[WEBHOOK-MONITOR] Venda detectada, usando LIMIT com limitPrice=${limitPrice} (do alerta ${alertId})`);
+          console.log(`[WEBHOOK-MONITOR] Venda detectada, criando ${eligiblePositions.length} job(s) com LIMIT, limitPrice=${limitPrice} (do alerta ${alertId})`);
+
+          // ✅ NOVO: Criar um job por posição
+          for (const position of eligiblePositions) {
+            try {
+              const tradeJob = await this.tradeJobService.createJob({
+                webhookEventId: alert.webhook_event_id,
+                exchangeAccountId: binding.exchange_account.id,
+                tradeMode: alert.trade_mode as TradeMode,
+                symbol: alert.symbol,
+                side: 'SELL',
+                orderType: 'LIMIT',
+                limitPrice,
+                baseQuantity: position.qty_remaining.toNumber(),
+                positionIdToClose: position.id, // ✅ SEMPRE informar position_id
+              });
+              
+              tradeJobIds.push(tradeJob.id);
+              console.log(`[WEBHOOK-MONITOR] ✅ TradeJob criado para posição ${position.id}: ID=${tradeJob.id} (SELL, LIMIT, limitPrice=${limitPrice}, qty=${position.qty_remaining.toNumber()})`);
+            } catch (positionError: any) {
+              console.error(`[WEBHOOK-MONITOR] ❌ Erro ao criar TradeJob para posição ${position.id}: ${positionError.message}`);
+            }
+          }
+        } else {
+          // BUY - criar job normalmente (sem position_id)
+          const tradeJob = await this.tradeJobService.createJob({
+            webhookEventId: alert.webhook_event_id,
+            exchangeAccountId: binding.exchange_account.id,
+            tradeMode: alert.trade_mode as TradeMode,
+            symbol: alert.symbol,
+            side: 'BUY',
+            orderType: 'MARKET',
+          });
+          
+          tradeJobIds.push(tradeJob.id);
+          console.log(`[WEBHOOK-MONITOR] ✅ TradeJob criado: ${tradeJob.id} para conta ${binding.exchange_account.id} (BUY, MARKET)`);
         }
-        
-        const tradeJob = await this.tradeJobService.createJob({
-          webhookEventId: alert.webhook_event_id,
-          exchangeAccountId: binding.exchange_account.id,
-          tradeMode: alert.trade_mode as TradeMode,
-          symbol: alert.symbol,
-          side: side as 'BUY' | 'SELL',
-          orderType,
-          limitPrice,
-        });
-        
-        tradeJobIds.push(tradeJob.id);
-        console.log(`[WEBHOOK-MONITOR] ✅ TradeJob criado: ${tradeJob.id} para conta ${binding.exchange_account.id} (${side}, ${orderType}${limitPrice ? `, limitPrice=${limitPrice}` : ''})`);
       } catch (error: any) {
         console.error(`[WEBHOOK-MONITOR] ❌ Erro ao criar TradeJob para conta ${binding.exchange_account.id}: ${error.message}`);
       }

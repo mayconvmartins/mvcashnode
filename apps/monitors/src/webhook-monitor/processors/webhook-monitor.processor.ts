@@ -1,8 +1,9 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Job, Queue } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
-import { CacheService, ExchangeType } from '@mvcashnode/shared';
+import { CacheService, ExchangeType, TradeMode } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { WebhookMonitorService } from '@mvcashnode/domain';
 import { TradeJobService } from '@mvcashnode/domain';
@@ -16,7 +17,9 @@ export class WebhookMonitorProcessor extends WorkerHost {
   constructor(
     private prisma: PrismaService,
     private cronExecutionService: CronExecutionService,
-    private cacheService: CacheService
+    private cacheService: CacheService,
+    @InjectQueue('trade-execution-real') private readonly realQueue: Queue,
+    @InjectQueue('trade-execution-sim') private readonly simQueue: Queue
   ) {
     super();
     const tradeJobService = new TradeJobService(prisma);
@@ -103,11 +106,62 @@ export class WebhookMonitorProcessor extends WorkerHost {
               `[WEBHOOK-MONITOR] Alerta ${alert.id} cancelado: ${cancelReason}`
             );
           } else if (shouldExecute) {
-            await this.monitorService.executeAlert(alert.id);
+            const result = await this.monitorService.executeAlert(alert.id);
             executed++;
             this.logger.log(
               `[WEBHOOK-MONITOR] Alerta ${alert.id} executado para ${alert.symbol}`
             );
+            
+            // ✅ NOVO: Enfileirar os jobs criados
+            if (result && (result as any).executed_trade_job_ids_json) {
+              const jobIds = (result as any).executed_trade_job_ids_json as number[];
+              if (jobIds && jobIds.length > 0) {
+                this.logger.log(`[WEBHOOK-MONITOR] Enfileirando ${jobIds.length} job(s) criado(s) pelo alerta ${alert.id}`);
+                
+                for (const jobId of jobIds) {
+                  try {
+                    // Buscar o job para determinar qual fila usar
+                    const tradeJob = await this.prisma.tradeJob.findUnique({
+                      where: { id: jobId },
+                      select: { trade_mode: true },
+                    });
+                    
+                    if (!tradeJob) {
+                      this.logger.warn(`[WEBHOOK-MONITOR] Job ${jobId} não encontrado, pulando enfileiramento`);
+                      continue;
+                    }
+                    
+                    const queue = tradeJob.trade_mode === TradeMode.REAL ? this.realQueue : this.simQueue;
+                    const queueName = tradeJob.trade_mode === TradeMode.REAL ? 'trade-execution-real' : 'trade-execution-sim';
+                    
+                    // Verificar se já está enfileirado
+                    const existingJobs = await queue.getJobs(['waiting', 'active', 'delayed']);
+                    const alreadyEnqueued = existingJobs.some(
+                      (job) => job.data.tradeJobId === jobId
+                    );
+                    
+                    if (alreadyEnqueued) {
+                      this.logger.warn(`[WEBHOOK-MONITOR] Job ${jobId} já está enfileirado na fila ${queueName}`);
+                      continue;
+                    }
+                    
+                    // Enfileirar
+                    await queue.add('execute-trade', { tradeJobId: jobId }, {
+                      jobId: `trade-job-${jobId}`,
+                      attempts: 3,
+                      backoff: {
+                        type: 'exponential',
+                        delay: 2000,
+                      },
+                    });
+                    
+                    this.logger.log(`[WEBHOOK-MONITOR] ✅ Job ${jobId} enfileirado na fila ${queueName}`);
+                  } catch (enqueueError: any) {
+                    this.logger.error(`[WEBHOOK-MONITOR] ❌ Erro ao enfileirar job ${jobId}: ${enqueueError.message}`);
+                  }
+                }
+              }
+            }
           } else {
             const side = (alert as any).side || 'BUY';
             const priceRef = side === 'BUY' 

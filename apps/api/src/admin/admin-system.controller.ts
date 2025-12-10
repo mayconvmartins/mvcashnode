@@ -2761,5 +2761,147 @@ export class AdminSystemController {
       details,
     };
   }
+
+  @Post('cancel-all-pending-orders')
+  @ApiOperation({
+    summary: 'Cancelar todas ordens pendentes',
+    description: 'Cancela todas as ordens com status PENDING ou PENDING_LIMIT em todas as contas. Pode filtrar por conta, símbolo ou side. Suporta dry-run para verificar antes de cancelar.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Ordens canceladas com sucesso',
+  })
+  async cancelAllPendingOrders(
+    @Body()
+    body: {
+      accountIds?: number[];
+      symbol?: string;
+      side?: 'BUY' | 'SELL';
+      orderType?: 'MARKET' | 'LIMIT';
+      dryRun?: boolean;
+    }
+  ) {
+    const { accountIds, symbol, side, orderType, dryRun = false } = body;
+
+    // Buscar ordens PENDING e PENDING_LIMIT
+    const whereConditions: any = {
+      status: { in: ['PENDING', 'PENDING_LIMIT'] },
+    };
+
+    if (accountIds && accountIds.length > 0) {
+      whereConditions.exchange_account_id = { in: accountIds };
+    }
+    if (symbol) {
+      whereConditions.symbol = symbol.toUpperCase().trim();
+    }
+    if (side) {
+      whereConditions.side = side;
+    }
+    if (orderType) {
+      whereConditions.order_type = orderType;
+    }
+
+    const pendingOrders = await this.prisma.tradeJob.findMany({
+      where: whereConditions,
+      include: {
+        exchange_account: true,
+        executions: {
+          where: { exchange_order_id: { not: null } },
+          take: 1,
+          orderBy: { id: 'desc' },
+        },
+      },
+    });
+
+    if (dryRun) {
+      return {
+        success: true,
+        dryRun: true,
+        ordersFound: pendingOrders.length,
+        orders: pendingOrders.map((o) => ({
+          id: o.id,
+          symbol: o.symbol,
+          side: o.side,
+          orderType: o.order_type,
+          status: o.status,
+          hasExchangeOrder: o.executions.length > 0,
+          exchangeOrderId: o.executions[0]?.exchange_order_id || null,
+          accountId: o.exchange_account_id,
+          accountLabel: o.exchange_account.label,
+        })),
+      };
+    }
+
+    // Cancelar ordens
+    const results = {
+      total: pendingOrders.length,
+      canceledInExchange: 0,
+      canceledInDb: 0,
+      errors: 0,
+      errorDetails: [] as Array<{ orderId: number; error: string }>,
+    };
+
+    const { ExchangeAccountService } = await import('@mvcashnode/domain');
+    const accountService = new ExchangeAccountService(this.prisma, this.encryptionService);
+
+    for (const order of pendingOrders) {
+      try {
+        // Se tem exchange_order_id, cancelar na exchange
+        if (order.executions.length > 0 && order.executions[0].exchange_order_id) {
+          try {
+            const keys = await accountService.decryptApiKeys(order.exchange_account_id);
+            if (keys && keys.apiKey && keys.apiSecret) {
+              const adapter = AdapterFactory.createAdapter(
+                order.exchange_account.exchange as ExchangeType,
+                keys.apiKey,
+                keys.apiSecret,
+                { testnet: order.exchange_account.testnet }
+              );
+
+              await adapter.cancelOrder(order.executions[0].exchange_order_id, order.symbol);
+              results.canceledInExchange++;
+              console.log(`[ADMIN] Ordem ${order.executions[0].exchange_order_id} cancelada na exchange para job ${order.id}`);
+            } else {
+              console.warn(`[ADMIN] Não foi possível obter API keys para conta ${order.exchange_account_id}, pulando cancelamento na exchange`);
+            }
+          } catch (exchangeError: any) {
+            console.error(`[ADMIN] Erro ao cancelar ordem ${order.executions[0].exchange_order_id} na exchange: ${exchangeError.message}`);
+            // Continuar mesmo se falhar na exchange, ainda vamos cancelar no banco
+          }
+        }
+
+        // Atualizar status no banco
+        await this.prisma.tradeJob.update({
+          where: { id: order.id },
+          data: {
+            status: 'CANCELED',
+            reason_code: 'ADMIN_CANCEL',
+            reason_message: 'Cancelado via ferramenta de debug',
+          },
+        });
+
+        results.canceledInDb++;
+        console.log(`[ADMIN] Job ${order.id} cancelado no banco de dados`);
+      } catch (error: any) {
+        results.errors++;
+        const errorMsg = error?.message || 'Erro desconhecido';
+        results.errorDetails.push({
+          orderId: order.id,
+          error: errorMsg,
+        });
+        console.error(`[ADMIN] Erro ao cancelar ordem ${order.id}: ${errorMsg}`);
+      }
+
+      // Rate limit protection: 100ms entre ordens
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    console.log(`[ADMIN] Cancelamento concluído: ${results.canceledInDb} canceladas no banco, ${results.canceledInExchange} na exchange, ${results.errors} erros`);
+
+    return {
+      success: true,
+      ...results,
+    };
+  }
 }
 
