@@ -40,9 +40,55 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         throw new Error(`Trade job ${tradeJobId} não encontrado`);
       }
 
+      // ✅ CRITICAL FIX: Verificar se job já foi processado (previne reprocessamento)
+      const finalStatuses: string[] = [
+        TradeJobStatus.FILLED,
+        TradeJobStatus.PARTIALLY_FILLED,
+        TradeJobStatus.SKIPPED,
+        TradeJobStatus.FAILED,
+        TradeJobStatus.CANCELED,
+      ];
+      
+      if (finalStatuses.includes(tradeJob.status as string)) {
+        this.logger.warn(`[EXECUTOR-SIM] Job ${tradeJobId} já foi processado (status: ${tradeJob.status}), ignorando para evitar reprocessamento`);
+        return {
+          success: false,
+          alreadyProcessed: true,
+          status: tradeJob.status,
+        };
+      }
+
       // Log para debug de jobs PENDING_LIMIT
       if (tradeJob.status === TradeJobStatus.PENDING_LIMIT) {
         this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} - Status PENDING_LIMIT detectado, processando...`);
+      }
+
+      // ✅ CRITICAL FIX: Marcar como EXECUTING IMEDIATAMENTE (lock de processamento)
+      if (tradeJob.status !== TradeJobStatus.EXECUTING) {
+        try {
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: { status: TradeJobStatus.EXECUTING },
+          });
+          this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} marcado como EXECUTING (lock de processamento)`);
+        } catch (updateError: any) {
+          // Se falhar ao atualizar, pode ser race condition - verificar status novamente
+          const recheckJob = await this.prisma.tradeJob.findUnique({
+            where: { id: tradeJobId },
+            select: { status: true },
+          });
+          
+          if (recheckJob && finalStatuses.includes(recheckJob.status as string)) {
+            this.logger.warn(`[EXECUTOR-SIM] Job ${tradeJobId} foi processado por outro worker (status: ${recheckJob.status}), abortando`);
+            return {
+              success: false,
+              alreadyProcessed: true,
+              status: recheckJob.status,
+            };
+          }
+          
+          this.logger.warn(`[EXECUTOR-SIM] Job ${tradeJobId} - Erro ao marcar como EXECUTING, mas continuando: ${updateError?.message}`);
+        }
       }
 
       this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} - orderType=${tradeJob.order_type}, limitPrice=${tradeJob.limit_price?.toNumber() || 'NULL'}, side=${tradeJob.side}`);
@@ -180,13 +226,7 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         throw new Error(`Quantidade inválida para trade job ${tradeJobId}`);
       }
 
-      // Update status to EXECUTING
-      await this.prisma.tradeJob.update({
-        where: { id: tradeJobId },
-        data: { status: TradeJobStatus.EXECUTING },
-      });
-
-      this.logger.debug(`[EXECUTOR-SIM] Trade job ${tradeJobId} marcado como EXECUTING`);
+      // Status já foi atualizado para EXECUTING no início (lock de processamento)
 
       // Para ordens LIMIT com limitPrice, não precisamos buscar preço atual
       // Podemos usar o limitPrice diretamente
@@ -216,6 +256,82 @@ export class TradeExecutionSimProcessor extends WorkerHost {
           const errorMessage = error?.message || 'Erro ao buscar preço';
           throw new Error(`Erro ao buscar preço de ${tradeJob.symbol}: ${errorMessage}`);
         }
+      }
+
+      // ✅ CRITICAL FIX: Validar posição ANTES de simular execução (previne execuções inválidas)
+      if (tradeJob.position_id_to_close && tradeJob.side === 'SELL') {
+        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} - Validando posição ${tradeJob.position_id_to_close} antes de simular execução...`);
+        
+        const targetPosition = await this.prisma.tradePosition.findUnique({
+          where: { id: tradeJob.position_id_to_close },
+        });
+        
+        if (!targetPosition) {
+          this.logger.error(`[EXECUTOR-SIM] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} não encontrada`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'POSITION_NOT_ELIGIBLE',
+              reason_message: `Position ${tradeJob.position_id_to_close} not found`,
+            },
+          });
+          return {
+            success: false,
+            skipped: true,
+            reason: 'POSITION_NOT_ELIGIBLE',
+            message: `Position ${tradeJob.position_id_to_close} not found`,
+          };
+        }
+        
+        // Validar elegibilidade (MESMA LÓGICA de onSellExecuted)
+        const isEligible = 
+          targetPosition.exchange_account_id === tradeJob.exchange_account_id &&
+          targetPosition.trade_mode === tradeJob.trade_mode &&
+          targetPosition.symbol === tradeJob.symbol &&
+          targetPosition.side === 'LONG' &&
+          targetPosition.status === 'OPEN' &&
+          targetPosition.qty_remaining.toNumber() > 0;
+        
+        if (!isEligible) {
+          this.logger.error(`[EXECUTOR-SIM] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} não é elegível para fechamento`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'POSITION_NOT_ELIGIBLE',
+              reason_message: `Position ${tradeJob.position_id_to_close} is not eligible for closing`,
+            },
+          });
+          return {
+            success: false,
+            skipped: true,
+            reason: 'POSITION_NOT_ELIGIBLE',
+            message: `Position ${tradeJob.position_id_to_close} is not eligible for closing`,
+          };
+        }
+        
+        // Verificar lock para webhook
+        const isWebhookOrigin = !!tradeJob.webhook_event_id;
+        if (isWebhookOrigin && targetPosition.lock_sell_by_webhook) {
+          this.logger.error(`[EXECUTOR-SIM] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} está bloqueada para vendas via webhook`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'WEBHOOK_LOCK',
+              reason_message: 'Position is locked for webhook sells',
+            },
+          });
+          return {
+            success: false,
+            skipped: true,
+            reason: 'WEBHOOK_LOCK',
+            message: 'Position is locked for webhook sells',
+          };
+        }
+        
+        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} validada com sucesso, elegível para fechamento`);
       }
 
       // Calculate executed quantity and average price
