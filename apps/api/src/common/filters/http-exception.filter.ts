@@ -23,7 +23,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;
       } else if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
-        message = (exceptionResponse as any).message || exceptionResponse;
+        const responseObj = exceptionResponse as any;
+        // Tratar erros de validação do ValidationPipe (message pode ser array)
+        if (Array.isArray(responseObj.message)) {
+          // Se for array de mensagens de validação, juntar em uma string
+          message = responseObj.message.join(', ');
+        } else if (responseObj.message) {
+          message = responseObj.message;
+        } else {
+          message = responseObj;
+        }
       }
     } else if (exception instanceof Error) {
       // Log unexpected errors but don't expose internal details
@@ -49,9 +58,23 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     }
 
+    // Garantir que message seja sempre uma string
+    let finalMessage: string;
+    if (typeof message === 'string') {
+      finalMessage = message;
+    } else if (Array.isArray(message)) {
+      finalMessage = message.join(', ');
+    } else if (message && typeof message === 'object' && 'message' in message) {
+      finalMessage = Array.isArray((message as any).message) 
+        ? (message as any).message.join(', ')
+        : String((message as any).message || 'Error');
+    } else {
+      finalMessage = 'Error';
+    }
+
     response.status(status).json({
       error: HttpStatus[status] || 'INTERNAL_SERVER_ERROR',
-      message: typeof message === 'string' ? message : (message as any).message || 'Error',
+      message: finalMessage,
       statusCode: status,
       timestamp: new Date().toISOString(),
     });
