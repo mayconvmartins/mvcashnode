@@ -788,5 +788,39 @@ export const adminService = {
         })
         return response.data
     },
+
+    // Orphaned Executions
+    detectOrphanedExecutions: async (): Promise<Array<{
+        jobId: number;
+        executionId: number;
+        symbol: string;
+        qty: number;
+        price: number;
+        value: number;
+        positionId: number | null;
+        positionStatus: string;
+        positionQtyRemaining: number;
+        reason: string;
+        createdAt: string;
+    }>> => {
+        const response = await apiClient.get('/admin/orphaned-executions')
+        return response.data
+    },
+
+    fixOrphanedExecutions: async (jobIds: number[]): Promise<{
+        fixed: number;
+        failed: number;
+        results: Array<{
+            jobId: number;
+            success: boolean;
+            qtyFixed?: number;
+            error?: string;
+        }>;
+    }> => {
+        const response = await apiClient.post('/admin/fix-orphaned-executions', { jobIds }, {
+            timeout: 300000, // 5 minutos
+        })
+        return response.data
+    },
 }
 

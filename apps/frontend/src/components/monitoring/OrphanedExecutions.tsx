@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
+import { adminService } from '@/lib/api/admin.service'
 
 interface OrphanedExecution {
     jobId: number
@@ -30,9 +31,7 @@ export function OrphanedExecutions() {
     const detectOrphaned = async () => {
         try {
             setLoading(true)
-            const res = await fetch('/admin/orphaned-executions')
-            if (!res.ok) throw new Error('Erro ao buscar executions órfãs')
-            const data = await res.json()
+            const data = await adminService.detectOrphanedExecutions()
             setOrphaned(data)
             if (data.length > 0) {
                 toast.warning(`${data.length} execution(s) órfã(s) encontrada(s)`)
@@ -40,7 +39,7 @@ export function OrphanedExecutions() {
                 toast.success('Nenhuma execution órfã encontrada')
             }
         } catch (error: any) {
-            toast.error(`Erro ao buscar executions órfãs: ${error.message}`)
+            toast.error(`Erro ao buscar executions órfãs: ${error.response?.data?.message || error.message}`)
         } finally {
             setLoading(false)
         }
@@ -58,15 +57,7 @@ export function OrphanedExecutions() {
 
         try {
             setLoading(true)
-            const res = await fetch('/admin/fix-orphaned-executions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jobIds: selected }),
-            })
-            
-            if (!res.ok) throw new Error('Erro ao corrigir executions')
-            
-            const result = await res.json()
+            const result = await adminService.fixOrphanedExecutions(selected)
             
             if (result.failed > 0) {
                 toast.warning(`Correção concluída: ${result.fixed} corrigidas, ${result.failed} falhadas`)
@@ -77,7 +68,7 @@ export function OrphanedExecutions() {
             setSelected([])
             await detectOrphaned() // Recarregar
         } catch (error: any) {
-            toast.error(`Erro ao corrigir executions: ${error.message}`)
+            toast.error(`Erro ao corrigir executions: ${error.response?.data?.message || error.message}`)
         } finally {
             setLoading(false)
         }
