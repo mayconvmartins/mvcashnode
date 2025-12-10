@@ -520,8 +520,11 @@ export class PositionsController {
             totalCurrentValue += currentValueUsd;
             
             // PnL não realizado (unrealized PnL)
+            // ✅ BUG-CRIT-005 FIX: Prevenir divisão por zero em cálculo de PnL percentual
             unrealizedPnl = (currentPrice - priceOpen) * qtyRemaining;
-            unrealizedPnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+            unrealizedPnlPct = priceOpen > 0 
+              ? ((currentPrice - priceOpen) / priceOpen) * 100 
+              : 0;
             totalUnrealizedPnl += unrealizedPnl;
           } else {
             // Mesmo sem preço atual, calcular valor investido

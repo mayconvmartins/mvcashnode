@@ -46,8 +46,9 @@ async function bootstrap() {
   const monitorService = new MonitorService();
   const prisma = app.get(PrismaService);
 
+  // ✅ BUG-MED-008 FIX: Armazenar interval ID para cleanup
   // Reportar métricas a cada 30 segundos (não precisa de job BullMQ pois já roda aqui)
-  setInterval(async () => {
+  const metricsInterval = setInterval(async () => {
     try {
       const metrics = await monitorService.getCurrentProcessMetrics('MONITORS');
       await prisma.systemMonitoringLog.create({
@@ -67,6 +68,17 @@ async function bootstrap() {
       console.error('[Monitors] Erro ao salvar métricas:', error);
     }
   }, 30000);
+
+  // ✅ BUG-MED-008 FIX: Cleanup de setInterval em shutdown
+  const shutdown = async () => {
+    console.log('[Monitors] Encerrando serviço...');
+    clearInterval(metricsInterval);
+    await app.close();
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 
   // Configurar SL/TP Monitor REAL - executa a cada 30 segundos
   const slTpRealQueue = app.get<Queue>(getQueueToken('sl-tp-monitor-real'));

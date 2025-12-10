@@ -110,7 +110,7 @@ export class LimitOrdersController {
     @Query('side') side?: string,
     @Query('trade_mode') tradeMode?: string,
     @Query('symbol') symbol?: string,
-    @Query('exchange_account_id') exchangeAccountId?: number
+    @Query('exchange_account_id') exchangeAccountId?: string
   ) {
     try {
       // Buscar IDs das exchange accounts do usuário
@@ -151,10 +151,15 @@ export class LimitOrdersController {
       }
 
       if (exchangeAccountId) {
-        if (!accountIds.includes(exchangeAccountId)) {
+        // ✅ BUG-CRIT-001 FIX: Validar e converter exchangeAccountId de string para number
+        const accountIdNum = parseInt(exchangeAccountId, 10);
+        if (isNaN(accountIdNum)) {
+          throw new BadRequestException('exchange_account_id deve ser um número válido');
+        }
+        if (!accountIds.includes(accountIdNum)) {
           throw new BadRequestException('Conta de exchange não encontrada ou não pertence ao usuário');
         }
-        where.exchange_account_id = exchangeAccountId;
+        where.exchange_account_id = accountIdNum;
       }
 
       const jobs = await this.prisma.tradeJob.findMany({

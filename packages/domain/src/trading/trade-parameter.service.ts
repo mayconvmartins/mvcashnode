@@ -33,6 +33,22 @@ export class TradeParameterService {
       throw new Error('Lucro mínimo (min_profit_pct) é obrigatório e deve ser maior que zero');
     }
 
+    // ✅ BUG-MED-006 FIX: Validar se já existe parâmetro ativo para mesmo símbolo/lado/exchange_account
+    const existingParameter = await this.prisma.tradeParameter.findFirst({
+      where: {
+        exchange_account_id: dto.exchangeAccountId,
+        symbol: dto.symbol,
+        side: dto.side,
+      },
+    });
+
+    if (existingParameter) {
+      throw new Error(
+        `Já existe um parâmetro de trading para o símbolo ${dto.symbol}, lado ${dto.side} e conta de exchange ${dto.exchangeAccountId}. ` +
+        `Use o endpoint de atualização para modificar o parâmetro existente.`
+      );
+    }
+
     return this.prisma.tradeParameter.create({
       data: {
         user_id: dto.userId,

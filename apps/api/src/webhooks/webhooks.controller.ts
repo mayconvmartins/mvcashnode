@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   HttpException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -24,6 +25,8 @@ import { WebSocketService } from '../websocket/websocket.service';
 @ApiTags('Webhooks')
 @Controller('webhooks')
 export class WebhooksController {
+  private readonly logger = new Logger(WebhooksController.name);
+
   constructor(
     private webhooksService: WebhooksService,
     private tradeJobQueueService: TradeJobQueueService,
@@ -74,85 +77,68 @@ export class WebhooksController {
     const contentType = req.headers['content-type'] || '';
     let payload: any;
     
-    console.log(`[WEBHOOK] Recebendo requisição para código: ${code}`);
-    console.log(`[WEBHOOK] IP do cliente: ${ip}`);
-    console.log(`[WEBHOOK] Content-Type: ${contentType}`);
-    console.log(`[WEBHOOK] Raw Body disponível: ${!!req.rawBody}`);
-    console.log(`[WEBHOOK] req.body tipo: ${typeof req.body}`);
-    console.log(`[WEBHOOK] req.body valor:`, req.body);
-    if (req.rawBody) {
-      console.log(`[WEBHOOK] req.rawBody tipo: ${typeof req.rawBody}, tamanho: ${req.rawBody.length}`);
-      console.log(`[WEBHOOK] req.rawBody conteúdo: "${req.rawBody.toString('utf8').substring(0, 200)}"`);
-    }
+    // ✅ BUG-CRIT-002 FIX: Usar logger estruturado ao invés de console.log
+    this.logger.debug(`Recebendo requisição para código: ${code}`, {
+      ip,
+      contentType,
+      payloadSize,
+      hasRawBody: !!req.rawBody,
+      hasSignature: !!signature,
+    });
     
     if (contentType.includes('text/plain')) {
       // Para text/plain, usar rawBody ou body como string
       if (req.rawBody) {
         payload = req.rawBody.toString('utf8').trim();
-        console.log(`[WEBHOOK] Payload capturado do rawBody (text/plain): "${payload}"`);
       } else if (typeof req.body === 'string') {
         payload = req.body.trim();
-        console.log(`[WEBHOOK] Payload capturado do body (string): "${payload}"`);
       } else {
         // Fallback: tentar converter body para string
         payload = req.body ? String(req.body).trim() : '';
-        console.log(`[WEBHOOK] Payload capturado (fallback): "${payload}"`);
       }
     } else if (contentType.includes('application/json')) {
       // Para JSON, usar body parseado
       payload = req.body || {};
-      console.log(`[WEBHOOK] Payload capturado (JSON):`, JSON.stringify(payload, null, 2));
     } else {
       // Para outros tipos, tentar rawBody primeiro, depois body
       if (req.rawBody) {
         try {
           // Tentar parsear como JSON
           payload = JSON.parse(req.rawBody.toString('utf8'));
-          console.log(`[WEBHOOK] Payload parseado de rawBody (JSON):`, JSON.stringify(payload, null, 2));
         } catch (e) {
           // Se não for JSON, usar como string
           payload = req.rawBody.toString('utf8').trim();
-          console.log(`[WEBHOOK] Payload capturado de rawBody (texto): "${payload}"`);
         }
       } else {
         payload = req.body || {};
-        console.log(`[WEBHOOK] Payload capturado (fallback):`, JSON.stringify(payload, null, 2));
       }
     }
     
-    console.log(`[WEBHOOK] Payload final (tipo: ${typeof payload}):`, typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2));
-    console.log(`[WEBHOOK] Signature: ${signature || 'não fornecida'}`);
+    // Log apenas tipo do payload em produção, não o conteúdo completo
+    this.logger.debug(`Payload processado`, {
+      payloadType: typeof payload,
+      payloadSize: typeof payload === 'string' ? payload.length : JSON.stringify(payload).length,
+    });
 
     // Get webhook source
     const source = await this.webhooksService
       .getSourceService()
       .getSourceByCode(code);
 
-    console.log(`[WEBHOOK] Source encontrado:`, source ? {
-      id: source.id,
-      code: source.webhook_code,
-      is_active: source.is_active,
-      admin_locked: source.admin_locked,
-      allowed_ips: source.allowed_ips_json,
-      require_signature: source.require_signature,
-      alert_group_enabled: source.alert_group_enabled,
-      alert_group_id: source.alert_group_id,
-    } : 'null');
-
     if (!source) {
-      console.error(`[WEBHOOK] Erro: Webhook source não encontrado para código: ${code}`);
+      this.logger.error(`Webhook source não encontrado para código: ${code}`);
       throw new HttpException('Webhook não encontrado ou inativo', HttpStatus.NOT_FOUND);
     }
 
     if (!source.is_active) {
-      console.error(`[WEBHOOK] Erro: Webhook source ${code} está inativo`);
+      this.logger.error(`Webhook source ${code} está inativo`);
       throw new HttpException('Webhook não encontrado ou inativo', HttpStatus.NOT_FOUND);
     }
 
     // admin_locked não deve bloquear, apenas marcar como bloqueado pelo admin
     // Mas vamos permitir que funcione mesmo com admin_locked para desenvolvimento
     if (source.admin_locked) {
-      console.warn(`[WEBHOOK] Aviso: Webhook source ${code} está bloqueado pelo admin, mas permitindo para desenvolvimento`);
+      this.logger.warn(`Webhook source ${code} está bloqueado pelo admin, mas permitindo para desenvolvimento`);
     }
 
     // Validate IP
@@ -160,11 +146,13 @@ export class WebhooksController {
       .getSourceService()
       .validateIP(code, ip);
 
-    console.log(`[WEBHOOK] Validação de IP: ${isValidIP ? 'APROVADO' : 'NEGADO'} para IP: ${ip}`);
-    console.log(`[WEBHOOK] IPs permitidos:`, source.allowed_ips_json);
+    this.logger.debug(`Validação de IP: ${isValidIP ? 'APROVADO' : 'NEGADO'}`, {
+      ip,
+      webhookCode: code,
+    });
 
     if (!isValidIP) {
-      console.error(`[WEBHOOK] Erro: IP ${ip} não autorizado para webhook ${code}`);
+      this.logger.error(`IP ${ip} não autorizado para webhook ${code}`);
       throw new HttpException('IP não autorizado', HttpStatus.FORBIDDEN);
     }
 
@@ -194,11 +182,11 @@ export class WebhooksController {
     let accountsTriggered = 0;
     let notificationSent = false; // Flag para garantir que enviamos apenas uma notificação por webhook
 
-    console.log(`[WEBHOOK] Processando webhook. Bindings encontrados: ${source.bindings?.length || 0}`);
-    console.log(`[WEBHOOK] Configuração de notificação:`, {
-      alert_group_enabled: source.alert_group_enabled,
-      alert_group_id: source.alert_group_id,
-      tipo_alert_group_enabled: typeof source.alert_group_enabled,
+    this.logger.debug(`Processando webhook`, {
+      webhookCode: code,
+      bindingsCount: source.bindings?.length || 0,
+      alertGroupEnabled: source.alert_group_enabled,
+      alertGroupId: source.alert_group_id,
     });
 
     // Encontrar o primeiro binding ativo para usar como targetAccountId do evento
@@ -206,7 +194,7 @@ export class WebhooksController {
     const firstActiveBinding = source.bindings?.find(b => b.is_active);
     
     if (!firstActiveBinding) {
-      console.warn(`[WEBHOOK] Nenhum binding ativo encontrado para webhook ${code}`);
+      this.logger.warn(`Nenhum binding ativo encontrado para webhook ${code}`);
       // Ainda assim enviar notificação se configurado
       if (source.alert_group_enabled && source.alert_group_id) {
         try {
@@ -229,9 +217,9 @@ export class WebhooksController {
             0,
             []
           );
-          console.log(`[WEBHOOK] ✅ Notificação enviada (sem bindings) para grupo ${source.alert_group_id}`);
+          this.logger.log(`Notificação enviada (sem bindings) para grupo ${source.alert_group_id}`);
         } catch (error: any) {
-          console.error(`[WEBHOOK] ❌ Erro ao enviar notificação (sem bindings): ${error.message}`);
+          this.logger.error(`Erro ao enviar notificação (sem bindings): ${error.message}`, error.stack);
         }
       }
       
@@ -246,7 +234,10 @@ export class WebhooksController {
     // O eventUid será único por webhook (sem sufixo de account_id)
     // Os jobs serão criados para todos os bindings dentro do createJobsFromEvent
     try {
-      console.log(`[WEBHOOK] Criando evento único para webhook (usando binding ${firstActiveBinding.id} como referência)`);
+      this.logger.debug(`Criando evento único para webhook`, {
+        bindingId: firstActiveBinding.id,
+        webhookCode: code,
+      });
       const result = await this.webhooksService.getEventService().createEvent({
         webhookSourceId: source.id,
         targetAccountId: firstActiveBinding.exchange_account_id,
@@ -255,7 +246,11 @@ export class WebhooksController {
         payload,
       });
 
-      console.log(`[WEBHOOK] Evento criado: ID=${result.event?.id}, Jobs criados: ${result.jobsCreated}`);
+      this.logger.log(`Evento criado: ID=${result.event?.id}, Jobs criados: ${result.jobsCreated}`, {
+        eventId: result.event?.id,
+        jobsCreated: result.jobsCreated,
+        webhookCode: code,
+      });
 
       // Emitir evento WebSocket para o dono do webhook
       if (result.event && source.owner_user_id) {
@@ -271,9 +266,9 @@ export class WebhooksController {
       // Enviar notificação de webhook recebido (apenas uma vez por webhook)
       if (!notificationSent && result.event && source.alert_group_enabled && source.alert_group_id) {
         try {
-          console.log(`[WEBHOOK] 📤 Enviando notificação de webhook recebido para grupo ${source.alert_group_id}...`);
-          console.log(`[WEBHOOK] Dados do evento:`, {
-            id: result.event.id,
+          this.logger.debug(`Enviando notificação de webhook recebido`, {
+            alertGroupId: source.alert_group_id,
+            eventId: result.event.id,
             symbol: result.event.symbol_normalized,
             action: result.event.action,
             jobsCreated: result.jobsCreated,
@@ -285,11 +280,10 @@ export class WebhooksController {
             result.jobsCreated || 0,
             result.jobIds || []
           );
-          console.log(`[WEBHOOK] ✅ Notificação enviada para grupo ${source.alert_group_id}`);
+          this.logger.log(`Notificação enviada para grupo ${source.alert_group_id}`);
           notificationSent = true;
         } catch (error: any) {
-          console.error(`[WEBHOOK] ❌ Erro ao enviar notificação: ${error.message}`);
-          console.error(`[WEBHOOK] Stack:`, error.stack);
+          this.logger.error(`Erro ao enviar notificação: ${error.message}`, error.stack);
           notificationSent = true; // Marcar como enviada para não tentar novamente
         }
       }
@@ -298,9 +292,9 @@ export class WebhooksController {
       if (result.jobIds && result.jobIds.length > 0) {
         try {
           await this.tradeJobQueueService.enqueueTradeJobs(result.jobIds);
-          console.log(`[WEBHOOK] ${result.jobIds.length} jobs enfileirados para execução`);
+          this.logger.log(`${result.jobIds.length} jobs enfileirados para execução`);
         } catch (enqueueError: any) {
-          console.error(`[WEBHOOK] Erro ao enfileirar jobs: ${enqueueError.message}`);
+          this.logger.error(`Erro ao enfileirar jobs: ${enqueueError.message}`, enqueueError.stack);
         }
       }
 
@@ -308,8 +302,7 @@ export class WebhooksController {
       accountsTriggered = result.jobsCreated > 0 ? (source.bindings?.filter(b => b.is_active).length || 0) : 0;
       
     } catch (error: any) {
-      console.error(`[WEBHOOK] Erro ao criar evento:`, error?.message || error);
-      console.error(`[WEBHOOK] Stack:`, error?.stack);
+      this.logger.error(`Erro ao criar evento: ${error?.message || error}`, error?.stack);
       
       // Tentar enviar notificação de erro se ainda não foi enviada
       if (!notificationSent && source.alert_group_enabled && source.alert_group_id) {
@@ -331,23 +324,26 @@ export class WebhooksController {
             0,
             []
           ).then(() => {
-            console.log(`[WEBHOOK] ✅ Notificação de erro enviada para grupo ${source.alert_group_id}`);
+            this.logger.log(`Notificação de erro enviada para grupo ${source.alert_group_id}`);
           }).catch((notifError: any) => {
-            console.error(`[WEBHOOK] ❌ Erro ao enviar notificação de erro: ${notifError.message}`);
+            this.logger.error(`Erro ao enviar notificação de erro: ${notifError.message}`, notifError.stack);
           });
           notificationSent = true;
         } catch (notifError: any) {
-          console.error(`[WEBHOOK] ❌ Erro ao iniciar envio de notificação de erro: ${notifError.message}`);
+          this.logger.error(`Erro ao iniciar envio de notificação de erro: ${notifError.message}`, notifError.stack);
         }
       }
     }
 
-    console.log(`[WEBHOOK] Processamento concluído. Contas acionadas: ${accountsTriggered}`);
+    this.logger.debug(`Processamento concluído`, {
+      webhookCode: code,
+      accountsTriggered,
+    });
     
     // Se não há bindings ativos, ainda assim enviar notificação se configurado
     if (!notificationSent && source.alert_group_enabled && source.alert_group_id && (!source.bindings || source.bindings.length === 0)) {
       try {
-        console.log(`[WEBHOOK] 📤 Nenhum binding ativo, mas enviando notificação de webhook recebido...`);
+        this.logger.debug(`Nenhum binding ativo, mas enviando notificação de webhook recebido`);
         const basicEvent = {
           id: 0,
           webhook_source_id: source.id,
@@ -367,12 +363,15 @@ export class WebhooksController {
           0,
           []
         );
-        console.log(`[WEBHOOK] ✅ Notificação enviada (sem bindings) para grupo ${source.alert_group_id}`);
+        this.logger.log(`Notificação enviada (sem bindings) para grupo ${source.alert_group_id}`);
       } catch (error: any) {
-        console.error(`[WEBHOOK] ❌ Erro ao enviar notificação (sem bindings): ${error.message}`);
+        this.logger.error(`Erro ao enviar notificação (sem bindings): ${error.message}`, error.stack);
       }
     } else if (!notificationSent && source.alert_group_enabled && source.alert_group_id) {
-      console.warn(`[WEBHOOK] ⚠️ Notificação não foi enviada. Verifique os logs acima.`);
+      this.logger.warn(`Notificação não foi enviada. Verifique os logs acima.`, {
+        webhookCode: code,
+        alertGroupId: source.alert_group_id,
+      });
     }
 
     return {

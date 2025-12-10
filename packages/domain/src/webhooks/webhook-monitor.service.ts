@@ -266,7 +266,8 @@ export class WebhookMonitorService {
         });
 
         if (existingAlert) {
-          const existingSide = (existingAlert as any).side || 'BUY';
+          // ✅ BUG-MED-003 FIX: Usar tipagem correta ao invés de as any
+          const existingSide = existingAlert.side || 'BUY';
           
           // Verificar se o side corresponde
           if (existingSide !== dto.side) {
@@ -447,7 +448,8 @@ export class WebhookMonitorService {
       throw new Error(`Alerta ${alertId} não encontrado ou não está em MONITORING`);
     }
 
-    const side = (alert as any).side || 'BUY';
+    // ✅ BUG-MED-003 FIX: Usar tipagem correta ao invés de as any
+    const side = alert.side || 'BUY';
     
     if (side === 'SELL') {
       return this.updatePriceMonitoringSELL(alertId, currentPrice);
@@ -696,8 +698,9 @@ export class WebhookMonitorService {
       }
 
       try {
+        // ✅ BUG-MED-003 FIX: Usar tipagem correta ao invés de as any
         // Usar o side do alerta (BUY ou SELL)
-        const side = (alert as any).side || 'BUY';
+        const side = alert.side || 'BUY';
         
         // Para vendas (SELL), buscar posições elegíveis e criar um job por posição
         if (side === 'SELL') {
@@ -802,28 +805,41 @@ export class WebhookMonitorService {
 
       const priceAlert = alertBeforeUpdate.price_alert.toNumber();
       const execPrice = executionPrice?.toNumber() || priceAlert;
-      const side = (alertBeforeUpdate as any).side || 'BUY';
+      // ✅ BUG-MED-003 FIX: Usar tipagem correta ao invés de as any
+      const side = alertBeforeUpdate.side || 'BUY';
 
       // Calcular economia vs preço inicial
+      // ✅ BUG-MED-010 FIX: Prevenir divisão por zero em savings_pct
       // Para BUY: economia positiva quando executa abaixo do preço do alerta
       // Para SELL: economia positiva quando executa acima do preço do alerta
-      if (side === 'BUY') {
-        savingsPct = ((priceAlert - execPrice) / priceAlert) * 100;
+      if (priceAlert > 0) {
+        if (side === 'BUY') {
+          savingsPct = ((priceAlert - execPrice) / priceAlert) * 100;
+        } else {
+          // SELL: economia é quando vende acima do preço do alerta
+          savingsPct = ((execPrice - priceAlert) / priceAlert) * 100;
+        }
       } else {
-        // SELL: economia é quando vende acima do preço do alerta
-        savingsPct = ((execPrice - priceAlert) / priceAlert) * 100;
+        savingsPct = 0; // Preço do alerta inválido
       }
 
       // Calcular eficiência (proximidade do melhor preço)
+      // ✅ BUG-CRIT-004 FIX: Prevenir divisão por zero em cálculos de eficiência
       if (side === 'BUY' && alertBeforeUpdate.price_minimum) {
         const priceMin = alertBeforeUpdate.price_minimum.toNumber();
-        if (priceAlert !== priceMin) {
-          efficiencyPct = ((priceAlert - execPrice) / (priceAlert - priceMin)) * 100;
+        const denominator = priceAlert - priceMin;
+        if (priceAlert !== priceMin && Math.abs(denominator) > 0.000001) {
+          efficiencyPct = ((priceAlert - execPrice) / denominator) * 100;
+        } else {
+          efficiencyPct = 0; // Preços iguais ou muito próximos
         }
       } else if (side === 'SELL' && alertBeforeUpdate.price_maximum) {
         const priceMax = alertBeforeUpdate.price_maximum.toNumber();
-        if (priceMax !== priceAlert) {
-          efficiencyPct = ((execPrice - priceAlert) / (priceMax - priceAlert)) * 100;
+        const denominator = priceMax - priceAlert;
+        if (priceMax !== priceAlert && Math.abs(denominator) > 0.000001) {
+          efficiencyPct = ((execPrice - priceAlert) / denominator) * 100;
+        } else {
+          efficiencyPct = 0; // Preços iguais ou muito próximos
         }
       }
     }
@@ -1069,6 +1085,21 @@ export class WebhookMonitorService {
     endDate?: Date;
     limit?: number;
   }): Promise<any[]> {
+    // ✅ BUG-ALTO-002 FIX: Validar e sanitizar todos os parâmetros antes de usar em query SQL raw
+    // Validar tipos e valores
+    if (filters.userId !== undefined && (typeof filters.userId !== 'number' || filters.userId < 1 || !Number.isInteger(filters.userId))) {
+      throw new Error('userId deve ser um número inteiro positivo');
+    }
+    if (filters.symbol !== undefined && (typeof filters.symbol !== 'string' || filters.symbol.length > 50 || !/^[A-Z0-9\/]+$/.test(filters.symbol))) {
+      throw new Error('symbol deve ser uma string válida (máximo 50 caracteres, apenas letras maiúsculas, números e /)');
+    }
+    if (filters.state !== undefined && !Object.values(WebhookMonitorAlertState).includes(filters.state)) {
+      throw new Error('state deve ser um valor válido de WebhookMonitorAlertState');
+    }
+    if (filters.limit !== undefined && (typeof filters.limit !== 'number' || filters.limit < 1 || filters.limit > 1000 || !Number.isInteger(filters.limit))) {
+      throw new Error('limit deve ser um número inteiro entre 1 e 1000');
+    }
+
     // Construir condições WHERE para a query SQL
     const conditions: string[] = [];
     const params: any[] = [];
@@ -1082,7 +1113,7 @@ export class WebhookMonitorService {
       params.push(WebhookMonitorAlertState.EXECUTED, WebhookMonitorAlertState.CANCELLED);
     }
 
-    // Filtrar por symbol
+    // Filtrar por symbol (já validado acima)
     if (filters.symbol) {
       conditions.push(`wma.symbol = ?`);
       params.push(filters.symbol);
@@ -1090,15 +1121,21 @@ export class WebhookMonitorService {
 
     // Filtrar por data
     if (filters.startDate) {
+      if (!(filters.startDate instanceof Date) || isNaN(filters.startDate.getTime())) {
+        throw new Error('startDate deve ser uma data válida');
+      }
       conditions.push(`wma.created_at >= ?`);
       params.push(filters.startDate);
     }
     if (filters.endDate) {
+      if (!(filters.endDate instanceof Date) || isNaN(filters.endDate.getTime())) {
+        throw new Error('endDate deve ser uma data válida');
+      }
       conditions.push(`wma.created_at <= ?`);
       params.push(filters.endDate);
     }
 
-    // Filtrar por userId através de webhook_source
+    // Filtrar por userId através de webhook_source (já validado acima)
     let userIdCondition = '';
     if (filters.userId) {
       userIdCondition = `AND (
@@ -1142,6 +1179,8 @@ export class WebhookMonitorService {
     }
 
     // Executar query raw para obter os IDs
+    // ✅ BUG-ALTO-002 FIX: Parâmetros já validados e sanitizados acima
+    // Usar $queryRawUnsafe com parâmetros validados é seguro pois são passados como valores separados
     const latestIds = await this.prisma.$queryRawUnsafe<Array<{ id: number }>>(
       latestIdsQuery,
       ...params
@@ -1210,14 +1249,18 @@ export class WebhookMonitorService {
             id: { in: alertsToUpdate },
           },
         });
+        // ✅ BUG-MED-003 FIX: Atualizar alertas usando spread operator ao invés de as any
         // Atualizar os alertas na lista original com os valores calculados
         const updatedMap = new Map(updatedAlerts.map(a => [a.id, a]));
-        for (const alert of alerts) {
-          const updated = updatedMap.get(alert.id);
+        for (let i = 0; i < alerts.length; i++) {
+          const updated = updatedMap.get(alerts[i].id);
           if (updated) {
-            (alert as any).monitoring_duration_minutes = updated.monitoring_duration_minutes;
-            (alert as any).savings_pct = updated.savings_pct;
-            (alert as any).efficiency_pct = updated.efficiency_pct;
+            alerts[i] = {
+              ...alerts[i],
+              monitoring_duration_minutes: updated.monitoring_duration_minutes,
+              savings_pct: updated.savings_pct,
+              efficiency_pct: updated.efficiency_pct,
+            };
           }
         }
       } catch (error: any) {
@@ -1279,30 +1322,43 @@ export class WebhookMonitorService {
 
         const priceAlert = alert.price_alert.toNumber();
         const executionPrice = alert.execution_price?.toNumber() || priceAlert;
-        const side = (alert as any).side || 'BUY';
+        // ✅ BUG-MED-003 FIX: Usar tipagem correta ao invés de as any
+        const side = alert.side || 'BUY';
 
         // Calcular economia vs preço inicial
+        // ✅ BUG-MED-010 FIX: Prevenir divisão por zero em savings_pct
         // Para BUY: economia positiva quando executa abaixo do preço do alerta
         // Para SELL: economia positiva quando executa acima do preço do alerta
         let savingsPct = 0;
-        if (side === 'BUY') {
-          savingsPct = ((priceAlert - executionPrice) / priceAlert) * 100;
+        if (priceAlert > 0) {
+          if (side === 'BUY') {
+            savingsPct = ((priceAlert - executionPrice) / priceAlert) * 100;
+          } else {
+            // SELL: economia é quando vende acima do preço do alerta
+            savingsPct = ((executionPrice - priceAlert) / priceAlert) * 100;
+          }
         } else {
-          // SELL: economia é quando vende acima do preço do alerta
-          savingsPct = ((executionPrice - priceAlert) / priceAlert) * 100;
+          savingsPct = 0; // Preço do alerta inválido
         }
 
         // Calcular eficiência (proximidade do melhor preço)
+        // ✅ BUG-CRIT-004 FIX: Prevenir divisão por zero em cálculos de eficiência
         let efficiencyPct = 0;
         if (side === 'BUY' && alert.price_minimum) {
           const priceMin = alert.price_minimum.toNumber();
-          if (priceAlert !== priceMin) {
-            efficiencyPct = ((priceAlert - executionPrice) / (priceAlert - priceMin)) * 100;
+          const denominator = priceAlert - priceMin;
+          if (priceAlert !== priceMin && Math.abs(denominator) > 0.000001) {
+            efficiencyPct = ((priceAlert - executionPrice) / denominator) * 100;
+          } else {
+            efficiencyPct = 0; // Preços iguais ou muito próximos
           }
         } else if (side === 'SELL' && alert.price_maximum) {
           const priceMax = alert.price_maximum.toNumber();
-          if (priceMax !== priceAlert) {
-            efficiencyPct = ((executionPrice - priceAlert) / (priceMax - priceAlert)) * 100;
+          const denominator = priceMax - priceAlert;
+          if (priceMax !== priceAlert && Math.abs(denominator) > 0.000001) {
+            efficiencyPct = ((executionPrice - priceAlert) / denominator) * 100;
+          } else {
+            efficiencyPct = 0; // Preços iguais ou muito próximos
           }
         }
 

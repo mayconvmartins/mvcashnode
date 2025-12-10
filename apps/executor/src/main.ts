@@ -7,7 +7,10 @@ async function bootstrap() {
   // Inicializar serviços de tempo
   const ntpEnabled = process.env.NTP_ENABLED === 'true';
   const ntpServer = process.env.NTP_SERVER || 'pool.ntp.org';
-  const ntpSyncInterval = parseInt(process.env.NTP_SYNC_INTERVAL || '3600000');
+  // ✅ BUG-BAIXO-005 FIX: Validação de limites razoáveis para NTP_SYNC_INTERVAL
+  // Min: 60000 (1 min), Max: 86400000 (24h)
+  const ntpSyncIntervalRaw = parseInt(process.env.NTP_SYNC_INTERVAL || '3600000', 10);
+  const ntpSyncInterval = Math.min(86400000, Math.max(60000, isNaN(ntpSyncIntervalRaw) ? 3600000 : ntpSyncIntervalRaw));
   const timezone = process.env.TIMEZONE || 'America/Sao_Paulo'; // Timezone padrão: São Paulo
 
   const ntpService = new NtpService(ntpServer, ntpSyncInterval, ntpEnabled);

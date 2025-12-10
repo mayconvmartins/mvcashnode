@@ -297,7 +297,8 @@ export class CronManagementController {
     @Query('name') name?: string,
     @Query('limit') limit?: string,
   ): Promise<any[]> {
-    const limitNum = limit ? parseInt(limit) : 100;
+    // ✅ BUG-ALTO-012 FIX: Validação de limites min/max para limit
+    const limitNum = limit ? Math.min(1000, Math.max(1, parseInt(limit, 10) || 100)) : 100;
     return this.cronService.getExecutionHistory(name, limitNum);
   }
 

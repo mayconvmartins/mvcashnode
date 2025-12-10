@@ -181,15 +181,21 @@ export class OperationsController {
         where.symbol = symbol;
       }
 
-      // Converter page e limit para números
-      const pageNum = page ? parseInt(page, 10) : undefined;
-      const limitNum = limit ? parseInt(limit, 10) : undefined;
+      // ✅ BUG-ALTO-001 FIX: Validação completa de page/limit com limites máximos
+      const pageNum = page ? Math.max(1, parseInt(page, 10) || 1) : undefined;
+      const limitNum = limit ? Math.min(100, Math.max(1, parseInt(limit, 10) || 50)) : undefined;
       
-      if (page && isNaN(pageNum!)) {
-        throw new BadRequestException('page deve ser um número válido');
+      if (page && (isNaN(pageNum!) || pageNum! < 1)) {
+        throw new BadRequestException('page deve ser um número válido maior que 0');
       }
-      if (limit && isNaN(limitNum!)) {
-        throw new BadRequestException('limit deve ser um número válido');
+      if (limit && (isNaN(limitNum!) || limitNum! < 1)) {
+        throw new BadRequestException('limit deve ser um número válido maior que 0');
+      }
+      if (pageNum && pageNum > 10000) {
+        throw new BadRequestException('page não pode ser maior que 10000');
+      }
+      if (limitNum && limitNum > 100) {
+        throw new BadRequestException('limit não pode ser maior que 100');
       }
 
       const skip = pageNum && limitNum ? (pageNum - 1) * limitNum : undefined;

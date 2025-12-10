@@ -290,12 +290,15 @@ export class AdminSystemController {
 
     try {
       // Buscar execuções sem fee_amount preenchido (apenas REAL, com exchange_order_id)
+      // ✅ BUG-BAIXO-004 FIX: Adicionar paginação padrão
       const executionsWithoutFees = await this.prisma.tradeExecution.findMany({
         where: {
           fee_amount: null,
           trade_mode: 'REAL',
           exchange_order_id: { not: null },
         },
+        take: 50,
+        skip: 0,
         include: {
           exchange_account: {
             select: {
@@ -2188,12 +2191,15 @@ export class AdminSystemController {
       const positionService = new PositionService(this.prisma);
       
       // Buscar posições resíduo abertas
+      // ✅ BUG-BAIXO-004 FIX: Adicionar paginação padrão
       const dustPositions = await this.prisma.tradePosition.findMany({
         where: {
           is_dust: true,
           status: 'OPEN',
           qty_remaining: { gt: 0 },
         },
+        take: 50,
+        skip: 0,
         include: {
           exchange_account: {
             select: {
@@ -2781,8 +2787,11 @@ export class AdminSystemController {
       whereConditions.order_type = orderType;
     }
 
+    // ✅ BUG-BAIXO-004 FIX: Adicionar paginação padrão
     const pendingOrders = await this.prisma.tradeJob.findMany({
       where: whereConditions,
+      take: 50,
+      skip: 0,
       include: {
         exchange_account: true,
         executions: {

@@ -1,18 +1,23 @@
 import { createClient, RedisClientType } from 'redis';
 
 export interface CacheOptions {
-  ttl?: number; // Time to live em segundos (máximo 25s para preços)
+  ttl?: number; // Time to live em segundos (máximo configurável via CACHE_PRICE_TTL_MAX para preços, padrão: 25s)
 }
 
 export class CacheService {
   private client: RedisClientType | null = null;
   private isConnected = false;
+  // ✅ BUG-BAIXO-002 FIX: TTL configurável via variável de ambiente
+  private readonly priceTtlMax: number;
 
   constructor(
     private host: string = process.env.REDIS_HOST || 'localhost',
     private port: number = parseInt(process.env.REDIS_PORT || '6379'),
     private password?: string
-  ) {}
+  ) {
+    // TTL máximo para preços (padrão: 25 segundos)
+    this.priceTtlMax = parseInt(process.env.CACHE_PRICE_TTL_MAX || '25', 10);
+  }
 
   async connect(): Promise<void> {
     if (this.isConnected && this.client) {
@@ -123,7 +128,7 @@ export class CacheService {
 
   /**
    * Define um valor no cache com TTL opcional
-   * Para preços de corretoras, o TTL máximo é 25 segundos
+   * Para preços de corretoras, o TTL máximo é configurável via CACHE_PRICE_TTL_MAX (padrão: 25s)
    */
   async set(key: string, value: any, options?: CacheOptions): Promise<boolean> {
     try {
@@ -133,11 +138,12 @@ export class CacheService {
         return false;
       }
 
-      // Garantir que TTL de preços não exceda 25 segundos
+      // ✅ BUG-BAIXO-002 FIX: TTL configurável via variável de ambiente
+      // Garantir que TTL de preços não exceda o máximo configurado
       let ttl = options?.ttl;
-      if (key.startsWith('price:') && ttl && ttl > 25) {
-        console.warn(`[CacheService] TTL de preço excedeu 25s (${ttl}s), limitando a 25s`);
-        ttl = 25;
+      if (key.startsWith('price:') && ttl && ttl > this.priceTtlMax) {
+        console.warn(`[CacheService] TTL de preço excedeu ${this.priceTtlMax}s (${ttl}s), limitando a ${this.priceTtlMax}s`);
+        ttl = this.priceTtlMax;
       }
 
       const serialized = JSON.stringify(value);

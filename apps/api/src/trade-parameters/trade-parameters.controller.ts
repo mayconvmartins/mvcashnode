@@ -387,6 +387,7 @@ export class TradeParametersController {
       if (updateDto.side !== undefined) updateData.side = updateDto.side;
       
       // Mapear campos do frontend (orderSizeType e orderSizeValue) para o formato do backend
+      // ✅ BUG-ALTO-011 FIX: Validação completa de parseFloat com limites min/max
       if (updateDto.orderSizeType !== undefined || updateDto.orderSizeValue !== undefined) {
         const orderSizeType = updateDto.orderSizeType;
         // Converter orderSizeValue para número explicitamente
@@ -395,10 +396,18 @@ export class TradeParametersController {
           : undefined;
         
         if (orderSizeType === 'FIXED' && orderSizeValue !== undefined) {
+          // Validar valor fixo: deve ser positivo
+          if (isNaN(orderSizeValue) || orderSizeValue <= 0) {
+            throw new BadRequestException('orderSizeValue deve ser um número positivo quando orderSizeType é FIXED');
+          }
           // Se for FIXED, definir quote_amount_fixed e limpar quote_amount_pct_balance
           updateData.quote_amount_fixed = orderSizeValue;
           updateData.quote_amount_pct_balance = null;
         } else if ((orderSizeType === 'PERCENT_BALANCE' || orderSizeType === 'PERCENT') && orderSizeValue !== undefined) {
+          // Validar percentual: deve estar entre 0 e 100
+          if (isNaN(orderSizeValue) || orderSizeValue < 0 || orderSizeValue > 100) {
+            throw new BadRequestException('orderSizeValue deve ser um número entre 0 e 100 quando orderSizeType é PERCENT');
+          }
           // Se for PERCENT, definir quote_amount_pct_balance e limpar quote_amount_fixed
           updateData.quote_amount_pct_balance = orderSizeValue;
           updateData.quote_amount_fixed = null;
@@ -409,13 +418,19 @@ export class TradeParametersController {
           const value = typeof updateDto.quote_amount_fixed === 'string' 
             ? parseFloat(updateDto.quote_amount_fixed) 
             : Number(updateDto.quote_amount_fixed);
-          updateData.quote_amount_fixed = isNaN(value) ? updateDto.quote_amount_fixed : value;
+          if (isNaN(value) || value <= 0) {
+            throw new BadRequestException('quote_amount_fixed deve ser um número positivo');
+          }
+          updateData.quote_amount_fixed = value;
         }
         if (updateDto.quote_amount_pct_balance !== undefined) {
           const value = typeof updateDto.quote_amount_pct_balance === 'string' 
             ? parseFloat(updateDto.quote_amount_pct_balance) 
             : Number(updateDto.quote_amount_pct_balance);
-          updateData.quote_amount_pct_balance = isNaN(value) ? updateDto.quote_amount_pct_balance : value;
+          if (isNaN(value) || value < 0 || value > 100) {
+            throw new BadRequestException('quote_amount_pct_balance deve ser um número entre 0 e 100');
+          }
+          updateData.quote_amount_pct_balance = value;
         }
       }
       if (updateDto.max_orders_per_hour !== undefined) updateData.max_orders_per_hour = updateDto.max_orders_per_hour;

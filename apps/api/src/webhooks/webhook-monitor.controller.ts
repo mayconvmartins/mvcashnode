@@ -196,10 +196,11 @@ export class WebhookMonitorController {
       filters.endDate = new Date(endDate);
     }
 
+    // ✅ BUG-ALTO-010 FIX: Validação de limites min/max para limit
     if (limit) {
       const limitNum = parseInt(limit, 10);
       if (!isNaN(limitNum) && limitNum > 0) {
-        filters.limit = limitNum;
+        filters.limit = Math.min(1000, Math.max(1, limitNum));
       }
     }
 

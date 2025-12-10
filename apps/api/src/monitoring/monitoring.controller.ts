@@ -36,6 +36,16 @@ import {
 export class MonitoringController {
   constructor(private readonly monitoringService: MonitoringService) {}
 
+  /**
+   * ✅ BUG-CRIT-003 FIX: Validar e sanitizar parseInt com limites min/max
+   */
+  private safeParseInt(value: string | undefined | null, defaultValue: number, min: number = 1, max: number = Number.MAX_SAFE_INTEGER): number {
+    if (!value) return defaultValue;
+    const parsed = parseInt(String(value), 10);
+    if (isNaN(parsed)) return defaultValue;
+    return Math.max(min, Math.min(max, parsed));
+  }
+
   @Get('status')
   @ApiOperation({
     summary: 'Status geral do sistema',
@@ -137,7 +147,8 @@ export class MonitoringController {
     @Query('service') service?: string,
     @Query('limit') limit?: string
   ): Promise<any[]> {
-    const limitNum = limit ? parseInt(limit) : 100;
+    // ✅ BUG-CRIT-003 FIX: Validar limites min/max para limit (max 1000)
+    const limitNum = this.safeParseInt(limit, 100, 1, 1000);
     return this.monitoringService.getMonitoringHistory(service, limitNum);
   }
 
@@ -171,7 +182,8 @@ export class MonitoringController {
     },
   })
   async getMetrics(@Query('hours') hours?: string) {
-    const hoursNum = hours ? parseInt(hours) : 24;
+    // ✅ BUG-CRIT-003 FIX: Validar limites min/max para hours (max 168 = 7 dias)
+    const hoursNum = this.safeParseInt(hours, 24, 1, 168);
     return this.monitoringService.getAggregatedMetrics(hoursNum);
   }
 
@@ -252,7 +264,8 @@ export class MonitoringController {
     @Query('search') search?: string,
     @Query('limit') limit?: string
   ): Promise<{ data: any[] }> {
-    const limitNum = limit ? parseInt(limit) : 1000;
+    // ✅ BUG-CRIT-003 FIX: Validar limites min/max para limit (max 1000)
+    const limitNum = this.safeParseInt(limit, 1000, 1, 1000);
     const logs = await this.monitoringService.getBackendLogs({
       level,
       from,

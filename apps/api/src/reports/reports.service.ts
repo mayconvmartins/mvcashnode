@@ -974,8 +974,11 @@ export class ReportsService {
           activeReturns2.reduce((sum, r) => sum + Math.pow(r - avg2, 2), 0) / activeReturns2.length
         );
 
-        const correlation = (stdDev1 > 0 && stdDev2 > 0) 
-          ? covariance / (stdDev1 * stdDev2)
+        // ✅ BUG-CRIT-006 FIX: Prevenir divisão por zero em cálculos de correlação
+        // Validar desvio padrão com threshold mínimo para evitar problemas de precisão
+        const denominator = stdDev1 * stdDev2;
+        const correlation = (stdDev1 > 0 && stdDev2 > 0 && Math.abs(denominator) > 0.000001) 
+          ? covariance / denominator
           : 0;
 
         // Só adicionar se a correlação for válida (não NaN)

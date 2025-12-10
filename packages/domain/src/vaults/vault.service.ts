@@ -1,4 +1,4 @@
-import { PrismaClient } from '@mvcashnode/db';
+import { PrismaClient, Prisma } from '@mvcashnode/db';
 import { VaultTransactionType, TradeMode } from '@mvcashnode/shared';
 
 export interface CreateVaultDto {
@@ -25,9 +25,10 @@ export class VaultService {
 
   /**
    * ✅ BUG-MED-005 FIX: Executar transação com retry para deadlocks
+   * ✅ BUG-BAIXO-003 FIX: Usar tipagem correta Prisma.TransactionClient ao invés de any
    */
   private async executeTransactionWithDeadlockRetry<T>(
-    transactionFn: (tx: any) => Promise<T>,
+    transactionFn: (tx: Prisma.TransactionClient) => Promise<T>,
     maxRetries: number = 3
   ): Promise<T> {
     let lastError: any;
@@ -88,7 +89,7 @@ export class VaultService {
 
   async deposit(dto: DepositDto): Promise<void> {
     // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
-    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
+    await this.executeTransactionWithDeadlockRetry(async (tx: Prisma.TransactionClient) => {
       // Lock the balance row
       const balance = await tx.vaultBalance.findUnique({
         where: {
@@ -136,7 +137,7 @@ export class VaultService {
 
   async withdraw(dto: WithdrawDto): Promise<void> {
     // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
-    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
+    await this.executeTransactionWithDeadlockRetry(async (tx: Prisma.TransactionClient) => {
       const balance = await tx.vaultBalance.findUnique({
         where: {
           vault_id_asset: {
@@ -189,7 +190,7 @@ export class VaultService {
 
   async reserveForBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
     // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
-    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
+    await this.executeTransactionWithDeadlockRetry(async (tx: Prisma.TransactionClient) => {
       // ✅ BUG-CRIT-002 FIX: Implementar row-level locking com FOR UPDATE
       // Usar $queryRaw para garantir lock pessimista e evitar race conditions
       const balances = await tx.$queryRaw<Array<{ balance: any; reserved: any }>>`
@@ -252,7 +253,7 @@ export class VaultService {
 
   async confirmBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
     // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
-    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
+    await this.executeTransactionWithDeadlockRetry(async (tx: Prisma.TransactionClient) => {
       // ✅ BUG-ALTO-005 FIX: Validar que reserva existe e é suficiente antes de decrementar
       const balance = await tx.vaultBalance.findUnique({
         where: {
@@ -303,7 +304,7 @@ export class VaultService {
 
   async cancelBuy(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
     // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
-    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
+    await this.executeTransactionWithDeadlockRetry(async (tx: Prisma.TransactionClient) => {
       await tx.vaultBalance.update({
         where: {
           vault_id_asset: {
@@ -335,7 +336,7 @@ export class VaultService {
 
   async creditOnSell(vaultId: number, asset: string, amount: number, jobId: number): Promise<void> {
     // ✅ BUG-MED-005 FIX: Usar retry para deadlocks
-    await this.executeTransactionWithDeadlockRetry(async (tx: any) => {
+    await this.executeTransactionWithDeadlockRetry(async (tx: Prisma.TransactionClient) => {
       const balance = await tx.vaultBalance.findUnique({
         where: {
           vault_id_asset: {
