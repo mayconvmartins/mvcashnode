@@ -62,14 +62,28 @@ export function CancelAllPendingOrders() {
   const cancelMutation = useMutation({
     mutationFn: () => adminService.cancelAllPendingOrders({ dryRun: false }),
     onSuccess: (data) => {
-      setCancelResult(data)
-      setShowConfirm(false)
-      setDryRunResult(null)
-      toast.success(
-        `Cancelamento concluído: ${data.canceledInDb} ordem(ns) cancelada(s) no banco, ${data.canceledInExchange} na exchange`
-      )
-      if (data.errors && data.errors > 0) {
-        toast.warning(`${data.errors} erro(s) durante o cancelamento`)
+      if (
+        data.total !== undefined &&
+        data.canceledInExchange !== undefined &&
+        data.canceledInDb !== undefined &&
+        data.errors !== undefined &&
+        data.errorDetails !== undefined
+      ) {
+        setCancelResult({
+          total: data.total,
+          canceledInExchange: data.canceledInExchange,
+          canceledInDb: data.canceledInDb,
+          errors: data.errors,
+          errorDetails: data.errorDetails,
+        })
+        setShowConfirm(false)
+        setDryRunResult(null)
+        toast.success(
+          `Cancelamento concluído: ${data.canceledInDb} ordem(ns) cancelada(s) no banco, ${data.canceledInExchange} na exchange`
+        )
+        if (data.errors && data.errors > 0) {
+          toast.warning(`${data.errors} erro(s) durante o cancelamento`)
+        }
       }
     },
     onError: (error: any) => {
