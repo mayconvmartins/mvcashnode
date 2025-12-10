@@ -862,7 +862,7 @@ export const adminService = {
     },
 
     // Missing Orders Detection
-    detectMissingOrders: async (accountId: number): Promise<{
+    detectMissingOrders: async (accountId: number, from?: string, to?: string): Promise<{
         accountId: number;
         accountName: string;
         missing: Array<{
@@ -879,7 +879,12 @@ export const adminService = {
         }>;
         total: number;
     }> => {
+        const params: any = {}
+        if (from) params.from = from
+        if (to) params.to = to
+        
         const response = await apiClient.get(`/admin/detect-missing-orders/${accountId}`, {
+            params,
             timeout: 300000, // 5 minutos
         })
         return response.data

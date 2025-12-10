@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, UseGuards, Body, BadRequestException, Param, ParseIntPipe, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Put, UseGuards, Body, BadRequestException, Param, ParseIntPipe, NotFoundException, Query } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -3294,15 +3294,20 @@ export class AdminSystemController {
   @Get('detect-missing-orders/:accountId')
   @ApiOperation({ 
     summary: 'Detectar ordens da exchange que não estão no sistema',
-    description: 'Busca ordens BUY e SELL dos últimos 7 dias na exchange e compara com TradeExecution no sistema.'
+    description: 'Busca ordens BUY e SELL na exchange e compara com TradeExecution no sistema.'
   })
   @ApiParam({ 
     name: 'accountId', 
     type: 'number',
     description: 'ID da ExchangeAccount',
   })
-  async detectMissingOrders(@Param('accountId', ParseIntPipe) accountId: number) {
+  async detectMissingOrders(
+    @Param('accountId', ParseIntPipe) accountId: number,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
     console.log(`[ADMIN] Detectando ordens faltantes para conta ${accountId}...`);
+    console.log(`[ADMIN] Período: ${from || 'início'} até ${to || 'agora'}`);
 
     const account = await this.prisma.exchangeAccount.findUnique({
       where: { id: accountId },
@@ -3324,18 +3329,34 @@ export class AdminSystemController {
       { testnet: account.testnet }
     );
 
-    // Data limite: 7 dias atrás
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const since = sevenDaysAgo.getTime();
+    // Determinar período de busca
+    let startDate: Date;
+    let endDate: Date;
 
-    console.log(`[ADMIN] Buscando trades desde ${sevenDaysAgo.toISOString()}...`);
+    if (from) {
+      startDate = new Date(from);
+    } else {
+      // Padrão: 7 dias atrás
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
+    }
+
+    if (to) {
+      endDate = new Date(to);
+      endDate.setHours(23, 59, 59, 999); // Fim do dia
+    } else {
+      endDate = new Date(); // Agora
+    }
+
+    const since = startDate.getTime();
+
+    console.log(`[ADMIN] Buscando trades desde ${startDate.toISOString()} até ${endDate.toISOString()}...`);
 
     // Buscar todos os jobs para obter símbolos
     const systemJobs = await this.prisma.tradeJob.findMany({
       where: {
         exchange_account_id: accountId,
-        created_at: { gte: sevenDaysAgo },
+        created_at: { gte: startDate },
       },
       select: { symbol: true },
       distinct: ['symbol'],

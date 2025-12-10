@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +26,7 @@ import {
 import { toast } from 'sonner'
 import { adminService } from '@/lib/api/admin.service'
 import { accountsService } from '@/lib/api/accounts.service'
-import { useEffect } from 'react'
+import { DateRangeFilter, type DatePreset } from '@/components/positions/DateRangeFilter'
 
 interface MissingOrder {
     exchangeOrderId: string
@@ -58,9 +58,16 @@ export function MissingOrders() {
     const [sellOrdersNeedingPosition, setSellOrdersNeedingPosition] = useState<MissingOrder[]>([])
     const [selectedPositions, setSelectedPositions] = useState<Record<string, number>>({})
     const [availablePositions, setAvailablePositions] = useState<Record<string, PositionOption[]>>({})
+    
+    // Filtros de data
+    const [dateFrom, setDateFrom] = useState<string | undefined>()
+    const [dateTo, setDateTo] = useState<string | undefined>()
+    const [datePreset, setDatePreset] = useState<DatePreset>('last7days')
 
     useEffect(() => {
         loadAccounts()
+        // Inicializar com últimos 7 dias
+        handleDateChange(undefined, undefined, 'last7days')
     }, [])
 
     const loadAccounts = async () => {
@@ -72,6 +79,12 @@ export function MissingOrders() {
         }
     }
 
+    const handleDateChange = (from: string | undefined, to: string | undefined, preset: DatePreset) => {
+        setDateFrom(from)
+        setDateTo(to)
+        setDatePreset(preset)
+    }
+
     const detectMissing = async () => {
         if (!selectedAccountId) {
             toast.error('Selecione uma conta de exchange')
@@ -80,7 +93,7 @@ export function MissingOrders() {
 
         try {
             setLoading(true)
-            const data = await adminService.detectMissingOrders(selectedAccountId)
+            const data = await adminService.detectMissingOrders(selectedAccountId, dateFrom, dateTo)
             setMissing(data.missing)
             if (data.total > 0) {
                 toast.warning(`${data.total} ordem(ns) faltante(s) encontrada(s) na conta ${data.accountName}`)
@@ -215,30 +228,39 @@ export function MissingOrders() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="flex gap-2">
-                        <Select
-                            value={selectedAccountId?.toString() || ''}
-                            onValueChange={(value) => setSelectedAccountId(parseInt(value))}
-                        >
-                            <SelectTrigger className="flex-1">
-                                <SelectValue placeholder="Selecione uma conta..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {accounts?.map((account) => (
-                                    <SelectItem key={account.id} value={account.id.toString()}>
-                                        {account.label} ({account.exchange}) - {account.is_simulation ? 'SIMULATION' : 'REAL'}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        
-                        <Button 
-                            onClick={detectMissing} 
-                            disabled={loading || !selectedAccountId}
-                        >
-                            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                            {loading ? 'Detectando...' : 'Detectar'}
-                        </Button>
+                    <div className="space-y-4">
+                        <div className="flex gap-2">
+                            <Select
+                                value={selectedAccountId?.toString() || ''}
+                                onValueChange={(value) => setSelectedAccountId(parseInt(value))}
+                            >
+                                <SelectTrigger className="flex-1">
+                                    <SelectValue placeholder="Selecione uma conta..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {accounts?.map((account) => (
+                                        <SelectItem key={account.id} value={account.id.toString()}>
+                                            {account.label} ({account.exchange}) - {account.is_simulation ? 'SIMULATION' : 'REAL'}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            
+                            <Button 
+                                onClick={detectMissing} 
+                                disabled={loading || !selectedAccountId}
+                            >
+                                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                                {loading ? 'Detectando...' : 'Detectar'}
+                            </Button>
+                        </div>
+
+                        <DateRangeFilter
+                            from={dateFrom}
+                            to={dateTo}
+                            preset={datePreset}
+                            onDateChange={handleDateChange}
+                        />
                     </div>
 
                     {missing.length > 0 && (
