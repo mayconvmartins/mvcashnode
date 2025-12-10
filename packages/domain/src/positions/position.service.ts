@@ -975,14 +975,19 @@ export class PositionService {
       if (failedChecks.length > 0) {
         console.error(`[POSITION-SERVICE] ❌ Posição ${targetPosition.id} NÃO ELEGÍVEL para fechamento`);
         console.error(`[POSITION-SERVICE] ❌ Falhas na validação: ${failedChecks.join(', ')}`);
-        console.error(`[POSITION-SERVICE] ❌ Job ${jobId} será marcado como SKIPPED`);
+        
+        // ❌ CASO CRÍTICO: Execution já foi criada (executionId existe), ordem já executada
+        // Não podemos simplesmente SKIP - precisa investigação manual
+        console.error(`[POSITION-SERVICE] 💥 CRITICAL: Execution ${executionId} exists but position ${targetPosition.id} is not eligible!`);
+        console.error(`[POSITION-SERVICE] This indicates a data inconsistency that requires manual intervention.`);
+        console.error(`[POSITION-SERVICE] Job ${jobId} será marcado como FAILED (não SKIPPED) - requer correção manual via admin tools`);
         
         await tx.tradeJob.update({
           where: { id: jobId },
           data: {
-            status: 'SKIPPED',
-            reason_code: 'POSITION_NOT_ELIGIBLE',
-            reason_message: `Position ${job.position_id_to_close} is not eligible for closing. Failed checks: ${failedChecks.join(', ')}`,
+            status: 'FAILED', // Não SKIPPED - é erro crítico que requer intervenção
+            reason_code: 'EXECUTION_ORPHANED',
+            reason_message: `CRITICAL: Sell execution ${executionId} created but position ${job.position_id_to_close} not eligible. Failed checks: ${failedChecks.join(', ')}. Manual intervention required via admin debug tools.`,
           },
         });
 
@@ -996,7 +1001,7 @@ export class PositionService {
               trailing_triggered: false,
             },
           });
-          console.log(`[POSITION-SERVICE] Flags de trigger limpas na posição ${job.position_id_to_close} após job ${jobId} ser marcado como SKIPPED (POSITION_NOT_ELIGIBLE)`);
+          console.log(`[POSITION-SERVICE] Flags de trigger limpas na posição ${job.position_id_to_close} após job ${jobId} ser marcado como FAILED (EXECUTION_ORPHANED)`);
         }
 
         return;
