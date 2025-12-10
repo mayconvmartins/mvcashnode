@@ -95,7 +95,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       }
 
       // ✅ CRITICAL FIX: Verificar se job já foi processado (previne reprocessamento)
-      const finalStatuses = [
+      const finalStatuses: string[] = [
         TradeJobStatus.FILLED,
         TradeJobStatus.PARTIALLY_FILLED,
         TradeJobStatus.SKIPPED,
@@ -103,7 +103,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         TradeJobStatus.CANCELED,
       ];
       
-      if (finalStatuses.includes(tradeJob.status)) {
+      if (finalStatuses.includes(tradeJob.status as string)) {
         this.logger.warn(`[EXECUTOR] Job ${tradeJobId} já foi processado (status: ${tradeJob.status}), ignorando para evitar reprocessamento`);
         return {
           success: false,
@@ -133,7 +133,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             select: { status: true },
           });
           
-          if (recheckJob && finalStatuses.includes(recheckJob.status)) {
+          if (recheckJob && finalStatuses.includes(recheckJob.status as string)) {
             this.logger.warn(`[EXECUTOR] Job ${tradeJobId} foi processado por outro worker (status: ${recheckJob.status}), abortando`);
             return {
               success: false,
