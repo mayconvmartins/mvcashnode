@@ -25,7 +25,8 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { adminService } from '@/lib/api/admin.service'
-import { useAccounts } from '@/hooks/use-accounts'
+import { accountsService } from '@/lib/api/accounts.service'
+import { useEffect } from 'react'
 
 interface MissingOrder {
     exchangeOrderId: string
@@ -48,7 +49,7 @@ interface PositionOption {
 }
 
 export function MissingOrders() {
-    const { data: accounts } = useAccounts()
+    const [accounts, setAccounts] = useState<any[]>([])
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
     const [missing, setMissing] = useState<MissingOrder[]>([])
     const [selected, setSelected] = useState<string[]>([])
@@ -57,6 +58,19 @@ export function MissingOrders() {
     const [sellOrdersNeedingPosition, setSellOrdersNeedingPosition] = useState<MissingOrder[]>([])
     const [selectedPositions, setSelectedPositions] = useState<Record<string, number>>({})
     const [availablePositions, setAvailablePositions] = useState<Record<string, PositionOption[]>>({})
+
+    useEffect(() => {
+        loadAccounts()
+    }, [])
+
+    const loadAccounts = async () => {
+        try {
+            const data = await accountsService.listAccounts()
+            setAccounts(data)
+        } catch (error) {
+            console.error('Erro ao carregar contas:', error)
+        }
+    }
 
     const detectMissing = async () => {
         if (!selectedAccountId) {
