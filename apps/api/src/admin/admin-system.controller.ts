@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Put, UseGuards, Body, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, UseGuards, Body, BadRequestException, Param, ParseIntPipe, NotFoundException } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiParam,
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
