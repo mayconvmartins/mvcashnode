@@ -36,11 +36,13 @@ export function WebhookMonitorConfigForm() {
 
     const updateMutation = useMutation({
         mutationFn: webhookMonitorService.updateConfig,
-        onSuccess: (data) => {
+        onSuccess: async (data) => {
             // Atualizar formData com a resposta do servidor para garantir sincronização
             setFormData(data)
-            queryClient.invalidateQueries({ queryKey: ['webhook-monitor-config'] })
-            toast.success('Configurações atualizadas com sucesso!')
+            // Invalidar e refetch para garantir que os dados estão atualizados
+            await queryClient.invalidateQueries({ queryKey: ['webhook-monitor-config'] })
+            await queryClient.refetchQueries({ queryKey: ['webhook-monitor-config'] })
+            toast.success('Configurações globais atualizadas com sucesso!')
         },
         onError: (error: any) => {
             console.error('Erro ao atualizar configurações:', error)

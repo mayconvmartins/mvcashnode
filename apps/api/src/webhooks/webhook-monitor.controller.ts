@@ -254,19 +254,20 @@ export class WebhookMonitorController {
   }
 
   @Get('config')
-  @ApiOperation({ summary: 'Obter configurações de monitoramento' })
-  @ApiResponse({ status: 200, description: 'Configurações de monitoramento' })
-  async getConfig(@CurrentUser() user: any) {
-    const config = await this.monitorService.getConfig(user.userId);
+  @ApiOperation({ summary: 'Obter configurações globais de monitoramento' })
+  @ApiResponse({ status: 200, description: 'Configurações globais de monitoramento' })
+  async getConfig(@CurrentUser() _user: any) {
+    // Sempre retornar configuração global (user_id = null)
+    const config = await this.monitorService.getConfig();
     return config;
   }
 
   @Put('config')
-  @ApiOperation({ summary: 'Atualizar configurações de monitoramento' })
-  @ApiResponse({ status: 200, description: 'Configurações atualizadas' })
+  @ApiOperation({ summary: 'Atualizar configurações globais de monitoramento' })
+  @ApiResponse({ status: 200, description: 'Configurações globais atualizadas' })
   async updateConfig(
     @Body() body: any,
-    @CurrentUser() user: any
+    @CurrentUser() _user: any
   ) {
     // Se body é um Buffer, fazer parse manual
     let parsedBody: any = body;
@@ -281,47 +282,42 @@ export class WebhookMonitorController {
       }
     }
     
-    console.log('[WEBHOOK-MONITOR] Atualizando configurações:', JSON.stringify(parsedBody, null, 2));
-    // Buscar ou criar configuração do usuário
-    let config = await this.prisma.webhookMonitorConfig.findUnique({
-      where: { user_id: user.userId },
+    console.log('[WEBHOOK-MONITOR] Atualizando configuração global:', JSON.stringify(parsedBody, null, 2));
+    
+    // Sempre trabalhar com configuração global (user_id = null)
+    let config = await this.prisma.webhookMonitorConfig.findFirst({
+      where: { user_id: null },
     });
 
-    // Usar parsedBody em vez de body
     const configData = parsedBody;
     
     if (!config) {
-      // Criar configuração do usuário
-      // Buscar configuração global para usar como base
-      const globalConfig = await this.prisma.webhookMonitorConfig.findFirst({
-        where: { user_id: null },
-      });
-      
+      // Criar configuração global se não existir
       config = await this.prisma.webhookMonitorConfig.create({
         data: {
-          user_id: user.userId,
-          monitor_enabled: configData.monitor_enabled ?? globalConfig?.monitor_enabled ?? true,
-          check_interval_sec: configData.check_interval_sec ?? globalConfig?.check_interval_sec ?? 30,
+          user_id: null, // Configuração global
+          monitor_enabled: configData.monitor_enabled ?? true,
+          check_interval_sec: configData.check_interval_sec ?? 30,
           // BUY
-          lateral_tolerance_pct: configData.lateral_tolerance_pct ?? globalConfig?.lateral_tolerance_pct ?? 0.3,
-          lateral_cycles_min: configData.lateral_cycles_min ?? globalConfig?.lateral_cycles_min ?? 4,
-          rise_trigger_pct: configData.rise_trigger_pct ?? globalConfig?.rise_trigger_pct ?? 0.75,
-          rise_cycles_min: configData.rise_cycles_min ?? globalConfig?.rise_cycles_min ?? 2,
-          max_fall_pct: configData.max_fall_pct ?? globalConfig?.max_fall_pct ?? 6.0,
-          max_monitoring_time_min: configData.max_monitoring_time_min ?? globalConfig?.max_monitoring_time_min ?? 60,
-          cooldown_after_execution_min: configData.cooldown_after_execution_min ?? globalConfig?.cooldown_after_execution_min ?? 30,
+          lateral_tolerance_pct: configData.lateral_tolerance_pct ?? 0.3,
+          lateral_cycles_min: configData.lateral_cycles_min ?? 4,
+          rise_trigger_pct: configData.rise_trigger_pct ?? 0.75,
+          rise_cycles_min: configData.rise_cycles_min ?? 2,
+          max_fall_pct: configData.max_fall_pct ?? 6.0,
+          max_monitoring_time_min: configData.max_monitoring_time_min ?? 60,
+          cooldown_after_execution_min: configData.cooldown_after_execution_min ?? 30,
           // SELL
-          sell_lateral_tolerance_pct: configData.sell_lateral_tolerance_pct ?? (globalConfig as any)?.sell_lateral_tolerance_pct ?? 0.3,
-          sell_lateral_cycles_min: configData.sell_lateral_cycles_min ?? (globalConfig as any)?.sell_lateral_cycles_min ?? 4,
-          sell_fall_trigger_pct: configData.sell_fall_trigger_pct ?? (globalConfig as any)?.sell_fall_trigger_pct ?? 0.5,
-          sell_fall_cycles_min: configData.sell_fall_cycles_min ?? (globalConfig as any)?.sell_fall_cycles_min ?? 2,
-          sell_max_monitoring_time_min: configData.sell_max_monitoring_time_min ?? (globalConfig as any)?.sell_max_monitoring_time_min ?? 60,
-          sell_cooldown_after_execution_min: configData.sell_cooldown_after_execution_min ?? (globalConfig as any)?.sell_cooldown_after_execution_min ?? 30,
+          sell_lateral_tolerance_pct: configData.sell_lateral_tolerance_pct ?? 0.3,
+          sell_lateral_cycles_min: configData.sell_lateral_cycles_min ?? 4,
+          sell_fall_trigger_pct: configData.sell_fall_trigger_pct ?? 0.5,
+          sell_fall_cycles_min: configData.sell_fall_cycles_min ?? 2,
+          sell_max_monitoring_time_min: configData.sell_max_monitoring_time_min ?? 60,
+          sell_cooldown_after_execution_min: configData.sell_cooldown_after_execution_min ?? 30,
         },
       });
+      console.log('[WEBHOOK-MONITOR] Configuração global criada com sucesso');
     } else {
-      // Atualizar configuração existente
-      // Construir objeto de atualização apenas com campos que foram enviados
+      // Atualizar configuração global existente
       const updateData: any = {};
       
       if (configData.monitor_enabled !== undefined) updateData.monitor_enabled = configData.monitor_enabled;
@@ -333,24 +329,24 @@ export class WebhookMonitorController {
       if (configData.max_fall_pct !== undefined) updateData.max_fall_pct = configData.max_fall_pct;
       if (configData.max_monitoring_time_min !== undefined) updateData.max_monitoring_time_min = configData.max_monitoring_time_min;
       if (configData.cooldown_after_execution_min !== undefined) updateData.cooldown_after_execution_min = configData.cooldown_after_execution_min;
+      // SELL
+      if (configData.sell_lateral_tolerance_pct !== undefined) updateData.sell_lateral_tolerance_pct = configData.sell_lateral_tolerance_pct;
+      if (configData.sell_lateral_cycles_min !== undefined) updateData.sell_lateral_cycles_min = configData.sell_lateral_cycles_min;
+      if (configData.sell_fall_trigger_pct !== undefined) updateData.sell_fall_trigger_pct = configData.sell_fall_trigger_pct;
+      if (configData.sell_fall_cycles_min !== undefined) updateData.sell_fall_cycles_min = configData.sell_fall_cycles_min;
+      if (configData.sell_max_monitoring_time_min !== undefined) updateData.sell_max_monitoring_time_min = configData.sell_max_monitoring_time_min;
+      if (configData.sell_cooldown_after_execution_min !== undefined) updateData.sell_cooldown_after_execution_min = configData.sell_cooldown_after_execution_min;
       
       console.log('[WEBHOOK-MONITOR] Dados que serão atualizados:', JSON.stringify(updateData, null, 2));
       
       if (Object.keys(updateData).length === 0) {
         console.log('[WEBHOOK-MONITOR] Nenhum campo para atualizar!');
-        // Buscar config atual para retornar
-        config = await this.prisma.webhookMonitorConfig.findUnique({
-          where: { user_id: user.userId },
-        });
-        if (!config) {
-          throw new BadRequestException('Configuração não encontrada');
-        }
       } else {
         config = await this.prisma.webhookMonitorConfig.update({
-          where: { user_id: user.userId },
+          where: { id: config.id },
           data: updateData,
         });
-        console.log('[WEBHOOK-MONITOR] Configuração atualizada com sucesso');
+        console.log('[WEBHOOK-MONITOR] Configuração global atualizada com sucesso');
       }
     }
 
