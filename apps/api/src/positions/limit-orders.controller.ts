@@ -27,6 +27,7 @@ import { EncryptionService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus } from '@mvcashnode/shared';
 import { ConfigService } from '@nestjs/config';
+import { LimitOrdersHistoryQueryDto } from './dto/limit-orders-history-query.dto';
 
 @ApiTags('Limit Orders')
 @Controller('limit-orders')
@@ -564,41 +565,6 @@ export class LimitOrdersController {
     summary: 'Histórico de ordens LIMIT',
     description: 'Retorna o histórico completo de ordens LIMIT finalizadas (executadas, canceladas e expiradas) do usuário. Útil para análise de performance e auditoria.',
   })
-  @ApiQuery({ 
-    name: 'from', 
-    required: false, 
-    type: String, 
-    description: 'Data inicial para filtrar histórico (ISO 8601)',
-    example: '2025-02-01T00:00:00.000Z'
-  })
-  @ApiQuery({ 
-    name: 'to', 
-    required: false, 
-    type: String, 
-    description: 'Data final para filtrar histórico (ISO 8601)',
-    example: '2025-02-12T23:59:59.999Z'
-  })
-  @ApiQuery({ 
-    name: 'symbol', 
-    required: false, 
-    type: String, 
-    description: 'Filtrar por símbolo do par de trading',
-    example: 'SOLUSDT'
-  })
-  @ApiQuery({ 
-    name: 'status', 
-    required: false, 
-    enum: ['FILLED', 'CANCELED', 'EXPIRED'], 
-    description: 'Filtrar por status final da ordem',
-    example: 'FILLED'
-  })
-  @ApiQuery({ 
-    name: 'trade_mode', 
-    required: false, 
-    enum: ['REAL', 'SIMULATION'], 
-    description: 'Filtrar por modo de trading',
-    example: 'REAL'
-  })
   @ApiResponse({
     status: 200,
     description: 'Histórico de ordens LIMIT retornado com sucesso',
@@ -631,12 +597,9 @@ export class LimitOrdersController {
   })
   async history(
     @CurrentUser() user: any,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('symbol') symbol?: string,
-    @Query('status') status?: string,
-    @Query('trade_mode') tradeMode?: string
+    @Query() query: LimitOrdersHistoryQueryDto
   ) {
+    const { from, to, symbol, status, trade_mode: tradeMode } = query;
     try {
       // Buscar IDs das exchange accounts do usuário
       const userAccounts = await this.prisma.exchangeAccount.findMany({
