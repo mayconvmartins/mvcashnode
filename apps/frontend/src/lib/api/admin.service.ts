@@ -890,6 +890,18 @@ export const adminService = {
         return response.data
     },
 
+    getOpenPositions: async (accountId: number, symbol: string): Promise<Array<{
+        id: number;
+        symbol: string;
+        qty_total: number;
+        qty_remaining: number;
+        price_open: number;
+        created_at: string;
+    }>> => {
+        const response = await apiClient.get(`/admin/open-positions/${accountId}/${encodeURIComponent(symbol)}`)
+        return response.data
+    },
+
     importMissingOrders: async (data: {
         accountId: number;
         orders: Array<{

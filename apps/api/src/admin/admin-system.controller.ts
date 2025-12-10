@@ -3427,6 +3427,44 @@ export class AdminSystemController {
     };
   }
 
+  @Get('open-positions/:accountId/:symbol')
+  @ApiOperation({ 
+    summary: 'Buscar posições abertas de um símbolo específico',
+    description: 'Retorna posições OPEN para vincular com ordens SELL.'
+  })
+  async getOpenPositions(
+    @Param('accountId', ParseIntPipe) accountId: number,
+    @Param('symbol') symbol: string,
+  ) {
+    const positions = await this.prisma.tradePosition.findMany({
+      where: {
+        exchange_account_id: accountId,
+        symbol: { in: [symbol, symbol.replace('/', ''), symbol.replace(/USDT$/, '/USDT')] },
+        status: 'OPEN',
+        qty_remaining: { gt: 0 },
+        side: 'LONG',
+      },
+      select: {
+        id: true,
+        symbol: true,
+        qty_total: true,
+        qty_remaining: true,
+        price_open: true,
+        created_at: true,
+      },
+      orderBy: { created_at: 'asc' },
+    });
+
+    return positions.map(pos => ({
+      id: pos.id,
+      symbol: pos.symbol,
+      qty_total: pos.qty_total.toNumber(),
+      qty_remaining: pos.qty_remaining.toNumber(),
+      price_open: pos.price_open.toNumber(),
+      created_at: pos.created_at,
+    }));
+  }
+
   @Post('import-missing-orders')
   @ApiOperation({ 
     summary: 'Importar ordens faltantes para o sistema',
