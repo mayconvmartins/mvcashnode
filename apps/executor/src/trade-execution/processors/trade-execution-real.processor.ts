@@ -448,7 +448,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // ✅ VERIFICAÇÃO DE SEGURANÇA: Verificar se já existe ordem pendente na exchange
       try {
         const openOrders = await adapter.fetchOpenOrders(tradeJob.symbol);
-        const hasPendingOrder = openOrders.some(order => 
+        const hasPendingOrder = openOrders.some((order: any) => 
           order.side.toUpperCase() === tradeJob.side &&
           ['open', 'new', 'pending'].includes(order.status.toLowerCase())
         );

@@ -182,6 +182,24 @@ export abstract class ExchangeAdapter {
     };
   }
 
+  async fetchOpenOrders(symbol?: string, since?: number, limit?: number, params?: any): Promise<OrderResult[]> {
+    const orders = await this.exchange.fetchOpenOrders(symbol, since, limit, params);
+    return orders.map(order => ({
+      id: String(order.id || ''),
+      symbol: String(order.symbol || ''),
+      type: String(order.type || ''),
+      side: String(order.side || ''),
+      amount: Number(order.amount || 0),
+      price: order.price ? Number(order.price) : undefined,
+      status: String(order.status || ''),
+      filled: order.filled ? Number(order.filled) : undefined,
+      remaining: order.remaining ? Number(order.remaining) : undefined,
+      cost: order.cost ? Number(order.cost) : undefined,
+      average: order.average ? Number(order.average) : undefined,
+      fills: (order as any).fills || undefined,
+    }));
+  }
+
   async fetchClosedOrder(orderId: string, symbol: string): Promise<OrderResult> {
     // Por padrão, tenta usar fetchOrder com parâmetros especiais
     // Adaptadores específicos podem sobrescrever este método
