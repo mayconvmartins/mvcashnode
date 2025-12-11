@@ -46,11 +46,7 @@ export class TradeJobQueueService {
       // Enfileirar o job
       await queue.add('execute-trade', { tradeJobId }, {
         jobId: `trade-job-${tradeJobId}`,
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 2000,
-        },
+        attempts: 1,
         removeOnComplete: {
           age: 24 * 3600, // Manter por 24 horas
           count: 1000,

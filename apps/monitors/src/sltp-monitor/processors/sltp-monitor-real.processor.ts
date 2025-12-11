@@ -125,7 +125,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
-                attempts: 3,
+                attempts: 1,
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] ${triggerType} - Job recriado: ID=${tradeJob.id} para posição ${position.id}`);
@@ -236,7 +236,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               // Enfileirar job para execução
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
-                attempts: 3,
+                attempts: 1,
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] Stop Loss - Job ${tradeJob.id} enfileirado na fila trade-execution-real`);
@@ -310,7 +310,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               // Enfileirar job para execução
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
-                attempts: 3,
+                attempts: 1,
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] Take Profit - Job ${tradeJob.id} enfileirado na fila trade-execution-real`);
@@ -378,7 +378,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               // Enfileirar job para execução
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
-                attempts: 3,
+                attempts: 1,
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] Trailing Stop - Job ${tradeJob.id} enfileirado na fila trade-execution-real`);

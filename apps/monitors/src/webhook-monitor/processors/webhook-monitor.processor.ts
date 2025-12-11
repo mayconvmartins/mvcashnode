@@ -148,11 +148,7 @@ export class WebhookMonitorProcessor extends WorkerHost {
                     // Enfileirar
                     await queue.add('execute-trade', { tradeJobId: jobId }, {
                       jobId: `trade-job-${jobId}`,
-                      attempts: 3,
-                      backoff: {
-                        type: 'exponential',
-                        delay: 2000,
-                      },
+                      attempts: 1,
                     });
                     
                     this.logger.log(`[WEBHOOK-MONITOR] ✅ Job ${jobId} enfileirado na fila ${queueName}`);
