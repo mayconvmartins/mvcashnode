@@ -1395,25 +1395,31 @@ export class PositionService {
       throw new Error(`Venda não permitida: ${validationResult.reason}`);
     }
 
-    // Verificar se já existe ordem LIMIT pendente para esta posição
+    // ✅ VALIDAÇÃO: Verificar se já existe ordem LIMIT pendente para esta posição
+    // Usa position_id_to_close diretamente para garantir que não há múltiplas ordens para a mesma posição
     const existingLimitOrder = await this.prisma.tradeJob.findFirst({
       where: {
-        exchange_account_id: position.exchange_account_id,
-        trade_mode: position.trade_mode,
-        symbol: position.symbol,
+        position_id_to_close: positionId,
         side: 'SELL',
         order_type: 'LIMIT',
-        status: 'PENDING_LIMIT',
-      },
-      include: {
-        position_open: {
-          where: { id: positionId },
+        status: {
+          in: ['PENDING_LIMIT', 'EXECUTING'],
         },
+      },
+      select: {
+        id: true,
+        status: true,
+        created_by: true,
       },
     });
 
     if (existingLimitOrder) {
-      throw new Error(`Position already has a pending LIMIT order (job_id: ${existingLimitOrder.id})`);
+      const creatorInfo = existingLimitOrder.created_by ? ` (criado por: ${existingLimitOrder.created_by})` : '';
+      throw new Error(
+        `Já existe uma ordem LIMIT pendente para a posição ${positionId}${creatorInfo}. ` +
+        `Job ID: ${existingLimitOrder.id}, Status: ${existingLimitOrder.status}. ` +
+        `Não é permitido criar múltiplas ordens LIMIT para a mesma posição.`
+      );
     }
 
     // Calcular data de expiração se fornecida

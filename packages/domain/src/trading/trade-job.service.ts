@@ -100,6 +100,35 @@ export class TradeJobService {
       }
     }
 
+    // ✅ VALIDAÇÃO: Prevenir múltiplas ordens LIMIT pendentes para a mesma posição
+    // Esta validação é crítica para evitar vendas duplicadas na exchange
+    if (dto.side === 'SELL' && dto.orderType === 'LIMIT' && dto.positionIdToClose) {
+      const existingLimitOrder = await this.prisma.tradeJob.findFirst({
+        where: {
+          position_id_to_close: dto.positionIdToClose,
+          side: 'SELL',
+          order_type: 'LIMIT',
+          status: {
+            in: ['PENDING_LIMIT', 'EXECUTING'],
+          },
+        },
+        select: {
+          id: true,
+          status: true,
+          created_by: true,
+        },
+      });
+
+      if (existingLimitOrder) {
+        const creatorInfo = existingLimitOrder.created_by ? ` (criado por: ${existingLimitOrder.created_by})` : '';
+        throw new Error(
+          `Já existe uma ordem LIMIT pendente para a posição ${dto.positionIdToClose}${creatorInfo}. ` +
+          `Job ID: ${existingLimitOrder.id}, Status: ${existingLimitOrder.status}. ` +
+          `Não é permitido criar múltiplas ordens LIMIT para a mesma posição.`
+        );
+      }
+    }
+
     // Determinar status inicial baseado no order type
     let initialStatus = TradeJobStatus.PENDING;
     if (dto.orderType === 'LIMIT') {
