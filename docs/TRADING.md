@@ -69,7 +69,7 @@ Uma posição representa uma quantidade de ativo comprada (ou vendida em short).
 Fills são execuções parciais de uma posição:
 - Cada compra cria um fill de BUY
 - Cada venda cria um fill de SELL
-- Posições usam FIFO (First In, First Out) para calcular PnL
+- Todas as ordens de venda devem ter uma posição de origem vinculada (`position_id_to_close`)
 
 ## Stop Loss e Take Profit
 
@@ -183,11 +183,12 @@ Unrealized PnL = (current_price - price_open) * qty_remaining
 Unrealized PnL% = ((current_price - price_open) / price_open) * 100
 ```
 
-### FIFO (First In, First Out)
+### Vinculação de Posições
 
-O sistema usa FIFO para calcular PnL:
-- Primeiras compras são as primeiras vendas
-- PnL é calculado baseado no preço médio de compra
+Todas as ordens de venda (SELL) devem ter uma posição de origem vinculada através do campo `position_id_to_close`:
+- Cada ordem de venda fecha uma posição específica
+- O PnL é calculado baseado no preço de abertura da posição vinculada
+- Não é permitido criar ordens SELL sem `position_id_to_close`
 
 ## Ordens LIMIT
 

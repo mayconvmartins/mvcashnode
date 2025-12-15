@@ -81,27 +81,70 @@ export class LimitOrdersController {
     description: 'Filtrar por conta de exchange específica',
     example: 1
   })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number, 
+    description: 'Número da página (padrão: 1)',
+    example: 1,
+    minimum: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number, 
+    description: 'Itens por página (padrão: 50, máximo: 200)',
+    example: 50,
+    minimum: 1,
+    maximum: 200
+  })
   @ApiResponse({
     status: 200,
-    description: 'Lista de ordens LIMIT',
+    description: 'Lista de ordens LIMIT (paginada)',
     schema: {
-      example: [
-        {
-          id: 1,
-          position_id: 1542,
-          symbol: 'SOL/USDT',
-          side: 'SELL',
-          order_type: 'LIMIT',
-          limit_price: 220.50,
-          base_quantity: 5.0,
-          status: 'PENDING_LIMIT',
-          exchange_order_id: '12345678',
-          current_price: 215.30,
-          distance_pct: 2.41,
-          created_at: '2025-02-12T10:00:00.000Z',
-          expires_at: '2025-02-13T10:00:00.000Z',
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', example: 1 },
+              position_id: { type: 'number', nullable: true, example: 1542 },
+              position_id_to_close: { type: 'number', nullable: true },
+              symbol: { type: 'string', example: 'SOL/USDT' },
+              side: { type: 'string', enum: ['BUY', 'SELL'], example: 'SELL' },
+              order_type: { type: 'string', example: 'LIMIT' },
+              limit_price: { type: 'number', example: 220.50 },
+              base_quantity: { type: 'number', example: 5.0 },
+              quote_amount: { type: 'number', nullable: true },
+              status: { type: 'string', example: 'PENDING_LIMIT' },
+              status_exchange: { type: 'string', nullable: true },
+              exchange_order_id: { type: 'string', nullable: true, example: '12345678' },
+              exchange_account: {
+                type: 'object',
+                properties: {
+                  id: { type: 'number', example: 1 },
+                  label: { type: 'string', example: 'Binance Spot Real' },
+                  exchange: { type: 'string', example: 'BINANCE_SPOT' },
+                },
+              },
+              limit_order_expires_at: { type: 'string', nullable: true, format: 'date-time' },
+              created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+              updated_at: { type: 'string', format: 'date-time' },
+            },
+          },
         },
-      ],
+        pagination: {
+          type: 'object',
+          properties: {
+            current_page: { type: 'number', example: 1 },
+            per_page: { type: 'number', example: 50 },
+            total_items: { type: 'number', example: 100 },
+            total_pages: { type: 'number', example: 2 },
+          },
+        },
+      },
     },
   })
   async list(
@@ -110,9 +153,16 @@ export class LimitOrdersController {
     @Query('side') side?: string,
     @Query('trade_mode') tradeMode?: string,
     @Query('symbol') symbol?: string,
-    @Query('exchange_account_id') exchangeAccountId?: string
+    @Query('exchange_account_id') exchangeAccountId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
   ) {
     try {
+      // Processar parâmetros de paginação
+      const finalPage = Math.max(1, page ? parseInt(page, 10) : 1);
+      const finalLimit = Math.min(Math.max(1, limit ? parseInt(limit, 10) : 50), 200);
+      const skip = (finalPage - 1) * finalLimit;
+
       // Buscar IDs das exchange accounts do usuário
       const userAccounts = await this.prisma.exchangeAccount.findMany({
         where: { user_id: user.userId },
@@ -122,7 +172,15 @@ export class LimitOrdersController {
       const accountIds = userAccounts.map((acc) => acc.id);
 
       if (accountIds.length === 0) {
-        return [];
+        return {
+          data: [],
+          pagination: {
+            current_page: finalPage,
+            per_page: finalLimit,
+            total_items: 0,
+            total_pages: 0,
+          },
+        };
       }
 
       const where: any = {
@@ -162,52 +220,60 @@ export class LimitOrdersController {
         where.exchange_account_id = accountIdNum;
       }
 
-      const jobs = await this.prisma.tradeJob.findMany({
-        where,
-        select: {
-          id: true,
-          exchange_account_id: true,
-          trade_mode: true,
-          symbol: true,
-          side: true,
-          order_type: true,
-          quote_amount: true,
-          base_quantity: true,
-          limit_price: true,
-          status: true,
-          position_id_to_close: true,
-          limit_order_expires_at: true,
-          created_at: true,
-          updated_at: true,
-          exchange_account: {
-            select: {
-              id: true,
-              label: true,
-              exchange: true,
+      // Executar count e findMany em paralelo para melhor performance
+      const [totalItems, jobs] = await Promise.all([
+        this.prisma.tradeJob.count({ where }),
+        this.prisma.tradeJob.findMany({
+          where,
+          select: {
+            id: true,
+            exchange_account_id: true,
+            trade_mode: true,
+            symbol: true,
+            side: true,
+            order_type: true,
+            quote_amount: true,
+            base_quantity: true,
+            limit_price: true,
+            status: true,
+            position_id_to_close: true,
+            limit_order_expires_at: true,
+            created_at: true,
+            updated_at: true,
+            exchange_account: {
+              select: {
+                id: true,
+                label: true,
+                exchange: true,
+              },
+            },
+            position_open: {
+              select: {
+                id: true,
+                status: true,
+              },
+            },
+            executions: {
+              take: 1,
+              orderBy: { id: 'desc' },
+              select: {
+                exchange_order_id: true,
+                status_exchange: true,
+              },
             },
           },
-          position_open: {
-            select: {
-              id: true,
-              status: true,
-            },
+          orderBy: {
+            created_at: 'desc',
           },
-          executions: {
-            take: 1,
-            orderBy: { id: 'desc' },
-            select: {
-              exchange_order_id: true,
-              status_exchange: true,
-            },
-          },
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-      });
+          skip,
+          take: finalLimit,
+        }),
+      ]);
+
+      const totalPages = Math.ceil(totalItems / finalLimit);
 
       // Formatar resposta com informações adicionais
-      return jobs.map((job) => {
+      const data = jobs.map((job) => {
         const execution = job.executions[0];
         return {
           id: job.id,
@@ -228,6 +294,16 @@ export class LimitOrdersController {
           updated_at: job.updated_at,
         };
       });
+
+      return {
+        data,
+        pagination: {
+          current_page: finalPage,
+          per_page: finalLimit,
+          total_items: totalItems,
+          total_pages: totalPages,
+        },
+      };
     } catch (error: any) {
       if (error instanceof BadRequestException) {
         throw error;
@@ -243,30 +319,45 @@ export class LimitOrdersController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Histórico de ordens LIMIT retornado com sucesso',
+    description: 'Histórico de ordens LIMIT retornado com sucesso (paginado)',
     schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          id: { type: 'number', example: 1 },
-          symbol: { type: 'string', example: 'SOLUSDT' },
-          side: { type: 'string', enum: ['BUY', 'SELL'], example: 'SELL' },
-          limit_price: { type: 'number', example: 220.50 },
-          base_quantity: { type: 'number', example: 5.0 },
-          status: { type: 'string', enum: ['FILLED', 'CANCELED', 'EXPIRED'], example: 'FILLED' },
-          reason_code: { type: 'string', nullable: true, example: null, description: 'Código do motivo (se cancelada ou expirada)' },
-          exchange_order_id: { type: 'string', nullable: true, example: '12345678' },
-          exchange_account: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
             type: 'object',
             properties: {
               id: { type: 'number', example: 1 },
-              label: { type: 'string', example: 'Binance Spot Real' },
-              exchange: { type: 'string', example: 'BINANCE_SPOT' },
+              symbol: { type: 'string', example: 'SOLUSDT' },
+              side: { type: 'string', enum: ['BUY', 'SELL'], example: 'SELL' },
+              limit_price: { type: 'number', example: 220.50 },
+              base_quantity: { type: 'number', example: 5.0 },
+              status: { type: 'string', enum: ['FILLED', 'CANCELED', 'EXPIRED'], example: 'FILLED' },
+              reason_code: { type: 'string', nullable: true, example: null, description: 'Código do motivo (se cancelada ou expirada)' },
+              position_id_to_close: { type: 'number', nullable: true, example: 1542, description: 'ID da posição vinculada (para ordens SELL)' },
+              exchange_order_id: { type: 'string', nullable: true, example: '12345678' },
+              exchange_account: {
+                type: 'object',
+                properties: {
+                  id: { type: 'number', example: 1 },
+                  label: { type: 'string', example: 'Binance Spot Real' },
+                  exchange: { type: 'string', example: 'BINANCE_SPOT' },
+                },
+              },
+              filled_at: { type: 'string', nullable: true, format: 'date-time', example: '2025-02-12T11:00:00.000Z', description: 'Data de execução (se FILLED)' },
+              created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
             },
           },
-          filled_at: { type: 'string', nullable: true, format: 'date-time', example: '2025-02-12T11:00:00.000Z', description: 'Data de execução (se FILLED)' },
-          created_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:00:00.000Z' },
+        },
+        pagination: {
+          type: 'object',
+          properties: {
+            current_page: { type: 'number', example: 1 },
+            per_page: { type: 'number', example: 50 },
+            total_items: { type: 'number', example: 150 },
+            total_pages: { type: 'number', example: 3 },
+          },
         },
       },
     },
@@ -274,8 +365,14 @@ export class LimitOrdersController {
   async history(
     @CurrentUser() user: any,
     @Query() query: LimitOrdersHistoryQueryDto
-  ): Promise<any[]> {
-    const { from, to, symbol, status, trade_mode: tradeMode } = query;
+  ): Promise<any> {
+    const { from, to, symbol, status, trade_mode: tradeMode, page = 1, limit = 50 } = query;
+    
+    // Garantir que limit não exceda 200
+    const finalLimit = Math.min(limit, 200);
+    const finalPage = Math.max(1, page);
+    const skip = (finalPage - 1) * finalLimit;
+
     try {
       // Buscar IDs das exchange accounts do usuário
       const userAccounts = await this.prisma.exchangeAccount.findMany({
@@ -286,7 +383,15 @@ export class LimitOrdersController {
       const accountIds = userAccounts.map((acc) => acc.id);
 
       if (accountIds.length === 0) {
-        return [];
+        return {
+          data: [],
+          pagination: {
+            current_page: finalPage,
+            per_page: finalLimit,
+            total_items: 0,
+            total_pages: 0,
+          },
+        };
       }
 
       const where: any = {
@@ -317,31 +422,48 @@ export class LimitOrdersController {
         }
       }
 
-      const jobs = await this.prisma.tradeJob.findMany({
-        where,
-        include: {
-          exchange_account: {
-            select: {
-              id: true,
-              label: true,
-              exchange: true,
+      // Executar count e findMany em paralelo para melhor performance
+      const [totalItems, jobs] = await Promise.all([
+        this.prisma.tradeJob.count({ where }),
+        this.prisma.tradeJob.findMany({
+          where,
+          select: {
+            id: true,
+            symbol: true,
+            side: true,
+            limit_price: true,
+            base_quantity: true,
+            status: true,
+            reason_code: true,
+            position_id_to_close: true,
+            created_at: true,
+            exchange_account: {
+              select: {
+                id: true,
+                label: true,
+                exchange: true,
+              },
+            },
+            executions: {
+              take: 1,
+              orderBy: { id: 'desc' },
+              select: {
+                exchange_order_id: true,
+                created_at: true,
+              },
             },
           },
-          executions: {
-            take: 1,
-            orderBy: { id: 'desc' },
-            select: {
-              exchange_order_id: true,
-              created_at: true,
-            },
+          orderBy: {
+            created_at: 'desc',
           },
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-      });
+          skip,
+          take: finalLimit,
+        }),
+      ]);
 
-      return jobs.map((job) => {
+      const totalPages = Math.ceil(totalItems / finalLimit);
+
+      const data = jobs.map((job) => {
         const execution = job.executions[0];
         return {
           id: job.id,
@@ -351,12 +473,23 @@ export class LimitOrdersController {
           base_quantity: job.base_quantity?.toNumber() || null,
           status: job.status,
           reason_code: job.reason_code,
+          position_id_to_close: job.position_id_to_close || null,
           exchange_order_id: execution?.exchange_order_id || null,
           exchange_account: job.exchange_account,
           filled_at: execution?.created_at || null,
           created_at: job.created_at,
         };
       });
+
+      return {
+        data,
+        pagination: {
+          current_page: finalPage,
+          per_page: finalLimit,
+          total_items: totalItems,
+          total_pages: totalPages,
+        },
+      };
     } catch (error: any) {
       throw new BadRequestException('Erro ao buscar histórico de ordens LIMIT');
     }

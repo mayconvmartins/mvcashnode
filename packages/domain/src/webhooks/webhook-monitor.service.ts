@@ -1113,7 +1113,9 @@ export class WebhookMonitorService {
     startDate?: Date;
     endDate?: Date;
     limit?: number;
-  }): Promise<any[]> {
+    page?: number;
+    skip?: number;
+  }): Promise<{ data: any[]; total: number }> {
     // ✅ BUG-ALTO-002 FIX: Validar e sanitizar todos os parâmetros antes de usar em query SQL raw
     // Validar tipos e valores
     if (filters.userId !== undefined && (typeof filters.userId !== 'number' || filters.userId < 1 || !Number.isInteger(filters.userId))) {
@@ -1182,8 +1184,37 @@ export class WebhookMonitorService {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+    // Query SQL raw para contar o total de grupos únicos
+    const countQuery = `
+      SELECT COUNT(DISTINCT CONCAT(wma.webhook_source_id, '-', wma.symbol, '-', wma.trade_mode)) as total
+      FROM webhook_monitor_alerts wma
+      INNER JOIN webhook_sources ws ON wma.webhook_source_id = ws.id
+      ${whereClause}
+      ${userIdCondition}
+      AND wma.id = (
+        SELECT wma2.id
+        FROM webhook_monitor_alerts wma2
+        WHERE wma2.webhook_source_id = wma.webhook_source_id
+          AND wma2.symbol = wma.symbol
+          AND wma2.trade_mode = wma.trade_mode
+        ORDER BY wma2.created_at DESC, wma2.id DESC
+        LIMIT 1
+      )
+    `;
+
+    // Executar count primeiro
+    const countParams = [...params];
+    const countResult = await this.prisma.$queryRawUnsafe<Array<{ total: bigint }>>(
+      countQuery,
+      ...countParams
+    );
+    const total = Number(countResult[0]?.total || 0);
+
     // Query SQL raw para identificar os IDs mais recentes de cada grupo (webhook_source_id, symbol, trade_mode)
     // Usa uma subquery correlacionada para pegar o ID mais recente de cada grupo
+    const finalLimit = filters.limit || 50;
+    const finalSkip = filters.skip || 0;
+    
     const latestIdsQuery = `
       SELECT wma.id
       FROM webhook_monitor_alerts wma
@@ -1200,23 +1231,21 @@ export class WebhookMonitorService {
         LIMIT 1
       )
       ORDER BY wma.created_at DESC
-      ${filters.limit ? `LIMIT ?` : 'LIMIT 100'}
+      LIMIT ? OFFSET ?
     `;
 
-    if (filters.limit) {
-      params.push(filters.limit);
-    }
+    const queryParams = [...params, finalLimit, finalSkip];
 
     // Executar query raw para obter os IDs
     // ✅ BUG-ALTO-002 FIX: Parâmetros já validados e sanitizados acima
     // Usar $queryRawUnsafe com parâmetros validados é seguro pois são passados como valores separados
     const latestIds = await this.prisma.$queryRawUnsafe<Array<{ id: number }>>(
       latestIdsQuery,
-      ...params
+      ...queryParams
     );
 
     if (latestIds.length === 0) {
-      return [];
+      return { data: [], total };
     }
 
     const ids = latestIds.map((row) => row.id);
@@ -1298,7 +1327,7 @@ export class WebhookMonitorService {
       }
     }
 
-    return alerts;
+    return { data: alerts, total };
   }
 
   /**

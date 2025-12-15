@@ -3646,6 +3646,11 @@ export class AdminSystemController {
 
     for (const order of dto.orders) {
       try {
+        // Validação: Ordens SELL devem ter positionId
+        if (order.side === 'SELL' && (!order.positionId || order.positionId <= 0)) {
+          throw new BadRequestException(`Ordem SELL ${order.exchangeOrderId} requer positionId. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close.`);
+        }
+
         await this.prisma.$transaction(async (tx) => {
           // 1. Criar TradeJob
           const job = await tx.tradeJob.create({

@@ -43,12 +43,135 @@ export class WebhookMonitorController {
   }
 
   @Get('alerts')
-  @ApiOperation({ summary: 'Listar alertas ativos de monitoramento' })
-  @ApiResponse({ status: 200, description: 'Lista de alertas ativos' })
-  async listActiveAlerts(@CurrentUser() user: any) {
-    const alerts = await this.monitorService.listActiveAlerts(user.userId);
+  @ApiOperation({ summary: 'Listar alertas ativos de monitoramento (paginado)' })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number, 
+    description: 'Número da página (padrão: 1)',
+    example: 1,
+    minimum: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number, 
+    description: 'Itens por página (padrão: 100, máximo: 200)',
+    example: 100,
+    minimum: 1,
+    maximum: 200
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Lista de alertas ativos (paginada)',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: { type: 'object' },
+        },
+        pagination: {
+          type: 'object',
+          properties: {
+            current_page: { type: 'number', example: 1 },
+            per_page: { type: 'number', example: 100 },
+            total_items: { type: 'number', example: 250 },
+            total_pages: { type: 'number', example: 3 },
+          },
+        },
+      },
+    },
+  })
+  async listActiveAlerts(
+    @CurrentUser() user: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    // Processar parâmetros de paginação
+    const finalPage = Math.max(1, page ? parseInt(page, 10) : 1);
+    const finalLimit = Math.min(Math.max(1, limit ? parseInt(limit, 10) : 100), 200);
+    const skip = (finalPage - 1) * finalLimit;
+
+    const where: any = {
+      state: 'MONITORING',
+      webhook_source: {
+        OR: [
+          { owner_user_id: user.userId },
+          {
+            bindings: {
+              some: {
+                is_active: true,
+                exchange_account: {
+                  user_id: user.userId,
+                },
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    // Executar count e findMany em paralelo
+    const [totalItems, alerts] = await Promise.all([
+      this.prisma.webhookMonitorAlert.count({ where }),
+      this.prisma.webhookMonitorAlert.findMany({
+        where,
+        select: {
+          id: true,
+          webhook_source_id: true,
+          exchange_account_id: true,
+          symbol: true,
+          trade_mode: true,
+          side: true,
+          price_alert: true,
+          price_minimum: true,
+          price_maximum: true,
+          current_price: true,
+          execution_price: true,
+          cycles_without_new_low: true,
+          cycles_without_new_high: true,
+          monitoring_status: true,
+          exit_reason: true,
+          exit_details: true,
+          executed_trade_job_ids_json: true,
+          state: true,
+          created_at: true,
+          updated_at: true,
+          webhook_source: {
+            select: {
+              id: true,
+              label: true,
+              webhook_code: true,
+            },
+          },
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+            },
+          },
+          webhook_event: {
+            select: {
+              id: true,
+              action: true,
+              created_at: true,
+            },
+          },
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+        skip,
+        take: finalLimit,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(totalItems / finalLimit);
+
     // Converter Decimal para número e garantir que todos os campos sejam retornados
-    return alerts.map((alert: any) => ({
+    const data = alerts.map((alert: any) => ({
       ...alert,
       price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
       price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : (alert.price_minimum ? Number(alert.price_minimum) : null),
@@ -63,6 +186,16 @@ export class WebhookMonitorController {
       side: alert.side || 'BUY',
       executed_trade_job_ids_json: alert.executed_trade_job_ids_json || null,
     }));
+
+    return {
+      data,
+      pagination: {
+        current_page: finalPage,
+        per_page: finalLimit,
+        total_items: totalItems,
+        total_pages: totalPages,
+      },
+    };
   }
 
   @Get('alerts/:id')
@@ -161,23 +294,69 @@ export class WebhookMonitorController {
   }
 
   @Get('history')
-  @ApiOperation({ summary: 'Listar histórico de alertas' })
+  @ApiOperation({ summary: 'Listar histórico de alertas (paginado)' })
   @ApiQuery({ name: 'symbol', required: false, description: 'Filtrar por símbolo' })
   @ApiQuery({ name: 'state', required: false, description: 'Filtrar por estado (EXECUTED, CANCELLED)' })
   @ApiQuery({ name: 'startDate', required: false, description: 'Data inicial (ISO string)' })
   @ApiQuery({ name: 'endDate', required: false, description: 'Data final (ISO string)' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Limite de resultados', type: Number })
-  @ApiResponse({ status: 200, description: 'Histórico de alertas' })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number, 
+    description: 'Número da página (padrão: 1)',
+    example: 1,
+    minimum: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number, 
+    description: 'Itens por página (padrão: 50, máximo: 200)',
+    example: 50,
+    minimum: 1,
+    maximum: 200
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Histórico de alertas (paginado)',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: { type: 'object' },
+        },
+        pagination: {
+          type: 'object',
+          properties: {
+            current_page: { type: 'number', example: 1 },
+            per_page: { type: 'number', example: 50 },
+            total_items: { type: 'number', example: 150 },
+            total_pages: { type: 'number', example: 3 },
+          },
+        },
+      },
+    },
+  })
   async getHistory(
     @Query('symbol') symbol?: string,
     @Query('state') state?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('page') page?: string,
     @Query('limit') limit?: string,
     @CurrentUser() user?: any
   ) {
+    // Processar parâmetros de paginação
+    const finalPage = Math.max(1, page ? parseInt(page, 10) : 1);
+    const finalLimit = Math.min(Math.max(1, limit ? parseInt(limit, 10) : 50), 200);
+    const skip = (finalPage - 1) * finalLimit;
+
     const filters: any = {
       userId: user?.userId,
+      page: finalPage,
+      limit: finalLimit,
+      skip,
     };
 
     if (symbol) {
@@ -196,18 +375,12 @@ export class WebhookMonitorController {
       filters.endDate = new Date(endDate);
     }
 
-    // ✅ BUG-ALTO-010 FIX: Validação de limites min/max para limit
-    if (limit) {
-      const limitNum = parseInt(limit, 10);
-      if (!isNaN(limitNum) && limitNum > 0) {
-        filters.limit = Math.min(1000, Math.max(1, limitNum));
-      }
-    }
-
     try {
-      const history = await this.monitorService.listHistory(filters);
+      const result = await this.monitorService.listHistory(filters);
+      const { data: history, total: totalItems } = result;
+      
       // Converter Decimal para número e incluir campos de métricas se existirem
-      return history.map((alert: any) => ({
+      const data = history.map((alert: any) => ({
         ...alert,
         price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
         price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : (alert.price_minimum ? Number(alert.price_minimum) : null),
@@ -218,6 +391,18 @@ export class WebhookMonitorController {
         efficiency_pct: alert.efficiency_pct?.toNumber ? alert.efficiency_pct.toNumber() : (alert.efficiency_pct ? Number(alert.efficiency_pct) : null),
         monitoring_duration_minutes: alert.monitoring_duration_minutes || null,
       }));
+
+      const totalPages = Math.ceil(totalItems / finalLimit);
+
+      return {
+        data,
+        pagination: {
+          current_page: finalPage,
+          per_page: finalLimit,
+          total_items: totalItems,
+          total_pages: totalPages,
+        },
+      };
     } catch (error: any) {
       console.error('[WEBHOOK-MONITOR] Erro ao obter histórico:', error);
       throw new BadRequestException(`Erro ao obter histórico: ${error.message}`);

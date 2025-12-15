@@ -38,47 +38,93 @@ export class TradeParametersController {
 
   @Get()
   @ApiOperation({
-    summary: 'Listar parâmetros de trading',
+    summary: 'Listar parâmetros de trading (paginado)',
     description: 'Retorna todos os parâmetros de trading configurados para o usuário autenticado.',
   })
   @ApiQuery({ name: 'exchange_account_id', required: false, type: Number, description: 'Filtrar por conta de exchange' })
   @ApiQuery({ name: 'symbol', required: false, type: String, description: 'Filtrar por símbolo' })
+  @ApiQuery({ 
+    name: 'page', 
+    required: false, 
+    type: Number, 
+    description: 'Número da página (padrão: 1)',
+    example: 1,
+    minimum: 1
+  })
+  @ApiQuery({ 
+    name: 'limit', 
+    required: false, 
+    type: Number, 
+    description: 'Itens por página (padrão: 100, máximo: 200)',
+    example: 100,
+    minimum: 1,
+    maximum: 200
+  })
   @ApiResponse({
     status: 200,
-    description: 'Lista de parâmetros de trading',
+    description: 'Lista de parâmetros de trading (paginada)',
     schema: {
-      example: [
-        {
-          id: 1,
-          user_id: 1,
-          exchange_account_id: 1,
-          symbol: 'BTCUSDT',
-          side: 'BOTH',
-          quote_amount_fixed: 100,
-          order_type_default: 'MARKET',
-          default_sl_enabled: true,
-          default_sl_pct: 1.0,
-          default_tp_enabled: true,
-          default_tp_pct: 2.0,
-          exchange_account: {
-            id: 1,
-            label: 'Binance Spot Real',
-            exchange: 'BINANCE_SPOT',
-          },
-          vault: {
-            id: 1,
-            name: 'Cofre Real',
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', example: 1 },
+              user_id: { type: 'number', example: 1 },
+              exchange_account_id: { type: 'number', example: 1 },
+              symbol: { type: 'string', example: 'BTCUSDT' },
+              side: { type: 'string', example: 'BOTH' },
+              quote_amount_fixed: { type: 'number', example: 100 },
+              order_type_default: { type: 'string', example: 'MARKET' },
+              default_sl_enabled: { type: 'boolean', example: true },
+              default_sl_pct: { type: 'number', example: 1.0 },
+              default_tp_enabled: { type: 'boolean', example: true },
+              default_tp_pct: { type: 'number', example: 2.0 },
+              exchange_account: {
+                type: 'object',
+                properties: {
+                  id: { type: 'number', example: 1 },
+                  label: { type: 'string', example: 'Binance Spot Real' },
+                  exchange: { type: 'string', example: 'BINANCE_SPOT' },
+                },
+              },
+              vault: {
+                type: 'object',
+                properties: {
+                  id: { type: 'number', example: 1 },
+                  name: { type: 'string', example: 'Cofre Real' },
+                },
+              },
+            },
           },
         },
-      ],
+        pagination: {
+          type: 'object',
+          properties: {
+            current_page: { type: 'number', example: 1 },
+            per_page: { type: 'number', example: 100 },
+            total_items: { type: 'number', example: 250 },
+            total_pages: { type: 'number', example: 3 },
+          },
+        },
+      },
     },
   })
   async list(
     @CurrentUser() user: any,
     @Query('exchange_account_id') exchangeAccountId?: number,
-    @Query('symbol') symbol?: string
+    @Query('symbol') symbol?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
   ): Promise<any> {
     try {
+      // Processar parâmetros de paginação
+      const finalPage = Math.max(1, page ? parseInt(page, 10) : 1);
+      const finalLimit = Math.min(Math.max(1, limit ? parseInt(limit, 10) : 100), 200);
+      const skip = (finalPage - 1) * finalLimit;
+
       const where: any = {
         user_id: user.userId,
       };
@@ -91,31 +137,60 @@ export class TradeParametersController {
         where.symbol = symbol;
       }
 
-      const parameters = await this.prisma.tradeParameter.findMany({
-        where,
-        include: {
-          exchange_account: {
-            select: {
-              id: true,
-              label: true,
-              exchange: true,
-              is_simulation: true,
+      // Executar count e findMany em paralelo
+      const [totalItems, parameters] = await Promise.all([
+        this.prisma.tradeParameter.count({ where }),
+        this.prisma.tradeParameter.findMany({
+          where,
+          select: {
+            id: true,
+            user_id: true,
+            exchange_account_id: true,
+            symbol: true,
+            side: true,
+            quote_amount_fixed: true,
+            order_type_default: true,
+            default_sl_enabled: true,
+            default_sl_pct: true,
+            default_tp_enabled: true,
+            default_tp_pct: true,
+            created_at: true,
+            updated_at: true,
+            exchange_account: {
+              select: {
+                id: true,
+                label: true,
+                exchange: true,
+                is_simulation: true,
+              },
+            },
+            vault: {
+              select: {
+                id: true,
+                name: true,
+                trade_mode: true,
+              },
             },
           },
-          vault: {
-            select: {
-              id: true,
-              name: true,
-              trade_mode: true,
-            },
+          orderBy: {
+            created_at: 'desc',
           },
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-      });
+          skip,
+          take: finalLimit,
+        }),
+      ]);
 
-      return parameters;
+      const totalPages = Math.ceil(totalItems / finalLimit);
+
+      return {
+        data: parameters,
+        pagination: {
+          current_page: finalPage,
+          per_page: finalLimit,
+          total_items: totalItems,
+          total_pages: totalPages,
+        },
+      };
     } catch (error: any) {
       throw new BadRequestException('Erro ao listar parâmetros de trading');
     }

@@ -8,6 +8,16 @@ export interface ProcessMetrics {
     uptime: number
     status: 'running' | 'stopped' | 'error'
     lastUpdate: string
+    // Informações de cluster PM2
+    pm2_id?: number
+    instances?: number
+    exec_mode?: 'cluster' | 'fork'
+    cluster_instances?: Array<{
+        pid: number
+        cpu: number
+        memory: number
+        status: string
+    }>
 }
 
 export interface SystemMetrics {
@@ -65,9 +75,13 @@ export interface SystemAlert {
 
 export interface SystemStatus {
     services: {
-        api: ProcessMetrics
+        api?: ProcessMetrics
         executor?: ProcessMetrics
         monitors?: ProcessMetrics
+        frontend?: ProcessMetrics
+        site?: ProcessMetrics
+        backup?: ProcessMetrics
+        [key: string]: ProcessMetrics | undefined
     }
     resources: {
         database: { status: string; responseTime?: number }

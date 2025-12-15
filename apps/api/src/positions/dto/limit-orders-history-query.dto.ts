@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsEnum, IsDateString } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class LimitOrdersHistoryQueryDto {
@@ -11,7 +11,6 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsString()
-  @Type(() => String)
   from?: string;
 
   @ApiProperty({
@@ -22,7 +21,6 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsString()
-  @Type(() => String)
   to?: string;
 
   @ApiProperty({
@@ -33,7 +31,6 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsString()
-  @Type(() => String)
   symbol?: string;
 
   @ApiProperty({
@@ -44,7 +41,6 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsEnum(['FILLED', 'CANCELED', 'EXPIRED'])
-  @Type(() => String)
   status?: string;
 
   @ApiProperty({
@@ -55,7 +51,34 @@ export class LimitOrdersHistoryQueryDto {
   })
   @IsOptional()
   @IsEnum(['REAL', 'SIMULATION'])
-  @Type(() => String)
   trade_mode?: string;
+
+  @ApiProperty({
+    required: false,
+    type: Number,
+    description: 'Número da página (padrão: 1)',
+    example: 1,
+    minimum: 1,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiProperty({
+    required: false,
+    type: Number,
+    description: 'Itens por página (padrão: 50, máximo: 200)',
+    example: 50,
+    minimum: 1,
+    maximum: 200,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number = 50;
 }
 

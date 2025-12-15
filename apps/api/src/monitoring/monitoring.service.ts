@@ -29,9 +29,13 @@ export interface JobMetrics {
 
 export interface SystemStatus {
   services: {
-    api: ProcessMetrics;
+    api?: ProcessMetrics;
     executor?: ProcessMetrics;
     monitors?: ProcessMetrics;
+    frontend?: ProcessMetrics;
+    site?: ProcessMetrics;
+    backup?: ProcessMetrics;
+    [key: string]: ProcessMetrics | undefined;
   };
   resources: {
     database: { status: string; responseTime?: number };
@@ -62,8 +66,8 @@ export class MonitoringService {
    * Retorna status geral do sistema
    */
   async getSystemStatus(): Promise<SystemStatus> {
-    const [apiMetrics, systemMetrics, dbHealth, alertCounts] = await Promise.all([
-      this.monitorService.getCurrentProcessMetrics('API'),
+    const [pm2Processes, systemMetrics, dbHealth, alertCounts] = await Promise.all([
+      this.monitorService.getAllPM2Processes(),
       this.monitorService.getSystemMetrics(),
       this.monitorService.checkDatabaseHealth(this.prisma),
       this.getAlertCounts(),
@@ -72,10 +76,35 @@ export class MonitoringService {
     // Simular verificação Redis (precisa de client Redis injetado)
     const redisHealth = { status: 'healthy', responseTime: 10 };
 
+    // Mapear processos PM2 para serviços conhecidos
+    const services: SystemStatus['services'] = {};
+    
+    // Mapear nomes do PM2 para nomes de serviços
+    const serviceMap: Record<string, string> = {
+      'mvcashnode-api': 'api',
+      'mvcashnode-executor': 'executor',
+      'mvcashnode-monitors': 'monitors',
+      'mvcashnode-frontend': 'frontend',
+      'mvcashnode-site': 'site',
+      'mvcashnode-backup': 'backup',
+    };
+
+    for (const process of pm2Processes) {
+      const serviceName = serviceMap[process.name] || process.name.toLowerCase();
+      services[serviceName] = process;
+    }
+
+    // Fallback: se não encontrou processos via PM2, usar método antigo
+    if (!services.api) {
+      try {
+        services.api = await this.monitorService.getCurrentProcessMetrics('API');
+      } catch (error) {
+        console.warn('[Monitoring] Não foi possível obter métricas da API');
+      }
+    }
+
     return {
-      services: {
-        api: apiMetrics,
-      },
+      services,
       resources: {
         database: {
           status: dbHealth.status,
@@ -92,10 +121,22 @@ export class MonitoringService {
    * Retorna métricas de todos os processos
    */
   async getAllProcessMetrics(): Promise<ProcessMetrics[]> {
+    try {
+      // Tentar obter processos do PM2 primeiro
+      const pm2Processes = await this.monitorService.getAllPM2Processes();
+      
+      if (pm2Processes.length > 0) {
+        return pm2Processes;
+      }
+    } catch (error) {
+      console.warn('[Monitoring] Erro ao obter processos do PM2, usando método alternativo:', error);
+    }
+
+    // Fallback: método antigo usando logs do banco
     const currentProcess = await this.monitorService.getCurrentProcessMetrics('API');
     
     // Buscar últimos logs de outros serviços (um por serviço)
-    const services = ['EXECUTOR', 'MONITORS'];
+    const services = ['EXECUTOR', 'MONITORS', 'FRONTEND', 'SITE', 'BACKUP'];
     const processes: ProcessMetrics[] = [currentProcess];
 
     for (const serviceName of services) {

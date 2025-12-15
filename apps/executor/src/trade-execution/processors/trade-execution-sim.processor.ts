@@ -758,52 +758,30 @@ export class TradeExecutionSimProcessor extends WorkerHost {
                 }
               }
             } else {
-              this.logger.warn(`[EXECUTOR-SIM] Job ${tradeJobId} tem position_id_to_close=${tradeJob.position_id_to_close} mas posição não encontrada, usando lógica padrão`);
-              // Fallback para lógica padrão
-              sellOrigin = tradeJob.webhook_event_id ? 'WEBHOOK' : 'MANUAL';
+              // Posição não encontrada - marcar job como falha
+              this.logger.error(`[EXECUTOR-SIM] ❌ ERRO CRÍTICO: Job ${tradeJobId} tem position_id_to_close=${tradeJob.position_id_to_close} mas posição não encontrada. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close válido.`);
+              await this.prisma.tradeJob.update({
+                where: { id: tradeJobId },
+                data: {
+                  status: TradeJobStatus.FAILED,
+                  reason_code: 'POSITION_NOT_FOUND',
+                  reason_message: `Posição ${tradeJob.position_id_to_close} não encontrada. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close válido.`,
+                },
+              });
+              throw new Error(`Posição ${tradeJob.position_id_to_close} não encontrada. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close válido.`);
             }
           } else {
-            // Buscar posições que serão fechadas antes de executar (lógica FIFO)
-            const positionsBefore = await this.prisma.tradePosition.findMany({
-              where: {
-                exchange_account_id: tradeJob.exchange_account_id,
-                trade_mode: tradeJob.trade_mode,
-                symbol: tradeJob.symbol,
-                status: 'OPEN',
-                qty_remaining: { gt: 0 },
+            // FIFO foi removido - todas as ordens SELL devem ter position_id_to_close
+            this.logger.error(`[EXECUTOR-SIM] ❌ ERRO CRÍTICO: Job ${tradeJobId} é uma ordem SELL sem position_id_to_close. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close.`);
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: {
+                status: TradeJobStatus.FAILED,
+                reason_code: 'MISSING_POSITION_ID',
+                reason_message: 'Ordem SELL sem position_id_to_close. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close.',
               },
             });
-
-            if (positionsBefore.length > 0) {
-              // Verificar flags na primeira posição (FIFO)
-              const firstPosition = positionsBefore[0];
-              
-              if (firstPosition.tp_triggered) {
-                sellOrigin = 'TAKE_PROFIT';
-                this.logger.log(`[EXECUTOR-SIM] Origin determinado como TAKE_PROFIT (posição ${firstPosition.id} tem tp_triggered=true)`);
-              } else if (firstPosition.sl_triggered) {
-                sellOrigin = 'STOP_LOSS';
-                this.logger.log(`[EXECUTOR-SIM] Origin determinado como STOP_LOSS (posição ${firstPosition.id} tem sl_triggered=true)`);
-              } else if (firstPosition.trailing_triggered) {
-                sellOrigin = 'TRAILING';
-                this.logger.log(`[EXECUTOR-SIM] Origin determinado como TRAILING (posição ${firstPosition.id} tem trailing_triggered=true)`);
-              } else {
-                // Verificar se não há webhook_event_id no trade job
-                if (!tradeJob.webhook_event_id) {
-                  if (tradeJob.reason_code?.includes('TAKE_PROFIT') || tradeJob.reason_message?.includes('Take Profit')) {
-                    sellOrigin = 'TAKE_PROFIT';
-                  } else if (tradeJob.reason_code?.includes('STOP_LOSS') || tradeJob.reason_message?.includes('Stop Loss')) {
-                    sellOrigin = 'STOP_LOSS';
-                  } else {
-                    sellOrigin = 'MANUAL';
-                  }
-                  this.logger.log(`[EXECUTOR-SIM] Origin determinado como ${sellOrigin} (sem webhook_event_id, reason_code: ${tradeJob.reason_code})`);
-                } else {
-                  sellOrigin = 'WEBHOOK';
-                  this.logger.log(`[EXECUTOR-SIM] Origin determinado como WEBHOOK (trade job tem webhook_event_id)`);
-                }
-              }
-            }
+            throw new Error('Ordem SELL sem position_id_to_close. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close.');
           }
 
           this.logger.log(`[EXECUTOR-SIM] Chamando onSellExecuted para job ${tradeJobId}: qty=${adjustedExecutedQty}, price=${avgPrice}, origin=${sellOrigin}, position_id_to_close=${tradeJob.position_id_to_close || 'N/A'}`);

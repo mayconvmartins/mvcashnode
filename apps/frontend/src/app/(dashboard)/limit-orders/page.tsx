@@ -14,21 +14,30 @@ import { limitOrdersService } from '@/lib/api/limit-orders.service'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
 import { toast } from 'sonner'
 import { formatCurrency, formatDateTime, formatAssetAmount } from '@/lib/utils/format'
+import type { PaginatedResponse } from '@/lib/types'
 
 export default function LimitOrdersPage() {
     const queryClient = useQueryClient()
     const { tradeMode } = useTradeMode()
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending')
+    const [historyPage, setHistoryPage] = useState(1)
+    const [pendingPage, setPendingPage] = useState(1)
+    const pageSize = 50
 
-    const { data: orders, isLoading } = useQuery({
-        queryKey: ['limit-orders', tradeMode, activeTab],
+    const { data: ordersData, isLoading } = useQuery({
+        queryKey: ['limit-orders', tradeMode, activeTab, activeTab === 'history' ? historyPage : pendingPage],
         queryFn: () => {
             if (activeTab === 'history') {
-                return limitOrdersService.getHistory()
+                return limitOrdersService.getHistory({ page: historyPage, limit: pageSize })
             }
-            return limitOrdersService.list({ trade_mode: tradeMode })
+            return limitOrdersService.list({ trade_mode: tradeMode, page: pendingPage, limit: pageSize })
         },
     })
+
+    // Extrair dados e paginação da resposta
+    const isPaginated = ordersData && typeof ordersData === 'object' && 'data' in ordersData && 'pagination' in ordersData
+    const orders = isPaginated ? (ordersData as PaginatedResponse<any>).data : (Array.isArray(ordersData) ? ordersData : [])
+    const pagination = isPaginated ? (ordersData as PaginatedResponse<any>).pagination : null
 
     const cancelMutation = useMutation({
         mutationFn: (id: number) => limitOrdersService.cancel(id),
@@ -97,8 +106,8 @@ export default function LimitOrdersPage() {
                         )
                     } else {
                         return (
-                            <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
-                                FIFO
+                            <Badge variant="destructive" className="text-xs">
+                                Sem posição
                             </Badge>
                         )
                     }
@@ -180,6 +189,13 @@ export default function LimitOrdersPage() {
                                 data={orders || []}
                                 columns={columns}
                                 loading={isLoading}
+                                pagination={pagination !== null}
+                                currentPage={pagination?.current_page || pendingPage}
+                                totalPages={pagination?.total_pages || 1}
+                                pageSize={pageSize}
+                                onPageChange={(page) => {
+                                    setPendingPage(page)
+                                }}
                                 emptyState={
                                     <div className="text-center py-12">
                                         <p className="text-muted-foreground">Nenhuma ordem limit pendente</p>
@@ -200,6 +216,13 @@ export default function LimitOrdersPage() {
                                 data={orders || []}
                                 columns={columns}
                                 loading={isLoading}
+                                pagination={pagination !== null}
+                                currentPage={pagination?.current_page || historyPage}
+                                totalPages={pagination?.total_pages || 1}
+                                pageSize={pageSize}
+                                onPageChange={(page) => {
+                                    setHistoryPage(page)
+                                }}
                                 emptyState={
                                     <div className="text-center py-12">
                                         <p className="text-muted-foreground">Nenhuma ordem limit no histórico</p>

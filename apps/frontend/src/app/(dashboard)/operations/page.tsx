@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,10 +17,12 @@ import Link from 'next/link' // Import for position links
 export default function OperationsPage() {
     const { tradeMode } = useTradeMode()
     const router = useRouter()
+    const [page, setPage] = useState(1)
+    const pageSize = 20
 
     const { data: operationsResponse, isLoading } = useQuery({
-        queryKey: ['operations', tradeMode],
-        queryFn: () => operationsService.list({ trade_mode: tradeMode }),
+        queryKey: ['operations', tradeMode, page],
+        queryFn: () => operationsService.list({ trade_mode: tradeMode, page, limit: pageSize }),
     })
 
     const operations = operationsResponse?.data || []
@@ -108,8 +111,8 @@ export default function OperationsPage() {
                         )
                     } else {
                         return (
-                            <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
-                                FIFO
+                            <Badge variant="destructive" className="text-xs">
+                                Sem posição
                             </Badge>
                         )
                     }
@@ -162,18 +165,19 @@ export default function OperationsPage() {
                         data={operations}
                         columns={columns}
                         loading={isLoading}
+                        pagination={!!operationsResponse?.pagination}
+                        currentPage={operationsResponse?.pagination?.current_page || page}
+                        totalPages={operationsResponse?.pagination?.total_pages || 1}
+                        pageSize={pageSize}
+                        onPageChange={(newPage) => {
+                            setPage(newPage)
+                        }}
                         emptyState={
                             <div className="text-center py-12">
                                 <p className="text-muted-foreground">Nenhuma operação encontrada</p>
                             </div>
                         }
                     />
-                    {operationsResponse?.pagination && (
-                        <div className="mt-4 text-sm text-muted-foreground text-center">
-                            Página {operationsResponse.pagination.current_page} de {operationsResponse.pagination.total_pages} 
-                            {' '}({operationsResponse.pagination.total_items} total)
-                        </div>
-                    )}
                 </CardContent>
             </Card>
         </div>

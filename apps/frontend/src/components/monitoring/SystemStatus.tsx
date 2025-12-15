@@ -33,27 +33,56 @@ export function SystemStatus({ status }: SystemStatusProps) {
         return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
     }
 
+    const serviceNames: Record<string, string> = {
+        api: 'API',
+        executor: 'Executor',
+        monitors: 'Monitors',
+        frontend: 'Frontend',
+        site: 'Site',
+        backup: 'Backup',
+    }
+
+    const services = Object.entries(status.services).filter(([_, service]) => service !== undefined)
+
     return (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {/* API Service */}
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">API Service</CardTitle>
-                    <Server className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                    <div className="flex items-center space-x-2">
-                        <div className={`h-3 w-3 rounded-full ${getStatusColor(status.services.api.status)}`} />
-                        <span className="text-xs capitalize">{status.services.api.status}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                        CPU: {status.services.api.cpu > 0 ? status.services.api.cpu.toFixed(2) + '%' : 'Aguardando...'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                        Mem: {formatBytes(status.services.api.memory)}
-                    </p>
-                </CardContent>
-            </Card>
+            {/* Services Cards */}
+            {services.map(([key, service]) => {
+                if (!service) return null
+                const displayName = serviceNames[key] || key.toUpperCase()
+                const isCluster = service.exec_mode === 'cluster' && (service.instances || 0) > 1
+
+                return (
+                    <Card key={key}>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">{displayName}</CardTitle>
+                            <Server className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="flex items-center space-x-2">
+                                <div className={`h-3 w-3 rounded-full ${getStatusColor(service.status)}`} />
+                                <span className="text-xs capitalize">{service.status}</span>
+                                {isCluster && (
+                                    <Badge variant="outline" className="ml-1 text-xs">
+                                        {service.instances}x
+                                    </Badge>
+                                )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-2">
+                                CPU: {service.cpu > 0 ? service.cpu.toFixed(2) + '%' : 'Aguardando...'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                                Mem: {formatBytes(service.memory)}
+                            </p>
+                            {isCluster && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Modo: Cluster ({service.instances} instâncias)
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                )
+            })}
 
             {/* Database */}
             <Card>

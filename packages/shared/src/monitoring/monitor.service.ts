@@ -1,5 +1,9 @@
 import * as si from 'systeminformation';
 import pidusage from 'pidusage';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export interface ProcessMetrics {
   pid: number;
@@ -9,6 +13,16 @@ export interface ProcessMetrics {
   uptime: number;
   status: 'running' | 'stopped' | 'error';
   lastUpdate: Date;
+  // Informações de cluster PM2
+  pm2_id?: number;
+  instances?: number;
+  exec_mode?: 'cluster' | 'fork';
+  cluster_instances?: Array<{
+    pid: number;
+    cpu: number;
+    memory: number;
+    status: string;
+  }>;
 }
 
 export interface SystemMetrics {
@@ -357,6 +371,111 @@ export class MonitorService {
    */
   formatPercent(value: number): string {
     return `${value.toFixed(2)}%`;
+  }
+
+  /**
+   * Coleta todos os processos do PM2
+   */
+  async getAllPM2Processes(): Promise<ProcessMetrics[]> {
+    try {
+      // Usar pm2 jlist para obter JSON de todos os processos
+      const { stdout } = await execAsync('pm2 jlist');
+      const pm2Processes = JSON.parse(stdout);
+
+      const processes: ProcessMetrics[] = [];
+
+      // Agrupar processos por nome (para cluster mode)
+      const processesByName = new Map<string, any[]>();
+      
+      for (const pm2Proc of pm2Processes) {
+        const name = pm2Proc.name || 'unknown';
+        if (!processesByName.has(name)) {
+          processesByName.set(name, []);
+        }
+        processesByName.get(name)!.push(pm2Proc);
+      }
+
+      // Processar cada grupo de processos
+      for (const [name, instances] of processesByName.entries()) {
+        const firstInstance = instances[0];
+        const isCluster = firstInstance.pm2_env?.exec_mode === 'cluster' || instances.length > 1;
+        
+        if (isCluster && instances.length > 1) {
+          // Processo em cluster mode - agregar métricas
+          let totalCpu = 0;
+          let totalMemory = 0;
+          let minUptime = Infinity;
+          let allRunning = true;
+          const clusterInstances: Array<{
+            pid: number;
+            cpu: number;
+            memory: number;
+            status: string;
+          }> = [];
+
+          for (const instance of instances) {
+            const cpu = instance.monit?.cpu || 0;
+            const memory = instance.monit?.memory || 0;
+            const uptime = instance.pm2_env?.pm_uptime || 0;
+            const status = instance.pm2_env?.status || 'stopped';
+            
+            totalCpu += cpu;
+            totalMemory += memory;
+            minUptime = Math.min(minUptime, uptime);
+            if (status !== 'online') {
+              allRunning = false;
+            }
+
+            clusterInstances.push({
+              pid: instance.pid,
+              cpu,
+              memory,
+              status,
+            });
+          }
+
+          processes.push({
+            pid: firstInstance.pid,
+            name,
+            cpu: totalCpu,
+            memory: totalMemory,
+            uptime: minUptime > 0 ? (Date.now() - minUptime) / 1000 : 0,
+            status: allRunning ? 'running' : 'error',
+            lastUpdate: new Date(),
+            pm2_id: firstInstance.pm_id,
+            instances: instances.length,
+            exec_mode: 'cluster',
+            cluster_instances: clusterInstances,
+          });
+        } else {
+          // Processo único (fork mode ou cluster com 1 instância)
+          const instance = firstInstance;
+          const cpu = instance.monit?.cpu || 0;
+          const memory = instance.monit?.memory || 0;
+          const uptime = instance.pm2_env?.pm_uptime || 0;
+          const status = instance.pm2_env?.status || 'stopped';
+
+          processes.push({
+            pid: instance.pid,
+            name,
+            cpu,
+            memory,
+            uptime: uptime > 0 ? (Date.now() - uptime) / 1000 : 0,
+            status: status === 'online' ? 'running' : status === 'stopped' ? 'stopped' : 'error',
+            lastUpdate: new Date(),
+            pm2_id: instance.pm_id,
+            instances: 1,
+            exec_mode: instance.pm2_env?.exec_mode || 'fork',
+          });
+        }
+      }
+
+      return processes;
+    } catch (error: any) {
+      console.error('[MonitorService] Erro ao coletar processos do PM2:', error.message);
+      // Retornar array vazio em caso de erro (PM2 pode não estar disponível)
+      return [];
+    }
   }
 }
 
