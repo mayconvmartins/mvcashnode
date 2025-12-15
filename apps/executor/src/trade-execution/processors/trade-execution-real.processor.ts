@@ -114,6 +114,69 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       }
 
       // ============================================
+      // ✅ VALIDAÇÃO CRÍTICA DE SEGURANÇA: Validar posição para SELL
+      // ============================================
+      if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
+        this.logger.log(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} - Validando posição ${tradeJob.position_id_to_close} ANTES de processar...`);
+        
+        const targetPosition = await this.prisma.tradePosition.findUnique({
+          where: { id: tradeJob.position_id_to_close },
+        });
+
+        if (!targetPosition) {
+          this.logger.error(`[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} NÃO ENCONTRADA`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'POSITION_NOT_FOUND',
+              reason_message: `Posição ${tradeJob.position_id_to_close} não encontrada`,
+            },
+          });
+          return { success: false, skipped: true, reason: 'POSITION_NOT_FOUND' };
+        }
+
+        if (targetPosition.status !== 'OPEN') {
+          this.logger.error(`[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} não está OPEN (status: ${targetPosition.status})`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'POSITION_NOT_OPEN',
+              reason_message: `Posição ${tradeJob.position_id_to_close} não está aberta (status: ${targetPosition.status})`,
+            },
+          });
+          return { success: false, skipped: true, reason: 'POSITION_NOT_OPEN' };
+        }
+
+        const positionQtyRemaining = targetPosition.qty_remaining.toNumber();
+        if (positionQtyRemaining <= 0) {
+          this.logger.error(`[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} sem quantidade restante (qty_remaining: ${positionQtyRemaining})`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'POSITION_NO_QUANTITY',
+              reason_message: `Posição ${tradeJob.position_id_to_close} sem quantidade restante para vender`,
+            },
+          });
+          return { success: false, skipped: true, reason: 'POSITION_NO_QUANTITY' };
+        }
+
+        // ✅ Validar se quantidade do job não excede quantidade da posição
+        const jobBaseQty = tradeJob.base_quantity?.toNumber() || 0;
+        if (jobBaseQty > 0 && jobBaseQty > positionQtyRemaining) {
+          this.logger.warn(`[EXECUTOR] [SEGURANÇA] ⚠️ Job ${tradeJobId} - Quantidade do job (${jobBaseQty}) > quantidade da posição (${positionQtyRemaining}), AJUSTANDO para ${positionQtyRemaining}`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: { base_quantity: positionQtyRemaining },
+          });
+        }
+
+        this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} validada: status=${targetPosition.status}, qty_remaining=${positionQtyRemaining}`);
+      }
+
+      // ============================================
       // VALIDAÇÃO E BUSCA DE QUANTIDADE
       // ============================================
       // Log crítico logo após ler do banco
@@ -445,49 +508,165 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const orderAmount = baseQty > 0 ? baseQty : quoteAmount;
       this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${orderAmount} ${tradeJob.symbol} (baseQty=${baseQty}, quoteAmount=${quoteAmount})`);
 
-      // ✅ VERIFICAÇÃO DE SEGURANÇA: Verificar se já existe ordem pendente na exchange
+      // Para MARKET BUY, sempre usar baseQty (já calculado acima se necessário)
+      // Para LIMIT BUY, usar baseQty se disponível, senão usar quoteAmount com limit_price
+      const amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
+
+      // ✅ VERIFICAÇÃO DE SEGURANÇA MELHORADA: Verificar se já existe ordem similar na exchange
       try {
         const openOrders = await adapter.fetchOpenOrders(tradeJob.symbol);
-        const hasPendingOrder = openOrders.some((order: any) => 
+        this.logger.debug(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} - Verificando ${openOrders.length} ordens pendentes na exchange`);
+        
+        // Verificação 1: Ordem pendente com mesmo lado
+        const pendingOrderSameSide = openOrders.find((order: any) => 
           order.side.toUpperCase() === tradeJob.side &&
           ['open', 'new', 'pending'].includes(order.status.toLowerCase())
         );
         
-        if (hasPendingOrder) {
-          this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Já existe ordem pendente na exchange para ${tradeJob.symbol} ${tradeJob.side}, abortando`);
-          await this.prisma.tradeJob.update({
-            where: { id: tradeJobId },
-            data: {
-              status: TradeJobStatus.FAILED,
-              reason_code: 'DUPLICATE_ORDER_PREVENTED',
-              reason_message: 'Já existe ordem pendente na exchange para este símbolo/lado',
-            },
-          });
-          return { success: false, reason: 'DUPLICATE_ORDER_PREVENTED' };
+        if (pendingOrderSameSide) {
+          // Verificação 2: Se for LIMIT, verificar preço e quantidade similar (possível duplicata exata)
+          if (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price) {
+            const orderPrice = pendingOrderSameSide.price || 0;
+            const existingOrderAmount = pendingOrderSameSide.amount || 0;
+            const limitPrice = tradeJob.limit_price.toNumber();
+            
+            const priceDiff = Math.abs(orderPrice - limitPrice) / limitPrice;
+            const amountDiff = amountToUse > 0 ? Math.abs(existingOrderAmount - amountToUse) / amountToUse : 1;
+            
+            // Se preço e quantidade são muito similares (< 1% diferença), é duplicata
+            if (priceDiff < 0.01 && amountDiff < 0.01) {
+              this.logger.error(`[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - ORDEM DUPLICATA EXATA detectada: preço=${orderPrice} vs ${limitPrice}, amount=${existingOrderAmount} vs ${amountToUse}`);
+              await this.prisma.tradeJob.update({
+                where: { id: tradeJobId },
+                data: {
+                  status: TradeJobStatus.FAILED,
+                  reason_code: 'DUPLICATE_ORDER_EXACT',
+                  reason_message: `Ordem duplicata exata detectada na exchange (preço: ${orderPrice}, qtd: ${existingOrderAmount})`,
+                },
+              });
+              return { success: false, reason: 'DUPLICATE_ORDER_EXACT' };
+            }
+          }
+          
+          // Se não for duplicata exata, apenas avisar (pode ser ordem legítima diferente)
+          this.logger.warn(`[EXECUTOR] [SEGURANÇA] ⚠️ Job ${tradeJobId} - Existe ordem pendente na exchange para ${tradeJob.symbol} ${tradeJob.side}, mas parâmetros são diferentes. Continuando...`);
         }
       } catch (checkError: any) {
         this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Erro ao verificar ordens existentes: ${checkError.message}, continuando...`);
         // Continuar mesmo se verificação falhar (não bloquear execução)
       }
+      
+      // ============================================
+      // ✅ VALIDAÇÃO CRÍTICA: Lucro mínimo ANTES de criar ordem LIMIT SELL
+      // ============================================
+      if (tradeJob.side === 'SELL' && tradeJob.order_type === 'LIMIT' && tradeJob.limit_price && tradeJob.position_id_to_close) {
+        this.logger.log(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} - Validando lucro mínimo ANTES de criar ordem LIMIT...`);
+        
+        const targetPosition = await this.prisma.tradePosition.findUnique({
+          where: { id: tradeJob.position_id_to_close },
+        });
+        
+        if (targetPosition && !targetPosition.is_dust) {
+          const { PositionService } = await import('@mvcashnode/domain');
+          const positionService = new PositionService(this.prisma);
+          
+          const validationResult = await positionService.validateMinProfit(
+            targetPosition.id,
+            tradeJob.limit_price.toNumber()
+          );
+          
+          if (!validationResult.valid) {
+            this.logger.error(`[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - Validação de lucro mínimo FALHOU ANTES de criar ordem: ${validationResult.reason}`);
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: {
+                status: TradeJobStatus.FAILED,
+                reason_code: 'MIN_PROFIT_NOT_MET_PRE_ORDER',
+                reason_message: `Lucro mínimo não atendido ANTES de criar ordem: ${validationResult.reason}`,
+              },
+            });
+            throw new Error(`[SEGURANÇA] Venda não permitida: ${validationResult.reason}`);
+          }
+          
+          this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Validação de lucro mínimo PASSOU: ${validationResult.reason}`);
+        }
+      }
 
-      // Para MARKET BUY, sempre usar baseQty (já calculado acima se necessário)
-      // Para LIMIT BUY, usar baseQty se disponível, senão usar quoteAmount com limit_price
-      const amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
+      // ============================================
+      // ✅ DUPLA VERIFICAÇÃO DE QUANTIDADE FINAL
+      // ============================================
+      this.logger.log(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} - Dupla verificação de quantidade final...`);
+      
+      // Verificação 1: Quantidade não pode ser zero, negativa ou NaN
+      if (amountToUse <= 0 || isNaN(amountToUse)) {
+        this.logger.error(`[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - Quantidade INVÁLIDA: ${amountToUse}`);
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.FAILED,
+            reason_code: 'INVALID_QUANTITY',
+            reason_message: `Quantidade inválida: ${amountToUse} (baseQty=${baseQty}, quoteAmount=${quoteAmount})`,
+          },
+        });
+        throw new Error(`[SEGURANÇA] Quantidade inválida: ${amountToUse}`);
+      }
+      
+      // Verificação 2: Quantidade mínima (dust protection)
+      const MIN_AMOUNT_THRESHOLD = 0.00001; // Mínimo absoluto
+      if (amountToUse < MIN_AMOUNT_THRESHOLD) {
+        this.logger.error(`[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - Quantidade MUITO PEQUENA (dust): ${amountToUse}`);
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.SKIPPED,
+            reason_code: 'DUST_AMOUNT',
+            reason_message: `Quantidade muito pequena (dust): ${amountToUse} < ${MIN_AMOUNT_THRESHOLD}`,
+          },
+        });
+        return { success: false, skipped: true, reason: 'DUST_AMOUNT' };
+      }
+      
+      // Verificação 3: Para SELL, verificar se quantidade não excede posição (última verificação)
+      if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
+        const currentPosition = await this.prisma.tradePosition.findUnique({
+          where: { id: tradeJob.position_id_to_close },
+          select: { qty_remaining: true },
+        });
+        
+        if (currentPosition) {
+          const posQtyRemaining = currentPosition.qty_remaining.toNumber();
+          if (amountToUse > posQtyRemaining * 1.01) { // 1% tolerância
+            this.logger.error(`[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - Quantidade (${amountToUse}) > posição (${posQtyRemaining})`);
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: {
+                status: TradeJobStatus.FAILED,
+                reason_code: 'QUANTITY_EXCEEDS_POSITION',
+                reason_message: `Quantidade ${amountToUse} excede quantidade da posição ${posQtyRemaining}`,
+              },
+            });
+            throw new Error(`[SEGURANÇA] Quantidade ${amountToUse} excede posição ${posQtyRemaining}`);
+          }
+        }
+      }
+      
+      this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Dupla verificação PASSOU: amountToUse=${amountToUse}`);
+      
+      // ============================================
+      // LOG FINAL ANTES DE CRIAR ORDEM
+      // ============================================
+      this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ VALIDAÇÃO FINAL: Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${amountToUse} ${tradeJob.symbol} @ ${tradeJob.limit_price?.toNumber() || 'MARKET'}`);
       
       let order;
       let orderCreatedAfterAdjustment = false;
       try {
-        if (amountToUse <= 0) {
-          throw new Error(`Quantidade inválida para criar ordem: baseQty=${baseQty}, quoteAmount=${quoteAmount}, amountToUse=${amountToUse}`);
-        }
-        
         // Log informativo sobre quantidade que será enviada
         // A validação real de quantidade mínima será feita pela exchange
         if (amountToUse < 0.001) {
-          this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - ⚠️ Quantidade muito pequena: ${amountToUse} ${tradeJob.symbol}. A exchange pode rejeitar se não atender aos requisitos mínimos.`);
+          this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - ⚠️ Quantidade pequena: ${amountToUse} ${tradeJob.symbol}. A exchange pode rejeitar se não atender aos requisitos mínimos.`);
         }
         
-        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Criando ordem na exchange: ${orderType} ${tradeJob.side} amount=${amountToUse} ${tradeJob.symbol}`);
+        this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Enviando ordem para exchange: ${orderType} ${tradeJob.side} amount=${amountToUse} ${tradeJob.symbol}`);
         order = await adapter.createOrder(
           tradeJob.symbol,
           orderType,
@@ -1319,6 +1498,40 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                     this.logger.log(`[EXECUTOR] Origin determinado como WEBHOOK (trade job tem webhook_event_id)`);
                   }
                 }
+              }
+            }
+
+            // ============================================
+            // ✅ VALIDAÇÃO CRÍTICA: Quantidade executada vs posição
+            // ============================================
+            if (tradeJob.position_id_to_close) {
+              const currentPosition = await this.prisma.tradePosition.findUnique({
+                where: { id: tradeJob.position_id_to_close },
+                select: { qty_remaining: true, status: true },
+              });
+              
+              if (currentPosition) {
+                const posQtyRemaining = currentPosition.qty_remaining.toNumber();
+                
+                // Se posição já foi fechada, não executar
+                if (currentPosition.status === 'CLOSED') {
+                  this.logger.warn(`[EXECUTOR] [SEGURANÇA] ⚠️ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} já está FECHADA, não chamando onSellExecuted`);
+                  // Atualizar job como SKIPPED para indicar que não foi necessário
+                  await this.prisma.tradeJob.update({
+                    where: { id: tradeJobId },
+                    data: {
+                      reason_code: 'POSITION_ALREADY_CLOSED',
+                      reason_message: `Posição ${tradeJob.position_id_to_close} já estava fechada quando a execução foi concluída`,
+                    },
+                  });
+                } else if (finalExecutedQty > posQtyRemaining * 1.01) {
+                  // Ajustar quantidade executada se exceder posição (com 1% tolerância)
+                  const adjustedQty = posQtyRemaining;
+                  this.logger.warn(`[EXECUTOR] [SEGURANÇA] ⚠️ Job ${tradeJobId} - Ajustando quantidade executada de ${finalExecutedQty} para ${adjustedQty} (posição tem ${posQtyRemaining})`);
+                  finalExecutedQty = adjustedQty;
+                }
+                
+                this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Validação quantidade executada OK: ${finalExecutedQty} <= ${posQtyRemaining}`);
               }
             }
 

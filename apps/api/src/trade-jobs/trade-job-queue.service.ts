@@ -4,6 +4,15 @@ import { Queue } from 'bullmq';
 import { TradeMode, TradeJobStatus } from '@mvcashnode/shared';
 import { PrismaService } from '@mvcashnode/db';
 
+// ✅ SEGURANÇA: Status finais que não devem ser reprocessados
+const FINAL_STATUSES = [
+  TradeJobStatus.FILLED,
+  TradeJobStatus.PARTIALLY_FILLED,
+  TradeJobStatus.SKIPPED,
+  TradeJobStatus.FAILED,
+  TradeJobStatus.CANCELED,
+];
+
 @Injectable()
 export class TradeJobQueueService {
   private readonly logger = new Logger(TradeJobQueueService.name);
@@ -16,6 +25,13 @@ export class TradeJobQueueService {
 
   /**
    * Enfileira um trade job no BullMQ para execução
+   * 
+   * ✅ VALIDAÇÕES DE SEGURANÇA:
+   * 1. Verifica se job existe
+   * 2. Verifica se job não está em status final (previne reprocessamento)
+   * 3. Verifica se conta está ativa
+   * 4. Verifica se SELL tem quantidade válida
+   * 5. Verifica se não está duplicado na fila
    */
   async enqueueTradeJob(tradeJobId: number): Promise<void> {
     try {
@@ -28,22 +44,57 @@ export class TradeJobQueueService {
         throw new Error(`Trade job ${tradeJobId} não encontrado`);
       }
 
+      // ✅ VALIDAÇÃO 1: Verificar se job já está em status final (previne reprocessamento)
+      if (FINAL_STATUSES.includes(tradeJob.status as TradeJobStatus)) {
+        this.logger.warn(`[SEGURANÇA] Trade job ${tradeJobId} já está em status final (${tradeJob.status}), não enfileirando para evitar reprocessamento`);
+        return;
+      }
+
+      // ✅ VALIDAÇÃO 2: Verificar se conta de exchange está ativa
+      if (!tradeJob.exchange_account.is_active) {
+        this.logger.error(`[SEGURANÇA] Trade job ${tradeJobId} - Conta de exchange ${tradeJob.exchange_account_id} está INATIVA, não enfileirando`);
+        throw new Error(`Conta de exchange ${tradeJob.exchange_account_id} está inativa`);
+      }
+
+      // ✅ VALIDAÇÃO 3: Para SELL, verificar se tem quantidade válida
+      if (tradeJob.side === 'SELL') {
+        const baseQty = tradeJob.base_quantity?.toNumber() || 0;
+        if (baseQty <= 0) {
+          this.logger.error(`[SEGURANÇA] Trade job ${tradeJobId} - SELL sem base_quantity válida (${baseQty}), não enfileirando`);
+          throw new Error(`SELL job ${tradeJobId} sem base_quantity válida (${baseQty})`);
+        }
+        this.logger.debug(`[SEGURANÇA] Trade job ${tradeJobId} - SELL validado: base_quantity=${baseQty}`);
+      }
+
+      // ✅ VALIDAÇÃO 4: Para BUY, avisar se não tem quantidade (será calculada no executor)
+      if (tradeJob.side === 'BUY') {
+        const quoteAmount = tradeJob.quote_amount?.toNumber() || 0;
+        const baseQty = tradeJob.base_quantity?.toNumber() || 0;
+        if (quoteAmount <= 0 && baseQty <= 0) {
+          this.logger.warn(`[SEGURANÇA] Trade job ${tradeJobId} - BUY sem quantidade definida, será calculada no executor`);
+        }
+      }
+
       // Determinar qual fila usar baseado no trade_mode
       const queue = tradeJob.trade_mode === TradeMode.REAL ? this.realQueue : this.simQueue;
       const queueName = tradeJob.trade_mode === TradeMode.REAL ? 'trade-execution-real' : 'trade-execution-sim';
 
-      // Verificar se o job já está enfileirado (evitar duplicatas)
+      // ✅ VALIDAÇÃO 5: Verificar se o job já está enfileirado (evitar duplicatas)
       const existingJobs = await queue.getJobs(['waiting', 'active', 'delayed']);
       const alreadyEnqueued = existingJobs.some(
         (job) => job.data.tradeJobId === tradeJobId
       );
 
       if (alreadyEnqueued) {
-        this.logger.warn(`Trade job ${tradeJobId} já está enfileirado na fila ${queueName}`);
+        this.logger.warn(`[SEGURANÇA] Trade job ${tradeJobId} já está enfileirado na fila ${queueName}, não duplicando`);
         return;
       }
 
-      // Enfileirar o job
+      // ✅ Log de segurança antes de enfileirar
+      this.logger.log(`[SEGURANÇA] ✅ Trade job ${tradeJobId} passou em todas as validações - enfileirando na fila ${queueName}`);
+      this.logger.debug(`[SEGURANÇA] Job ${tradeJobId}: side=${tradeJob.side}, symbol=${tradeJob.symbol}, status=${tradeJob.status}, account=${tradeJob.exchange_account_id}`);
+
+      // Enfileirar o job (BullMQ garante unicidade com jobId)
       await queue.add('execute-trade', { tradeJobId }, {
         jobId: `trade-job-${tradeJobId}`,
         attempts: 1,
@@ -58,7 +109,7 @@ export class TradeJobQueueService {
 
       this.logger.log(`Trade job ${tradeJobId} enfileirado na fila ${queueName}`);
     } catch (error: any) {
-      this.logger.error(`Erro ao enfileirar trade job ${tradeJobId}: ${error.message}`, error.stack);
+      this.logger.error(`[SEGURANÇA] ❌ Erro ao enfileirar trade job ${tradeJobId}: ${error.message}`, error.stack);
       throw error;
     }
   }

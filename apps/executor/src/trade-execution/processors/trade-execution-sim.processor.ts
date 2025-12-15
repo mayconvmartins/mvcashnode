@@ -107,6 +107,70 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         throw new Error(`Símbolo inválido para trade job ${tradeJobId}`);
       }
 
+      // ============================================
+      // ✅ VALIDAÇÃO CRÍTICA DE SEGURANÇA: Validar posição para SELL
+      // (mesmas validações do executor REAL)
+      // ============================================
+      if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
+        this.logger.log(`[EXECUTOR-SIM] [SEGURANÇA] Job ${tradeJobId} - Validando posição ${tradeJob.position_id_to_close} ANTES de processar...`);
+        
+        const targetPosition = await this.prisma.tradePosition.findUnique({
+          where: { id: tradeJob.position_id_to_close },
+        });
+
+        if (!targetPosition) {
+          this.logger.error(`[EXECUTOR-SIM] [SEGURANÇA] ❌ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} NÃO ENCONTRADA`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'POSITION_NOT_FOUND',
+              reason_message: `Posição ${tradeJob.position_id_to_close} não encontrada`,
+            },
+          });
+          return { success: false, skipped: true, reason: 'POSITION_NOT_FOUND' };
+        }
+
+        if (targetPosition.status !== 'OPEN') {
+          this.logger.error(`[EXECUTOR-SIM] [SEGURANÇA] ❌ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} não está OPEN (status: ${targetPosition.status})`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'POSITION_NOT_OPEN',
+              reason_message: `Posição ${tradeJob.position_id_to_close} não está aberta (status: ${targetPosition.status})`,
+            },
+          });
+          return { success: false, skipped: true, reason: 'POSITION_NOT_OPEN' };
+        }
+
+        const positionQtyRemaining = targetPosition.qty_remaining.toNumber();
+        if (positionQtyRemaining <= 0) {
+          this.logger.error(`[EXECUTOR-SIM] [SEGURANÇA] ❌ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} sem quantidade restante`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'POSITION_NO_QUANTITY',
+              reason_message: `Posição ${tradeJob.position_id_to_close} sem quantidade restante para vender`,
+            },
+          });
+          return { success: false, skipped: true, reason: 'POSITION_NO_QUANTITY' };
+        }
+
+        // ✅ Validar se quantidade do job não excede quantidade da posição
+        const jobBaseQty = tradeJob.base_quantity?.toNumber() || 0;
+        if (jobBaseQty > 0 && jobBaseQty > positionQtyRemaining) {
+          this.logger.warn(`[EXECUTOR-SIM] [SEGURANÇA] ⚠️ Job ${tradeJobId} - Quantidade do job (${jobBaseQty}) > quantidade da posição (${positionQtyRemaining}), AJUSTANDO`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: { base_quantity: positionQtyRemaining },
+          });
+        }
+
+        this.logger.log(`[EXECUTOR-SIM] [SEGURANÇA] ✅ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} validada: status=${targetPosition.status}, qty_remaining=${positionQtyRemaining}`);
+      }
+
       // Validar quantidade
       let baseQty = tradeJob.base_quantity?.toNumber() || 0;
       let quoteAmount = tradeJob.quote_amount?.toNumber() || 0;
@@ -429,6 +493,57 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         
         this.logger.log(`[EXECUTOR-SIM] ✅ Job ${tradeJobId} - Posição ${targetPosition.id} é ELEGÍVEL para fechamento - todas as validações passaram`);
       }
+
+      // ============================================
+      // ✅ DUPLA VERIFICAÇÃO DE QUANTIDADE FINAL (SIM)
+      // ============================================
+      this.logger.log(`[EXECUTOR-SIM] [SEGURANÇA] Job ${tradeJobId} - Dupla verificação de quantidade final...`);
+      
+      // Verificação 1: SELL deve ter quantidade
+      if (tradeJob.side === 'SELL' && baseQty <= 0) {
+        this.logger.error(`[EXECUTOR-SIM] [SEGURANÇA] ❌ Job ${tradeJobId} - SELL sem quantidade válida: baseQty=${baseQty}`);
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.FAILED,
+            reason_code: 'INVALID_QUANTITY',
+            reason_message: `SELL sem quantidade válida: ${baseQty}`,
+          },
+        });
+        return { success: false, reason: 'INVALID_QUANTITY' };
+      }
+      
+      // Verificação 2: BUY deve ter quoteAmount ou baseQty
+      if (tradeJob.side === 'BUY' && baseQty <= 0 && quoteAmount <= 0) {
+        this.logger.error(`[EXECUTOR-SIM] [SEGURANÇA] ❌ Job ${tradeJobId} - BUY sem quantidade válida: baseQty=${baseQty}, quoteAmount=${quoteAmount}`);
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.FAILED,
+            reason_code: 'INVALID_QUANTITY',
+            reason_message: `BUY sem quantidade válida`,
+          },
+        });
+        return { success: false, reason: 'INVALID_QUANTITY' };
+      }
+      
+      // Verificação 3: Para SELL, verificar se quantidade não excede posição
+      if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
+        const currentPosition = await this.prisma.tradePosition.findUnique({
+          where: { id: tradeJob.position_id_to_close },
+          select: { qty_remaining: true },
+        });
+        
+        if (currentPosition) {
+          const posQtyRemaining = currentPosition.qty_remaining.toNumber();
+          if (baseQty > posQtyRemaining * 1.01) { // 1% tolerância
+            this.logger.warn(`[EXECUTOR-SIM] [SEGURANÇA] ⚠️ Job ${tradeJobId} - Ajustando quantidade de ${baseQty} para ${posQtyRemaining}`);
+            baseQty = posQtyRemaining;
+          }
+        }
+      }
+      
+      this.logger.log(`[EXECUTOR-SIM] [SEGURANÇA] ✅ Job ${tradeJobId} - Dupla verificação PASSOU: baseQty=${baseQty}, quoteAmount=${quoteAmount}`);
 
       // Calculate executed quantity and average price
       let executedQty = baseQty;
