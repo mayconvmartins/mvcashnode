@@ -133,7 +133,7 @@ export class WebSocketGateway
       this.logger.debug(`[WebSocket] 📍 URL extraída: ${requestUrl}`);
 
       // Log dos headers se disponíveis (apenas em debug)
-      if (request.headers && this.logger.isDebugEnabled()) {
+      if (request.headers) {
         this.logger.debug(`[WebSocket] 📋 Headers recebidos:`, {
           origin: request.headers.origin,
           'user-agent': request.headers['user-agent']?.substring(0, 100),
