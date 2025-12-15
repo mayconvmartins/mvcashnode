@@ -48,18 +48,15 @@ export class WebhookMonitorController {
     name: 'page', 
     required: false, 
     type: Number, 
-    description: 'Número da página (padrão: 1)',
-    example: 1,
-    minimum: 1
+    description: 'Número da página (padrão: 1, mínimo: 1)',
+    example: 1
   })
   @ApiQuery({ 
     name: 'limit', 
     required: false, 
     type: Number, 
-    description: 'Itens por página (padrão: 100, máximo: 200)',
-    example: 100,
-    minimum: 1,
-    maximum: 200
+    description: 'Itens por página (padrão: 100, mínimo: 1, máximo: 200)',
+    example: 100
   })
   @ApiResponse({ 
     status: 200, 
@@ -303,18 +300,15 @@ export class WebhookMonitorController {
     name: 'page', 
     required: false, 
     type: Number, 
-    description: 'Número da página (padrão: 1)',
-    example: 1,
-    minimum: 1
+    description: 'Número da página (padrão: 1, mínimo: 1)',
+    example: 1
   })
   @ApiQuery({ 
     name: 'limit', 
     required: false, 
     type: Number, 
-    description: 'Itens por página (padrão: 50, máximo: 200)',
-    example: 50,
-    minimum: 1,
-    maximum: 200
+    description: 'Itens por página (padrão: 50, mínimo: 1, máximo: 200)',
+    example: 50
   })
   @ApiResponse({ 
     status: 200, 
