@@ -675,7 +675,7 @@ export function AuditPositions() {
                                 <Badge variant="destructive" className="text-xs mb-1">Valores Diferentes</Badge>
                                 {dup.execution_values && (
                                   <div className="mt-1 space-y-1">
-                                    {dup.execution_values.map((v, i) => (
+                                    {dup.execution_values.map((v: any, i: number) => (
                                       <div key={i} className="text-muted-foreground">
                                         Exec {v.execution_id}: {v.qty.toFixed(8)} @ {v.price.toFixed(8)}
                                       </div>
