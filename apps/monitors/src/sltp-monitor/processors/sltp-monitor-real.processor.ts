@@ -32,11 +32,14 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
       // Registrar início da execução
       await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
     // Get all open positions with SL/TP enabled
+    // IMPORTANTE: Monitor SL/TP deve processar APENAS posições abertas
+    // Posições fechadas não devem ser monitoradas pois não faz sentido e pode causar problemas
     const positions = await this.prisma.tradePosition.findMany({
       where: {
         trade_mode: TradeMode.REAL,
-        status: PositionStatus.OPEN,
-        qty_remaining: { gt: 0 },
+        status: PositionStatus.OPEN, // Apenas posições abertas
+        qty_remaining: { gt: 0 }, // Apenas posições com quantidade restante
+        closed_at: null, // Garantir que não há data de fechamento (camada extra de segurança)
         OR: [
           { sl_enabled: true },
           { tp_enabled: true },
@@ -48,17 +51,40 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
       },
     });
 
+    // Validação de segurança: garantir que apenas posições abertas sejam processadas
+    const validPositions = positions.filter((position) => {
+      if (position.status !== PositionStatus.OPEN) {
+        this.logger.warn(`[SL-TP-MONITOR-REAL] ⚠️ Posição ${position.id} com status ${position.status} encontrada - será ignorada`);
+        return false;
+      }
+      if (position.qty_remaining.toNumber() <= 0) {
+        this.logger.warn(`[SL-TP-MONITOR-REAL] ⚠️ Posição ${position.id} com qty_remaining <= 0 encontrada - será ignorada`);
+        return false;
+      }
+      if (position.closed_at !== null) {
+        this.logger.warn(`[SL-TP-MONITOR-REAL] ⚠️ Posição ${position.id} com closed_at não nulo encontrada - será ignorada`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validPositions.length !== positions.length) {
+      this.logger.warn(`[SL-TP-MONITOR-REAL] ${positions.length - validPositions.length} posição(ões) inválida(s) filtrada(s)`);
+    }
+
     const tradeJobService = new TradeJobService(this.prisma);
     const positionService = new PositionService(this.prisma);
     let triggered = 0;
     let retried = 0;
 
     // Primeiro, verificar posições com flags triggered mas sem job válido (retry)
+    // IMPORTANTE: Apenas posições abertas devem ser verificadas
     const positionsWithTriggeredFlags = await this.prisma.tradePosition.findMany({
       where: {
         trade_mode: TradeMode.REAL,
-        status: PositionStatus.OPEN,
-        qty_remaining: { gt: 0 },
+        status: PositionStatus.OPEN, // Apenas posições abertas
+        qty_remaining: { gt: 0 }, // Apenas posições com quantidade restante
+        closed_at: null, // Garantir que não há data de fechamento
         OR: [
           { sl_triggered: true },
           { tp_triggered: true },
@@ -140,7 +166,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
       }
     }
 
-    for (const position of positions) {
+    // Processar apenas posições válidas (abertas)
+    for (const position of validPositions) {
       try {
         // Get API keys for read-only price check
         const accountService = new (await import('@mvcashnode/domain')).ExchangeAccountService(

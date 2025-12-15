@@ -49,9 +49,23 @@ export default function MonitoringPositionstpSlPage() {
 
     const positions: PositionTPSLMonitoring[] = monitoringData?.data || []
 
+    // Filtro de segurança: garantir que apenas posições válidas sejam exibidas
+    // (camada de segurança caso o backend retorne algo incorreto)
+    // O tipo PositionTPSLMonitoring já garante que apenas posições abertas são retornadas
+    const validPositions = useMemo(() => {
+        return positions.filter((pos) => {
+            // Garantir que tem quantidade restante (validação de segurança)
+            if (pos.qty_remaining <= 0) {
+                console.warn(`[MonitoringPage] Posição ${pos.id} com qty_remaining <= 0 encontrada - será filtrada`);
+                return false;
+            }
+            return true;
+        });
+    }, [positions])
+
     // Ordenar posições baseado no critério selecionado
     const sortedPositions = useMemo(() => {
-        const sorted = [...positions]
+        const sorted = [...validPositions]
         switch (sortBy) {
             case 'tp-closest':
                 return sorted.sort((a, b) => {

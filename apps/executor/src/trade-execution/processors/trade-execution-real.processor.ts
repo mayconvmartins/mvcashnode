@@ -12,11 +12,14 @@ import { EncryptionService, getBaseAsset, getQuoteAsset } from '@mvcashnode/shar
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { NotificationHttpService } from '@mvcashnode/notifications';
+import { RetryService } from '../../common/services/retry.service';
 
 @Processor('trade-execution-real')
 export class TradeExecutionRealProcessor extends WorkerHost {
   private readonly logger = new Logger(TradeExecutionRealProcessor.name);
   private notificationService: NotificationHttpService;
+
+  private retryService: RetryService;
 
   constructor(
     private prisma: PrismaService,
@@ -24,6 +27,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
   ) {
     super();
     this.notificationService = new NotificationHttpService(process.env.API_URL || 'http://localhost:4010');
+    this.retryService = new RetryService();
   }
 
 
@@ -667,12 +671,26 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         }
         
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Enviando ordem para exchange: ${orderType} ${tradeJob.side} amount=${amountToUse} ${tradeJob.symbol}`);
-        order = await adapter.createOrder(
-          tradeJob.symbol,
-          orderType,
-          tradeJob.side.toLowerCase(),
-          amountToUse,
-          tradeJob.limit_price?.toNumber()
+        
+        // ✅ BUG-ALTO-003 FIX: Implementar retry com backoff exponencial para erros de rede
+        order = await this.retryService.executeWithRetry(
+          () =>
+            adapter.createOrder(
+              tradeJob.symbol,
+              orderType,
+              tradeJob.side.toLowerCase(),
+              amountToUse,
+              tradeJob.limit_price?.toNumber()
+            ),
+          {
+            maxRetries: 3,
+            baseDelay: 1000,
+            maxDelay: 30000,
+            retryableErrors: ['NETWORK_ERROR', 'TIMEOUT', 'RATE_LIMIT', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'],
+            onRetry: (attempt, error) => {
+              this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Retry ${attempt}/3 para erro de rede: ${error.message}`);
+            },
+          }
         );
 
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada na exchange: ${order.id}, status: ${order.status}`);

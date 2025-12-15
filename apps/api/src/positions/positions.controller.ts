@@ -264,10 +264,10 @@ export class PositionsController {
       }
 
       if (exchangeAccountId) {
-        // Converter para número e validar que a conta pertence ao usuário
+        // ✅ BUG-CRIT-001 FIX: Validar e converter exchangeAccountId de string para number
         const accountIdNum = parseInt(exchangeAccountId, 10);
-        if (isNaN(accountIdNum)) {
-          throw new BadRequestException('ID da conta de exchange inválido');
+        if (isNaN(accountIdNum) || accountIdNum <= 0) {
+          throw new BadRequestException('exchange_account_id deve ser um número válido maior que zero');
         }
         if (!accountIds.includes(accountIdNum)) {
           throw new BadRequestException('Conta de exchange não encontrada ou não pertence ao usuário');
@@ -296,22 +296,16 @@ export class PositionsController {
         where.is_dust = isDustBool;
       }
 
-      // Paginação - converter strings para números de forma segura
-      const pageNum = page ? parseInt(page, 10) : 1;
-      // Para posições abertas sem limite especificado, usar um valor alto para retornar todas
-      // Para outras consultas, usar o padrão de 20
-      const defaultLimit = status === 'OPEN' && !limit ? 1000 : 20;
-      const limitNum = limit ? parseInt(limit, 10) : defaultLimit;
+      // ✅ BUG-CRIT-003 FIX: Validar limites min/max para paginação
+      const pageNum = page ? Math.min(1000, Math.max(1, parseInt(page, 10) || 1)) : 1;
+      const limitNum = limit ? Math.min(100, Math.max(1, parseInt(limit, 10) || 20)) : 20;
       
-      // Validar valores numéricos
-      if (isNaN(pageNum) || pageNum < 1) {
-        throw new BadRequestException('Parâmetro "page" deve ser um número maior que 0');
+      // Validar valores numéricos (validação adicional de segurança)
+      if (isNaN(pageNum) || pageNum < 1 || pageNum > 1000) {
+        throw new BadRequestException('Parâmetro "page" deve ser um número entre 1 e 1000');
       }
-      if (isNaN(limitNum) || limitNum < 1) {
-        throw new BadRequestException('Parâmetro "limit" deve ser um número maior que 0');
-      }
-      if (limitNum > 1000) {
-        throw new BadRequestException('Parâmetro "limit" não pode ser maior que 1000');
+      if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+        throw new BadRequestException('Parâmetro "limit" deve ser um número entre 1 e 100');
       }
       
       const skip = (pageNum - 1) * limitNum;
@@ -1443,10 +1437,13 @@ export class PositionsController {
       }
 
       // Construir filtros
+      // IMPORTANTE: Monitor SL/TP deve mostrar APENAS posições abertas
+      // Posições fechadas não devem ser monitoradas pois não faz sentido e pode causar problemas
       const where: any = {
         exchange_account_id: { in: accountIds },
-        status: 'OPEN',
-        qty_remaining: { gt: 0 },
+        status: 'OPEN', // Apenas posições abertas
+        qty_remaining: { gt: 0 }, // Apenas posições com quantidade restante
+        closed_at: null, // Garantir que não há data de fechamento (camada extra de segurança)
         OR: [
           { sl_enabled: true },
           { tp_enabled: true },
@@ -1484,6 +1481,29 @@ export class PositionsController {
       });
 
       if (positions.length === 0) {
+        return { data: [] };
+      }
+
+      // Validação dupla: garantir que apenas posições abertas sejam retornadas
+      // Isso previne problemas caso haja inconsistência no banco de dados
+      const validPositions = positions.filter((position) => {
+        if (position.status !== 'OPEN') {
+          console.warn(`[PositionsController] ⚠️ Posição ${position.id} com status ${position.status} encontrada no monitor SL/TP - será filtrada`);
+          return false;
+        }
+        if (position.qty_remaining.toNumber() <= 0) {
+          console.warn(`[PositionsController] ⚠️ Posição ${position.id} com qty_remaining <= 0 encontrada no monitor SL/TP - será filtrada`);
+          return false;
+        }
+        // Verificar se tem closed_at (não deveria ter, mas vamos garantir)
+        if (position.closed_at !== null) {
+          console.warn(`[PositionsController] ⚠️ Posição ${position.id} com closed_at não nulo encontrada no monitor SL/TP - será filtrada`);
+          return false;
+        }
+        return true;
+      });
+
+      if (validPositions.length === 0) {
         return { data: [] };
       }
 
@@ -1542,8 +1562,8 @@ export class PositionsController {
         }
       }
 
-      // Calcular métricas de monitoramento para cada posição
-      const monitoringData = positions.map((position) => {
+      // Calcular métricas de monitoramento para cada posição válida
+      const monitoringData = validPositions.map((position) => {
         const priceOpen = position.price_open.toNumber();
         const priceKey = `${position.exchange_account.exchange}:${position.symbol}`;
         const currentPrice = priceMap.get(priceKey) || null;
@@ -1582,8 +1602,10 @@ export class PositionsController {
           };
         }
 
-        // Calcular PnL percentual
-        const pnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+        // ✅ BUG-CRIT-004 FIX: Prevenir divisão por zero em cálculo de PnL percentual
+        const pnlPct = priceOpen > 0 
+          ? ((currentPrice - priceOpen) / priceOpen) * 100 
+          : 0;
         
         // Calcular valores em USD
         const qtyTotal = position.qty_total.toNumber();
@@ -1907,8 +1929,11 @@ export class PositionsController {
             currentValueUsd = qtyRemaining * currentPrice;
             
             // PnL não realizado (unrealized PnL)
+            // ✅ BUG-CRIT-004 FIX: Prevenir divisão por zero em cálculo de PnL percentual
             unrealizedPnl = (currentPrice - priceOpen) * qtyRemaining;
-            unrealizedPnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+            unrealizedPnlPct = priceOpen > 0 
+              ? ((currentPrice - priceOpen) / priceOpen) * 100 
+              : 0;
           }
         }
       } catch (error: any) {

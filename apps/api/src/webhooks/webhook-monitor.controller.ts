@@ -85,8 +85,8 @@ export class WebhookMonitorController {
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ) {
-    // Processar parâmetros de paginação
-    const finalPage = Math.max(1, page ? parseInt(page, 10) : 1);
+    // ✅ BUG-CRIT-003 FIX: Validar limites min/max para paginação
+    const finalPage = Math.max(1, page ? Math.min(1000, Math.max(1, parseInt(page, 10) || 1)) : 1);
     const finalLimit = Math.min(Math.max(1, limit ? parseInt(limit, 10) : 100), 200);
     const skip = (finalPage - 1) * finalLimit;
 

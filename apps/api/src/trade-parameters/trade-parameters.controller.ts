@@ -111,14 +111,24 @@ export class TradeParametersController {
   })
   async list(
     @CurrentUser() user: any,
-    @Query('exchange_account_id') exchangeAccountId?: number,
+    @Query('exchange_account_id') exchangeAccountIdStr?: string,
     @Query('symbol') symbol?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ): Promise<any> {
     try {
-      // Processar parâmetros de paginação
-      const finalPage = Math.max(1, page ? parseInt(page, 10) : 1);
+      // ✅ BUG-CRIT-001 FIX: Validar e converter exchangeAccountId de string para number
+      let exchangeAccountId: number | undefined;
+      if (exchangeAccountIdStr) {
+        const accountIdNum = parseInt(exchangeAccountIdStr, 10);
+        if (isNaN(accountIdNum) || accountIdNum <= 0) {
+          throw new BadRequestException('exchange_account_id deve ser um número válido maior que zero');
+        }
+        exchangeAccountId = accountIdNum;
+      }
+
+      // ✅ BUG-CRIT-003 FIX: Validar limites min/max para paginação
+      const finalPage = Math.max(1, page ? Math.min(1000, Math.max(1, parseInt(page, 10) || 1)) : 1);
       const finalLimit = Math.min(Math.max(1, limit ? parseInt(limit, 10) : 100), 200);
       const skip = (finalPage - 1) * finalLimit;
 
@@ -459,7 +469,7 @@ export class TradeParametersController {
       if (updateDto.side !== undefined) updateData.side = updateDto.side;
       
       // Mapear campos do frontend (orderSizeType e orderSizeValue) para o formato do backend
-      // ✅ BUG-ALTO-011 FIX: Validação completa de parseFloat com limites min/max
+      // ✅ BUG-ALTO-004 FIX: Validação completa de parseFloat com limites min/max e isFinite
       if (updateDto.orderSizeType !== undefined || updateDto.orderSizeValue !== undefined) {
         const orderSizeType = updateDto.orderSizeType;
         // Converter orderSizeValue para número explicitamente
@@ -468,17 +478,17 @@ export class TradeParametersController {
           : undefined;
         
         if (orderSizeType === 'FIXED' && orderSizeValue !== undefined) {
-          // Validar valor fixo: deve ser positivo
-          if (isNaN(orderSizeValue) || orderSizeValue <= 0) {
-            throw new BadRequestException('orderSizeValue deve ser um número positivo quando orderSizeType é FIXED');
+          // Validar valor fixo: deve ser positivo, finito e não NaN
+          if (isNaN(orderSizeValue) || !isFinite(orderSizeValue) || orderSizeValue <= 0 || orderSizeValue > 1000000) {
+            throw new BadRequestException('orderSizeValue deve ser um número positivo, finito e menor que 1.000.000 quando orderSizeType é FIXED');
           }
           // Se for FIXED, definir quote_amount_fixed e limpar quote_amount_pct_balance
           updateData.quote_amount_fixed = orderSizeValue;
           updateData.quote_amount_pct_balance = null;
         } else if ((orderSizeType === 'PERCENT_BALANCE' || orderSizeType === 'PERCENT') && orderSizeValue !== undefined) {
-          // Validar percentual: deve estar entre 0 e 100
-          if (isNaN(orderSizeValue) || orderSizeValue < 0 || orderSizeValue > 100) {
-            throw new BadRequestException('orderSizeValue deve ser um número entre 0 e 100 quando orderSizeType é PERCENT');
+          // Validar percentual: deve estar entre 0 e 100, finito e não NaN
+          if (isNaN(orderSizeValue) || !isFinite(orderSizeValue) || orderSizeValue < 0 || orderSizeValue > 100) {
+            throw new BadRequestException('orderSizeValue deve ser um número entre 0 e 100, finito, quando orderSizeType é PERCENT');
           }
           // Se for PERCENT, definir quote_amount_pct_balance e limpar quote_amount_fixed
           updateData.quote_amount_pct_balance = orderSizeValue;
@@ -490,8 +500,8 @@ export class TradeParametersController {
           const value = typeof updateDto.quote_amount_fixed === 'string' 
             ? parseFloat(updateDto.quote_amount_fixed) 
             : Number(updateDto.quote_amount_fixed);
-          if (isNaN(value) || value <= 0) {
-            throw new BadRequestException('quote_amount_fixed deve ser um número positivo');
+          if (isNaN(value) || !isFinite(value) || value <= 0 || value > 1000000) {
+            throw new BadRequestException('quote_amount_fixed deve ser um número positivo, finito e menor que 1.000.000');
           }
           updateData.quote_amount_fixed = value;
         }
@@ -499,8 +509,8 @@ export class TradeParametersController {
           const value = typeof updateDto.quote_amount_pct_balance === 'string' 
             ? parseFloat(updateDto.quote_amount_pct_balance) 
             : Number(updateDto.quote_amount_pct_balance);
-          if (isNaN(value) || value < 0 || value > 100) {
-            throw new BadRequestException('quote_amount_pct_balance deve ser um número entre 0 e 100');
+          if (isNaN(value) || !isFinite(value) || value < 0 || value > 100) {
+            throw new BadRequestException('quote_amount_pct_balance deve ser um número entre 0 e 100, finito');
           }
           updateData.quote_amount_pct_balance = value;
         }
