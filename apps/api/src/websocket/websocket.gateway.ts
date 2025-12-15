@@ -131,12 +131,15 @@ export class WebSocketGateway
       }
 
       this.logger.debug(`[WebSocket] 📍 URL extraída: ${requestUrl}`);
+      this.logger.debug(`[WebSocket] 📍 Path da URL: ${request.url?.split('?')[0] || 'N/A'}`);
 
       // Log dos headers se disponíveis (apenas em debug)
       if (request.headers) {
         this.logger.debug(`[WebSocket] 📋 Headers recebidos:`, {
           origin: request.headers.origin,
           'user-agent': request.headers['user-agent']?.substring(0, 100),
+          host: request.headers.host,
+          'sec-websocket-protocol': request.headers['sec-websocket-protocol'],
         });
       }
 
@@ -145,21 +148,38 @@ export class WebSocketGateway
       try {
         // URL relativa, usar base localhost para parsing
         url = new URL(requestUrl, 'http://localhost');
+        this.logger.debug(`[WebSocket] 📍 URL parseada com sucesso:`, {
+          pathname: url.pathname,
+          search: url.search,
+          hostname: url.hostname,
+        });
       } catch (urlError) {
-        this.logger.error(`[WebSocket] Erro ao parsear URL: ${requestUrl}`, urlError);
+        this.logger.error(`[WebSocket] ❌ Erro ao parsear URL: ${requestUrl}`, {
+          error: urlError instanceof Error ? urlError.message : String(urlError),
+          stack: urlError instanceof Error ? urlError.stack : undefined,
+        });
         if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
           client.close(1008, 'Invalid URL format');
         }
         return;
       }
 
+      // Validar que o path seja /ws
+      if (url.pathname !== '/ws') {
+        this.logger.warn(`[WebSocket] ⚠️ Path inválido: esperado /ws, recebido ${url.pathname}`);
+        // Não rejeitar imediatamente, mas logar o aviso
+      }
+
       const token = url.searchParams.get('token');
       this.logger.debug(`[WebSocket] 🔑 Token extraído: ${token ? 'presente (' + token.substring(0, 20) + '...)' : 'ausente'}`);
+      this.logger.debug(`[WebSocket] 🔑 Query params: ${url.search}`);
 
       if (!token) {
         this.logger.warn('[WebSocket] ⚠️ Conexão rejeitada: token não fornecido na query string', {
           url: requestUrl,
+          pathname: url.pathname,
           searchParams: url.search,
+          allSearchParams: Object.fromEntries(url.searchParams.entries()),
         });
         if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
           client.close(1008, 'Authentication required: token missing in query string');
@@ -184,26 +204,41 @@ export class WebSocketGateway
         
         // Validar que o payload tem userId
         if (!payload || !payload.userId) {
-          this.logger.warn('[WebSocket] ⚠️ Token inválido: payload sem userId');
+          this.logger.warn('[WebSocket] ⚠️ Token inválido: payload sem userId', {
+            payload: payload ? Object.keys(payload) : 'null',
+            tokenPrefix: token.substring(0, 20) + '...',
+          });
           if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
             client.close(1008, 'Invalid token: missing userId');
           }
           return;
         }
         
-        this.logger.debug(`[WebSocket] ✅ Token válido para userId: ${payload.userId}`);
+        this.logger.debug(`[WebSocket] ✅ Token válido para userId: ${payload.userId}`, {
+          email: payload.email || 'N/A',
+          roles: payload.roles || [],
+        });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         let closeReason = 'Invalid token';
         
         if (errorMessage.includes('expired')) {
           closeReason = 'Token expired';
-          this.logger.warn(`[WebSocket] ⚠️ Token expirado para tentativa de conexão`);
+          this.logger.warn(`[WebSocket] ⚠️ Token expirado para tentativa de conexão`, {
+            tokenPrefix: token.substring(0, 20) + '...',
+            error: errorMessage,
+          });
         } else if (errorMessage.includes('malformed')) {
           closeReason = 'Invalid token format';
-          this.logger.warn(`[WebSocket] ⚠️ Token malformado`);
+          this.logger.warn(`[WebSocket] ⚠️ Token malformado`, {
+            tokenPrefix: token.substring(0, 20) + '...',
+            error: errorMessage,
+          });
         } else {
-          this.logger.warn(`[WebSocket] ⚠️ Erro ao verificar token: ${errorMessage}`);
+          this.logger.warn(`[WebSocket] ⚠️ Erro ao verificar token: ${errorMessage}`, {
+            tokenPrefix: token.substring(0, 20) + '...',
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+          });
         }
         
         if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
@@ -283,8 +318,17 @@ export class WebSocketGateway
       // Limpar rate limit após conexão bem-sucedida
       this.connectionAttempts.delete(clientIdentifier);
     } catch (error) {
-      this.logger.error('[WebSocket] ❌ Erro ao processar conexão:', error);
-      this.logger.error('[WebSocket] Stack trace:', error instanceof Error ? error.stack : 'N/A');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : 'N/A';
+      
+      this.logger.error('[WebSocket] ❌ Erro ao processar conexão:', {
+        error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        stack: errorStack,
+        clientIdentifier: clientIdentifier.substring(0, 50),
+        requestUrl: request?.url || 'N/A',
+      });
+      
       this.logger.error('[WebSocket] Estado do cliente:', {
         readyState: client.readyState,
         readyStateText: client.readyState === WebSocket.CONNECTING ? 'CONNECTING' : 
@@ -292,12 +336,16 @@ export class WebSocketGateway
                        client.readyState === WebSocket.CLOSING ? 'CLOSING' :
                        client.readyState === WebSocket.CLOSED ? 'CLOSED' : 'UNKNOWN',
       });
+      
       try {
         if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
           client.close(1011, 'Internal server error');
         }
       } catch (closeError) {
-        this.logger.error('[WebSocket] Erro ao fechar conexão após erro:', closeError);
+        this.logger.error('[WebSocket] ❌ Erro ao fechar conexão após erro:', {
+          error: closeError instanceof Error ? closeError.message : String(closeError),
+          originalError: errorMessage,
+        });
       }
     }
   }

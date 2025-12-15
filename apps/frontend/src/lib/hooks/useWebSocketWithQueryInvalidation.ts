@@ -398,9 +398,10 @@ export function useWebSocketWithQueryInvalidation({
             wsRef.current = null
         }
 
+        let finalUrl: string
         try {
             // Construir URL do WebSocket de forma segura
-            const finalUrl = buildWebSocketUrl(url, accessToken)
+            finalUrl = buildWebSocketUrl(url, accessToken)
 
             // Log informações de conexão (sem expor token)
             const urlObj = new URL(finalUrl)
@@ -602,21 +603,31 @@ export function useWebSocketWithQueryInvalidation({
             console.error('❌ Error creating WebSocket connection:', errorMessage)
             setIsConnected(false)
             
+            // Detectar tipos específicos de erros
+            const isUrlError = errorMessage.includes('URL') || 
+                              errorMessage.includes('ERR_UNKNOWN_URL_SCHEME') ||
+                              errorMessage.includes('Unknown URL scheme')
+            const isTokenError = errorMessage.includes('Token expirado') || 
+                                errorMessage.includes('token expired') ||
+                                errorMessage.includes('Token de acesso não disponível')
+            
             // Determinar se o erro é recuperável
-            const isRecoverable = !errorMessage.includes('Invalid WebSocket URL') &&
-                                 !errorMessage.includes('Token expirado') &&
-                                 !errorMessage.includes('token expired')
+            const isRecoverable = !isUrlError && !isTokenError
             
             if (!isRecoverable) {
                 shouldReconnectRef.current = false
             }
             
             // Mostrar mensagem de erro mais clara para o usuário
-            if (errorMessage.includes('Invalid WebSocket URL')) {
-                toast.error('URL do WebSocket inválida. Verifique a configuração.', {
-                    duration: 5000,
+            if (isUrlError) {
+                console.error('❌ Erro de URL do WebSocket:', errorMessage)
+                console.error('❌ URL base fornecida:', url)
+                console.error('❌ Verifique se NEXT_PUBLIC_WS_URL está configurado corretamente')
+                
+                toast.error('Erro de configuração: URL do WebSocket inválida. Verifique NEXT_PUBLIC_WS_URL no arquivo .env.local', {
+                    duration: 8000,
                 })
-            } else if (errorMessage.includes('Token expirado') || errorMessage.includes('token expired')) {
+            } else if (isTokenError) {
                 toast.error('Token expirado. Por favor, faça login novamente.', {
                     duration: 5000,
                 })
