@@ -17,7 +17,9 @@ const packages = [
   { name: '@mvcashnode/api', path: 'apps/api' },
   { name: '@mvcashnode/executor', path: 'apps/executor' },
   { name: '@mvcashnode/monitors', path: 'apps/monitors' },
+  { name: '@mvcashnode/backup', path: 'apps/backup' },
   { name: '@mvcashnode/frontend', path: 'apps/frontend' },
+  { name: '@mvcashnode/site', path: 'apps/site' },
 ];
 
 console.log('🔍 Verificando erros de build em todos os pacotes...\n');

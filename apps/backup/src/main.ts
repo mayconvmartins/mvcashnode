@@ -1,5 +1,5 @@
 import * as cron from 'node-cron';
-import { loadConfig } from './config';
+import { loadConfig, type BackupConfig } from './config';
 import { BackupService } from './backup.service';
 import { FtpService } from './ftp.service';
 import { CleanupService } from './cleanup.service';
@@ -12,7 +12,7 @@ console.log('==========================================');
 console.log('');
 
 // Carregar configurações
-let config;
+let config: BackupConfig;
 try {
   config = loadConfig();
   console.log('[CONFIG] ✅ Configurações carregadas com sucesso');
