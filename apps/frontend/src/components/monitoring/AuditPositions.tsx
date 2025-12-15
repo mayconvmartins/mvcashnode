@@ -1,14 +1,19 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { adminService } from '@/lib/api/admin.service'
+import { accountsService } from '@/lib/api/accounts.service'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { toast } from 'sonner'
-import { RefreshCw, Loader2, CheckCircle2, AlertTriangle, Search, Wrench } from 'lucide-react'
+import { RefreshCw, Loader2, CheckCircle2, AlertTriangle, Search, Wrench, Filter, ChevronDown } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -35,6 +40,7 @@ export function AuditPositions() {
   const [auditResult, setAuditResult] = useState<{
     total_positions_checked: number
     total_executions_checked: number
+    total_jobs_checked?: number
     discrepancies_found: number
     discrepancies: Discrepancy[]
     errors: number
@@ -51,8 +57,28 @@ export function AuditPositions() {
     duration_ms?: number
   } | null>(null)
 
+  // Filtros
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [dateFrom, setDateFrom] = useState<string>('')
+  const [dateTo, setDateTo] = useState<string>('')
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('all')
+  const [checkJobsOnly, setCheckJobsOnly] = useState(false)
+
+  // Buscar contas
+  const { data: accounts } = useQuery({
+    queryKey: ['accounts', 'all'],
+    queryFn: accountsService.listAll,
+  })
+
   const auditMutation = useMutation({
-    mutationFn: () => adminService.auditAll(),
+    mutationFn: () => {
+      const params: any = {}
+      if (dateFrom) params.from = dateFrom
+      if (dateTo) params.to = dateTo
+      if (selectedAccountId !== 'all') params.accountId = parseInt(selectedAccountId)
+      if (checkJobsOnly) params.checkJobsOnly = true
+      return adminService.auditAll(params)
+    },
     retry: false, // Não tentar novamente automaticamente (pode demorar muito)
     onSuccess: (data) => {
       setAuditResult(data)
@@ -155,6 +181,67 @@ export function AuditPositions() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Filtros */}
+        <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" className="w-full justify-between">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4" />
+                Filtros
+              </div>
+              <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-4 pt-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="date-from">Data Inicial</Label>
+                <Input
+                  id="date-from"
+                  type="datetime-local"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="date-to">Data Final</Label>
+                <Input
+                  id="date-to"
+                  type="datetime-local"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="account-filter">Conta de Exchange</Label>
+              <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+                <SelectTrigger id="account-filter">
+                  <SelectValue placeholder="Todas as contas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as contas</SelectItem>
+                  {accounts?.map((account) => (
+                    <SelectItem key={account.id} value={account.id.toString()}>
+                      {account.label} ({account.exchange}) - {account.is_simulation ? 'SIMULATION' : 'REAL'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="check-jobs-only"
+                checked={checkJobsOnly}
+                onCheckedChange={(checked) => setCheckJobsOnly(checked as boolean)}
+              />
+              <Label htmlFor="check-jobs-only" className="cursor-pointer">
+                Verificar apenas Trade Jobs (não apenas posições abertas)
+              </Label>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
         <div className="flex gap-2">
           <Button
             onClick={() => auditMutation.mutate()}
@@ -177,7 +264,7 @@ export function AuditPositions() {
 
         {auditResult && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="p-3 rounded-lg bg-muted/50">
                 <div className="text-sm text-muted-foreground">Posições Verificadas</div>
                 <div className="text-2xl font-bold">{auditResult.total_positions_checked}</div>
@@ -186,6 +273,12 @@ export function AuditPositions() {
                 <div className="text-sm text-muted-foreground">Execuções Verificadas</div>
                 <div className="text-2xl font-bold">{auditResult.total_executions_checked}</div>
               </div>
+              {auditResult.total_jobs_checked !== undefined && (
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <div className="text-sm text-muted-foreground">Jobs Verificados</div>
+                  <div className="text-2xl font-bold">{auditResult.total_jobs_checked}</div>
+                </div>
+              )}
               <div className="p-3 rounded-lg bg-muted/50">
                 <div className="text-sm text-muted-foreground">Discrepâncias</div>
                 <div className="text-2xl font-bold text-orange-500">{auditResult.discrepancies_found}</div>

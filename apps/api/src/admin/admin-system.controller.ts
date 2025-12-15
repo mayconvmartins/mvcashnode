@@ -1577,21 +1577,36 @@ export class AdminSystemController {
   @Post('system/audit-all')
   @ApiOperation({
     summary: 'Auditar todas as posições abertas na exchange',
-    description: 'Verifica uma a uma todas as posições abertas, execuções e taxas na exchange via API, comparando com dados do banco e reportando discrepâncias.',
+    description: 'Verifica uma a uma todas as posições abertas, execuções e taxas na exchange via API, comparando com dados do banco e reportando discrepâncias. Aceita filtros de data, conta e opção para verificar apenas trade jobs.',
   })
   @ApiResponse({
     status: 200,
     description: 'Auditoria concluída',
   })
-  async auditAll() {
+  async auditAll(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('accountId') accountId?: string,
+    @Query('checkJobsOnly') checkJobsOnly?: string
+  ) {
+    const dateFrom = from ? new Date(from) : undefined;
+    const dateTo = to ? new Date(to) : undefined;
+    const accountIdNum = accountId ? parseInt(accountId) : undefined;
+    const checkJobsOnlyFlag = checkJobsOnly === 'true';
+    
     console.log('[ADMIN] Iniciando auditoria completa de posições...');
+    if (dateFrom) console.log(`[ADMIN] Filtro: Data inicial = ${dateFrom.toISOString()}`);
+    if (dateTo) console.log(`[ADMIN] Filtro: Data final = ${dateTo.toISOString()}`);
+    if (accountIdNum) console.log(`[ADMIN] Filtro: Conta ID = ${accountIdNum}`);
+    if (checkJobsOnlyFlag) console.log(`[ADMIN] Modo: Verificar apenas Trade Jobs`);
     
     const startTime = Date.now();
     let totalPositionsChecked = 0;
     let totalExecutionsChecked = 0;
+    let totalJobsChecked = 0;
     const discrepancies: Array<{
       type: string;
-      entityType: 'EXECUTION' | 'POSITION';
+      entityType: 'EXECUTION' | 'POSITION' | 'JOB';
       entityId: number;
       field: string;
       currentValue: number | string;
@@ -1599,15 +1614,35 @@ export class AdminSystemController {
       canAutoFix: boolean;
       fixDescription: string;
     }> = [];
-    const errors: Array<{ positionId?: number; executionId?: number; error: string }> = [];
+    const errors: Array<{ positionId?: number; executionId?: number; jobId?: number; error: string }> = [];
 
     try {
-      // Buscar todas posições abertas (REAL)
-      const openPositions = await this.prisma.tradePosition.findMany({
-        where: {
-          status: 'OPEN',
-          trade_mode: 'REAL',
-        },
+      // Construir filtros para posições
+      const positionWhere: any = {
+        status: 'OPEN',
+        trade_mode: 'REAL',
+      };
+      
+      if (accountIdNum) {
+        positionWhere.exchange_account_id = accountIdNum;
+      }
+      
+      if (dateFrom || dateTo) {
+        positionWhere.created_at = {};
+        if (dateFrom) {
+          positionWhere.created_at.gte = dateFrom;
+        }
+        if (dateTo) {
+          positionWhere.created_at.lte = dateTo;
+        }
+      }
+
+      // Se checkJobsOnly, não buscar posições, apenas jobs
+      let openPositions: any[] = [];
+      if (!checkJobsOnlyFlag) {
+        // Buscar todas posições abertas (REAL)
+        openPositions = await this.prisma.tradePosition.findMany({
+          where: positionWhere,
         include: {
           exchange_account: {
             select: {
@@ -1640,10 +1675,171 @@ export class AdminSystemController {
             },
           },
         },
-      });
+        });
+      }
 
       totalPositionsChecked = openPositions.length;
       console.log(`[ADMIN] Encontradas ${totalPositionsChecked} posições abertas para auditar`);
+
+      // Se checkJobsOnly, verificar trade jobs BUY FILLED
+      if (checkJobsOnlyFlag) {
+        const jobsWhere: any = {
+          side: 'BUY',
+          status: 'FILLED',
+          trade_mode: 'REAL',
+        };
+        
+        if (accountIdNum) {
+          jobsWhere.exchange_account_id = accountIdNum;
+        }
+        
+        if (dateFrom || dateTo) {
+          jobsWhere.created_at = {};
+          if (dateFrom) {
+            jobsWhere.created_at.gte = dateFrom;
+          }
+          if (dateTo) {
+            jobsWhere.created_at.lte = dateTo;
+          }
+        }
+
+        const jobsToCheck = await this.prisma.tradeJob.findMany({
+          where: jobsWhere,
+          include: {
+            exchange_account: {
+              select: {
+                id: true,
+                exchange: true,
+                api_key_enc: true,
+                api_secret_enc: true,
+                testnet: true,
+                is_simulation: true,
+              },
+            },
+            position_open: {
+              select: {
+                id: true,
+                status: true,
+              },
+            },
+            executions: {
+              select: {
+                id: true,
+                exchange_order_id: true,
+                executed_qty: true,
+                avg_price: true,
+                created_at: true,
+              },
+              take: 1,
+              orderBy: {
+                created_at: 'desc',
+              },
+            },
+          },
+        });
+
+        totalJobsChecked = jobsToCheck.length;
+        console.log(`[ADMIN] Encontrados ${totalJobsChecked} trade jobs BUY FILLED para auditar`);
+
+        // Verificar cada job
+        for (const job of jobsToCheck) {
+          try {
+            // Verificar se tem posição associada
+            if (!job.position_open) {
+              discrepancies.push({
+                type: 'MISSING_POSITION',
+                entityType: 'JOB',
+                entityId: job.id,
+                field: 'position_open',
+                currentValue: 'null',
+                expectedValue: 'deve ter posição',
+                canAutoFix: false,
+                fixDescription: `Job ${job.id} (${job.symbol}) está FILLED mas não tem posição associada`,
+              });
+            } else if (job.position_open.status === 'CLOSED') {
+              discrepancies.push({
+                type: 'CLOSED_POSITION',
+                entityType: 'JOB',
+                entityId: job.id,
+                field: 'position_open.status',
+                currentValue: 'CLOSED',
+                expectedValue: 'OPEN',
+                canAutoFix: false,
+                fixDescription: `Job ${job.id} (${job.symbol}) está associado a posição fechada #${job.position_open.id}`,
+              });
+            }
+
+            // Verificar se está em PositionGroupedJob mas não tem position_open correto
+            const groupedJob = await this.prisma.positionGroupedJob.findFirst({
+              where: {
+                trade_job_id: job.id,
+              },
+              include: {
+                position: {
+                  select: {
+                    id: true,
+                    status: true,
+                  },
+                },
+              },
+            });
+
+            if (groupedJob) {
+              if (!job.position_open || job.position_open.id !== groupedJob.position.id) {
+                discrepancies.push({
+                  type: 'GROUPED_JOB_MISMATCH',
+                  entityType: 'JOB',
+                  entityId: job.id,
+                  field: 'position_open',
+                  currentValue: job.position_open ? `posição #${job.position_open.id}` : 'null',
+                  expectedValue: `posição #${groupedJob.position.id}`,
+                  canAutoFix: false,
+                  fixDescription: `Job ${job.id} está em PositionGroupedJob da posição #${groupedJob.position.id}, mas position_open está incorreto`,
+                });
+              }
+            }
+
+            // Verificar duplicação de exchange_order_id
+            if (job.executions && job.executions.length > 0) {
+              const execution = job.executions[0];
+              if (execution.exchange_order_id) {
+                const duplicateJobs = await this.prisma.tradeJob.findMany({
+                  where: {
+                    executions: {
+                      some: {
+                        exchange_order_id: execution.exchange_order_id,
+                      },
+                    },
+                    id: { not: job.id },
+                  },
+                  select: {
+                    id: true,
+                    symbol: true,
+                  },
+                });
+
+                if (duplicateJobs.length > 0) {
+                  discrepancies.push({
+                    type: 'DUPLICATE_ORDER_ID',
+                    entityType: 'JOB',
+                    entityId: job.id,
+                    field: 'exchange_order_id',
+                    currentValue: execution.exchange_order_id,
+                    expectedValue: 'único',
+                    canAutoFix: false,
+                    fixDescription: `Job ${job.id} tem exchange_order_id duplicado. Outros jobs: ${duplicateJobs.map(j => j.id).join(', ')}`,
+                  });
+                }
+              }
+            }
+          } catch (jobError: any) {
+            errors.push({
+              jobId: job.id,
+              error: `Erro ao auditar job: ${jobError.message}`,
+            });
+          }
+        }
+      }
 
       // Processar em lotes de 5 posições simultaneamente
       const BATCH_SIZE = 5;
@@ -1730,6 +1926,7 @@ export class AdminSystemController {
                 try {
                   // Buscar ordem na exchange
                   let order: any;
+                  let orderFromTrades = false;
                   try {
                     if (account.exchange === 'BYBIT_SPOT' && adapter.fetchClosedOrder) {
                       order = await adapter.fetchClosedOrder(execution.exchange_order_id, execution.trade_job.symbol);
@@ -1739,11 +1936,70 @@ export class AdminSystemController {
                       order = await adapter.fetchOrder(execution.exchange_order_id, execution.trade_job.symbol, params);
                     }
                   } catch (orderError: any) {
-                    errors.push({
-                      executionId: execution.id,
-                      error: `Erro ao buscar ordem na exchange: ${orderError.message}`,
-                    });
-                    continue;
+                    // Se for erro de ordem arquivada na Binance (código -2026), tentar buscar via fetchMyTrades
+                    if (
+                      account.exchange === 'BINANCE_SPOT' && 
+                      (orderError.message?.includes('-2026') || 
+                       orderError.message?.includes('archived') ||
+                       orderError.message?.includes('over 90 days'))
+                    ) {
+                      try {
+                        // Calcular período: usar filtro de data se disponível, senão usar 1 hora antes da execução até agora
+                        const since = dateFrom 
+                          ? dateFrom.getTime() 
+                          : (execution.created_at.getTime() - 3600000); // 1 hora antes
+                        const until = dateTo 
+                          ? dateTo.getTime() 
+                          : Date.now();
+                        
+                        console.log(`[ADMIN] Ordem ${execution.exchange_order_id} arquivada, buscando via fetchMyTrades (período: ${new Date(since).toISOString()} até ${new Date(until).toISOString()})`);
+                        
+                        // Buscar trades do período
+                        const trades = await adapter.fetchMyTrades(execution.trade_job.symbol, since, 1000);
+                        
+                        // Procurar trades que correspondem ao ID da ordem
+                        const orderTrades = trades.filter((t: any) => {
+                          const tradeOrderId = String(t.order || t.orderId || (t.info && (t.info.orderId || t.info.orderListId)) || '');
+                          return tradeOrderId === String(execution.exchange_order_id);
+                        });
+
+                        if (orderTrades.length === 0) {
+                          errors.push({
+                            executionId: execution.id,
+                            error: `Ordem ${execution.exchange_order_id} não encontrada via fetchMyTrades no período especificado`,
+                          });
+                          continue;
+                        }
+
+                        // Construir objeto order a partir dos trades
+                        const totalFilled = orderTrades.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+                        const totalCost = orderTrades.reduce((sum: number, t: any) => sum + (t.cost || (t.amount || 0) * (t.price || 0)), 0);
+                        const avgPrice = totalFilled > 0 ? totalCost / totalFilled : 0;
+                        
+                        order = {
+                          filled: totalFilled,
+                          average: avgPrice,
+                          price: avgPrice,
+                          cost: totalCost,
+                          status: 'closed',
+                          fills: orderTrades,
+                        };
+                        orderFromTrades = true;
+                        console.log(`[ADMIN] Ordem ${execution.exchange_order_id} reconstruída via fetchMyTrades: qty=${totalFilled}, price=${avgPrice}`);
+                      } catch (tradesError: any) {
+                        errors.push({
+                          executionId: execution.id,
+                          error: `Erro ao buscar ordem arquivada via fetchMyTrades: ${tradesError.message}`,
+                        });
+                        continue;
+                      }
+                    } else {
+                      errors.push({
+                        executionId: execution.id,
+                        error: `Erro ao buscar ordem na exchange: ${orderError.message}`,
+                      });
+                      continue;
+                    }
                   }
 
                   // Comparar quantidade executada
@@ -1778,28 +2034,38 @@ export class AdminSystemController {
                     });
                   }
 
-                  // Buscar taxas via fetchMyTrades
+                  // Buscar taxas via fetchMyTrades (se ainda não foi usado para reconstruir a ordem)
                   let realFeeAmount = 0;
                   let realFeeCurrency = '';
-                  try {
-                    const since = execution.created_at.getTime() - 3600000; // 1 hora antes
-                    const trades = await adapter.fetchMyTrades(execution.trade_job.symbol, since, 100);
-                    const orderTrades = trades.filter((t: any) => {
-                      return t.order === execution.exchange_order_id || 
-                             t.orderId === execution.exchange_order_id || 
-                             (t.info && (t.info.orderId === execution.exchange_order_id || t.info.orderListId === execution.exchange_order_id));
-                    });
-                    
-                    if (orderTrades.length > 0) {
-                      const fees = adapter.extractFeesFromTrades(orderTrades);
+                  if (orderFromTrades && order.fills) {
+                    // Já temos os trades da ordem, usar diretamente
+                    const fees = adapter.extractFeesFromTrades(order.fills);
+                    realFeeAmount = fees.feeAmount;
+                    realFeeCurrency = fees.feeCurrency;
+                  } else {
+                    try {
+                      // Calcular período: usar filtro de data se disponível, senão usar 1 hora antes da execução até agora
+                      const since = dateFrom 
+                        ? dateFrom.getTime() 
+                        : (execution.created_at.getTime() - 3600000); // 1 hora antes
+                      const trades = await adapter.fetchMyTrades(execution.trade_job.symbol, since, 100);
+                      const orderTrades = trades.filter((t: any) => {
+                        return t.order === execution.exchange_order_id || 
+                               t.orderId === execution.exchange_order_id || 
+                               (t.info && (t.info.orderId === execution.exchange_order_id || t.info.orderListId === execution.exchange_order_id));
+                      });
+                      
+                      if (orderTrades.length > 0) {
+                        const fees = adapter.extractFeesFromTrades(orderTrades);
+                        realFeeAmount = fees.feeAmount;
+                        realFeeCurrency = fees.feeCurrency;
+                      }
+                    } catch (tradesError: any) {
+                      // Se não conseguir buscar trades, tentar extrair da ordem
+                      const fees = adapter.extractFeesFromOrder(order, execution.trade_job.side.toLowerCase() as 'buy' | 'sell');
                       realFeeAmount = fees.feeAmount;
                       realFeeCurrency = fees.feeCurrency;
                     }
-                  } catch (tradesError: any) {
-                    // Se não conseguir buscar trades, tentar extrair da ordem
-                    const fees = adapter.extractFeesFromOrder(order, execution.trade_job.side.toLowerCase() as 'buy' | 'sell');
-                    realFeeAmount = fees.feeAmount;
-                    realFeeCurrency = fees.feeCurrency;
                   }
 
                   // Comparar taxa
@@ -1939,12 +2205,128 @@ export class AdminSystemController {
         console.log(`[ADMIN] Lote ${batchIndex + 1}/${batches.length} concluído: ${discrepancies.length} discrepância(s) encontrada(s) até agora, ${errors.length} erro(s)`);
       }
 
+      // Detectar posições duplicadas
+      if (!checkJobsOnlyFlag) {
+        console.log('[ADMIN] Verificando posições duplicadas...');
+        
+        // Buscar todas as posições para verificar duplicatas
+        const allPositionsForDupCheck = await this.prisma.tradePosition.findMany({
+          where: {
+            trade_job_id_open: { not: null },
+            ...(accountIdNum && { exchange_account_id: accountIdNum }),
+            ...(dateFrom || dateTo ? {
+              created_at: {
+                ...(dateFrom && { gte: dateFrom }),
+                ...(dateTo && { lte: dateTo }),
+              },
+            } : {}),
+          },
+          select: {
+            id: true,
+            trade_job_id_open: true,
+            status: true,
+            created_at: true,
+          },
+          orderBy: {
+            created_at: 'asc',
+          },
+        });
+
+        // Agrupar por trade_job_id_open para encontrar duplicatas
+        const positionsByJob = new Map<number, typeof allPositionsForDupCheck>();
+        for (const pos of allPositionsForDupCheck) {
+          if (!positionsByJob.has(pos.trade_job_id_open)) {
+            positionsByJob.set(pos.trade_job_id_open, []);
+          }
+          positionsByJob.get(pos.trade_job_id_open)!.push(pos);
+        }
+
+        // Verificar duplicatas
+        for (const [jobId, positions] of positionsByJob.entries()) {
+          if (positions.length > 1) {
+            const firstPosition = positions[0];
+            const duplicatePositions = positions.slice(1);
+            
+            for (const dupPos of duplicatePositions) {
+              discrepancies.push({
+                type: 'DUPLICATE_POSITION',
+                entityType: 'POSITION',
+                entityId: dupPos.id,
+                field: 'trade_job_id_open',
+                currentValue: `posição #${dupPos.id} (duplicada)`,
+                expectedValue: `posição #${firstPosition.id} (original)`,
+                canAutoFix: false,
+                fixDescription: `Posição #${dupPos.id} é duplicada. Posição original: #${firstPosition.id} (job ${jobId})`,
+              });
+            }
+          }
+        }
+
+        // Verificar posições com mesmo exchange_order_id via fills
+        const allPositions = await this.prisma.tradePosition.findMany({
+          where: {
+            ...(accountIdNum && { exchange_account_id: accountIdNum }),
+            ...(dateFrom || dateTo ? {
+              created_at: {
+                ...(dateFrom && { gte: dateFrom }),
+                ...(dateTo && { lte: dateTo }),
+              },
+            } : {}),
+          },
+          include: {
+            fills: {
+              include: {
+                execution: {
+                  select: {
+                    exchange_order_id: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const orderIdToPositions = new Map<string, number[]>();
+        for (const pos of allPositions) {
+          for (const fill of pos.fills) {
+            if (fill.execution?.exchange_order_id) {
+              const orderId = fill.execution.exchange_order_id;
+              if (!orderIdToPositions.has(orderId)) {
+                orderIdToPositions.set(orderId, []);
+              }
+              if (!orderIdToPositions.get(orderId)!.includes(pos.id)) {
+                orderIdToPositions.get(orderId)!.push(pos.id);
+              }
+            }
+          }
+        }
+
+        for (const [orderId, positionIds] of orderIdToPositions.entries()) {
+          if (positionIds.length > 1) {
+            const firstPositionId = positionIds[0];
+            for (let i = 1; i < positionIds.length; i++) {
+              discrepancies.push({
+                type: 'DUPLICATE_ORDER_ID_POSITION',
+                entityType: 'POSITION',
+                entityId: positionIds[i],
+                field: 'exchange_order_id',
+                currentValue: `posição #${positionIds[i]} (duplicada)`,
+                expectedValue: `posição #${firstPositionId} (original)`,
+                canAutoFix: false,
+                fixDescription: `Posição #${positionIds[i]} tem exchange_order_id ${orderId} duplicado. Posição original: #${firstPositionId}`,
+              });
+            }
+          }
+        }
+      }
+
       const duration = Date.now() - startTime;
-      console.log(`[ADMIN] Auditoria concluída em ${duration}ms: ${totalPositionsChecked} posições, ${totalExecutionsChecked} execuções, ${discrepancies.length} discrepância(s), ${errors.length} erro(s)`);
+      console.log(`[ADMIN] Auditoria concluída em ${duration}ms: ${totalPositionsChecked} posições, ${totalExecutionsChecked} execuções, ${totalJobsChecked} jobs, ${discrepancies.length} discrepância(s), ${errors.length} erro(s)`);
 
       return {
         total_positions_checked: totalPositionsChecked,
         total_executions_checked: totalExecutionsChecked,
+        total_jobs_checked: totalJobsChecked,
         discrepancies_found: discrepancies.length,
         discrepancies,
         errors: errors.length,

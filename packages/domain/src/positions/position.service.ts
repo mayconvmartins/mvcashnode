@@ -19,6 +19,27 @@ export class PositionService {
     feeAmount?: number,
     feeCurrency?: string
   ): Promise<number> {
+    // VALIDAÇÃO PREVENTIVA: Verificar se já existe posição com este trade_job_id_open
+    const existingPosition = await this.prisma.tradePosition.findUnique({
+      where: {
+        trade_job_id_open: jobId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (existingPosition) {
+      if (existingPosition.status === 'OPEN') {
+        console.log(`[POSITION-SERVICE] ⚠️ Job ${jobId} já tem posição aberta #${existingPosition.id}, retornando ID existente`);
+        return existingPosition.id;
+      } else {
+        console.error(`[POSITION-SERVICE] ❌ Job ${jobId} tem posição fechada #${existingPosition.id}, não é possível criar nova`);
+        throw new Error(`Job ${jobId} já tem posição CLOSED (#${existingPosition.id}). Não é possível criar nova posição.`);
+      }
+    }
+
     const job = await this.prisma.tradeJob.findUnique({
       where: { id: jobId },
       include: { exchange_account: true },

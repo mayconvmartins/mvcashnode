@@ -231,13 +231,19 @@ export const adminService = {
         return response.data
     },
 
-    auditAll: async (): Promise<{
+    auditAll: async (params?: {
+        from?: string
+        to?: string
+        accountId?: number
+        checkJobsOnly?: boolean
+    }): Promise<{
         total_positions_checked: number
         total_executions_checked: number
+        total_jobs_checked?: number
         discrepancies_found: number
         discrepancies: Array<{
             type: string
-            entityType: 'EXECUTION' | 'POSITION'
+            entityType: 'EXECUTION' | 'POSITION' | 'JOB'
             entityId: number
             field: string
             currentValue: number | string
@@ -246,10 +252,17 @@ export const adminService = {
             fixDescription: string
         }>
         errors: number
-        error_details?: Array<{ positionId?: number; executionId?: number; error: string }>
+        error_details?: Array<{ positionId?: number; executionId?: number; jobId?: number; error: string }>
         duration_ms?: number
     }> => {
-        const response = await apiClient.post('/admin/system/audit-all', {}, {
+        const queryParams = new URLSearchParams()
+        if (params?.from) queryParams.append('from', params.from)
+        if (params?.to) queryParams.append('to', params.to)
+        if (params?.accountId) queryParams.append('accountId', params.accountId.toString())
+        if (params?.checkJobsOnly) queryParams.append('checkJobsOnly', 'true')
+        
+        const url = `/admin/system/audit-all${queryParams.toString() ? `?${queryParams.toString()}` : ''}`
+        const response = await apiClient.post(url, {}, {
             timeout: 1800000, // 30 minutos para auditoria completa (pode processar muitas posições)
         })
         return response.data

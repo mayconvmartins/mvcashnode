@@ -245,6 +245,33 @@ export class InternalPositionsController {
                 executionsUpdated++;
               }
 
+              // VALIDAÇÃO PREVENTIVA: Verificar se já existe posição com este trade_job_id_open
+              const existingPosition = await this.prisma.tradePosition.findUnique({
+                where: {
+                  trade_job_id_open: job.id,
+                },
+                select: {
+                  id: true,
+                  status: true,
+                },
+              });
+
+              if (existingPosition) {
+                if (existingPosition.status === 'OPEN') {
+                  console.log(`[SYNC-MISSING-ALL] Job ${job.id} já tem posição aberta #${existingPosition.id}, pulando criação`);
+                  // O relacionamento position_open já está correto via trade_job_id_open na posição
+                  continue;
+                } else {
+                  console.warn(`[SYNC-MISSING-ALL] Job ${job.id} tem posição fechada #${existingPosition.id}, não recriando`);
+                  allErrors.push({
+                    userId: user.id,
+                    jobId: job.id,
+                    error: `Posição já existe mas está CLOSED (#${existingPosition.id})`,
+                  });
+                  continue;
+                }
+              }
+
               const positionService = new PositionService(this.prisma);
               const executionId = execution?.id;
               
