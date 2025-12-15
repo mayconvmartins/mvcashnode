@@ -576,17 +576,35 @@ export class ReportsController {
     description: 'Filtrar por modo de trading',
     example: 'REAL'
   })
+  @ApiQuery({ 
+    name: 'from', 
+    required: false, 
+    type: String,
+    description: 'Data inicial (ISO 8601)',
+    example: '2025-02-01T00:00:00.000Z'
+  })
+  @ApiQuery({ 
+    name: 'to', 
+    required: false, 
+    type: String,
+    description: 'Data final (ISO 8601)',
+    example: '2025-02-12T23:59:59.999Z'
+  })
   @ApiResponse({ 
     status: 200, 
     description: 'Dashboard detalhado retornado com sucesso',
   })
   async getDetailedDashboard(
     @CurrentUser() user: any,
-    @Query('trade_mode') tradeMode?: string
+    @Query('trade_mode') tradeMode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string
   ) {
     return this.reportsService.getDetailedDashboardSummary(
       user.userId,
-      tradeMode as any
+      tradeMode as any,
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined
     );
   }
 }

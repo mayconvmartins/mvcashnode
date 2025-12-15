@@ -997,9 +997,11 @@ export class ReportsService {
 
   async getDetailedDashboardSummary(
     userId: number,
-    tradeMode?: TradeMode
+    tradeMode?: TradeMode,
+    from?: Date,
+    to?: Date
   ) {
-    console.log(`[ReportsService] getDetailedDashboardSummary chamado: userId=${userId}, tradeMode=${tradeMode}`);
+    console.log(`[ReportsService] getDetailedDashboardSummary chamado: userId=${userId}, tradeMode=${tradeMode}, from=${from}, to=${to}`);
     
     // Buscar IDs das exchange accounts do usuário
     const userAccounts = await this.prisma.exchangeAccount.findMany({
@@ -1018,7 +1020,20 @@ export class ReportsService {
       ...(tradeMode && { trade_mode: tradeMode }),
     };
 
+    // Adicionar filtros de data para posições fechadas
+    const closedDateFilter: any = {};
+    if (from) {
+      closedDateFilter.gte = from;
+    }
+    if (to) {
+      const toEndOfDay = new Date(to);
+      toEndOfDay.setHours(23, 59, 59, 999);
+      closedDateFilter.lte = toEndOfDay;
+    }
+
     // Buscar todas as posições (abertas e fechadas) em paralelo
+    // Para posições abertas: mostrar todas (não filtrar por data, pois ainda estão abertas)
+    // Para posições fechadas: filtrar por closed_at para mostrar apenas as fechadas no período
     const [openPositions, closedPositions] = await Promise.all([
       this.prisma.tradePosition.findMany({
         where: {
@@ -1047,6 +1062,7 @@ export class ReportsService {
         where: {
           ...whereBase,
           status: 'CLOSED',
+          ...(Object.keys(dateFilter).length > 0 && { closed_at: dateFilter }),
         },
         select: {
           id: true,

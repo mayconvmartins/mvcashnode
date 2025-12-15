@@ -1,11 +1,13 @@
 'use client'
 
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { reportsService } from '@/lib/api/reports.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { 
     TrendingUp, 
     TrendingDown,
@@ -19,7 +21,8 @@ import {
     BarChart3,
     PieChart,
     TrendingUp as TrendingUpIcon,
-    TrendingDown as TrendingDownIcon
+    TrendingDown as TrendingDownIcon,
+    Calendar
 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
@@ -27,12 +30,58 @@ import { LineChart as RechartsLineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 
 const COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6']
 
+type PeriodOption = 'today' | 'last7days' | 'currentMonth' | 'previousMonth'
+
+// Helper para calcular datas baseado no período
+const getPeriodDates = (period: PeriodOption): { from: Date; to: Date } => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    
+    switch (period) {
+        case 'today':
+            return {
+                from: new Date(today),
+                to: new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1), // Fim do dia
+            }
+        case 'last7days':
+            const sevenDaysAgo = new Date(today)
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6) // Inclui hoje, então -6 para ter 7 dias
+            return {
+                from: new Date(sevenDaysAgo),
+                to: new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1),
+            }
+        case 'currentMonth':
+            const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+            const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+            return {
+                from: new Date(firstDayOfMonth),
+                to: new Date(lastDayOfMonth),
+            }
+        case 'previousMonth':
+            const firstDayOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+            const lastDayOfPreviousMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)
+            return {
+                from: new Date(firstDayOfPreviousMonth),
+                to: new Date(lastDayOfPreviousMonth),
+            }
+        default:
+            return {
+                from: new Date(today),
+                to: new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1),
+            }
+    }
+}
+
 export default function DashboardPage() {
     const { tradeMode } = useTradeMode()
+    const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>('today')
+    
+    // Calcular datas baseado no período selecionado
+    const { from, to } = useMemo(() => getPeriodDates(selectedPeriod), [selectedPeriod])
     
     const { data: dashboard, isLoading, refetch } = useQuery({
-        queryKey: ['dashboard', 'detailed', tradeMode],
-        queryFn: () => reportsService.getDetailedDashboardSummary(tradeMode),
+        queryKey: ['dashboard', 'detailed', tradeMode, selectedPeriod],
+        queryFn: () => reportsService.getDetailedDashboardSummary(tradeMode, from, to),
         refetchInterval: 30000, // Atualizar a cada 30 segundos
     })
 
@@ -70,10 +119,24 @@ export default function DashboardPage() {
                     <h1 className="text-3xl font-bold gradient-text">Dashboard</h1>
                     <p className="text-muted-foreground">Visão geral do seu sistema de trading</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => refetch()}>
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Atualizar
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Select value={selectedPeriod} onValueChange={(value) => setSelectedPeriod(value as PeriodOption)}>
+                        <SelectTrigger className="w-[180px]">
+                            <Calendar className="h-4 w-4 mr-2" />
+                            <SelectValue placeholder="Selecione o período" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="today">Hoje</SelectItem>
+                            <SelectItem value="last7days">Últimos 7 dias</SelectItem>
+                            <SelectItem value="currentMonth">Mês atual</SelectItem>
+                            <SelectItem value="previousMonth">Mês anterior</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="sm" onClick={() => refetch()}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Atualizar
+                    </Button>
+                </div>
             </div>
 
             {/* Cards de Resumo Principal */}

@@ -165,8 +165,16 @@ export const reportsService = {
         }
     },
 
-    getDetailedDashboardSummary: async (tradeMode?: string): Promise<DetailedDashboardSummary> => {
-        const params = tradeMode ? { trade_mode: tradeMode } : {}
+    getDetailedDashboardSummary: async (
+        tradeMode?: string,
+        from?: Date,
+        to?: Date
+    ): Promise<DetailedDashboardSummary> => {
+        const params: any = {}
+        if (tradeMode) params.trade_mode = tradeMode
+        if (from) params.from = from.toISOString()
+        if (to) params.to = to.toISOString()
+        
         const response = await apiClient.get<DetailedDashboardSummary>('/reports/dashboard/detailed', {
             params,
         })
