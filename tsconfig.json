@@ -8,6 +8,8 @@
     "sourceMap": true,
     "outDir": "./dist",
     "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "removeComments": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,

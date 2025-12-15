@@ -4,7 +4,9 @@
   "private": true,
   "description": "Trading Automation Backend - Monorepo",
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "node scripts/build-parallel.js",
+    "build:sequential": "pnpm -r build",
+    "build:fast": "pnpm -r --parallel --workspace-concurrency=20 build",
     "dev": "pnpm -r --parallel dev",
     "dev:api": "pnpm --filter @mvcashnode/api dev",
     "dev:executor": "pnpm --filter @mvcashnode/executor dev",
