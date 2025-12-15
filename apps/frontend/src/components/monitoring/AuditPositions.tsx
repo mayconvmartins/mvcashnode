@@ -180,15 +180,27 @@ export function AuditPositions() {
     jobs_without_order_id: Array<any>
     errors?: Array<{ symbol?: string; error: string }>
     duration_ms?: number
+    deletions?: {
+      duplicates: number
+      not_found: number
+      canceled: number
+      total: number
+      errors: Array<{ executionId: number; error: string }>
+    }
+    corrections?: {
+      jobs_without_order_id_fixed: number
+      jobs_corrected: Array<{ job_id: number; execution_id: number; order_id: string }>
+    }
   } | null>(null)
 
   // Estados de seleção para correção
   const [selectedMissing, setSelectedMissing] = useState<Set<number>>(new Set())
   const [selectedExtra, setSelectedExtra] = useState<Set<number>>(new Set())
   const [selectedDuplicates, setSelectedDuplicates] = useState<Set<number>>(new Set())
+  const [autoDelete, setAutoDelete] = useState(false)
 
   const exchangeTradesMutation = useMutation({
-    mutationFn: (params: { from: string; to: string; accountId: number }) => 
+    mutationFn: (params: { from: string; to: string; accountId: number; autoDelete?: boolean }) => 
       adminService.auditExchangeTrades(params),
     retry: false,
     onSuccess: (data) => {
@@ -252,6 +264,7 @@ export function AuditPositions() {
       from: fromDate,
       to: toDate,
       accountId: parseInt(selectedAccountId),
+      autoDelete: autoDelete,
     })
   }
 
@@ -338,6 +351,16 @@ export function AuditPositions() {
               />
               <Label htmlFor="check-jobs-only" className="cursor-pointer">
                 Verificar apenas Trade Jobs (não apenas posições abertas)
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="auto-delete"
+                checked={autoDelete}
+                onCheckedChange={(checked) => setAutoDelete(checked as boolean)}
+              />
+              <Label htmlFor="auto-delete" className="cursor-pointer">
+                Deletar automaticamente executions duplicados e inexistentes na exchange
               </Label>
             </div>
           </CollapsibleContent>
@@ -914,9 +937,31 @@ export function AuditPositions() {
             {/* Jobs sem Order ID */}
             {exchangeTradesResult.jobs_without_order_id.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-yellow-500">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="font-medium">Jobs sem Exchange Order ID ({exchangeTradesResult.jobs_without_order_id.length})</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-yellow-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="font-medium">Jobs sem Exchange Order ID ({exchangeTradesResult.jobs_without_order_id.length})</span>
+                  </div>
+                  {!autoDelete && (
+                    <Button
+                      onClick={handleAuditExchangeTrades}
+                      disabled={exchangeTradesMutation.isPending || !dateFrom || !dateTo || selectedAccountId === 'all'}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {exchangeTradesMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Corrigindo...
+                        </>
+                      ) : (
+                        <>
+                          <Wrench className="mr-2 h-4 w-4" />
+                          Corrigir Automaticamente
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
                 <div className="border rounded-lg overflow-x-auto max-h-[500px]">
                   <Table className="min-w-full">
@@ -952,6 +997,54 @@ export function AuditPositions() {
             {exchangeTradesResult.duration_ms && (
               <div className="text-sm text-muted-foreground">
                 Tempo de execução: {(exchangeTradesResult.duration_ms / 1000).toFixed(2)}s
+              </div>
+            )}
+
+            {/* Resultados de Deleções e Correções */}
+            {'deletions' in exchangeTradesResult && exchangeTradesResult.deletions && (
+              <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900">
+                <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-2">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span className="font-medium">Deleções Realizadas</span>
+                </div>
+                <div className="text-sm space-y-1">
+                  <div>
+                    Total: {exchangeTradesResult.deletions.total} execution(s) deletada(s)
+                  </div>
+                  <div className="text-muted-foreground">
+                    - {exchangeTradesResult.deletions.duplicates} duplicado(s)
+                  </div>
+                  <div className="text-muted-foreground">
+                    - {exchangeTradesResult.deletions.not_found} não encontrado(s)
+                  </div>
+                  <div className="text-muted-foreground">
+                    - {exchangeTradesResult.deletions.canceled} cancelado(s)
+                  </div>
+                  {exchangeTradesResult.deletions.errors.length > 0 && (
+                    <div className="text-red-600 dark:text-red-400 mt-2">
+                      {exchangeTradesResult.deletions.errors.length} erro(s) durante deleção
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {'corrections' in exchangeTradesResult && exchangeTradesResult.corrections && (
+              <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
+                <div className="flex items-center gap-2 text-green-700 dark:text-green-400 mb-2">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span className="font-medium">Correções Realizadas</span>
+                </div>
+                <div className="text-sm space-y-1">
+                  <div>
+                    {exchangeTradesResult.corrections.jobs_without_order_id_fixed} job(s) corrigido(s)
+                  </div>
+                  {exchangeTradesResult.corrections.jobs_corrected.length > 0 && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Jobs corrigidos: {exchangeTradesResult.corrections.jobs_corrected.map(j => `#${j.job_id}`).join(', ')}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

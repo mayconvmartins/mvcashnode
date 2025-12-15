@@ -2375,7 +2375,8 @@ export class AdminSystemController {
   async auditExchangeTrades(
     @Query('from') from?: string,
     @Query('to') to?: string,
-    @Query('accountId') accountId?: string
+    @Query('accountId') accountId?: string,
+    @Query('autoDelete') autoDelete?: string
   ) {
     if (!accountId) {
       throw new BadRequestException('accountId é obrigatório para auditoria de trades da exchange');
@@ -2384,6 +2385,7 @@ export class AdminSystemController {
     const accountIdNum = parseInt(accountId);
     const dateFrom = from ? new Date(from) : undefined;
     const dateTo = to ? new Date(to) : undefined;
+    const autoDeleteFlag = autoDelete === 'true' || autoDelete === '1';
 
     if (!dateFrom || !dateTo) {
       throw new BadRequestException('from e to são obrigatórios para auditoria de trades da exchange');
@@ -2839,6 +2841,305 @@ export class AdminSystemController {
       const systemBuyCount = systemExecutions.filter(e => e.trade_job.side === 'BUY').length;
       const systemSellCount = systemExecutions.filter(e => e.trade_job.side === 'SELL').length;
 
+      // Estatísticas de deleção e correção
+      const deletions = {
+        duplicates: 0,
+        not_found: 0,
+        canceled: 0,
+        total: 0,
+        errors: [] as Array<{ executionId: number; error: string }>,
+      };
+
+      const corrections = {
+        jobs_without_order_id_fixed: 0,
+        jobs_corrected: [] as Array<{ job_id: number; execution_id: number; order_id: string }>,
+      };
+
+      // Se autoDelete estiver habilitado, executar deleções e correções
+      if (autoDeleteFlag) {
+        console.log('[ADMIN] Modo autoDelete habilitado - iniciando deleções e correções...');
+
+        // 1. Deletar executions duplicados
+        for (const dup of duplicates) {
+          if (dup.values_differ) {
+            // Não deletar se valores são diferentes (precisa revisão manual)
+            continue;
+          }
+
+          try {
+            const executions = await this.prisma.tradeExecution.findMany({
+              where: {
+                exchange_order_id: dup.exchange_order_id,
+                exchange_account_id: accountIdNum,
+              },
+              include: {
+                position_fills: true,
+              },
+              orderBy: {
+                created_at: 'desc',
+              },
+            });
+
+            if (executions.length <= 1) {
+              continue;
+            }
+
+            // Manter o mais recente, deletar os outros (apenas se não tiverem fills)
+            const toKeep = executions[0];
+            const toDelete = executions.slice(1).filter(e => e.position_fills.length === 0);
+
+            for (const exec of toDelete) {
+              try {
+                await this.prisma.tradeExecution.delete({
+                  where: { id: exec.id },
+                });
+                deletions.duplicates++;
+                deletions.total++;
+                console.log(`[ADMIN] ✅ Execution duplicada ${exec.id} deletada (orderId: ${dup.exchange_order_id})`);
+              } catch (deleteError: any) {
+                deletions.errors.push({
+                  executionId: exec.id,
+                  error: `Erro ao deletar: ${deleteError.message}`,
+                });
+                console.error(`[ADMIN] ❌ Erro ao deletar execution ${exec.id}:`, deleteError.message);
+              }
+            }
+          } catch (error: any) {
+            console.error(`[ADMIN] ❌ Erro ao processar duplicado ${dup.exchange_order_id}:`, error.message);
+          }
+        }
+
+        // 2. Deletar executions que não existem na exchange ou estão canceladas
+        for (const extra of extraInSystem) {
+          try {
+            const execution = await this.prisma.tradeExecution.findUnique({
+              where: { id: extra.execution_id },
+              include: {
+                position_fills: true,
+              },
+            });
+
+            if (!execution) {
+              continue;
+            }
+
+            // NUNCA deletar se tiver fills vinculados
+            if (execution.position_fills.length > 0) {
+              deletions.errors.push({
+                executionId: extra.execution_id,
+                error: `Execution tem ${execution.position_fills.length} fill(s) vinculado(s), não pode ser deletada`,
+              });
+              continue;
+            }
+
+            // Verificar status da ordem na exchange
+            let shouldDelete = false;
+            let deleteReason = '';
+
+            try {
+              const order = await adapter.fetchOrder(extra.exchange_order_id, extra.symbol);
+              
+              if (order && order.id) {
+                const status = String(order.status || '').toUpperCase();
+                
+                // Deletar apenas se status for CANCELED ou REJECTED
+                if (status === 'CANCELED' || status === 'REJECTED') {
+                  shouldDelete = true;
+                  deleteReason = `Ordem ${status} na exchange`;
+                  deletions.canceled++;
+                } else if (status === 'NEW' || status === 'PENDING') {
+                  // NÃO deletar ordens pendentes (podem estar sendo processadas)
+                  deleteReason = `Ordem ${status} - não pode ser deletada`;
+                } else if (status === 'FILLED' || status === 'PARTIALLY_FILLED') {
+                  // Se valores são diferentes mas ordem está FILLED, não deletar (corrigir valores)
+                  if (extra.values_mismatch) {
+                    deleteReason = 'Ordem FILLED com valores diferentes - requer correção manual';
+                  }
+                }
+              }
+            } catch (orderError: any) {
+              // Se ordem não existe, deletar
+              if (
+                orderError.message?.includes('not found') ||
+                orderError.message?.includes('does not exist') ||
+                orderError.message?.includes('-2013') ||
+                (orderError.message?.includes('-2026') && !orderError.message?.includes('archived'))
+              ) {
+                // Tentar buscar em trades arquivados
+                try {
+                  const since = dateFrom.getTime();
+                  const until = dateTo.getTime();
+                  const trades = await adapter.fetchMyTrades(extra.symbol, since, 1000);
+                  const orderTrades = trades.filter((t: any) => {
+                    const tradeOrderId = String(t.order || t.orderId || (t.info && (t.info.orderId || t.info.orderListId)) || '');
+                    return tradeOrderId === String(extra.exchange_order_id);
+                  });
+
+                  if (orderTrades.length === 0) {
+                    shouldDelete = true;
+                    deleteReason = 'Order ID não encontrado na exchange';
+                    deletions.not_found++;
+                  }
+                } catch (tradesError: any) {
+                  shouldDelete = true;
+                  deleteReason = `Order ID não encontrado: ${tradesError.message}`;
+                  deletions.not_found++;
+                }
+              } else if (
+                orderError.message?.includes('-2026') ||
+                orderError.message?.includes('archived') ||
+                orderError.message?.includes('over 90 days')
+              ) {
+                // Ordem arquivada - tentar buscar em trades
+                try {
+                  const since = dateFrom.getTime();
+                  const until = dateTo.getTime();
+                  const trades = await adapter.fetchMyTrades(extra.symbol, since, 1000);
+                  const orderTrades = trades.filter((t: any) => {
+                    const tradeOrderId = String(t.order || t.orderId || (t.info && (t.info.orderId || t.info.orderListId)) || '');
+                    return tradeOrderId === String(extra.exchange_order_id);
+                  });
+
+                  if (orderTrades.length === 0) {
+                    shouldDelete = true;
+                    deleteReason = 'Order ID não encontrado em trades arquivados';
+                    deletions.not_found++;
+                  }
+                } catch (tradesError: any) {
+                  // Se não encontrou em trades, não deletar (pode estar muito antiga)
+                  deleteReason = 'Ordem arquivada - não encontrada em trades recentes';
+                }
+              } else {
+                deleteReason = `Erro ao verificar ordem: ${orderError.message}`;
+              }
+            }
+
+            if (shouldDelete) {
+              try {
+                await this.prisma.tradeExecution.delete({
+                  where: { id: extra.execution_id },
+                });
+                deletions.total++;
+                console.log(`[ADMIN] ✅ Execution ${extra.execution_id} deletada: ${deleteReason}`);
+              } catch (deleteError: any) {
+                deletions.errors.push({
+                  executionId: extra.execution_id,
+                  error: `Erro ao deletar: ${deleteError.message}`,
+                });
+                console.error(`[ADMIN] ❌ Erro ao deletar execution ${extra.execution_id}:`, deleteError.message);
+              }
+            } else if (deleteReason) {
+              console.log(`[ADMIN] ⚠️ Execution ${extra.execution_id} não deletada: ${deleteReason}`);
+            }
+          } catch (error: any) {
+            deletions.errors.push({
+              executionId: extra.execution_id,
+              error: `Erro ao processar: ${error.message}`,
+            });
+            console.error(`[ADMIN] ❌ Erro ao processar execution ${extra.execution_id}:`, error.message);
+          }
+        }
+
+        // 3. Corrigir trades sem exchange_order_id comparando por horário e valor
+        console.log('[ADMIN] Corrigindo trades sem exchange_order_id...');
+        for (const jobInfo of jobsWithoutOrderId) {
+          try {
+            const job = await this.prisma.tradeJob.findUnique({
+              where: { id: jobInfo.job_id },
+              include: {
+                executions: {
+                  where: {
+                    exchange_order_id: null,
+                  },
+                  orderBy: {
+                    created_at: 'desc',
+                  },
+                  take: 1,
+                },
+              },
+            });
+
+            if (!job || !job.executions[0]) {
+              continue;
+            }
+
+            const execution = job.executions[0];
+            const jobCreatedAt = job.created_at.getTime();
+            const timeWindow = 5 * 60 * 1000; // 5 minutos
+            const since = jobCreatedAt - timeWindow;
+            const until = jobCreatedAt + timeWindow;
+
+            // Buscar trades da exchange no período
+            const trades = await adapter.fetchMyTrades(job.symbol, since, 1000);
+            
+            // Filtrar trades do período e que correspondem ao side
+            const candidateTrades = trades.filter((t: any) => {
+              const tradeTime = t.timestamp || t.datetime || 0;
+              const timeDiff = Math.abs(tradeTime - jobCreatedAt);
+              if (timeDiff > timeWindow) {
+                return false;
+              }
+
+              const tradeSide = (t.side?.toUpperCase() || (t.amount > 0 ? 'BUY' : 'SELL')) as 'BUY' | 'SELL';
+              if (tradeSide !== job.side) {
+                return false;
+              }
+
+              return true;
+            });
+
+            // Tentar encontrar match único por quantidade e preço
+            const systemQty = execution.executed_qty.toNumber();
+            const systemPrice = execution.avg_price.toNumber();
+            const qtyTolerance = systemQty * 0.001; // 0.1%
+            const priceTolerance = systemPrice * 0.001; // 0.1%
+
+            const matchingTrades = candidateTrades.filter((t: any) => {
+              const tradeQty = t.amount || 0;
+              const tradePrice = t.price || 0;
+              
+              const qtyDiff = Math.abs(tradeQty - systemQty);
+              const priceDiff = Math.abs(tradePrice - systemPrice);
+              
+              return qtyDiff <= qtyTolerance && priceDiff <= priceTolerance;
+            });
+
+            if (matchingTrades.length === 1) {
+              // Match único encontrado - atualizar execution
+              const matchedTrade = matchingTrades[0];
+              const orderId = String(matchedTrade.order || matchedTrade.orderId || (matchedTrade.info && (matchedTrade.info.orderId || matchedTrade.info.orderListId)) || '');
+
+              if (orderId && orderId !== 'undefined' && orderId !== 'null') {
+                await this.prisma.tradeExecution.update({
+                  where: { id: execution.id },
+                  data: {
+                    exchange_order_id: orderId,
+                  },
+                });
+
+                corrections.jobs_without_order_id_fixed++;
+                corrections.jobs_corrected.push({
+                  job_id: job.id,
+                  execution_id: execution.id,
+                  order_id: orderId,
+                });
+
+                console.log(`[ADMIN] ✅ Job ${job.id} corrigido: execution ${execution.id} agora tem order_id ${orderId}`);
+              }
+            } else if (matchingTrades.length > 1) {
+              console.log(`[ADMIN] ⚠️ Job ${job.id}: múltiplos matches encontrados (${matchingTrades.length}), requer revisão manual`);
+            } else {
+              console.log(`[ADMIN] ⚠️ Job ${job.id}: nenhum match encontrado para correção automática`);
+            }
+          } catch (error: any) {
+            console.error(`[ADMIN] ❌ Erro ao corrigir job ${jobInfo.job_id}:`, error.message);
+          }
+        }
+
+        console.log(`[ADMIN] Deleções concluídas: ${deletions.total} total (${deletions.duplicates} duplicados, ${deletions.not_found} não encontrados, ${deletions.canceled} cancelados)`);
+        console.log(`[ADMIN] Correções concluídas: ${corrections.jobs_without_order_id_fixed} jobs corrigidos`);
+      }
+
       const duration = Date.now() - startTime;
       console.log(`[ADMIN] Auditoria de trades concluída em ${duration}ms`);
       console.log(`[ADMIN] Trades faltando no sistema: ${missingInSystem.length}`);
@@ -2868,6 +3169,10 @@ export class AdminSystemController {
         jobs_without_order_id: jobsWithoutOrderId,
         errors: errors.length > 0 ? errors : undefined,
         duration_ms: duration,
+        ...(autoDeleteFlag ? {
+          deletions: deletions.total > 0 ? deletions : undefined,
+          corrections: corrections.jobs_without_order_id_fixed > 0 ? corrections : undefined,
+        } : {}),
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro na auditoria de trades:', error);
@@ -3512,6 +3817,393 @@ export class AdminSystemController {
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro ao corrigir trades da exchange:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/audit-duplicates')
+  @ApiOperation({
+    summary: 'Auditar duplicatas de trade jobs e posições',
+    description: 'Detecta trade jobs duplicados (mesmo exchange_order_id) e posições duplicadas (mesmo trade_job_id_open) no período especificado.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de duplicatas encontradas',
+  })
+  async auditDuplicates(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('accountId') accountId?: string
+  ) {
+    console.log('[ADMIN] Iniciando auditoria de duplicatas...');
+
+    const accountIdNum = accountId ? parseInt(accountId) : undefined;
+    const dateFrom = from ? new Date(from) : undefined;
+    const dateTo = to ? new Date(to) : undefined;
+
+    if (!dateFrom || !dateTo) {
+      throw new BadRequestException('from e to são obrigatórios para auditoria de duplicatas');
+    }
+
+    try {
+      // 1. Detectar trade jobs duplicados
+      const tradeJobsDuplicates: Array<{
+        order_id: string;
+        job_ids: number[];
+        created_at: string[];
+        symbol: string;
+        side: string;
+      }> = [];
+
+      const jobsWithOrderId = await this.prisma.tradeJob.findMany({
+        where: {
+          ...(accountIdNum && { exchange_account_id: accountIdNum }),
+          created_at: {
+            gte: dateFrom,
+            lte: dateTo,
+          },
+        },
+        include: {
+          executions: {
+            where: {
+              exchange_order_id: { not: null },
+            },
+            select: {
+              exchange_order_id: true,
+            },
+            take: 1,
+            orderBy: {
+              created_at: 'desc',
+            },
+          },
+        },
+      });
+
+      // Agrupar jobs por exchange_order_id
+      const jobsByOrderId = new Map<string, typeof jobsWithOrderId>();
+      for (const job of jobsWithOrderId) {
+        const orderId = job.executions[0]?.exchange_order_id;
+        if (orderId && !String(orderId).startsWith('DUST-')) {
+          if (!jobsByOrderId.has(orderId)) {
+            jobsByOrderId.set(orderId, []);
+          }
+          jobsByOrderId.get(orderId)!.push(job);
+        }
+      }
+
+      // Verificar duplicatas (mesmo order_id, mesmo symbol, mesmo side, criados em período próximo)
+      for (const [orderId, jobs] of jobsByOrderId.entries()) {
+        if (jobs.length > 1) {
+          // Agrupar por symbol e side
+          const jobsBySymbolSide = new Map<string, typeof jobs>();
+          for (const job of jobs) {
+            const key = `${job.symbol}_${job.side}`;
+            if (!jobsBySymbolSide.has(key)) {
+              jobsBySymbolSide.set(key, []);
+            }
+            jobsBySymbolSide.get(key)!.push(job);
+          }
+
+          // Verificar duplicatas em cada grupo
+          for (const [key, groupJobs] of jobsBySymbolSide.entries()) {
+            if (groupJobs.length > 1) {
+              // Verificar se foram criados em período próximo (tolerância de 1 minuto)
+              const sortedJobs = groupJobs.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+              const timeWindow = 60 * 1000; // 1 minuto
+
+              for (let i = 0; i < sortedJobs.length; i++) {
+                const currentJob = sortedJobs[i];
+                const duplicates: typeof groupJobs = [currentJob];
+
+                for (let j = i + 1; j < sortedJobs.length; j++) {
+                  const otherJob = sortedJobs[j];
+                  const timeDiff = Math.abs(otherJob.created_at.getTime() - currentJob.created_at.getTime());
+                  
+                  if (timeDiff <= timeWindow) {
+                    duplicates.push(otherJob);
+                  } else {
+                    break;
+                  }
+                }
+
+                if (duplicates.length > 1) {
+                  tradeJobsDuplicates.push({
+                    order_id: orderId,
+                    job_ids: duplicates.map(j => j.id),
+                    created_at: duplicates.map(j => j.created_at.toISOString()),
+                    symbol: currentJob.symbol,
+                    side: currentJob.side,
+                  });
+                  // Pular jobs já processados
+                  i += duplicates.length - 1;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Detectar posições duplicadas
+      const positionsDuplicates: Array<{
+        job_id_open: number;
+        position_ids: number[];
+        created_at: string[];
+      }> = [];
+
+      const allPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          trade_job_id_open: { not: null },
+          ...(accountIdNum && { exchange_account_id: accountIdNum }),
+          ...(dateFrom || dateTo ? {
+            created_at: {
+              ...(dateFrom && { gte: dateFrom }),
+              ...(dateTo && { lte: dateTo }),
+            },
+          } : {}),
+        },
+        select: {
+          id: true,
+          trade_job_id_open: true,
+          created_at: true,
+        },
+        orderBy: {
+          created_at: 'asc',
+        },
+      });
+
+      // Agrupar por trade_job_id_open
+      const positionsByJob = new Map<number, typeof allPositions>();
+      for (const pos of allPositions) {
+        if (pos.trade_job_id_open) {
+          if (!positionsByJob.has(pos.trade_job_id_open)) {
+            positionsByJob.set(pos.trade_job_id_open, []);
+          }
+          positionsByJob.get(pos.trade_job_id_open)!.push(pos);
+        }
+      }
+
+      // Verificar duplicatas
+      for (const [jobId, positions] of positionsByJob.entries()) {
+        if (positions.length > 1) {
+          const firstPosition = positions[0];
+          const duplicatePositions = positions.slice(1);
+
+          positionsDuplicates.push({
+            job_id_open: jobId,
+            position_ids: [firstPosition.id, ...duplicatePositions.map(p => p.id)],
+            created_at: [firstPosition.created_at.toISOString(), ...duplicatePositions.map(p => p.created_at.toISOString())],
+          });
+        }
+      }
+
+      console.log(`[ADMIN] Auditoria de duplicatas concluída: ${tradeJobsDuplicates.length} trade job(s) duplicado(s), ${positionsDuplicates.length} posição(ões) duplicada(s)`);
+
+      return {
+        trade_jobs_duplicates: tradeJobsDuplicates,
+        positions_duplicates: positionsDuplicates,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro na auditoria de duplicatas:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/delete-duplicates')
+  @ApiOperation({
+    summary: 'Deletar duplicatas de executions, jobs e posições',
+    description: 'Deleta executions, jobs e posições duplicadas com validações de segurança.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Duplicatas deletadas',
+  })
+  async deleteDuplicates(@Body() body: {
+    executionIds?: number[];
+    jobIds?: number[];
+    positionIds?: number[];
+  }) {
+    console.log('[ADMIN] Iniciando deleção de duplicatas...');
+
+    const { executionIds = [], jobIds = [], positionIds = [] } = body;
+
+    const results = {
+      executionsDeleted: 0,
+      jobsDeleted: 0,
+      positionsDeleted: 0,
+      errors: [] as Array<{ type: string; id: number; error: string }>,
+    };
+
+    try {
+      // 1. Deletar executions duplicados
+      for (const executionId of executionIds) {
+        try {
+          const execution = await this.prisma.tradeExecution.findUnique({
+            where: { id: executionId },
+            include: {
+              position_fills: true,
+            },
+          });
+
+          if (!execution) {
+            results.errors.push({
+              type: 'EXECUTION',
+              id: executionId,
+              error: 'Execution não encontrada',
+            });
+            continue;
+          }
+
+          // Validar: só deletar se não tiver fills
+          if (execution.position_fills.length > 0) {
+            results.errors.push({
+              type: 'EXECUTION',
+              id: executionId,
+              error: `Execution tem ${execution.position_fills.length} fill(s) vinculado(s), não pode ser deletada`,
+            });
+            continue;
+          }
+
+          await this.prisma.tradeExecution.delete({
+            where: { id: executionId },
+          });
+
+          results.executionsDeleted++;
+          console.log(`[ADMIN] ✅ Execution ${executionId} deletada`);
+        } catch (error: any) {
+          results.errors.push({
+            type: 'EXECUTION',
+            id: executionId,
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao deletar execution ${executionId}:`, error.message);
+        }
+      }
+
+      // 2. Deletar jobs duplicados
+      for (const jobId of jobIds) {
+        try {
+          const job = await this.prisma.tradeJob.findUnique({
+            where: { id: jobId },
+            include: {
+              executions: true,
+              position_open: true,
+            },
+          });
+
+          if (!job) {
+            results.errors.push({
+              type: 'JOB',
+              id: jobId,
+              error: 'Job não encontrado',
+            });
+            continue;
+          }
+
+          // Validar: só deletar se não tiver executions ou se todas as executions forem deletadas
+          if (job.executions.length > 0) {
+            // Verificar se todas as executions foram deletadas ou podem ser deletadas
+            const executionsWithFills = await this.prisma.tradeExecution.findMany({
+              where: {
+                trade_job_id: jobId,
+              },
+              include: {
+                position_fills: true,
+              },
+            });
+
+            const hasFills = executionsWithFills.some(e => e.position_fills.length > 0);
+            if (hasFills) {
+              results.errors.push({
+                type: 'JOB',
+                id: jobId,
+                error: 'Job tem executions com fills vinculados, não pode ser deletado',
+              });
+              continue;
+            }
+          }
+
+          // Validar: não deletar se tiver posição aberta vinculada
+          if (job.position_open) {
+            results.errors.push({
+              type: 'JOB',
+              id: jobId,
+              error: 'Job tem posição aberta vinculada, não pode ser deletado',
+            });
+            continue;
+          }
+
+          await this.prisma.tradeJob.delete({
+            where: { id: jobId },
+          });
+
+          results.jobsDeleted++;
+          console.log(`[ADMIN] ✅ Job ${jobId} deletado`);
+        } catch (error: any) {
+          results.errors.push({
+            type: 'JOB',
+            id: jobId,
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao deletar job ${jobId}:`, error.message);
+        }
+      }
+
+      // 3. Deletar posições duplicadas
+      for (const positionId of positionIds) {
+        try {
+          const position = await this.prisma.tradePosition.findUnique({
+            where: { id: positionId },
+            include: {
+              fills: true,
+            },
+          });
+
+          if (!position) {
+            results.errors.push({
+              type: 'POSITION',
+              id: positionId,
+              error: 'Posição não encontrada',
+            });
+            continue;
+          }
+
+          // Validar: só deletar se não tiver fills ou se todos os fills forem removidos
+          if (position.fills.length > 0) {
+            results.errors.push({
+              type: 'POSITION',
+              id: positionId,
+              error: `Posição tem ${position.fills.length} fill(s) vinculado(s), não pode ser deletada`,
+            });
+            continue;
+          }
+
+          await this.prisma.tradePosition.delete({
+            where: { id: positionId },
+          });
+
+          results.positionsDeleted++;
+          console.log(`[ADMIN] ✅ Posição ${positionId} deletada`);
+        } catch (error: any) {
+          results.errors.push({
+            type: 'POSITION',
+            id: positionId,
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao deletar posição ${positionId}:`, error.message);
+        }
+      }
+
+      console.log(`[ADMIN] Deleção de duplicatas concluída: ${results.executionsDeleted} execution(s), ${results.jobsDeleted} job(s), ${results.positionsDeleted} posição(ões), ${results.errors.length} erro(s)`);
+
+      return {
+        executions_deleted: results.executionsDeleted,
+        jobs_deleted: results.jobsDeleted,
+        positions_deleted: results.positionsDeleted,
+        errors: results.errors.length,
+        error_details: results.errors,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro ao deletar duplicatas:', error);
       throw error;
     }
   }

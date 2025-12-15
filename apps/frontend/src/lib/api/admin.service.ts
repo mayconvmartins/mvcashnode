@@ -291,6 +291,7 @@ export const adminService = {
         from: string
         to: string
         accountId: number
+        autoDelete?: boolean
     }): Promise<{
         account_id: number
         period: { from: string; to: string }
@@ -335,11 +336,25 @@ export const adminService = {
         }>
         errors?: Array<{ symbol?: string; error: string }>
         duration_ms?: number
+        deletions?: {
+            duplicates: number
+            not_found: number
+            canceled: number
+            total: number
+            errors: Array<{ executionId: number; error: string }>
+        }
+        corrections?: {
+            jobs_without_order_id_fixed: number
+            jobs_corrected: Array<{ job_id: number; execution_id: number; order_id: string }>
+        }
     }> => {
         const queryParams = new URLSearchParams()
         queryParams.append('from', params.from)
         queryParams.append('to', params.to)
         queryParams.append('accountId', params.accountId.toString())
+        if (params.autoDelete) {
+            queryParams.append('autoDelete', 'true')
+        }
         
         const url = `/admin/system/audit-exchange-trades?${queryParams.toString()}`
         const response = await apiClient.post(url, {}, {

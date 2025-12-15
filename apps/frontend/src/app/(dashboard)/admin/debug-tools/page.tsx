@@ -48,10 +48,10 @@ export default function DebugToolsPage() {
                 <CancelAllPendingOrders />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-                {/* Auditoria Completa de Posições */}
-                <AuditPositions />
+            {/* Auditoria Completa de Posições - Largura Total */}
+            <AuditPositions />
 
+            <div className="grid gap-4 md:grid-cols-2">
                 {/* Gerenciamento de Resíduos */}
                 <DustPositions />
             </div>
