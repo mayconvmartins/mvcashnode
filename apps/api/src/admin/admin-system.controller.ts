@@ -2765,9 +2765,10 @@ export class AdminSystemController {
       side?: 'BUY' | 'SELL';
       orderType?: 'MARKET' | 'LIMIT';
       dryRun?: boolean;
+      enqueueOrphans?: boolean;
     }
   ) {
-    const { accountIds, symbol, side, orderType, dryRun = false } = body;
+    const { accountIds, symbol, side, orderType, dryRun = false, enqueueOrphans = false } = body;
 
     // Buscar ordens PENDING e PENDING_LIMIT
     const whereConditions: any = {
@@ -2802,11 +2803,19 @@ export class AdminSystemController {
       },
     });
 
+    // Identificar ordens órfãs (sem executions)
+    const orphanedOrders = pendingOrders.filter((o) => o.executions.length === 0);
+    const ordersWithExecutions = pendingOrders.filter((o) => o.executions.length > 0);
+
+    console.log(`[ADMIN] Encontradas ${orphanedOrders.length} ordens órfãs (sem executions) e ${ordersWithExecutions.length} com executions`);
+
     if (dryRun) {
       return {
         success: true,
         dryRun: true,
         ordersFound: pendingOrders.length,
+        orphansFound: orphanedOrders.length,
+        withExecutions: ordersWithExecutions.length,
         orders: pendingOrders.map((o) => ({
           id: o.id,
           symbol: o.symbol,
@@ -2817,13 +2826,49 @@ export class AdminSystemController {
           exchangeOrderId: o.executions[0]?.exchange_order_id || null,
           accountId: o.exchange_account_id,
           accountLabel: o.exchange_account.label,
+          isOrphan: o.executions.length === 0,
         })),
       };
     }
 
-    // Cancelar ordens
+    // Se enqueueOrphans = true, tentar enfileirar órfãs antes de cancelar
+    let orphansEnqueued = 0;
+    let orphansFailed = 0;
+    if (enqueueOrphans && orphanedOrders.length > 0) {
+      console.log(`[ADMIN] Tentando enfileirar ${orphanedOrders.length} ordens órfãs antes de cancelar...`);
+      
+      for (const order of orphanedOrders) {
+        try {
+          await this.tradeJobQueueService.enqueueTradeJob(order.id);
+          orphansEnqueued++;
+          console.log(`[ADMIN] Órfã ${order.id} enfileirada com sucesso`);
+        } catch (error: any) {
+          orphansFailed++;
+          console.error(`[ADMIN] Erro ao enfileirar órfã ${order.id}: ${error.message}`);
+        }
+      }
+
+      console.log(`[ADMIN] Enfileiramento de órfãs concluído: ${orphansEnqueued} enfileiradas, ${orphansFailed} falharam`);
+      
+      // Se enfileirou com sucesso, não cancelar essas ordens
+      if (orphansEnqueued > 0) {
+        console.log(`[ADMIN] ${orphansEnqueued} órfãs foram enfileiradas e não serão canceladas`);
+      }
+    }
+
+    // Cancelar ordens (exceto as que foram enfileiradas com sucesso)
+    const enqueuedIds = enqueueOrphans 
+      ? orphanedOrders.slice(0, orphansEnqueued).map(o => o.id)
+      : [];
+    
+    const ordersToCancel = pendingOrders.filter(o => !enqueuedIds.includes(o.id));
+
     const results = {
       total: pendingOrders.length,
+      orphansFound: orphanedOrders.length,
+      orphansEnqueued,
+      orphansFailed,
+      ordersToCancel: ordersToCancel.length,
       canceledInExchange: 0,
       canceledInDb: 0,
       errors: 0,
@@ -2833,7 +2878,7 @@ export class AdminSystemController {
     const { ExchangeAccountService } = await import('@mvcashnode/domain');
     const accountService = new ExchangeAccountService(this.prisma, this.encryptionService);
 
-    for (const order of pendingOrders) {
+    for (const order of ordersToCancel) {
       try {
         // Se tem exchange_order_id, cancelar na exchange
         if (order.executions.length > 0 && order.executions[0].exchange_order_id) {
@@ -2900,6 +2945,133 @@ export class AdminSystemController {
     }
 
     console.log(`[ADMIN] Cancelamento concluído: ${results.canceledInDb} canceladas no banco, ${results.canceledInExchange} na exchange, ${results.errors} erros`);
+
+    return {
+      success: true,
+      ...results,
+    };
+  }
+
+  @Post('enqueue-pending-limit-orders')
+  @ApiOperation({
+    summary: 'Enfileirar ordens LIMIT pendentes sem executions',
+    description: 'Busca ordens LIMIT com status PENDING que não têm executions (órfãs) e enfileira na fila BullMQ apropriada para o executor processar. Útil para resolver ordens que foram criadas mas nunca foram enfileiradas.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Ordens enfileiradas com sucesso',
+  })
+  async enqueuePendingLimitOrders(
+    @Body()
+    body: {
+      accountIds?: number[];
+      symbol?: string;
+      side?: 'BUY' | 'SELL';
+      tradeMode?: 'REAL' | 'SIMULATION';
+      dryRun?: boolean;
+      limit?: number;
+    }
+  ) {
+    const { accountIds, symbol, side, tradeMode, dryRun = false, limit = 100 } = body;
+
+    console.log('[ADMIN] Buscando ordens LIMIT pendentes sem executions...');
+
+    // Buscar ordens PENDING LIMIT sem executions
+    const whereConditions: any = {
+      status: 'PENDING',
+      order_type: 'LIMIT',
+      executions: {
+        none: {}, // Sem executions associadas
+      },
+    };
+
+    if (accountIds && accountIds.length > 0) {
+      whereConditions.exchange_account_id = { in: accountIds };
+    }
+    if (symbol) {
+      whereConditions.symbol = symbol.toUpperCase().trim();
+    }
+    if (side) {
+      whereConditions.side = side;
+    }
+    if (tradeMode) {
+      whereConditions.trade_mode = tradeMode;
+    }
+
+    const orphanedOrders = await this.prisma.tradeJob.findMany({
+      where: whereConditions,
+      take: Math.min(limit, 500), // Máximo 500 por vez
+      orderBy: { created_at: 'asc' }, // Mais antigas primeiro
+      include: {
+        exchange_account: {
+          select: {
+            id: true,
+            label: true,
+            exchange: true,
+          },
+        },
+      },
+    });
+
+    console.log(`[ADMIN] Encontradas ${orphanedOrders.length} ordens LIMIT órfãs`);
+
+    if (dryRun) {
+      return {
+        success: true,
+        dryRun: true,
+        ordersFound: orphanedOrders.length,
+        orders: orphanedOrders.map((o) => ({
+          id: o.id,
+          symbol: o.symbol,
+          side: o.side,
+          orderType: o.order_type,
+          tradeMode: o.trade_mode,
+          limitPrice: o.limit_price?.toNumber(),
+          accountId: o.exchange_account_id,
+          accountLabel: o.exchange_account.label,
+          createdAt: o.created_at,
+        })),
+      };
+    }
+
+    // Enfileirar ordens
+    const results = {
+      total: orphanedOrders.length,
+      enqueued: 0,
+      alreadyEnqueued: 0,
+      errors: 0,
+      errorDetails: [] as Array<{ orderId: number; error: string }>,
+    };
+
+    for (const order of orphanedOrders) {
+      try {
+        await this.tradeJobQueueService.enqueueTradeJob(order.id);
+        results.enqueued++;
+        console.log(`[ADMIN] Job ${order.id} enfileirado com sucesso`);
+      } catch (error: any) {
+        // Verificar se o erro é de job já enfileirado
+        if (error.message && error.message.includes('já está enfileirado')) {
+          results.alreadyEnqueued++;
+          console.log(`[ADMIN] Job ${order.id} já estava enfileirado`);
+        } else {
+          results.errors++;
+          const errorMsg = error?.message || 'Erro desconhecido';
+          results.errorDetails.push({
+            orderId: order.id,
+            error: errorMsg,
+          });
+          console.error(`[ADMIN] Erro ao enfileirar job ${order.id}: ${errorMsg}`);
+        }
+      }
+
+      // Rate limit protection: 50ms entre enfileiramentos
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    console.log(
+      `[ADMIN] Enfileiramento concluído: ${results.enqueued} enfileiradas, ` +
+      `${results.alreadyEnqueued} já enfileiradas, ${results.errors} erros`
+    );
 
     return {
       success: true,
