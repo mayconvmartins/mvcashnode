@@ -2235,7 +2235,6 @@ export class AdminSystemController {
         // Buscar todas as posições para verificar duplicatas
         const allPositionsForDupCheck = await this.prisma.tradePosition.findMany({
           where: {
-            trade_job_id_open: { not: null },
             ...(accountIdNum && { exchange_account_id: accountIdNum }),
             ...(dateFrom || dateTo ? {
               created_at: {
@@ -2255,13 +2254,18 @@ export class AdminSystemController {
           },
         });
 
+        // Filtrar apenas posições com trade_job_id_open não nulo
+        const positionsWithJobId = allPositionsForDupCheck.filter(pos => pos.trade_job_id_open !== null);
+
         // Agrupar por trade_job_id_open para encontrar duplicatas
-        const positionsByJob = new Map<number, typeof allPositionsForDupCheck>();
-        for (const pos of allPositionsForDupCheck) {
-          if (!positionsByJob.has(pos.trade_job_id_open)) {
-            positionsByJob.set(pos.trade_job_id_open, []);
+        const positionsByJob = new Map<number, typeof positionsWithJobId>();
+        for (const pos of positionsWithJobId) {
+          if (pos.trade_job_id_open !== null) {
+            if (!positionsByJob.has(pos.trade_job_id_open)) {
+              positionsByJob.set(pos.trade_job_id_open, []);
+            }
+            positionsByJob.get(pos.trade_job_id_open)!.push(pos);
           }
-          positionsByJob.get(pos.trade_job_id_open)!.push(pos);
         }
 
         // Verificar duplicatas
@@ -3269,7 +3273,6 @@ export class AdminSystemController {
 
       const allPositions = await this.prisma.tradePosition.findMany({
         where: {
-          trade_job_id_open: { not: null },
           exchange_account_id: accountIdNum,
           ...(dateFrom || dateTo ? {
             created_at: {
@@ -3288,9 +3291,12 @@ export class AdminSystemController {
         },
       });
 
+      // Filtrar apenas posições com trade_job_id_open não nulo
+      const positionsWithJobId = allPositions.filter(pos => pos.trade_job_id_open !== null);
+
       // Agrupar por trade_job_id_open
-      const positionsByJob = new Map<number, typeof allPositions>();
-      for (const pos of allPositions) {
+      const positionsByJob = new Map<number, typeof positionsWithJobId>();
+      for (const pos of positionsWithJobId) {
         if (pos.trade_job_id_open) {
           if (!positionsByJob.has(pos.trade_job_id_open)) {
             positionsByJob.set(pos.trade_job_id_open, []);
@@ -4180,7 +4186,6 @@ export class AdminSystemController {
 
       const allPositions = await this.prisma.tradePosition.findMany({
         where: {
-          trade_job_id_open: { not: null },
           ...(accountIdNum && { exchange_account_id: accountIdNum }),
           ...(dateFrom || dateTo ? {
             created_at: {
@@ -4199,9 +4204,12 @@ export class AdminSystemController {
         },
       });
 
+      // Filtrar apenas posições com trade_job_id_open não nulo
+      const positionsWithJobId = allPositions.filter(pos => pos.trade_job_id_open !== null);
+
       // Agrupar por trade_job_id_open
-      const positionsByJob = new Map<number, typeof allPositions>();
-      for (const pos of allPositions) {
+      const positionsByJob = new Map<number, typeof positionsWithJobId>();
+      for (const pos of positionsWithJobId) {
         if (pos.trade_job_id_open) {
           if (!positionsByJob.has(pos.trade_job_id_open)) {
             positionsByJob.set(pos.trade_job_id_open, []);
@@ -4612,7 +4620,6 @@ export class AdminSystemController {
       try {
         const allPositions = await this.prisma.tradePosition.findMany({
           where: {
-            trade_job_id_open: { not: null },
             exchange_account_id: accountIdNum,
             ...(dateFrom || dateTo ? {
               created_at: {
@@ -4636,8 +4643,11 @@ export class AdminSystemController {
           },
         });
 
-        const positionsByJob = new Map<number, typeof allPositions>();
-        for (const pos of allPositions) {
+        // Filtrar apenas posições com trade_job_id_open não nulo
+        const positionsWithJobId = allPositions.filter(pos => pos.trade_job_id_open !== null);
+
+        const positionsByJob = new Map<number, typeof positionsWithJobId>();
+        for (const pos of positionsWithJobId) {
           if (pos.trade_job_id_open) {
             if (!positionsByJob.has(pos.trade_job_id_open)) {
               positionsByJob.set(pos.trade_job_id_open, []);
