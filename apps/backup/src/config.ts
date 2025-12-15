@@ -30,21 +30,29 @@ export interface BackupConfig {
 }
 
 function parseDatabaseUrl(url: string) {
-  // Parse DATABASE_URL: mysql://user:password@host:port/database
-  const regex = /mysql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/;
+  // Parse DATABASE_URL: mysql://user:password@host:port/database?query_params
+  // O regex agora para antes do '?' para ignorar query parameters
+  const regex = /mysql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)/;
   const match = url.match(regex);
   
   if (!match) {
     throw new Error('Invalid DATABASE_URL format. Expected: mysql://user:password@host:port/database');
   }
 
-  return {
+  const dbConfig = {
     user: match[1],
     password: match[2],
     host: match[3],
     port: parseInt(match[4], 10),
     database: match[5],
   };
+
+  // Log de debug (sem mostrar senha)
+  console.log(`[CONFIG] Banco de dados: ${dbConfig.database}`);
+  console.log(`[CONFIG] Host: ${dbConfig.host}:${dbConfig.port}`);
+  console.log(`[CONFIG] Usuário: ${dbConfig.user}`);
+
+  return dbConfig;
 }
 
 export function loadConfig(): BackupConfig {
@@ -56,15 +64,26 @@ export function loadConfig(): BackupConfig {
 
   const dbConfig = parseDatabaseUrl(databaseUrl);
 
-  // FTP configuration
-  const ftpEnabled = process.env.BACKUP_ENABLE_FTP !== 'false'; // default true
+  // FTP configuration - exigir explicitamente 'true'
+  const ftpEnabled = process.env.BACKUP_ENABLE_FTP === 'true';
   const ftpHost = process.env.FTP_HOST || '';
   const ftpUser = process.env.FTP_USER || '';
   const ftpPassword = process.env.FTP_PASSWORD || '';
 
+  console.log(`[CONFIG] FTP habilitado: ${ftpEnabled}`);
+  
   // Validar configurações FTP se estiver habilitado
-  if (ftpEnabled && (!ftpHost || !ftpUser || !ftpPassword)) {
-    console.warn('[CONFIG] FTP está habilitado mas credenciais incompletas. FTP será desabilitado.');
+  if (ftpEnabled) {
+    if (!ftpHost || !ftpUser || !ftpPassword) {
+      console.warn('[CONFIG] ⚠️ FTP está habilitado mas credenciais incompletas. FTP será desabilitado.');
+      console.warn(`[CONFIG]   - FTP_HOST: ${ftpHost ? 'OK' : 'FALTANDO'}`);
+      console.warn(`[CONFIG]   - FTP_USER: ${ftpUser ? 'OK' : 'FALTANDO'}`);
+      console.warn(`[CONFIG]   - FTP_PASSWORD: ${ftpPassword ? 'OK' : 'FALTANDO'}`);
+    } else {
+      console.log(`[CONFIG] ✅ Credenciais FTP completas`);
+      console.log(`[CONFIG] FTP Host: ${ftpHost}:${process.env.FTP_PORT || '21'}`);
+      console.log(`[CONFIG] FTP Dir: ${process.env.FTP_REMOTE_DIR || '/backups/mvcash'}`);
+    }
   }
 
   return {

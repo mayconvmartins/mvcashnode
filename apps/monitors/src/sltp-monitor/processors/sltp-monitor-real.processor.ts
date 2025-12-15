@@ -196,7 +196,23 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         // Check Stop Loss
         if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
           if (!position.sl_triggered) {
-            // ✅ NOVO: Verificar se já existe job PENDING/EXECUTING para essa posição
+            // ✅ LOCK OTIMISTA: Tentar marcar sl_triggered = true atomicamente
+            // Só marca se ainda estiver false, prevenindo race conditions
+            const lockResult = await this.prisma.tradePosition.updateMany({
+              where: {
+                id: position.id,
+                sl_triggered: false, // ← Condição crítica para prevenir duplicatas
+              },
+              data: { sl_triggered: true },
+            });
+
+            if (lockResult.count === 0) {
+              // Outra execução já marcou, pular esta posição
+              this.logger.debug(`[SL-TP-MONITOR-REAL] Posição ${position.id} já foi processada por outra execução (SL)`);
+              continue;
+            }
+
+            // ✅ Conseguimos o lock! Agora verificar se já existe job
             const existingJob = await this.prisma.tradeJob.findFirst({
               where: {
                 position_id_to_close: position.id,
@@ -209,9 +225,9 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
             if (existingJob) {
               this.logger.warn(
-                `[SL-TP-MONITOR-REAL] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, pulando criação de novo job de SL`
+                `[SL-TP-MONITOR-REAL] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, flag já está marcada`
               );
-              continue; // Pular esta posição
+              continue; // Flag já está marcada, não reverter
             }
 
             try {
@@ -240,16 +256,15 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] Stop Loss - Job ${tradeJob.id} enfileirado na fila trade-execution-real`);
-
-              // Só marcar flag como true se job foi criado e enfileirado com sucesso
-              await this.prisma.tradePosition.update({
-                where: { id: position.id },
-                data: { sl_triggered: true },
-              });
               triggered++;
             } catch (error: any) {
               this.logger.error(`[SL-TP-MONITOR-REAL] Erro ao criar job de Stop Loss para posição ${position.id}: ${error.message}`);
-              // Não marcar flag se houver erro - permitirá tentar novamente no próximo ciclo
+              // ✅ Reverter flag se falhou ao criar/enfileirar job
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { sl_triggered: false },
+              });
+              this.logger.warn(`[SL-TP-MONITOR-REAL] Flag sl_triggered revertida para posição ${position.id}`);
             }
           }
         }
@@ -257,7 +272,23 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         // Check Take Profit
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
           if (!position.tp_triggered) {
-            // ✅ NOVO: Verificar se já existe job PENDING/EXECUTING para essa posição
+            // ✅ LOCK OTIMISTA: Tentar marcar tp_triggered = true atomicamente
+            // Só marca se ainda estiver false, prevenindo race conditions
+            const lockResult = await this.prisma.tradePosition.updateMany({
+              where: {
+                id: position.id,
+                tp_triggered: false, // ← Condição crítica para prevenir duplicatas
+              },
+              data: { tp_triggered: true },
+            });
+
+            if (lockResult.count === 0) {
+              // Outra execução já marcou, pular esta posição
+              this.logger.debug(`[SL-TP-MONITOR-REAL] Posição ${position.id} já foi processada por outra execução (TP)`);
+              continue;
+            }
+
+            // ✅ Conseguimos o lock! Agora verificar se já existe job
             const existingJob = await this.prisma.tradeJob.findFirst({
               where: {
                 position_id_to_close: position.id,
@@ -270,9 +301,9 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
             if (existingJob) {
               this.logger.warn(
-                `[SL-TP-MONITOR-REAL] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, pulando criação de novo job de TP`
+                `[SL-TP-MONITOR-REAL] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, flag já está marcada`
               );
-              continue; // Pular esta posição
+              continue; // Flag já está marcada, não reverter
             }
 
             try {
@@ -289,7 +320,11 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
               if (!validationResult.valid) {
                 console.warn(`[SL-TP-MONITOR-REAL] ⚠️ Take Profit SKIPADO para posição ${position.id}: ${validationResult.reason}`);
-                // Não criar o job de venda
+                // Reverter flag pois não vamos criar o job
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { tp_triggered: false },
+                });
                 continue;
               }
               
@@ -314,16 +349,15 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] Take Profit - Job ${tradeJob.id} enfileirado na fila trade-execution-real`);
-
-              // Só marcar flag como true se job foi criado e enfileirado com sucesso
-              await this.prisma.tradePosition.update({
-                where: { id: position.id },
-                data: { tp_triggered: true },
-              });
               triggered++;
             } catch (error: any) {
               this.logger.error(`[SL-TP-MONITOR-REAL] Erro ao criar job de Take Profit para posição ${position.id}: ${error.message}`);
-              // Não marcar flag se houver erro - permitirá tentar novamente no próximo ciclo
+              // ✅ Reverter flag se falhou ao criar/enfileirar job
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { tp_triggered: false },
+              });
+              this.logger.warn(`[SL-TP-MONITOR-REAL] Flag tp_triggered revertida para posição ${position.id}`);
             }
           }
         }

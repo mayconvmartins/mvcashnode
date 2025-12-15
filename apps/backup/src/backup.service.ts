@@ -72,6 +72,10 @@ export class BackupService {
         --events \
         ${database} | gzip > "${filepath}"`;
 
+      // Log do comando (sem mostrar senha)
+      const safeCommand = command.replace(/-p'[^']+'/, "-p'***'");
+      console.log(`[BACKUP] Executando: ${safeCommand.replace(/\s+/g, ' ')}`);
+
       // Executar backup
       await execAsync(command, {
         maxBuffer: 1024 * 1024 * 100, // 100MB buffer
@@ -79,6 +83,12 @@ export class BackupService {
 
       // Verificar se o arquivo foi criado
       const stats = await fs.stat(filepath);
+      
+      // Validar tamanho do arquivo
+      if (stats.size === 0) {
+        throw new Error('Backup gerou arquivo vazio! Verificar credenciais do banco ou nome do banco de dados.');
+      }
+      
       const sizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 

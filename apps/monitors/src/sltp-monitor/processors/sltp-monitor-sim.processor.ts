@@ -182,7 +182,21 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         // Check Stop Loss
         if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
           if (!position.sl_triggered) {
-            // ✅ NOVO: Verificar se já existe job PENDING/EXECUTING para essa posição
+            // ✅ LOCK OTIMISTA: Tentar marcar sl_triggered = true atomicamente
+            const lockResult = await this.prisma.tradePosition.updateMany({
+              where: {
+                id: position.id,
+                sl_triggered: false, // ← Prevenir race conditions
+              },
+              data: { sl_triggered: true },
+            });
+
+            if (lockResult.count === 0) {
+              this.logger.debug(`[SL-TP-MONITOR-SIM] Posição ${position.id} já foi processada por outra execução (SL)`);
+              continue;
+            }
+
+            // Verificar se já existe job
             const existingJob = await this.prisma.tradeJob.findFirst({
               where: {
                 position_id_to_close: position.id,
@@ -195,9 +209,9 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
 
             if (existingJob) {
               this.logger.warn(
-                `[SL-TP-MONITOR-SIM] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, pulando criação de novo job de SL`
+                `[SL-TP-MONITOR-SIM] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, flag já está marcada`
               );
-              continue; // Pular esta posição
+              continue;
             }
 
             try {
@@ -213,29 +227,27 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                 orderType: 'LIMIT',
                 baseQuantity: position.qty_remaining.toNumber(),
                 limitPrice,
-                positionIdToClose: position.id, // Vincular posição específica
+                positionIdToClose: position.id,
                 skipParameterValidation: true,
               });
 
               this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
 
-              // Enfileirar job para execução
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
                 attempts: 3,
               });
 
               this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job ${tradeJob.id} enfileirado na fila trade-execution-sim`);
-
-              // Só marcar flag como true se job foi criado e enfileirado com sucesso
-              await this.prisma.tradePosition.update({
-                where: { id: position.id },
-                data: { sl_triggered: true },
-              });
               triggered++;
             } catch (error: any) {
               this.logger.error(`[SL-TP-MONITOR-SIM] Erro ao criar job de Stop Loss para posição ${position.id}: ${error.message}`);
-              // Não marcar flag se houver erro - permitirá tentar novamente no próximo ciclo
+              // Reverter flag se falhou
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { sl_triggered: false },
+              });
+              this.logger.warn(`[SL-TP-MONITOR-SIM] Flag sl_triggered revertida para posição ${position.id}`);
             }
           }
         }
@@ -243,7 +255,21 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         // Check Take Profit
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
           if (!position.tp_triggered) {
-            // ✅ NOVO: Verificar se já existe job PENDING/EXECUTING para essa posição
+            // ✅ LOCK OTIMISTA: Tentar marcar tp_triggered = true atomicamente
+            const lockResult = await this.prisma.tradePosition.updateMany({
+              where: {
+                id: position.id,
+                tp_triggered: false, // ← Prevenir race conditions
+              },
+              data: { tp_triggered: true },
+            });
+
+            if (lockResult.count === 0) {
+              this.logger.debug(`[SL-TP-MONITOR-SIM] Posição ${position.id} já foi processada por outra execução (TP)`);
+              continue;
+            }
+
+            // Verificar se já existe job
             const existingJob = await this.prisma.tradeJob.findFirst({
               where: {
                 position_id_to_close: position.id,
@@ -256,55 +282,62 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
 
             if (existingJob) {
               this.logger.warn(
-                `[SL-TP-MONITOR-SIM] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, pulando criação de novo job de TP`
+                `[SL-TP-MONITOR-SIM] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, flag já está marcada`
               );
-              continue; // Pular esta posição
-            }
-
-            // Calcular preço LIMIT para Take Profit: price_open * (1 + tp_pct / 100)
-            const tpPct = position.tp_pct.toNumber();
-            const limitPrice = priceOpen * (1 + tpPct / 100);
-            
-            // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado na posição
-            // Usa o limitPrice calculado para validar
-            const validationResult = await positionService.validateMinProfit(
-              position.id,
-              limitPrice // Passar o preço calculado para validação
-            );
-
-            if (!validationResult.valid) {
-              console.warn(`[SL-TP-MONITOR-SIM] ⚠️ Take Profit SKIPADO para posição ${position.id}: ${validationResult.reason}`);
-              // Não criar o job de venda
               continue;
             }
-            
-            const tradeJob = await tradeJobService.createJob({
-              exchangeAccountId: position.exchange_account_id,
-              tradeMode: TradeMode.SIMULATION,
-              symbol: position.symbol,
-              side: 'SELL',
-              orderType: 'LIMIT',
-              baseQuantity: position.qty_remaining.toNumber(),
-              limitPrice,
-              positionIdToClose: position.id, // Vincular posição específica
-              skipParameterValidation: true,
-            });
 
-            this.logger.log(`[SL-TP-MONITOR-SIM] Take Profit - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
+            try {
+              // Calcular preço LIMIT para Take Profit: price_open * (1 + tp_pct / 100)
+              const tpPct = position.tp_pct.toNumber();
+              const limitPrice = priceOpen * (1 + tpPct / 100);
+              
+              // VALIDAÇÃO DE LUCRO MÍNIMO: Verificar se a venda atende ao lucro mínimo configurado na posição
+              const validationResult = await positionService.validateMinProfit(
+                position.id,
+                limitPrice
+              );
 
-            // Enfileirar job para execução
-            await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
-              jobId: `trade-job-${tradeJob.id}`,
-              attempts: 3,
-            });
+              if (!validationResult.valid) {
+                console.warn(`[SL-TP-MONITOR-SIM] ⚠️ Take Profit SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+                // Reverter flag pois não vamos criar o job
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { tp_triggered: false },
+                });
+                continue;
+              }
+              
+              const tradeJob = await tradeJobService.createJob({
+                exchangeAccountId: position.exchange_account_id,
+                tradeMode: TradeMode.SIMULATION,
+                symbol: position.symbol,
+                side: 'SELL',
+                orderType: 'LIMIT',
+                baseQuantity: position.qty_remaining.toNumber(),
+                limitPrice,
+                positionIdToClose: position.id,
+                skipParameterValidation: true,
+              });
 
-            this.logger.log(`[SL-TP-MONITOR-SIM] Take Profit - Job ${tradeJob.id} enfileirado na fila trade-execution-sim`);
+              this.logger.log(`[SL-TP-MONITOR-SIM] Take Profit - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
 
-            await this.prisma.tradePosition.update({
-              where: { id: position.id },
-              data: { tp_triggered: true },
-            });
-            triggered++;
+              await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
+                jobId: `trade-job-${tradeJob.id}`,
+                attempts: 3,
+              });
+
+              this.logger.log(`[SL-TP-MONITOR-SIM] Take Profit - Job ${tradeJob.id} enfileirado na fila trade-execution-sim`);
+              triggered++;
+            } catch (error: any) {
+              this.logger.error(`[SL-TP-MONITOR-SIM] Erro ao criar job de Take Profit para posição ${position.id}: ${error.message}`);
+              // Reverter flag se falhou
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { tp_triggered: false },
+              });
+              this.logger.warn(`[SL-TP-MONITOR-SIM] Flag tp_triggered revertida para posição ${position.id}`);
+            }
           }
         }
 
