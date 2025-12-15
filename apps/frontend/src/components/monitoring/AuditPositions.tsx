@@ -98,7 +98,13 @@ export function AuditPositions() {
   })
 
   const fixMutation = useMutation({
-    mutationFn: (corrections: Discrepancy[]) => adminService.auditFix(corrections),
+    mutationFn: (corrections: Array<{
+      type: string
+      entityType: 'EXECUTION' | 'POSITION'
+      entityId: number
+      field: string
+      expectedValue: number | string
+    }>) => adminService.auditFix(corrections),
     onSuccess: (data) => {
       setFixResult(data)
       if (data.fixed > 0) {
@@ -143,18 +149,71 @@ export function AuditPositions() {
       return
     }
 
-    const corrections = Array.from(selectedCorrections).map((index) => {
-      const disc = auditResult.discrepancies[index]
-      return {
+    const corrections = Array.from(selectedCorrections)
+      .map((index) => auditResult.discrepancies[index])
+      .filter((disc) => disc.entityType !== 'JOB') // Filtrar JOB pois não são corrigíveis automaticamente
+      .map((disc) => ({
         type: disc.type,
-        entityType: disc.entityType,
+        entityType: disc.entityType as 'EXECUTION' | 'POSITION',
         entityId: disc.entityId,
         field: disc.field,
         expectedValue: disc.expectedValue,
-      }
-    })
+      }))
 
-    fixMutation.mutate(corrections as any)
+    if (corrections.length === 0) {
+      toast.error('Nenhuma correção aplicável selecionada. Discrepâncias do tipo JOB não podem ser corrigidas automaticamente.')
+      return
+    }
+
+    fixMutation.mutate(corrections)
+  }
+
+  // Estado para auditoria de trades da exchange
+  const [exchangeTradesResult, setExchangeTradesResult] = useState<{
+    account_id: number
+    period: { from: string; to: string }
+    exchange_trades: { buy_count: number; sell_count: number; total_count: number }
+    system_executions: { buy_count: number; sell_count: number; total_count: number }
+    missing_in_system: Array<any>
+    extra_in_system: Array<any>
+    duplicates: Array<any>
+    jobs_without_order_id: Array<any>
+    errors?: Array<{ symbol?: string; error: string }>
+    duration_ms?: number
+  } | null>(null)
+
+  const exchangeTradesMutation = useMutation({
+    mutationFn: (params: { from: string; to: string; accountId: number }) => 
+      adminService.auditExchangeTrades(params),
+    retry: false,
+    onSuccess: (data) => {
+      setExchangeTradesResult(data)
+      if (data.missing_in_system.length > 0 || data.extra_in_system.length > 0 || data.duplicates.length > 0) {
+        toast.warning(`Auditoria de trades: ${data.missing_in_system.length} faltando, ${data.extra_in_system.length} a mais, ${data.duplicates.length} duplicados`)
+      } else {
+        toast.success(`Auditoria de trades concluída: Tudo sincronizado!`)
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erro ao executar auditoria de trades')
+    },
+  })
+
+  const handleAuditExchangeTrades = () => {
+    if (!dateFrom || !dateTo || selectedAccountId === 'all') {
+      toast.error('Selecione data inicial, data final e uma conta específica para auditar trades da exchange')
+      return
+    }
+
+    // Converter datetime-local para ISO string
+    const fromDate = new Date(dateFrom).toISOString()
+    const toDate = new Date(dateTo).toISOString()
+
+    exchangeTradesMutation.mutate({
+      from: fromDate,
+      to: toDate,
+      accountId: parseInt(selectedAccountId),
+    })
   }
 
   const getTypeBadge = (type: string) => {
@@ -165,6 +224,9 @@ export function AuditPositions() {
       FEE_CURRENCY: 'bg-yellow-500',
       POSITION_QTY: 'bg-red-500',
       POSITION_FEES: 'bg-pink-500',
+      MISSING_ORDER_ID: 'bg-red-600',
+      DUPLICATE_ORDER_ID: 'bg-orange-600',
+      MISSING_EXECUTION: 'bg-yellow-600',
     }
     return colors[type] || 'bg-gray-500'
   }
@@ -257,6 +319,24 @@ export function AuditPositions() {
               <>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Executar Auditoria
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleAuditExchangeTrades}
+            disabled={exchangeTradesMutation.isPending || !dateFrom || !dateTo || selectedAccountId === 'all'}
+            variant="outline"
+            className="flex-1"
+          >
+            {exchangeTradesMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Auditing Trades...
+              </>
+            ) : (
+              <>
+                <Search className="mr-2 h-4 w-4" />
+                Auditar Trades Exchange
               </>
             )}
           </Button>
@@ -434,6 +514,198 @@ export function AuditPositions() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Resultados da Auditoria de Trades da Exchange */}
+        {exchangeTradesResult && (
+          <div className="space-y-4 pt-4 border-t">
+            <div className="flex items-center gap-2">
+              <Search className="h-5 w-5 text-primary" />
+              <h3 className="text-lg font-semibold">Auditoria de Trades da Exchange</h3>
+            </div>
+
+            {/* Estatísticas */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="text-sm text-muted-foreground">Trades Exchange</div>
+                <div className="text-2xl font-bold">{exchangeTradesResult.exchange_trades.total_count}</div>
+                <div className="text-xs text-muted-foreground">
+                  {exchangeTradesResult.exchange_trades.buy_count} BUY, {exchangeTradesResult.exchange_trades.sell_count} SELL
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="text-sm text-muted-foreground">Executions Sistema</div>
+                <div className="text-2xl font-bold">{exchangeTradesResult.system_executions.total_count}</div>
+                <div className="text-xs text-muted-foreground">
+                  {exchangeTradesResult.system_executions.buy_count} BUY, {exchangeTradesResult.system_executions.sell_count} SELL
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="text-sm text-muted-foreground">Faltando no Sistema</div>
+                <div className="text-2xl font-bold text-orange-500">{exchangeTradesResult.missing_in_system.length}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="text-sm text-muted-foreground">A Mais no Sistema</div>
+                <div className="text-2xl font-bold text-red-500">{exchangeTradesResult.extra_in_system.length}</div>
+              </div>
+            </div>
+
+            {/* Trades Faltando no Sistema */}
+            {exchangeTradesResult.missing_in_system.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-orange-500">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Trades na Exchange que não estão no Sistema ({exchangeTradesResult.missing_in_system.length})</span>
+                </div>
+                <div className="border rounded-lg overflow-x-auto max-h-60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Order ID</TableHead>
+                        <TableHead>Side</TableHead>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead>Qty</TableHead>
+                        <TableHead>Price</TableHead>
+                        <TableHead>Timestamp</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {exchangeTradesResult.missing_in_system.map((trade, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-mono text-xs">{trade.order_id}</TableCell>
+                          <TableCell>
+                            <Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'}>
+                              {trade.side}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{trade.symbol}</TableCell>
+                          <TableCell>{trade.qty.toFixed(8)}</TableCell>
+                          <TableCell>{trade.price.toFixed(8)}</TableCell>
+                          <TableCell className="text-xs">{new Date(trade.timestamp).toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {/* Executions a Mais no Sistema */}
+            {exchangeTradesResult.extra_in_system.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-red-500">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Executions no Sistema que não estão na Exchange ({exchangeTradesResult.extra_in_system.length})</span>
+                </div>
+                <div className="border rounded-lg overflow-x-auto max-h-60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Execution ID</TableHead>
+                        <TableHead>Job ID</TableHead>
+                        <TableHead>Order ID</TableHead>
+                        <TableHead>Side</TableHead>
+                        <TableHead>Symbol</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {exchangeTradesResult.extra_in_system.map((exec, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{exec.execution_id}</TableCell>
+                          <TableCell>{exec.job_id}</TableCell>
+                          <TableCell className="font-mono text-xs">{exec.exchange_order_id}</TableCell>
+                          <TableCell>
+                            <Badge variant={exec.side === 'BUY' ? 'default' : 'destructive'}>
+                              {exec.side}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{exec.symbol}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {/* Duplicados */}
+            {exchangeTradesResult.duplicates.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-orange-500">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Executions Duplicados ({exchangeTradesResult.duplicates.length})</span>
+                </div>
+                <div className="border rounded-lg overflow-x-auto max-h-60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Order ID</TableHead>
+                        <TableHead>Count</TableHead>
+                        <TableHead>Execution IDs</TableHead>
+                        <TableHead>Job IDs</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {exchangeTradesResult.duplicates.map((dup, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-mono text-xs">{dup.exchange_order_id}</TableCell>
+                          <TableCell>
+                            <Badge variant="destructive">{dup.count}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">{dup.execution_ids.join(', ')}</TableCell>
+                          <TableCell className="text-xs">{dup.job_ids.join(', ')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {/* Jobs sem Order ID */}
+            {exchangeTradesResult.jobs_without_order_id.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-yellow-500">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Jobs sem Exchange Order ID ({exchangeTradesResult.jobs_without_order_id.length})</span>
+                </div>
+                <div className="border rounded-lg overflow-x-auto max-h-60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Job ID</TableHead>
+                        <TableHead>Execution ID</TableHead>
+                        <TableHead>Side</TableHead>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {exchangeTradesResult.jobs_without_order_id.map((job, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{job.job_id}</TableCell>
+                          <TableCell>{job.execution_id || 'N/A'}</TableCell>
+                          <TableCell>
+                            <Badge variant={job.side === 'BUY' ? 'default' : 'destructive'}>
+                              {job.side}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{job.symbol}</TableCell>
+                          <TableCell>{job.status}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {exchangeTradesResult.duration_ms && (
+              <div className="text-sm text-muted-foreground">
+                Tempo de execução: {(exchangeTradesResult.duration_ms / 1000).toFixed(2)}s
+              </div>
+            )}
           </div>
         )}
       </CardContent>

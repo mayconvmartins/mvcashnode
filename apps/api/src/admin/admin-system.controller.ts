@@ -1830,7 +1830,31 @@ export class AdminSystemController {
                     fixDescription: `Job ${job.id} tem exchange_order_id duplicado. Outros jobs: ${duplicateJobs.map(j => j.id).join(', ')}`,
                   });
                 }
+              } else {
+                // Job FILLED sem exchange_order_id
+                discrepancies.push({
+                  type: 'MISSING_ORDER_ID',
+                  entityType: 'JOB',
+                  entityId: job.id,
+                  field: 'exchange_order_id',
+                  currentValue: 'null',
+                  expectedValue: 'deve ter exchange_order_id',
+                  canAutoFix: false,
+                  fixDescription: `Job ${job.id} (${job.symbol}) está FILLED mas não tem exchange_order_id na execução`,
+                });
               }
+            } else {
+              // Job FILLED sem execuções
+              discrepancies.push({
+                type: 'MISSING_EXECUTION',
+                entityType: 'JOB',
+                entityId: job.id,
+                field: 'executions',
+                currentValue: '0 execuções',
+                expectedValue: 'deve ter execução',
+                canAutoFix: false,
+                fixDescription: `Job ${job.id} (${job.symbol}) está FILLED mas não tem execuções associadas`,
+              });
             }
           } catch (jobError: any) {
             errors.push({
@@ -2335,6 +2359,382 @@ export class AdminSystemController {
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro na auditoria:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/audit-exchange-trades')
+  @ApiOperation({
+    summary: 'Auditar trades da exchange vs sistema',
+    description: 'Compara trades da exchange (BUY/SELL) com executions do sistema no período especificado, identificando faltantes, duplicados e jobs sem exchange_order_id.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Auditoria de trades concluída',
+  })
+  async auditExchangeTrades(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('accountId') accountId?: string
+  ) {
+    if (!accountId) {
+      throw new BadRequestException('accountId é obrigatório para auditoria de trades da exchange');
+    }
+
+    const accountIdNum = parseInt(accountId);
+    const dateFrom = from ? new Date(from) : undefined;
+    const dateTo = to ? new Date(to) : undefined;
+
+    if (!dateFrom || !dateTo) {
+      throw new BadRequestException('from e to são obrigatórios para auditoria de trades da exchange');
+    }
+
+    console.log(`[ADMIN] Iniciando auditoria de trades da exchange para conta ${accountIdNum}...`);
+    console.log(`[ADMIN] Período: ${dateFrom.toISOString()} até ${dateTo.toISOString()}`);
+
+    const startTime = Date.now();
+    const errors: Array<{ symbol?: string; error: string }> = [];
+
+    try {
+      // Buscar conta
+      const account = await this.prisma.exchangeAccount.findUnique({
+        where: { id: accountIdNum },
+        select: {
+          id: true,
+          exchange: true,
+          api_key_enc: true,
+          api_secret_enc: true,
+          testnet: true,
+          is_simulation: true,
+        },
+      });
+
+      if (!account) {
+        throw new NotFoundException(`ExchangeAccount ${accountIdNum} not found`);
+      }
+
+      if (account.is_simulation) {
+        throw new BadRequestException('Não é possível auditar trades de conta de simulação');
+      }
+
+      if (!account.api_key_enc || !account.api_secret_enc) {
+        throw new BadRequestException('Conta sem API keys configuradas');
+      }
+
+      // Descriptografar API keys
+      const apiKey = await this.encryptionService.decrypt(account.api_key_enc);
+      const apiSecret = await this.encryptionService.decrypt(account.api_secret_enc);
+
+      // Criar adapter
+      const adapter = AdapterFactory.createAdapter(
+        account.exchange as ExchangeType,
+        apiKey,
+        apiSecret,
+        { testnet: account.testnet }
+      );
+
+      // Buscar símbolos únicos da conta no período (via jobs ou executions)
+      const executions = await this.prisma.tradeExecution.findMany({
+        where: {
+          exchange_account_id: accountIdNum,
+          created_at: {
+            gte: dateFrom,
+            lte: dateTo,
+          },
+        },
+        include: {
+          trade_job: {
+            select: {
+              symbol: true,
+              side: true,
+            },
+          },
+        },
+        distinct: ['trade_job_id'],
+      });
+
+      const symbols = new Set<string>();
+      executions.forEach(exec => {
+        if (exec.trade_job?.symbol) {
+          symbols.add(exec.trade_job.symbol);
+        }
+      });
+
+      // Se não encontrou símbolos via executions, buscar via jobs
+      if (symbols.size === 0) {
+        const jobs = await this.prisma.tradeJob.findMany({
+          where: {
+            exchange_account_id: accountIdNum,
+            created_at: {
+              gte: dateFrom,
+              lte: dateTo,
+            },
+          },
+          select: {
+            symbol: true,
+          },
+          distinct: ['symbol'],
+        });
+
+        jobs.forEach(job => {
+          if (job.symbol) {
+            symbols.add(job.symbol);
+          }
+        });
+      }
+
+      console.log(`[ADMIN] Encontrados ${symbols.size} símbolo(s) único(s) para auditar: ${Array.from(symbols).join(', ')}`);
+
+      // Buscar executions do sistema no período
+      const systemExecutions = await this.prisma.tradeExecution.findMany({
+        where: {
+          exchange_account_id: accountIdNum,
+          created_at: {
+            gte: dateFrom,
+            lte: dateTo,
+          },
+        },
+        include: {
+          trade_job: {
+            select: {
+              id: true,
+              side: true,
+              symbol: true,
+              status: true,
+            },
+          },
+        },
+      });
+
+      console.log(`[ADMIN] Encontradas ${systemExecutions.length} execuções no sistema no período`);
+
+      // Agrupar executions por exchange_order_id
+      const executionsByOrderId = new Map<string, typeof systemExecutions>();
+      const executionsWithoutOrderId: typeof systemExecutions = [];
+
+      for (const exec of systemExecutions) {
+        if (exec.exchange_order_id) {
+          if (!executionsByOrderId.has(exec.exchange_order_id)) {
+            executionsByOrderId.set(exec.exchange_order_id, []);
+          }
+          executionsByOrderId.get(exec.exchange_order_id)!.push(exec);
+        } else {
+          executionsWithoutOrderId.push(exec);
+        }
+      }
+
+      // Buscar trades da exchange para cada símbolo
+      const exchangeTradesByOrderId = new Map<string, any[]>();
+      let totalExchangeTrades = 0;
+      let exchangeBuyCount = 0;
+      let exchangeSellCount = 0;
+
+      const since = dateFrom.getTime();
+      const until = dateTo.getTime();
+
+      for (const symbol of symbols) {
+        try {
+          console.log(`[ADMIN] Buscando trades da exchange para ${symbol}...`);
+          
+          // Buscar trades do período (pode precisar fazer múltiplas chamadas se houver limite)
+          const trades = await adapter.fetchMyTrades(symbol, since, 1000);
+          
+          // Filtrar trades do período
+          const periodTrades = trades.filter((t: any) => {
+            const tradeTime = t.timestamp || t.datetime || 0;
+            return tradeTime >= since && tradeTime <= until;
+          });
+
+          console.log(`[ADMIN] Encontrados ${periodTrades.length} trade(s) da exchange para ${symbol} no período`);
+
+          for (const trade of periodTrades) {
+            const orderId = String(trade.order || trade.orderId || (trade.info && (trade.info.orderId || trade.info.orderListId)) || '');
+            
+            if (orderId && orderId !== 'undefined' && orderId !== 'null') {
+              if (!exchangeTradesByOrderId.has(orderId)) {
+                exchangeTradesByOrderId.set(orderId, []);
+              }
+              exchangeTradesByOrderId.get(orderId)!.push(trade);
+              
+              totalExchangeTrades++;
+              const side = trade.side?.toUpperCase() || (trade.amount > 0 ? 'BUY' : 'SELL');
+              if (side === 'BUY') {
+                exchangeBuyCount++;
+              } else {
+                exchangeSellCount++;
+              }
+            }
+          }
+        } catch (symbolError: any) {
+          console.error(`[ADMIN] Erro ao buscar trades para ${symbol}:`, symbolError.message);
+          errors.push({
+            symbol,
+            error: `Erro ao buscar trades: ${symbolError.message}`,
+          });
+        }
+      }
+
+      console.log(`[ADMIN] Total de trades da exchange encontrados: ${totalExchangeTrades} (${exchangeBuyCount} BUY, ${exchangeSellCount} SELL)`);
+      console.log(`[ADMIN] Total de order IDs únicos na exchange: ${exchangeTradesByOrderId.size}`);
+
+      // Identificar trades faltando no sistema (na exchange mas não no sistema)
+      const missingInSystem: Array<{
+        order_id: string;
+        side: 'BUY' | 'SELL';
+        symbol: string;
+        qty: number;
+        price: number;
+        timestamp: string;
+        trades_count: number;
+      }> = [];
+
+      for (const [orderId, trades] of exchangeTradesByOrderId.entries()) {
+        if (!executionsByOrderId.has(orderId)) {
+          // Trade na exchange mas não no sistema
+          const firstTrade = trades[0];
+          const side = (firstTrade.side?.toUpperCase() || 'BUY') as 'BUY' | 'SELL';
+          const symbol = firstTrade.symbol || firstTrade.info?.symbol || 'UNKNOWN';
+          const totalQty = trades.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+          const totalCost = trades.reduce((sum: number, t: any) => sum + (t.cost || (t.amount || 0) * (t.price || 0)), 0);
+          const avgPrice = totalQty > 0 ? totalCost / totalQty : 0;
+          const timestamp = firstTrade.timestamp || firstTrade.datetime || Date.now();
+
+          missingInSystem.push({
+            order_id: orderId,
+            side,
+            symbol,
+            qty: totalQty,
+            price: avgPrice,
+            timestamp: new Date(timestamp).toISOString(),
+            trades_count: trades.length,
+          });
+        }
+      }
+
+      // Identificar executions a mais no sistema (no sistema mas não na exchange)
+      const extraInSystem: Array<{
+        execution_id: number;
+        job_id: number;
+        exchange_order_id: string;
+        side: 'BUY' | 'SELL';
+        symbol: string;
+      }> = [];
+
+      for (const [orderId, execs] of executionsByOrderId.entries()) {
+        if (!exchangeTradesByOrderId.has(orderId)) {
+          // Execution no sistema mas não na exchange
+          for (const exec of execs) {
+            extraInSystem.push({
+              execution_id: exec.id,
+              job_id: exec.trade_job.id,
+              exchange_order_id: orderId,
+              side: exec.trade_job.side as 'BUY' | 'SELL',
+              symbol: exec.trade_job.symbol,
+            });
+          }
+        }
+      }
+
+      // Identificar executions duplicados (mesmo exchange_order_id)
+      const duplicates: Array<{
+        exchange_order_id: string;
+        execution_ids: number[];
+        job_ids: number[];
+        count: number;
+      }> = [];
+
+      for (const [orderId, execs] of executionsByOrderId.entries()) {
+        if (execs.length > 1) {
+          duplicates.push({
+            exchange_order_id: orderId,
+            execution_ids: execs.map(e => e.id),
+            job_ids: execs.map(e => e.trade_job.id),
+            count: execs.length,
+          });
+        }
+      }
+
+      // Identificar jobs sem exchange_order_id
+      const jobsWithoutOrderId: Array<{
+        job_id: number;
+        symbol: string;
+        side: 'BUY' | 'SELL';
+        status: string;
+        execution_id?: number;
+      }> = [];
+
+      const jobsFilled = await this.prisma.tradeJob.findMany({
+        where: {
+          exchange_account_id: accountIdNum,
+          status: 'FILLED',
+          created_at: {
+            gte: dateFrom,
+            lte: dateTo,
+          },
+        },
+        include: {
+          executions: {
+            select: {
+              id: true,
+              exchange_order_id: true,
+            },
+            take: 1,
+            orderBy: {
+              created_at: 'desc',
+            },
+          },
+        },
+      });
+
+      for (const job of jobsFilled) {
+        const execution = job.executions[0];
+        if (!execution || !execution.exchange_order_id) {
+          jobsWithoutOrderId.push({
+            job_id: job.id,
+            symbol: job.symbol,
+            side: job.side as 'BUY' | 'SELL',
+            status: job.status,
+            execution_id: execution?.id,
+          });
+        }
+      }
+
+      // Contar executions do sistema por lado
+      const systemBuyCount = systemExecutions.filter(e => e.trade_job.side === 'BUY').length;
+      const systemSellCount = systemExecutions.filter(e => e.trade_job.side === 'SELL').length;
+
+      const duration = Date.now() - startTime;
+      console.log(`[ADMIN] Auditoria de trades concluída em ${duration}ms`);
+      console.log(`[ADMIN] Trades faltando no sistema: ${missingInSystem.length}`);
+      console.log(`[ADMIN] Executions a mais no sistema: ${extraInSystem.length}`);
+      console.log(`[ADMIN] Executions duplicados: ${duplicates.length}`);
+      console.log(`[ADMIN] Jobs sem exchange_order_id: ${jobsWithoutOrderId.length}`);
+
+      return {
+        account_id: accountIdNum,
+        period: {
+          from: dateFrom.toISOString(),
+          to: dateTo.toISOString(),
+        },
+        exchange_trades: {
+          buy_count: exchangeBuyCount,
+          sell_count: exchangeSellCount,
+          total_count: totalExchangeTrades,
+        },
+        system_executions: {
+          buy_count: systemBuyCount,
+          sell_count: systemSellCount,
+          total_count: systemExecutions.length,
+        },
+        missing_in_system: missingInSystem,
+        extra_in_system: extraInSystem,
+        duplicates,
+        jobs_without_order_id: jobsWithoutOrderId,
+        errors: errors.length > 0 ? errors : undefined,
+        duration_ms: duration,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro na auditoria de trades:', error);
       throw error;
     }
   }

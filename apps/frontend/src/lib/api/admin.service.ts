@@ -287,6 +287,67 @@ export const adminService = {
         return response.data
     },
 
+    auditExchangeTrades: async (params: {
+        from: string
+        to: string
+        accountId: number
+    }): Promise<{
+        account_id: number
+        period: { from: string; to: string }
+        exchange_trades: {
+            buy_count: number
+            sell_count: number
+            total_count: number
+        }
+        system_executions: {
+            buy_count: number
+            sell_count: number
+            total_count: number
+        }
+        missing_in_system: Array<{
+            order_id: string
+            side: 'BUY' | 'SELL'
+            symbol: string
+            qty: number
+            price: number
+            timestamp: string
+            trades_count: number
+        }>
+        extra_in_system: Array<{
+            execution_id: number
+            job_id: number
+            exchange_order_id: string
+            side: 'BUY' | 'SELL'
+            symbol: string
+        }>
+        duplicates: Array<{
+            exchange_order_id: string
+            execution_ids: number[]
+            job_ids: number[]
+            count: number
+        }>
+        jobs_without_order_id: Array<{
+            job_id: number
+            symbol: string
+            side: 'BUY' | 'SELL'
+            status: string
+            execution_id?: number
+        }>
+        errors?: Array<{ symbol?: string; error: string }>
+        duration_ms?: number
+    }> => {
+        const queryParams = new URLSearchParams()
+        queryParams.append('from', params.from)
+        queryParams.append('to', params.to)
+        queryParams.append('accountId', params.accountId.toString())
+        
+        const url = `/admin/system/audit-exchange-trades?${queryParams.toString()}`
+        const response = await apiClient.post(url, {}, {
+            timeout: 1800000, // 30 minutos
+        })
+        return response.data
+    },
+
     auditFifoPositions: async (hours?: number, dryRun?: boolean): Promise<{
         totalExecutions: number
         checkedExecutions: number
