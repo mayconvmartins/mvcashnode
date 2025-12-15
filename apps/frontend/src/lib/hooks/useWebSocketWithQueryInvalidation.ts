@@ -72,6 +72,107 @@ function isTokenValid(token: string | null, bufferSeconds: number = 60): boolean
     return currentTime < (expirationTime - bufferTime)
 }
 
+/**
+ * Constrói a URL do WebSocket de forma segura e validada
+ * @param baseUrl URL base (pode ter ou não protocolo ws:// ou wss://)
+ * @param token Token JWT para autenticação
+ * @returns URL completa e validada do WebSocket
+ * @throws Error se a URL não puder ser construída
+ */
+function buildWebSocketUrl(baseUrl: string, token: string): string {
+    if (!baseUrl || !baseUrl.trim()) {
+        throw new Error('URL do WebSocket não fornecida')
+    }
+
+    if (!token || !token.trim()) {
+        throw new Error('Token de acesso não disponível para conexão WebSocket')
+    }
+
+    let url = baseUrl.trim()
+
+    // Detectar e normalizar protocolo
+    const hasWssProtocol = url.startsWith('wss://')
+    const hasWsProtocol = url.startsWith('ws://')
+    
+    // Remover protocolo existente para normalizar
+    if (hasWssProtocol || hasWsProtocol) {
+        url = url.replace(/^(ws|wss):\/\//, '')
+    }
+
+    // Detectar protocolo correto baseado no ambiente
+    let protocol: 'ws' | 'wss' = 'ws'
+    
+    if (typeof window !== 'undefined') {
+        // Se a página está em HTTPS, usar wss://
+        if (window.location.protocol === 'https:') {
+            protocol = 'wss'
+        }
+        // Se a URL original tinha wss://, manter wss://
+        if (hasWssProtocol) {
+            protocol = 'wss'
+        }
+    } else {
+        // No servidor (SSR), usar wss:// se a URL original tinha
+        if (hasWssProtocol) {
+            protocol = 'wss'
+        }
+    }
+
+    // Construir URL completa com protocolo
+    const urlWithProtocol = `${protocol}://${url}`
+
+    // Criar objeto URL para validação e manipulação
+    let wsUrl: URL
+    try {
+        wsUrl = new URL(urlWithProtocol)
+    } catch (urlError) {
+        throw new Error(
+            `URL do WebSocket inválida: ${urlWithProtocol}. ` +
+            `Erro: ${urlError instanceof Error ? urlError.message : String(urlError)}`
+        )
+    }
+
+    // Validar hostname
+    if (!wsUrl.hostname || wsUrl.hostname === '') {
+        throw new Error(`URL do WebSocket inválida: hostname não encontrado em ${baseUrl}`)
+    }
+
+    // Garantir que o path seja /ws
+    // Se o path já contém /ws, não duplicar
+    if (!wsUrl.pathname || wsUrl.pathname === '/' || !wsUrl.pathname.includes('/ws')) {
+        wsUrl.pathname = '/ws'
+    } else if (wsUrl.pathname.endsWith('/ws/')) {
+        // Remover barra final se existir
+        wsUrl.pathname = '/ws'
+    }
+
+    // Adicionar token na query string
+    wsUrl.searchParams.set('token', token)
+
+    const finalUrl = wsUrl.toString()
+
+    // Validações finais
+    if (!finalUrl.startsWith('ws://') && !finalUrl.startsWith('wss://')) {
+        throw new Error(
+            `URL final inválida (deve começar com ws:// ou wss://): ${finalUrl.replace(/token=[^&]+/, 'token=***')}`
+        )
+    }
+
+    if (!finalUrl.includes('/ws')) {
+        throw new Error(
+            `Path /ws não encontrado na URL final: ${finalUrl.replace(/token=[^&]+/, 'token=***')}`
+        )
+    }
+
+    if (!finalUrl.includes('token=')) {
+        throw new Error(
+            `Token não encontrado na URL final: ${finalUrl.replace(/token=[^&]+/, 'token=***')}`
+        )
+    }
+
+    return finalUrl
+}
+
 export function useWebSocketWithQueryInvalidation({
     url = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4010',
     enabled = true,
@@ -298,100 +399,21 @@ export function useWebSocketWithQueryInvalidation({
         }
 
         try {
-            // Validar e normalizar URL
-            let baseUrl = url.trim()
-            
-            if (!baseUrl) {
-                throw new Error('URL do WebSocket não fornecida')
-            }
+            // Construir URL do WebSocket de forma segura
+            const finalUrl = buildWebSocketUrl(url, accessToken)
 
-            console.log('🔌 [WebSocket] URL original:', baseUrl)
-            console.log('🔌 [WebSocket] Access token disponível:', !!accessToken, accessToken ? `(${accessToken.substring(0, 20)}...)` : '')
-            
-            // Remover protocolo ws:// ou wss:// se já estiver presente para normalizar
-            baseUrl = baseUrl.replace(/^(ws|wss):\/\//, '')
-            
-            // Detectar protocolo baseado no ambiente
-            let protocol = 'ws:'
-            if (typeof window !== 'undefined') {
-                // Se a página estiver em HTTPS, usar wss://
-                if (window.location.protocol === 'https:') {
-                    protocol = 'wss:'
-                }
-                // Se a URL original tinha wss://, manter
-                if (url.trim().startsWith('wss://')) {
-                    protocol = 'wss:'
-                }
-            }
-            
-            // Construir URL completa
-            const fullBaseUrl = `${protocol}//${baseUrl}`
-            
-            // Criar objeto URL com validação
-            let wsUrl: URL
-            try {
-                wsUrl = new URL(fullBaseUrl)
-            } catch (urlError) {
-                console.error('❌ [WebSocket] Erro ao criar objeto URL:', urlError, 'URL:', fullBaseUrl)
-                throw new Error(`URL inválida: ${fullBaseUrl}. Erro: ${urlError instanceof Error ? urlError.message : String(urlError)}`)
-            }
-            
-            // Garantir que o path seja sempre /ws (conforme gateway configurado)
-            // Se o path já contém /ws, não duplicar
-            if (!wsUrl.pathname || wsUrl.pathname === '/' || !wsUrl.pathname.includes('/ws')) {
-                // Se já tem /ws no final, não adicionar
-                if (wsUrl.pathname.endsWith('/ws')) {
-                    // Já está correto
-                } else if (wsUrl.pathname.endsWith('/ws/')) {
-                    wsUrl.pathname = '/ws'
-                } else {
-                    wsUrl.pathname = '/ws'
-                }
-            }
-            
-            // Validar que temos um hostname
-            if (!wsUrl.hostname || wsUrl.hostname === '') {
-                throw new Error(`URL inválida: hostname não encontrado em ${baseUrl}`)
-            }
-            
-            // Log da porta (para debug)
-            if (wsUrl.port) {
-                console.log('🔌 [WebSocket] Porta especificada na URL:', wsUrl.port)
-            } else {
-                console.log('🔌 [WebSocket] Sem porta na URL - usando porta padrão do protocolo')
-            }
-            
-            // Adicionar token na query string
-            if (!accessToken) {
-                throw new Error('Token de acesso não disponível para conexão WebSocket')
-            }
-            
-            wsUrl.searchParams.set('token', accessToken)
-
-            const finalUrl = wsUrl.toString()
-            
-            // Validações finais da URL
-            if (!finalUrl.startsWith('ws://') && !finalUrl.startsWith('wss://')) {
-                throw new Error(`URL final inválida (deve começar com ws:// ou wss://): ${finalUrl}`)
-            }
-            
-            if (!finalUrl.includes('token=')) {
-                throw new Error(`Token não encontrado na URL final: ${finalUrl.replace(/token=[^&]+/, 'token=***')}`)
-            }
-            
-            if (!finalUrl.includes('/ws')) {
-                throw new Error(`Path /ws não encontrado na URL final: ${finalUrl.replace(/token=[^&]+/, 'token=***')}`)
-            }
-
+            // Log informações de conexão (sem expor token)
+            const urlObj = new URL(finalUrl)
             console.log('🔌 [WebSocket] Conectando:', {
-                hostname: wsUrl.hostname,
-                port: wsUrl.port || 'default',
-                pathname: wsUrl.pathname,
-                protocol: wsUrl.protocol,
+                hostname: urlObj.hostname,
+                port: urlObj.port || 'default',
+                pathname: urlObj.pathname,
+                protocol: urlObj.protocol,
                 hasToken: true,
                 url: finalUrl.replace(/token=[^&]+/, 'token=***'),
             })
 
+            // Criar conexão WebSocket
             const ws = new WebSocket(finalUrl)
             
             // Limpar timeout anterior se existir
@@ -460,12 +482,40 @@ export function useWebSocketWithQueryInvalidation({
                     clearTimeout(connectionTimeoutRef.current)
                     connectionTimeoutRef.current = null
                 }
+                
+                // Detectar erro específico ERR_UNKNOWN_URL_SCHEME
+                const errorMessage = error instanceof Error ? error.message : String(error)
+                const isUnknownUrlScheme = errorMessage.includes('ERR_UNKNOWN_URL_SCHEME') || 
+                                          errorMessage.includes('Unknown URL scheme')
+                
+                if (isUnknownUrlScheme) {
+                    console.error('❌ WebSocket error: ERR_UNKNOWN_URL_SCHEME - URL malformada ou protocolo inválido')
+                    console.error('❌ URL tentada:', finalUrl.replace(/token=[^&]+/, 'token=***'))
+                    console.error('❌ Isso geralmente indica que a URL não começa com ws:// ou wss://')
+                    
+                    // Marcar como erro não-recuperável
+                    shouldReconnectRef.current = false
+                    
+                    toast.error('Erro de configuração: URL do WebSocket inválida. Verifique NEXT_PUBLIC_WS_URL.', {
+                        duration: 8000,
+                    })
+                    
+                    // Fechar conexão imediatamente
+                    try {
+                        ws.close(1002, 'ERR_UNKNOWN_URL_SCHEME')
+                    } catch (closeError) {
+                        console.warn('⚠️ Erro ao fechar WebSocket após ERR_UNKNOWN_URL_SCHEME:', closeError)
+                    }
+                    return
+                }
+                
                 console.error('❌ WebSocket error:', {
                     type: error.type,
                     target: error.target,
                     readyState: wsRef.current?.readyState,
+                    message: errorMessage,
                 })
-                // Não fechar a conexão aqui, deixar o onclose lidar com isso
+                // Não fechar a conexão aqui para outros erros, deixar o onclose lidar com isso
             }
 
             ws.onclose = (event) => {
