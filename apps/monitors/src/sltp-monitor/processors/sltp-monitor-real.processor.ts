@@ -147,6 +147,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 limitPrice,
                 positionIdToClose: position.id,
                 skipParameterValidation: true,
+                createdBy: 'SLTP_MONITOR',
               });
 
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {

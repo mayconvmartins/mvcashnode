@@ -737,6 +737,7 @@ export class WebhookMonitorService {
                 limitPrice,
                 baseQuantity: position.qty_remaining.toNumber(),
                 positionIdToClose: position.id, // ✅ SEMPRE informar position_id
+                createdBy: 'WEBHOOK',
               });
               
               tradeJobIds.push(tradeJob.id);
@@ -754,6 +755,7 @@ export class WebhookMonitorService {
             symbol: alert.symbol,
             side: 'BUY',
             orderType: 'MARKET',
+            createdBy: 'WEBHOOK',
           });
           
           tradeJobIds.push(tradeJob.id);

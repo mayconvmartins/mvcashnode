@@ -1437,6 +1437,7 @@ export class PositionService {
       limitOrderExpiresAt: expiresAt,
       positionIdToClose: positionId, // Vincular posição específica
       skipParameterValidation: true, // Já temos a quantidade definida
+      createdBy: 'USER_MANUAL',
     });
 
     return { positionId, tradeJobId: tradeJob.id, limitPrice, quantity: qtyToSell };

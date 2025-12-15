@@ -145,6 +145,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                 limitPrice,
                 positionIdToClose: position.id,
                 skipParameterValidation: true,
+                createdBy: 'SLTP_MONITOR',
               });
 
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
@@ -256,6 +257,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                 limitPrice,
                 positionIdToClose: position.id,
                 skipParameterValidation: true,
+                createdBy: 'SLTP_MONITOR',
               });
 
               this.logger.log(`[SL-TP-MONITOR-SIM] Stop Loss - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
@@ -345,6 +347,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                 limitPrice,
                 positionIdToClose: position.id,
                 skipParameterValidation: true,
+                createdBy: 'SLTP_MONITOR',
               });
 
               this.logger.log(`[SL-TP-MONITOR-SIM] Take Profit - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);

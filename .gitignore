@@ -44,3 +44,4 @@ temp/
 Thumbs.db
 pnpm-lock.yaml
 apps/site/.next
+.cursor/plans/add_creator_tracking_to_orders_5811f0a6.plan.md

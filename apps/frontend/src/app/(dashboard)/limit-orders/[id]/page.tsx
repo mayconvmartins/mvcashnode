@@ -139,6 +139,17 @@ export default function LimitOrderDetailPage() {
                         <span className="text-muted-foreground">Criada em:</span>
                         <span>{formatDate(order.created_at)}</span>
                     </div>
+                    {order.created_by && (
+                        <div className="flex justify-between">
+                            <span className="text-muted-foreground">Criado Por:</span>
+                            <Badge variant="outline">
+                                {order.created_by === 'USER_MANUAL' ? 'Manual' :
+                                 order.created_by === 'WEBHOOK' ? 'Webhook' :
+                                 order.created_by === 'SLTP_MONITOR' ? 'Monitor TP/SL' :
+                                 order.created_by}
+                            </Badge>
+                        </div>
+                    )}
                     {order.limit_order_expires_at && (
                         <div className="flex justify-between">
                             <span className="text-muted-foreground">Expira em:</span>

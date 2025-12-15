@@ -514,6 +514,7 @@ export class WebhookEventService {
                 limitPrice, // Preço limite para SELL
                 positionIdToClose: position.id, // ✅ SEMPRE informar position_id
                 skipParameterValidation: true, // Pular validação pois já temos quantidade e position_id
+                createdBy: 'WEBHOOK',
               });
               
               // VALIDAÇÃO PÓS-CRIAÇÃO: Verificar se foi salvo corretamente
@@ -556,6 +557,7 @@ export class WebhookEventService {
             baseQuantity,
             limitPrice,
             skipParameterValidation: false,
+            createdBy: 'WEBHOOK',
           });
           
           console.log(`[WEBHOOK-EVENT] ✅ Job criado: ID=${tradeJob.id}, orderType=${tradeJob.order_type}, limitPrice=${tradeJob.limit_price?.toNumber() || 'NULL'}, quantidade: ${baseQuantity || tradeJob.quote_amount || 'calculada automaticamente'}`);

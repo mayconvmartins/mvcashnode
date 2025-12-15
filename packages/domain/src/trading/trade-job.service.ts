@@ -16,6 +16,7 @@ export interface CreateTradeJobDto {
   limitOrderExpiresAt?: Date;
   positionIdToClose?: number; // ID da posição específica a fechar (para SELL)
   skipParameterValidation?: boolean; // Para casos onde já temos quantidade definida
+  createdBy?: string; // Quem ou qual serviço criou a ordem (USER_MANUAL, WEBHOOK, SLTP_MONITOR, etc.)
 }
 
 export class TradeJobService {
@@ -131,6 +132,7 @@ export class TradeJobService {
         vault_id: dto.vaultId || null,
         limit_order_expires_at: dto.limitOrderExpiresAt || null,
         position_id_to_close: dto.positionIdToClose || null,
+        created_by: dto.createdBy || null,
         status: initialStatus,
       },
     });

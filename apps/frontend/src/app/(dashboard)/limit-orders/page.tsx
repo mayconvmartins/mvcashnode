@@ -132,6 +132,26 @@ export default function LimitOrdersPage() {
             render: (order) => <span className="text-sm">{formatDateTime(order.created_at)}</span> 
         },
         {
+            key: 'created_by',
+            label: 'Criado Por',
+            render: (order) => {
+                if (!order.created_by) {
+                    return <span className="text-muted-foreground text-sm">-</span>
+                }
+                const labels: Record<string, string> = {
+                    'USER_MANUAL': 'Manual',
+                    'WEBHOOK': 'Webhook',
+                    'SLTP_MONITOR': 'Monitor TP/SL',
+                }
+                const label = labels[order.created_by] || order.created_by
+                return (
+                    <Badge variant="outline" className="text-xs">
+                        {label}
+                    </Badge>
+                )
+            },
+        },
+        {
             key: 'actions',
             label: 'Ações',
             render: (order) => (

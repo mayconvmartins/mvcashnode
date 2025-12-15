@@ -3084,6 +3084,7 @@ export class PositionsController {
         quoteAmount: createDto.quote_amount,
         limitPrice: createDto.limit_price,
         skipParameterValidation: true, // Pular validação de parâmetros pois estamos fornecendo quote_amount diretamente
+        createdBy: 'USER_MANUAL',
       });
 
       // Enfileirar o job para execução
