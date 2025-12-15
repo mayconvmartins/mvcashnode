@@ -7,6 +7,7 @@ import { DustPositions } from '@/components/monitoring/DustPositions'
 import { SuspiciousSellExecutions } from '@/components/monitoring/SuspiciousSellExecutions'
 import { AuditFifoPositions } from '@/components/monitoring/AuditFifoPositions'
 import { CancelAllPendingOrders } from '@/components/monitoring/CancelAllPendingOrders'
+import { EnqueueOrphanOrders } from '@/components/monitoring/EnqueueOrphanOrders'
 import { OrphanedExecutions } from '@/components/monitoring/OrphanedExecutions'
 import { MissingOrders } from '@/components/monitoring/MissingOrders'
 import { Wrench } from 'lucide-react'
@@ -39,6 +40,9 @@ export default function DebugToolsPage() {
 
                 {/* Execuções Suspeitas */}
                 <SuspiciousSellExecutions />
+
+                {/* Enfileirar Ordens Órfãs */}
+                <EnqueueOrphanOrders />
 
                 {/* Cancelar Ordens Pendentes */}
                 <CancelAllPendingOrders />

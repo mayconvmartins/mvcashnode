@@ -762,10 +762,14 @@ export const adminService = {
         side?: 'BUY' | 'SELL';
         orderType?: 'MARKET' | 'LIMIT';
         dryRun?: boolean;
+        limit?: number;
     }): Promise<{
         success: boolean;
+        message?: string;
         dryRun?: boolean;
         ordersFound?: number;
+        orphansFound?: number;
+        withExecutions?: number;
         orders?: Array<{
             id: number;
             symbol: string;
@@ -776,6 +780,7 @@ export const adminService = {
             exchangeOrderId: string | null;
             accountId: number;
             accountLabel: string;
+            isOrphan: boolean;
         }>;
         total?: number;
         canceledInExchange?: number;
@@ -784,6 +789,40 @@ export const adminService = {
         errorDetails?: Array<{ orderId: number; error: string }>;
     }> => {
         const response = await apiClient.post('/admin/cancel-all-pending-orders', params || {}, {
+            timeout: 300000, // 5 minutos
+        })
+        return response.data
+    },
+
+    enqueuePendingLimitOrders: async (params?: {
+        accountIds?: number[];
+        symbol?: string;
+        side?: 'BUY' | 'SELL';
+        tradeMode?: 'REAL' | 'SIMULATION';
+        dryRun?: boolean;
+        limit?: number;
+    }): Promise<{
+        success: boolean;
+        dryRun?: boolean;
+        ordersFound?: number;
+        orders?: Array<{
+            id: number;
+            symbol: string;
+            side: string;
+            orderType: string;
+            tradeMode: string;
+            limitPrice: number;
+            accountId: number;
+            accountLabel: string;
+            createdAt: string;
+        }>;
+        total?: number;
+        enqueued?: number;
+        alreadyEnqueued?: number;
+        errors?: number;
+        errorDetails?: Array<{ orderId: number; error: string }>;
+    }> => {
+        const response = await apiClient.post('/admin/enqueue-pending-limit-orders', params || {}, {
             timeout: 300000, // 5 minutos
         })
         return response.data
