@@ -51,7 +51,12 @@ export function CancelAllPendingOrders() {
           ordersFound: data.ordersFound,
           orders: data.orders,
         })
-        setShowConfirm(true)
+        
+        if (data.ordersFound === 0) {
+          toast.success('✅ Nenhuma ordem pendente encontrada!')
+        } else {
+          setShowConfirm(true)
+        }
       }
     },
     onError: (error: any) => {

@@ -20,7 +20,7 @@ O endpoint cancela **TODAS** as ordens com status `PENDING` ou `PENDING_LIMIT`, 
 
 - ✅ **Ordens com executions** (criadas na exchange) - Cancela na exchange E no banco
 - ✅ **Ordens órfãs** (sem executions - nunca enfileiradas) - Cancela apenas no banco
-- ✅ **Até 1000 ordens por vez** (configurável)
+- ✅ **Sem limite** - Cancela TODAS as ordens encontradas (pode ser milhares)
 
 ## Parâmetros
 
@@ -31,7 +31,6 @@ O endpoint cancela **TODAS** as ordens com status `PENDING` ou `PENDING_LIMIT`, 
   side?: 'BUY' | 'SELL';    // Filtrar por lado
   orderType?: 'MARKET' | 'LIMIT';  // Filtrar por tipo
   dryRun?: boolean;          // true = só visualizar, não cancela
-  limit?: number;            // Máximo de ordens (padrão: 1000)
 }
 ```
 
@@ -87,13 +86,14 @@ curl -X POST http://localhost:5000/admin/cancel-all-pending-orders \
   -d '{"accountIds": [1, 2]}'
 ```
 
-### 5. Cancelar Muitas Ordens (Até 5000)
+### 5. Verificar Antes de Cancelar (Recomendado)
 
 ```bash
+# Sempre faça dry run primeiro para ver o que será cancelado
 curl -X POST http://localhost:5000/admin/cancel-all-pending-orders \
   -H "Authorization: Bearer SEU_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"limit": 5000}'
+  -d '{"dryRun": true}'
 ```
 
 ## O que Acontece Depois?

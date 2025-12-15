@@ -2765,10 +2765,9 @@ export class AdminSystemController {
       side?: 'BUY' | 'SELL';
       orderType?: 'MARKET' | 'LIMIT';
       dryRun?: boolean;
-      limit?: number;
     }
   ) {
-    const { accountIds, symbol, side, orderType, dryRun = false, limit = 1000 } = body;
+    const { accountIds, symbol, side, orderType, dryRun = false } = body;
 
     // Buscar ordens PENDING e PENDING_LIMIT
     const whereConditions: any = {
@@ -2788,10 +2787,9 @@ export class AdminSystemController {
       whereConditions.order_type = orderType;
     }
 
-    // Buscar até o limite especificado (padrão 1000)
+    // Buscar TODAS as ordens pendentes (sem limite)
     const pendingOrders = await this.prisma.tradeJob.findMany({
       where: whereConditions,
-      take: Math.min(limit, 5000), // Máximo 5000 por vez para segurança
       orderBy: { created_at: 'asc' }, // Mais antigas primeiro
       include: {
         exchange_account: true,

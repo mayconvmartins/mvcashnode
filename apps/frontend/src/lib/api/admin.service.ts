@@ -762,7 +762,6 @@ export const adminService = {
         side?: 'BUY' | 'SELL';
         orderType?: 'MARKET' | 'LIMIT';
         dryRun?: boolean;
-        limit?: number;
     }): Promise<{
         success: boolean;
         message?: string;
