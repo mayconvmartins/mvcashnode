@@ -2765,10 +2765,10 @@ export class AdminSystemController {
       side?: 'BUY' | 'SELL';
       orderType?: 'MARKET' | 'LIMIT';
       dryRun?: boolean;
-      enqueueOrphans?: boolean;
+      limit?: number;
     }
   ) {
-    const { accountIds, symbol, side, orderType, dryRun = false, enqueueOrphans = false } = body;
+    const { accountIds, symbol, side, orderType, dryRun = false, limit = 1000 } = body;
 
     // Buscar ordens PENDING e PENDING_LIMIT
     const whereConditions: any = {
@@ -2788,11 +2788,11 @@ export class AdminSystemController {
       whereConditions.order_type = orderType;
     }
 
-    // ✅ BUG-BAIXO-004 FIX: Adicionar paginação padrão
+    // Buscar até o limite especificado (padrão 1000)
     const pendingOrders = await this.prisma.tradeJob.findMany({
       where: whereConditions,
-      take: 50,
-      skip: 0,
+      take: Math.min(limit, 5000), // Máximo 5000 por vez para segurança
+      orderBy: { created_at: 'asc' }, // Mais antigas primeiro
       include: {
         exchange_account: true,
         executions: {
@@ -2807,7 +2807,9 @@ export class AdminSystemController {
     const orphanedOrders = pendingOrders.filter((o) => o.executions.length === 0);
     const ordersWithExecutions = pendingOrders.filter((o) => o.executions.length > 0);
 
-    console.log(`[ADMIN] Encontradas ${orphanedOrders.length} ordens órfãs (sem executions) e ${ordersWithExecutions.length} com executions`);
+    console.log(`[ADMIN] Encontradas ${pendingOrders.length} ordens pendentes:`);
+    console.log(`[ADMIN] - ${orphanedOrders.length} órfãs (sem executions - nunca foram enfileiradas)`);
+    console.log(`[ADMIN] - ${ordersWithExecutions.length} com executions (na exchange)`);
 
     if (dryRun) {
       return {
@@ -2816,7 +2818,7 @@ export class AdminSystemController {
         ordersFound: pendingOrders.length,
         orphansFound: orphanedOrders.length,
         withExecutions: ordersWithExecutions.length,
-        orders: pendingOrders.map((o) => ({
+        orders: pendingOrders.slice(0, 50).map((o) => ({
           id: o.id,
           symbol: o.symbol,
           side: o.side,
@@ -2827,48 +2829,16 @@ export class AdminSystemController {
           accountId: o.exchange_account_id,
           accountLabel: o.exchange_account.label,
           isOrphan: o.executions.length === 0,
+          createdAt: o.created_at,
         })),
       };
     }
 
-    // Se enqueueOrphans = true, tentar enfileirar órfãs antes de cancelar
-    let orphansEnqueued = 0;
-    let orphansFailed = 0;
-    if (enqueueOrphans && orphanedOrders.length > 0) {
-      console.log(`[ADMIN] Tentando enfileirar ${orphanedOrders.length} ordens órfãs antes de cancelar...`);
-      
-      for (const order of orphanedOrders) {
-        try {
-          await this.tradeJobQueueService.enqueueTradeJob(order.id);
-          orphansEnqueued++;
-          console.log(`[ADMIN] Órfã ${order.id} enfileirada com sucesso`);
-        } catch (error: any) {
-          orphansFailed++;
-          console.error(`[ADMIN] Erro ao enfileirar órfã ${order.id}: ${error.message}`);
-        }
-      }
-
-      console.log(`[ADMIN] Enfileiramento de órfãs concluído: ${orphansEnqueued} enfileiradas, ${orphansFailed} falharam`);
-      
-      // Se enfileirou com sucesso, não cancelar essas ordens
-      if (orphansEnqueued > 0) {
-        console.log(`[ADMIN] ${orphansEnqueued} órfãs foram enfileiradas e não serão canceladas`);
-      }
-    }
-
-    // Cancelar ordens (exceto as que foram enfileiradas com sucesso)
-    const enqueuedIds = enqueueOrphans 
-      ? orphanedOrders.slice(0, orphansEnqueued).map(o => o.id)
-      : [];
-    
-    const ordersToCancel = pendingOrders.filter(o => !enqueuedIds.includes(o.id));
-
+    // Cancelar TODAS as ordens pendentes
     const results = {
       total: pendingOrders.length,
       orphansFound: orphanedOrders.length,
-      orphansEnqueued,
-      orphansFailed,
-      ordersToCancel: ordersToCancel.length,
+      withExecutions: ordersWithExecutions.length,
       canceledInExchange: 0,
       canceledInDb: 0,
       errors: 0,
@@ -2878,7 +2848,7 @@ export class AdminSystemController {
     const { ExchangeAccountService } = await import('@mvcashnode/domain');
     const accountService = new ExchangeAccountService(this.prisma, this.encryptionService);
 
-    for (const order of ordersToCancel) {
+    for (const order of pendingOrders) {
       try {
         // Se tem exchange_order_id, cancelar na exchange
         if (order.executions.length > 0 && order.executions[0].exchange_order_id) {
@@ -2944,10 +2914,15 @@ export class AdminSystemController {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    console.log(`[ADMIN] Cancelamento concluído: ${results.canceledInDb} canceladas no banco, ${results.canceledInExchange} na exchange, ${results.errors} erros`);
+    console.log(`[ADMIN] Cancelamento concluído:`);
+    console.log(`[ADMIN] - ${results.canceledInDb} canceladas no banco`);
+    console.log(`[ADMIN] - ${results.canceledInExchange} canceladas na exchange`);
+    console.log(`[ADMIN] - ${results.orphansFound} eram órfãs (apenas canceladas no banco)`);
+    console.log(`[ADMIN] - ${results.errors} erros`);
 
     return {
       success: true,
+      message: `${results.canceledInDb} ordens canceladas (${results.orphansFound} órfãs, ${results.canceledInExchange} na exchange)`,
       ...results,
     };
   }
