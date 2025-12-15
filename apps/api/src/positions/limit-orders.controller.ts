@@ -235,6 +235,7 @@ export class LimitOrdersController {
             status: true,
             position_id_to_close: true,
             limit_order_expires_at: true,
+            created_by: true,
             created_at: true,
             updated_at: true,
             exchange_account: {
@@ -287,6 +288,7 @@ export class LimitOrdersController {
           exchange_order_id: execution?.exchange_order_id || null,
           exchange_account: job.exchange_account,
           limit_order_expires_at: job.limit_order_expires_at,
+          created_by: job.created_by,
           created_at: job.created_at,
           updated_at: job.updated_at,
         };
@@ -433,6 +435,7 @@ export class LimitOrdersController {
             status: true,
             reason_code: true,
             position_id_to_close: true,
+            created_by: true,
             created_at: true,
             exchange_account: {
               select: {
@@ -474,6 +477,7 @@ export class LimitOrdersController {
           exchange_order_id: execution?.exchange_order_id || null,
           exchange_account: job.exchange_account,
           filled_at: execution?.created_at || null,
+          created_by: job.created_by,
           created_at: job.created_at,
         };
       });
@@ -661,6 +665,7 @@ export class LimitOrdersController {
           created_at: exec.created_at,
         })),
         limit_order_expires_at: job.limit_order_expires_at,
+        created_by: job.created_by,
         created_at: job.created_at,
         updated_at: job.updated_at,
       };
