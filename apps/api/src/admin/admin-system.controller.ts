@@ -4529,168 +4529,220 @@ export class AdminSystemController {
 
       // 1. Detectar trade jobs órfãos
       console.log('[ADMIN] Detectando trade jobs órfãos...');
-      const jobsFilled = await this.prisma.tradeJob.findMany({
-        where: {
-          exchange_account_id: accountIdNum,
-          status: 'FILLED',
-          created_at: {
-            gte: dateFrom,
-            lte: dateTo,
-          },
-        },
-        include: {
-          executions: {
-            select: {
-              id: true,
-              exchange_order_id: true,
-            },
-            orderBy: {
-              created_at: 'desc',
+      try {
+        const jobsFilled = await this.prisma.tradeJob.findMany({
+          where: {
+            exchange_account_id: accountIdNum,
+            status: 'FILLED',
+            created_at: {
+              gte: dateFrom,
+              lte: dateTo,
             },
           },
-          position_open: {
-            select: {
-              id: true,
+          include: {
+            executions: {
+              select: {
+                id: true,
+                exchange_order_id: true,
+              },
+              orderBy: {
+                created_at: 'desc',
+              },
+            },
+            position_open: {
+              select: {
+                id: true,
+              },
             },
           },
-        },
-      });
+        });
 
-      for (const job of jobsFilled) {
-        const execution = job.executions[0];
-        
-        if (!execution) {
-          validations.orphan_jobs.push({
-            job_id: job.id,
-            reason: 'Job FILLED sem executions',
-          });
-        } else if (!execution.exchange_order_id) {
-          validations.orphan_jobs.push({
-            job_id: job.id,
-            reason: 'Job FILLED sem exchange_order_id',
-          });
-        } else if (String(execution.exchange_order_id).startsWith('DUST-')) {
-          validations.orphan_jobs.push({
-            job_id: job.id,
-            reason: 'Job com execution DUST (não existe na exchange)',
-          });
-        } else {
-          // Validar se existe na exchange
+        for (const job of jobsFilled) {
           try {
-            await adapter.fetchOrder(execution.exchange_order_id, job.symbol);
-          } catch (orderError: any) {
-            if (
-              orderError.message?.includes('not found') ||
-              orderError.message?.includes('does not exist') ||
-              orderError.message?.includes('-2013')
-            ) {
-              validations.jobs_without_exchange.push({
+            const execution = job.executions[0];
+            
+            if (!execution) {
+              validations.orphan_jobs.push({
                 job_id: job.id,
-                order_id: execution.exchange_order_id,
+                reason: 'Job FILLED sem executions',
               });
+            } else if (!execution.exchange_order_id) {
+              validations.orphan_jobs.push({
+                job_id: job.id,
+                reason: 'Job FILLED sem exchange_order_id',
+              });
+            } else if (String(execution.exchange_order_id).startsWith('DUST-')) {
+              validations.orphan_jobs.push({
+                job_id: job.id,
+                reason: 'Job com execution DUST (não existe na exchange)',
+              });
+            } else {
+              // Validar se existe na exchange
+              try {
+                await adapter.fetchOrder(execution.exchange_order_id, job.symbol);
+              } catch (orderError: any) {
+                if (
+                  orderError.message?.includes('not found') ||
+                  orderError.message?.includes('does not exist') ||
+                  orderError.message?.includes('-2013')
+                ) {
+                  validations.jobs_without_exchange.push({
+                    job_id: job.id,
+                    order_id: execution.exchange_order_id,
+                  });
+                }
+              }
             }
+          } catch (jobError: any) {
+            console.error(`[ADMIN] Erro ao validar job ${job.id}:`, jobError.message);
+            errors.push({
+              type: 'ORPHAN_JOB_VALIDATION',
+              id: job.id,
+              error: `Erro ao validar: ${jobError.message}`,
+            });
           }
         }
+      } catch (error: any) {
+        console.error('[ADMIN] Erro ao detectar trade jobs órfãos:', error.message);
+        errors.push({
+          type: 'ORPHAN_JOBS_DETECTION',
+          id: 0,
+          error: `Erro ao detectar jobs órfãos: ${error.message}`,
+        });
       }
 
       // 2. Detectar posições duplicadas
       console.log('[ADMIN] Detectando posições duplicadas...');
-      const allPositions = await this.prisma.tradePosition.findMany({
-        where: {
-          trade_job_id_open: { not: null },
-          exchange_account_id: accountIdNum,
-          ...(dateFrom || dateTo ? {
-            created_at: {
-              ...(dateFrom && { gte: dateFrom }),
-              ...(dateTo && { lte: dateTo }),
+      try {
+        const allPositions = await this.prisma.tradePosition.findMany({
+          where: {
+            trade_job_id_open: { not: null },
+            exchange_account_id: accountIdNum,
+            ...(dateFrom || dateTo ? {
+              created_at: {
+                ...(dateFrom && { gte: dateFrom }),
+                ...(dateTo && { lte: dateTo }),
+              },
+            } : {}),
+          },
+          select: {
+            id: true,
+            trade_job_id_open: true,
+            created_at: true,
+            fills: {
+              select: {
+                id: true,
+              },
             },
-          } : {}),
-        },
-        include: {
-          fills: true,
-        },
-        orderBy: {
-          created_at: 'asc',
-        },
-      });
+          },
+          orderBy: {
+            created_at: 'asc',
+          },
+        });
 
-      const positionsByJob = new Map<number, typeof allPositions>();
-      for (const pos of allPositions) {
-        if (pos.trade_job_id_open) {
-          if (!positionsByJob.has(pos.trade_job_id_open)) {
-            positionsByJob.set(pos.trade_job_id_open, []);
+        const positionsByJob = new Map<number, typeof allPositions>();
+        for (const pos of allPositions) {
+          if (pos.trade_job_id_open) {
+            if (!positionsByJob.has(pos.trade_job_id_open)) {
+              positionsByJob.set(pos.trade_job_id_open, []);
+            }
+            positionsByJob.get(pos.trade_job_id_open)!.push(pos);
           }
-          positionsByJob.get(pos.trade_job_id_open)!.push(pos);
         }
-      }
 
-      for (const [jobId, positions] of positionsByJob.entries()) {
-        if (positions.length > 1) {
-          validations.duplicate_positions.push({
-            job_id_open: jobId,
-            position_ids: positions.map(p => p.id),
-          });
+        for (const [jobId, positions] of positionsByJob.entries()) {
+          if (positions.length > 1) {
+            validations.duplicate_positions.push({
+              job_id_open: jobId,
+              position_ids: positions.map(p => p.id),
+            });
+          }
         }
+      } catch (error: any) {
+        console.error('[ADMIN] Erro ao detectar posições duplicadas:', error.message);
+        errors.push({
+          type: 'DUPLICATE_POSITIONS_DETECTION',
+          id: 0,
+          error: `Erro ao detectar posições duplicadas: ${error.message}`,
+        });
       }
 
       // 3. Detectar trade jobs duplicados
       console.log('[ADMIN] Detectando trade jobs duplicados...');
-      const systemExecutions = await this.prisma.tradeExecution.findMany({
-        where: {
-          exchange_account_id: accountIdNum,
-          exchange_order_id: { not: null },
-          created_at: {
-            gte: dateFrom,
-            lte: dateTo,
+      try {
+        const systemExecutions = await this.prisma.tradeExecution.findMany({
+          where: {
+            exchange_account_id: accountIdNum,
+            exchange_order_id: { not: null },
+            created_at: {
+              gte: dateFrom,
+              lte: dateTo,
+            },
           },
-        },
-        include: {
-          trade_job: {
-            select: {
-              id: true,
-              created_at: true,
-              symbol: true,
-              side: true,
-              position_open: {
-                select: {
-                  id: true,
+          include: {
+            trade_job: {
+              select: {
+                id: true,
+                created_at: true,
+                symbol: true,
+                side: true,
+                position_open: {
+                  select: {
+                    id: true,
+                  },
                 },
               },
             },
           },
-        },
-      });
+        });
 
-      const jobsByOrderId = new Map<string, Array<{
-        job_id: number;
-        created_at: Date;
-        has_position: boolean;
-      }>>();
+        const jobsByOrderId = new Map<string, Array<{
+          job_id: number;
+          created_at: Date;
+          has_position: boolean;
+        }>>();
 
-      for (const exec of systemExecutions) {
-        const orderId = exec.exchange_order_id;
-        if (orderId && !String(orderId).startsWith('DUST-')) {
-          if (!jobsByOrderId.has(orderId)) {
-            jobsByOrderId.set(orderId, []);
-          }
-          const jobInfo = {
-            job_id: exec.trade_job.id,
-            created_at: exec.trade_job.created_at,
-            has_position: !!exec.trade_job.position_open,
-          };
-          if (!jobsByOrderId.get(orderId)!.some(j => j.job_id === jobInfo.job_id)) {
-            jobsByOrderId.get(orderId)!.push(jobInfo);
+        for (const exec of systemExecutions) {
+          try {
+            const orderId = exec.exchange_order_id;
+            if (orderId && !String(orderId).startsWith('DUST-')) {
+              if (!jobsByOrderId.has(orderId)) {
+                jobsByOrderId.set(orderId, []);
+              }
+              const jobInfo = {
+                job_id: exec.trade_job.id,
+                created_at: exec.trade_job.created_at,
+                has_position: !!exec.trade_job.position_open,
+              };
+              if (!jobsByOrderId.get(orderId)!.some(j => j.job_id === jobInfo.job_id)) {
+                jobsByOrderId.get(orderId)!.push(jobInfo);
+              }
+            }
+          } catch (execError: any) {
+            console.error(`[ADMIN] Erro ao processar execution ${exec.id}:`, execError.message);
+            errors.push({
+              type: 'DUPLICATE_JOBS_PROCESSING',
+              id: exec.id,
+              error: `Erro ao processar: ${execError.message}`,
+            });
           }
         }
-      }
 
-      for (const [orderId, jobs] of jobsByOrderId.entries()) {
-        if (jobs.length > 1) {
-          validations.duplicate_jobs.push({
-            order_id: orderId,
-            job_ids: jobs.map(j => j.job_id),
-          });
+        for (const [orderId, jobs] of jobsByOrderId.entries()) {
+          if (jobs.length > 1) {
+            validations.duplicate_jobs.push({
+              order_id: orderId,
+              job_ids: jobs.map(j => j.job_id),
+            });
+          }
         }
+      } catch (error: any) {
+        console.error('[ADMIN] Erro ao detectar trade jobs duplicados:', error.message);
+        errors.push({
+          type: 'DUPLICATE_JOBS_DETECTION',
+          id: 0,
+          error: `Erro ao detectar jobs duplicados: ${error.message}`,
+        });
       }
 
       // 4. Aplicar correções se autoFix estiver habilitado
@@ -4699,17 +4751,24 @@ export class AdminSystemController {
 
         // 4.1 Deletar posições duplicadas (manter apenas a primeira)
         for (const dup of validations.duplicate_positions) {
-          const positions = await this.prisma.tradePosition.findMany({
-            where: {
-              id: { in: dup.position_ids },
-            },
-            include: {
-              fills: true,
-            },
-            orderBy: {
-              created_at: 'asc',
-            },
-          });
+          try {
+            const positions = await this.prisma.tradePosition.findMany({
+              where: {
+                id: { in: dup.position_ids },
+              },
+              select: {
+                id: true,
+                created_at: true,
+                fills: {
+                  select: {
+                    id: true,
+                  },
+                },
+              },
+              orderBy: {
+                created_at: 'asc',
+              },
+            });
 
           if (positions.length > 1) {
             const toKeep = positions[0];
@@ -4739,12 +4798,20 @@ export class AdminSystemController {
                 });
               }
             }
+          } catch (dupError: any) {
+            console.error(`[ADMIN] Erro ao processar posições duplicadas para job_id_open ${dup.job_id_open}:`, dupError.message);
+            errors.push({
+              type: 'DUPLICATE_POSITION_FIX',
+              id: dup.job_id_open,
+              error: `Erro ao processar: ${dupError.message}`,
+            });
           }
         }
 
         // 4.2 Deletar trade jobs duplicados (manter apenas o mais recente)
         for (const dup of validations.duplicate_jobs) {
-          const jobs = await this.prisma.tradeJob.findMany({
+          try {
+            const jobs = await this.prisma.tradeJob.findMany({
             where: {
               id: { in: dup.job_ids },
             },
@@ -4796,6 +4863,13 @@ export class AdminSystemController {
                 });
               }
             }
+          } catch (dupError: any) {
+            console.error(`[ADMIN] Erro ao processar jobs duplicados para order_id ${dup.order_id}:`, dupError.message);
+            errors.push({
+              type: 'DUPLICATE_JOB_FIX',
+              id: 0,
+              error: `Erro ao processar order_id ${dup.order_id}: ${dupError.message}`,
+            });
           }
         }
 

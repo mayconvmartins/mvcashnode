@@ -94,7 +94,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         close_jobs: {
           where: {
             side: 'SELL',
-            status: { in: ['PENDING', 'EXECUTING', 'PARTIALLY_FILLED'] },
+            status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] },
           },
           orderBy: { created_at: 'desc' },
           take: 1,
