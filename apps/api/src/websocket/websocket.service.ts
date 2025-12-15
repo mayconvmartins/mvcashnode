@@ -52,8 +52,38 @@ export class WebSocketService {
   removeClient(socket: WebSocket) {
     const client = this.clients.get(socket);
     if (client) {
+      // Fechar socket se ainda estiver aberto
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        try {
+          socket.close(1000, 'Client removed');
+        } catch (error) {
+          this.logger.warn(`Error closing socket during removal:`, error);
+        }
+      }
+      
       this.clients.delete(socket);
       this.logger.log(`Client disconnected: userId=${client.userId}, total=${this.clients.size}`);
+    }
+  }
+
+  /**
+   * Limpa conexões mortas (sockets que não estão mais abertos)
+   */
+  cleanupDeadConnections() {
+    const deadConnections: WebSocket[] = [];
+    
+    this.clients.forEach((client, socket) => {
+      if (socket.readyState !== WebSocket.OPEN && socket.readyState !== WebSocket.CONNECTING) {
+        deadConnections.push(socket);
+      }
+    });
+
+    deadConnections.forEach((socket) => {
+      this.removeClient(socket);
+    });
+
+    if (deadConnections.length > 0) {
+      this.logger.debug(`Cleaned up ${deadConnections.length} dead connection(s)`);
     }
   }
 
@@ -81,21 +111,38 @@ export class WebSocketService {
     };
 
     let sentCount = 0;
-    this.clients.forEach((client) => {
+    const deadConnections: WebSocket[] = [];
+
+    this.clients.forEach((client, socket) => {
+      // Verificar se o cliente está inscrito no evento
       if (client.userId === userId && client.subscribedEvents.has(event)) {
-        if (client.socket.readyState === WebSocket.OPEN) {
+        // Validar estado do socket antes de enviar
+        if (socket.readyState === WebSocket.OPEN) {
           try {
-            client.socket.send(JSON.stringify(message));
+            socket.send(JSON.stringify(message));
             sentCount++;
           } catch (error) {
             this.logger.error(`Error sending message to user ${userId}:`, error);
+            // Marcar conexão como morta se houver erro
+            deadConnections.push(socket);
           }
+        } else {
+          // Socket não está aberto, marcar para remoção
+          this.logger.debug(`Socket for user ${userId} is not OPEN (state: ${socket.readyState}), marking for cleanup`);
+          deadConnections.push(socket);
         }
       }
     });
 
+    // Limpar conexões mortas
+    deadConnections.forEach((socket) => {
+      this.removeClient(socket);
+    });
+
     if (sentCount > 0) {
       this.logger.debug(`Emitted ${event} to user ${userId} (${sentCount} connection(s))`);
+    } else {
+      this.logger.debug(`No active connections for user ${userId} subscribed to ${event}`);
     }
   }
 
@@ -107,21 +154,38 @@ export class WebSocketService {
     };
 
     let sentCount = 0;
-    this.clients.forEach((client) => {
+    const deadConnections: WebSocket[] = [];
+
+    this.clients.forEach((client, socket) => {
+      // Verificar se o cliente está inscrito no evento
       if (client.subscribedEvents.has(event)) {
-        if (client.socket.readyState === WebSocket.OPEN) {
+        // Validar estado do socket antes de enviar
+        if (socket.readyState === WebSocket.OPEN) {
           try {
-            client.socket.send(JSON.stringify(message));
+            socket.send(JSON.stringify(message));
             sentCount++;
           } catch (error) {
             this.logger.error(`Error broadcasting to user ${client.userId}:`, error);
+            // Marcar conexão como morta se houver erro
+            deadConnections.push(socket);
           }
+        } else {
+          // Socket não está aberto, marcar para remoção
+          this.logger.debug(`Socket for user ${client.userId} is not OPEN (state: ${socket.readyState}), marking for cleanup`);
+          deadConnections.push(socket);
         }
       }
     });
 
+    // Limpar conexões mortas
+    deadConnections.forEach((socket) => {
+      this.removeClient(socket);
+    });
+
     if (sentCount > 0) {
       this.logger.debug(`Broadcasted ${event} to ${sentCount} client(s)`);
+    } else {
+      this.logger.debug(`No active connections subscribed to ${event}`);
     }
   }
 

@@ -30,6 +30,9 @@ export class WebSocketGateway
   server: Server;
 
   private readonly logger = new Logger(WebSocketGateway.name);
+  private readonly connectionAttempts = new Map<string, { count: number; lastAttempt: number }>();
+  private readonly RATE_LIMIT_WINDOW = 60000; // 1 minuto
+  private readonly RATE_LIMIT_MAX_ATTEMPTS = 5; // Máximo de 5 tentativas por minuto
 
   constructor(
     private readonly wsService: WebSocketService,
@@ -50,6 +53,40 @@ export class WebSocketGateway
     }
   }
 
+  private getClientIdentifier(request: any): string {
+    // Tentar identificar o cliente por IP ou user-agent
+    const ip = request.socket?.remoteAddress || request.headers?.['x-forwarded-for'] || 'unknown';
+    const userAgent = request.headers?.['user-agent'] || 'unknown';
+    return `${ip}-${userAgent.substring(0, 50)}`;
+  }
+
+  private checkRateLimit(identifier: string): boolean {
+    const now = Date.now();
+    const attempts = this.connectionAttempts.get(identifier);
+
+    if (!attempts) {
+      this.connectionAttempts.set(identifier, { count: 1, lastAttempt: now });
+      return true;
+    }
+
+    // Resetar contador se passou a janela de tempo
+    if (now - attempts.lastAttempt > this.RATE_LIMIT_WINDOW) {
+      this.connectionAttempts.set(identifier, { count: 1, lastAttempt: now });
+      return true;
+    }
+
+    // Incrementar contador
+    attempts.count++;
+    attempts.lastAttempt = now;
+
+    if (attempts.count > this.RATE_LIMIT_MAX_ATTEMPTS) {
+      this.logger.warn(`[WebSocket] ⚠️ Rate limit excedido para ${identifier} (${attempts.count} tentativas)`);
+      return false;
+    }
+
+    return true;
+  }
+
   async handleConnection(client: WebSocket, ...args: any[]) {
     // Verificar se o cliente já está fechado antes de processar
     if (client.readyState === WebSocket.CLOSED || client.readyState === WebSocket.CLOSING) {
@@ -57,12 +94,20 @@ export class WebSocketGateway
       return;
     }
 
-    try {
-      this.logger.debug(`[WebSocket] 🔌 Nova tentativa de conexão. Estado: ${client.readyState}`);
+    const request = args[0] as any;
+    const clientIdentifier = request ? this.getClientIdentifier(request) : 'unknown';
 
-      // Simplificar extração de URL: usar args[0] diretamente como IncomingMessage
-      const request = args[0] as any;
-      
+    // Verificar rate limiting
+    if (!this.checkRateLimit(clientIdentifier)) {
+      if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+        client.close(1008, 'Rate limit exceeded. Please try again later.');
+      }
+      return;
+    }
+
+    try {
+      this.logger.debug(`[WebSocket] 🔌 Nova tentativa de conexão. Estado: ${client.readyState}, Client: ${clientIdentifier.substring(0, 50)}`);
+
       if (!request) {
         this.logger.error('[WebSocket] ❌ Request não encontrado nos args');
         if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
@@ -87,11 +132,11 @@ export class WebSocketGateway
 
       this.logger.debug(`[WebSocket] 📍 URL extraída: ${requestUrl}`);
 
-      // Log dos headers se disponíveis
-      if (request.headers) {
+      // Log dos headers se disponíveis (apenas em debug)
+      if (request.headers && this.logger.isDebugEnabled()) {
         this.logger.debug(`[WebSocket] 📋 Headers recebidos:`, {
           origin: request.headers.origin,
-          'user-agent': request.headers['user-agent'],
+          'user-agent': request.headers['user-agent']?.substring(0, 100),
         });
       }
 
@@ -125,7 +170,7 @@ export class WebSocketGateway
       // Verificar e decodificar token JWT
       const jwtSecret = this.configService.get<string>('JWT_SECRET');
       if (!jwtSecret) {
-        this.logger.error('[WebSocket] JWT_SECRET não configurado');
+        this.logger.error('[WebSocket] ❌ JWT_SECRET não configurado');
         if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
           client.close(1011, 'Server configuration error');
         }
@@ -136,11 +181,33 @@ export class WebSocketGateway
       let payload: any;
       try {
         payload = jwt.verify(token, jwtSecret);
-        this.logger.debug(`[WebSocket] Token válido para userId: ${payload.userId}`);
+        
+        // Validar que o payload tem userId
+        if (!payload || !payload.userId) {
+          this.logger.warn('[WebSocket] ⚠️ Token inválido: payload sem userId');
+          if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
+            client.close(1008, 'Invalid token: missing userId');
+          }
+          return;
+        }
+        
+        this.logger.debug(`[WebSocket] ✅ Token válido para userId: ${payload.userId}`);
       } catch (error) {
-        this.logger.warn('[WebSocket] Conexão rejeitada: token inválido', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        let closeReason = 'Invalid token';
+        
+        if (errorMessage.includes('expired')) {
+          closeReason = 'Token expired';
+          this.logger.warn(`[WebSocket] ⚠️ Token expirado para tentativa de conexão`);
+        } else if (errorMessage.includes('malformed')) {
+          closeReason = 'Invalid token format';
+          this.logger.warn(`[WebSocket] ⚠️ Token malformado`);
+        } else {
+          this.logger.warn(`[WebSocket] ⚠️ Erro ao verificar token: ${errorMessage}`);
+        }
+        
         if (client.readyState === WebSocket.CONNECTING || client.readyState === WebSocket.OPEN) {
-          client.close(1008, 'Invalid token');
+          client.close(1008, closeReason);
         }
         return;
       }
@@ -198,14 +265,23 @@ export class WebSocketGateway
             timestamp: new Date().toISOString(),
           };
           
-          client.send(JSON.stringify(welcomeMessage));
-          this.logger.debug('[WebSocket] Mensagem de boas-vindas enviada');
+          // Validar estado antes de enviar
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(welcomeMessage));
+            this.logger.debug(`[WebSocket] ✅ Mensagem de boas-vindas enviada para userId=${user.id}`);
+          } else {
+            this.logger.warn(`[WebSocket] ⚠️ Cliente não está mais aberto ao tentar enviar mensagem de boas-vindas`);
+          }
         } catch (sendError) {
-          this.logger.error('[WebSocket] Erro ao enviar mensagem de boas-vindas:', sendError);
+          this.logger.error(`[WebSocket] ❌ Erro ao enviar mensagem de boas-vindas para userId=${user.id}:`, sendError);
+          // Não fechar conexão por erro ao enviar mensagem de boas-vindas
         }
       } else {
         this.logger.warn(`[WebSocket] ⚠️ Cliente não está mais aberto para enviar mensagem (estado: ${client.readyState})`);
       }
+      
+      // Limpar rate limit após conexão bem-sucedida
+      this.connectionAttempts.delete(clientIdentifier);
     } catch (error) {
       this.logger.error('[WebSocket] ❌ Erro ao processar conexão:', error);
       this.logger.error('[WebSocket] Stack trace:', error instanceof Error ? error.stack : 'N/A');
@@ -233,12 +309,18 @@ export class WebSocketGateway
 
   @SubscribeMessage('ping')
   handlePing(@ConnectedSocket() client: WebSocket) {
-    client.send(
-      JSON.stringify({
-        type: 'pong',
-        timestamp: new Date().toISOString(),
-      })
-    );
+    try {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            type: 'pong',
+            timestamp: new Date().toISOString(),
+          })
+        );
+      }
+    } catch (error) {
+      this.logger.error('[WebSocket] ❌ Erro ao enviar pong:', error);
+    }
   }
 
   @SubscribeMessage('subscribe')
@@ -246,15 +328,24 @@ export class WebSocketGateway
     @ConnectedSocket() client: WebSocket,
     @MessageBody() data: { events: WebSocketEvent[] }
   ) {
-    if (data && Array.isArray(data.events)) {
-      this.wsService.subscribeToEvents(client, data.events);
-      client.send(
-        JSON.stringify({
-          type: 'subscribed',
-          events: data.events,
-          timestamp: new Date().toISOString(),
-        })
-      );
+    try {
+      if (data && Array.isArray(data.events) && data.events.length > 0) {
+        this.wsService.subscribeToEvents(client, data.events);
+        
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(
+            JSON.stringify({
+              type: 'subscribed',
+              events: data.events,
+              timestamp: new Date().toISOString(),
+            })
+          );
+        }
+      } else {
+        this.logger.warn('[WebSocket] ⚠️ Tentativa de subscribe com dados inválidos');
+      }
+    } catch (error) {
+      this.logger.error('[WebSocket] ❌ Erro ao processar subscribe:', error);
     }
   }
 
@@ -263,15 +354,24 @@ export class WebSocketGateway
     @ConnectedSocket() client: WebSocket,
     @MessageBody() data: { events: WebSocketEvent[] }
   ) {
-    if (data && Array.isArray(data.events)) {
-      this.wsService.unsubscribeFromEvents(client, data.events);
-      client.send(
-        JSON.stringify({
-          type: 'unsubscribed',
-          events: data.events,
-          timestamp: new Date().toISOString(),
-        })
-      );
+    try {
+      if (data && Array.isArray(data.events) && data.events.length > 0) {
+        this.wsService.unsubscribeFromEvents(client, data.events);
+        
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(
+            JSON.stringify({
+              type: 'unsubscribed',
+              events: data.events,
+              timestamp: new Date().toISOString(),
+            })
+          );
+        }
+      } else {
+        this.logger.warn('[WebSocket] ⚠️ Tentativa de unsubscribe com dados inválidos');
+      }
+    } catch (error) {
+      this.logger.error('[WebSocket] ❌ Erro ao processar unsubscribe:', error);
     }
   }
 }
