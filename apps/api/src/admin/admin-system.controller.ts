@@ -2886,7 +2886,7 @@ export class AdminSystemController {
   })
   async auditFix(@Body() body: { corrections: Array<{
     type: string;
-    entityType: 'EXECUTION' | 'POSITION';
+    entityType: 'EXECUTION' | 'POSITION' | 'JOB';
     entityId: number;
     field: string;
     expectedValue: number | string;
@@ -2905,6 +2905,7 @@ export class AdminSystemController {
       // Agrupar correções por entidade
       const executionCorrections = new Map<number, any>();
       const positionCorrections = new Map<number, any>();
+      const jobCorrections = new Map<number, any>();
 
       for (const correction of corrections) {
         if (correction.entityType === 'EXECUTION') {
@@ -2919,6 +2920,11 @@ export class AdminSystemController {
           }
           const posCorr = positionCorrections.get(correction.entityId)!;
           posCorr[correction.field] = correction.expectedValue;
+        } else if (correction.entityType === 'JOB') {
+          if (!jobCorrections.has(correction.entityId)) {
+            jobCorrections.set(correction.entityId, []);
+          }
+          jobCorrections.get(correction.entityId)!.push(correction);
         }
       }
 
@@ -3077,6 +3083,104 @@ export class AdminSystemController {
         }
       }
 
+      // Aplicar correções de jobs
+      for (const [jobId, corrections] of jobCorrections.entries()) {
+        try {
+          const job = await this.prisma.tradeJob.findUnique({
+            where: { id: jobId },
+            include: {
+              position_open: {
+                select: {
+                  id: true,
+                  status: true,
+                },
+              },
+            },
+          });
+
+          if (!job) {
+            errors.push({
+              correction: { entityType: 'JOB', entityId: jobId },
+              error: 'Job não encontrado',
+            });
+            continue;
+          }
+
+          for (const correction of corrections) {
+            if (correction.type === 'GROUPED_JOB_MISMATCH') {
+              // Buscar PositionGroupedJob para encontrar a posição correta
+              const groupedJob = await this.prisma.positionGroupedJob.findFirst({
+                where: {
+                  trade_job_id: jobId,
+                },
+                include: {
+                  position: {
+                    select: {
+                      id: true,
+                      status: true,
+                    },
+                  },
+                },
+              });
+
+              if (groupedJob && groupedJob.position.status === 'OPEN') {
+                // Atualizar position_open para apontar para a posição correta
+                await this.prisma.tradeJob.update({
+                  where: { id: jobId },
+                  data: {
+                    position_open: {
+                      connect: { id: groupedJob.position.id },
+                    },
+                  },
+                });
+                console.log(`[ADMIN] ✅ Job ${jobId}: position_open atualizado para posição ${groupedJob.position.id}`);
+                fixed++;
+              } else if (groupedJob) {
+                errors.push({
+                  correction: { entityType: 'JOB', entityId: jobId, type: correction.type },
+                  error: `Posição ${groupedJob.position.id} está ${groupedJob.position.status}, não pode ser vinculada`,
+                });
+              } else {
+                errors.push({
+                  correction: { entityType: 'JOB', entityId: jobId, type: correction.type },
+                  error: 'PositionGroupedJob não encontrado',
+                });
+              }
+            } else if (correction.type === 'CLOSED_POSITION') {
+              // Desconectar position_open se a posição está fechada
+              if (job.position_open && job.position_open.status === 'CLOSED') {
+                await this.prisma.tradeJob.update({
+                  where: { id: jobId },
+                  data: {
+                    position_open: {
+                      disconnect: true,
+                    },
+                  },
+                });
+                console.log(`[ADMIN] ✅ Job ${jobId}: position_open desconectado (posição estava fechada)`);
+                fixed++;
+              } else {
+                console.log(`[ADMIN] ⚠️ Job ${jobId}: position_open não está conectado a posição fechada, pulando`);
+              }
+            } else if (correction.type === 'MISSING_POSITION') {
+              // Para MISSING_POSITION, tentar encontrar posição existente ou criar nova
+              // Por enquanto, apenas logar - criação automática de posição pode ser perigosa
+              console.log(`[ADMIN] ⚠️ Job ${jobId}: MISSING_POSITION - correção automática não implementada (requer análise manual)`);
+              errors.push({
+                correction: { entityType: 'JOB', entityId: jobId, type: correction.type },
+                error: 'Correção automática de MISSING_POSITION não implementada - requer análise manual',
+              });
+            }
+          }
+        } catch (error: any) {
+          errors.push({
+            correction: { entityType: 'JOB', entityId: jobId },
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao corrigir job ${jobId}:`, error.message);
+        }
+      }
+
       const duration = Date.now() - startTime;
       console.log(`[ADMIN] Correções aplicadas em ${duration}ms: ${fixed} corrigida(s), ${errors.length} erro(s)`);
 
@@ -3089,6 +3193,325 @@ export class AdminSystemController {
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro ao aplicar correções:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/fix-exchange-trades')
+  @ApiOperation({
+    summary: 'Corrigir discrepâncias de trades da exchange',
+    description: 'Importa trades faltantes, remove executions extras e corrige duplicados identificados na auditoria de trades da exchange.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Correções aplicadas',
+  })
+  async fixExchangeTrades(@Body() body: {
+    accountId: number;
+    missingTrades?: Array<{
+      orderId: string;
+      symbol: string;
+      side: 'BUY' | 'SELL';
+      price: number;
+      qty: number;
+      timestamp: string;
+    }>;
+    extraExecutionIds?: number[];
+    duplicateOrderIds?: string[];
+  }) {
+    console.log('[ADMIN] Iniciando correção de trades da exchange...');
+    
+    const startTime = Date.now();
+    const results = {
+      missingImported: 0,
+      extraDeleted: 0,
+      duplicatesFixed: 0,
+      errors: [] as Array<{ type: string; data: any; error: string }>,
+    };
+
+    try {
+      const { accountId, missingTrades = [], extraExecutionIds = [], duplicateOrderIds = [] } = body;
+
+      // Buscar conta
+      const account = await this.prisma.exchangeAccount.findUnique({
+        where: { id: accountId },
+        select: {
+          id: true,
+          exchange: true,
+          api_key_enc: true,
+          api_secret_enc: true,
+          testnet: true,
+          is_simulation: true,
+        },
+      });
+
+      if (!account) {
+        throw new NotFoundException(`ExchangeAccount ${accountId} not found`);
+      }
+
+      if (account.is_simulation) {
+        throw new BadRequestException('Não é possível corrigir trades de conta de simulação');
+      }
+
+      if (!account.api_key_enc || !account.api_secret_enc) {
+        throw new BadRequestException('Conta sem API keys configuradas');
+      }
+
+      // Descriptografar API keys
+      const apiKey = await this.encryptionService.decrypt(account.api_key_enc);
+      const apiSecret = await this.encryptionService.decrypt(account.api_secret_enc);
+
+      // Criar adapter
+      const adapter = AdapterFactory.createAdapter(
+        account.exchange as ExchangeType,
+        apiKey,
+        apiSecret,
+        { testnet: account.testnet }
+      );
+
+      // 1. Importar trades faltantes
+      for (const trade of missingTrades) {
+        try {
+          // Verificar se ordem existe na exchange
+          let order;
+          try {
+            order = await adapter.fetchOrder(trade.orderId, trade.symbol);
+          } catch (orderError: any) {
+            // Se for erro de ordem arquivada, tentar buscar via fetchMyTrades
+            if (
+              orderError.message?.includes('-2026') ||
+              orderError.message?.includes('archived') ||
+              orderError.message?.includes('over 90 days')
+            ) {
+              const since = new Date(trade.timestamp).getTime() - 3600000; // 1 hora antes
+              const trades = await adapter.fetchMyTrades(trade.symbol, since, 1000);
+              const orderTrades = trades.filter((t: any) => {
+                const tradeOrderId = String(t.order || t.orderId || (t.info && (t.info.orderId || t.info.orderListId)) || '');
+                return tradeOrderId === String(trade.orderId);
+              });
+
+              if (orderTrades.length === 0) {
+                throw new Error(`Order ${trade.orderId} não encontrada na exchange`);
+              }
+
+              // Construir objeto order a partir dos trades
+              const totalFilled = orderTrades.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+              const totalCost = orderTrades.reduce((sum: number, t: any) => sum + (t.cost || (t.amount || 0) * (t.price || 0)), 0);
+              const avgPrice = totalFilled > 0 ? totalCost / totalFilled : trade.price;
+              order = {
+                id: trade.orderId,
+                status: 'closed',
+                filled: totalFilled,
+                amount: totalFilled,
+                cost: totalCost,
+                average: avgPrice,
+                price: avgPrice,
+                side: trade.side.toLowerCase(),
+                symbol: trade.symbol,
+              };
+            } else {
+              throw orderError;
+            }
+          }
+
+          if (!order || !order.id) {
+            throw new Error(`Order ${trade.orderId} não encontrada na exchange`);
+          }
+
+          // Criar TradeJob
+          const tradeJob = await this.prisma.tradeJob.create({
+            data: {
+              exchange_account_id: accountId,
+              trade_mode: 'REAL',
+              symbol: trade.symbol,
+              side: trade.side,
+              order_type: 'MARKET',
+              status: 'FILLED',
+              reason_code: 'AUDIT_IMPORT',
+              reason_message: `Importado via auditoria - Order ID: ${trade.orderId}`,
+            },
+          });
+
+          // Extrair taxas
+          let feeAmount: number | null = null;
+          let feeCurrency: string | null = null;
+          try {
+            const fees = adapter.extractFeesFromOrder(order, trade.side.toLowerCase() as 'buy' | 'sell');
+            feeAmount = fees.feeAmount;
+            feeCurrency = fees.feeCurrency;
+          } catch (feeError: any) {
+            console.warn(`[ADMIN] Erro ao extrair taxas: ${feeError.message}`);
+          }
+
+          // Criar TradeExecution
+          const executedQty = order.filled || order.amount || trade.qty;
+          const avgPrice = order.average || order.price || trade.price;
+          const cummQuoteQty = order.cost || (executedQty * avgPrice);
+
+          await this.prisma.tradeExecution.create({
+            data: {
+              trade_job_id: tradeJob.id,
+              exchange_account_id: accountId,
+              trade_mode: 'REAL',
+              exchange: account.exchange,
+              exchange_order_id: trade.orderId,
+              client_order_id: `audit-import-${trade.orderId}`,
+              status_exchange: order.status || 'closed',
+              executed_qty: executedQty,
+              cumm_quote_qty: cummQuoteQty,
+              avg_price: avgPrice,
+              fee_amount: feeAmount || undefined,
+              fee_currency: feeCurrency || undefined,
+              raw_response_json: JSON.parse(JSON.stringify(order)),
+            },
+          });
+
+          // Se for BUY, tentar criar ou vincular posição
+          if (trade.side === 'BUY') {
+            try {
+              const positionService = new PositionService(this.prisma);
+              await positionService.onBuyExecuted(
+                tradeJob.id,
+                (await this.prisma.tradeExecution.findFirst({
+                  where: { trade_job_id: tradeJob.id },
+                  orderBy: { created_at: 'desc' },
+                }))!.id,
+                executedQty,
+                avgPrice,
+                feeAmount || undefined,
+                feeCurrency || undefined
+              );
+            } catch (posError: any) {
+              console.warn(`[ADMIN] Erro ao criar/vincular posição para job ${tradeJob.id}: ${posError.message}`);
+            }
+          }
+
+          results.missingImported++;
+          console.log(`[ADMIN] ✅ Trade faltante importado: Order ID ${trade.orderId}`);
+        } catch (error: any) {
+          results.errors.push({
+            type: 'MISSING_TRADE',
+            data: trade,
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao importar trade ${trade.orderId}:`, error.message);
+        }
+      }
+
+      // 2. Deletar executions extras
+      for (const executionId of extraExecutionIds) {
+        try {
+          const execution = await this.prisma.tradeExecution.findUnique({
+            where: { id: executionId },
+            include: {
+              position_fills: true,
+            },
+          });
+
+          if (!execution) {
+            results.errors.push({
+              type: 'EXTRA_EXECUTION',
+              data: { executionId },
+              error: 'Execution não encontrada',
+            });
+            continue;
+          }
+
+          // Verificar se tem fills vinculados (não deve deletar se tiver)
+          if (execution.position_fills.length > 0) {
+            results.errors.push({
+              type: 'EXTRA_EXECUTION',
+              data: { executionId },
+              error: `Execution tem ${execution.position_fills.length} fill(s) vinculado(s), não pode ser deletada`,
+            });
+            continue;
+          }
+
+          await this.prisma.tradeExecution.delete({
+            where: { id: executionId },
+          });
+
+          results.extraDeleted++;
+          console.log(`[ADMIN] ✅ Execution ${executionId} deletada`);
+        } catch (error: any) {
+          results.errors.push({
+            type: 'EXTRA_EXECUTION',
+            data: { executionId },
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao deletar execution ${executionId}:`, error.message);
+        }
+      }
+
+      // 3. Corrigir duplicados
+      for (const orderId of duplicateOrderIds) {
+        try {
+          // Buscar todas as executions com este orderId
+          const executions = await this.prisma.tradeExecution.findMany({
+            where: {
+              exchange_order_id: orderId,
+              exchange_account_id: accountId,
+            },
+            include: {
+              position_fills: true,
+            },
+            orderBy: {
+              created_at: 'desc',
+            },
+          });
+
+          if (executions.length <= 1) {
+            console.log(`[ADMIN] ⚠️ Order ID ${orderId} não tem duplicados, pulando`);
+            continue;
+          }
+
+          // Manter a mais recente, deletar as outras (apenas se não tiverem fills)
+          const toKeep = executions[0];
+          const toDelete = executions.slice(1).filter(e => e.position_fills.length === 0);
+
+          for (const exec of toDelete) {
+            await this.prisma.tradeExecution.delete({
+              where: { id: exec.id },
+            });
+            console.log(`[ADMIN] ✅ Execution duplicada ${exec.id} deletada (orderId: ${orderId})`);
+          }
+
+          if (toDelete.length > 0) {
+            results.duplicatesFixed++;
+          }
+
+          // Se todas as executions têm fills, não podemos deletar
+          const withFills = executions.filter(e => e.position_fills.length > 0);
+          if (withFills.length > 1) {
+            results.errors.push({
+              type: 'DUPLICATE',
+              data: { orderId, executionIds: withFills.map(e => e.id) },
+              error: `${withFills.length} execution(s) duplicada(s) têm fills vinculados, não podem ser deletadas automaticamente`,
+            });
+          }
+        } catch (error: any) {
+          results.errors.push({
+            type: 'DUPLICATE',
+            data: { orderId },
+            error: error.message || 'Erro desconhecido',
+          });
+          console.error(`[ADMIN] ❌ Erro ao corrigir duplicado ${orderId}:`, error.message);
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      console.log(`[ADMIN] Correção de trades concluída em ${duration}ms: ${results.missingImported} importado(s), ${results.extraDeleted} deletado(s), ${results.duplicatesFixed} duplicado(s) corrigido(s), ${results.errors.length} erro(s)`);
+
+      return {
+        missing_imported: results.missingImported,
+        extra_deleted: results.extraDeleted,
+        duplicates_fixed: results.duplicatesFixed,
+        errors: results.errors.length,
+        error_details: results.errors,
+        duration_ms: duration,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro ao corrigir trades da exchange:', error);
       throw error;
     }
   }

@@ -182,6 +182,11 @@ export function AuditPositions() {
     duration_ms?: number
   } | null>(null)
 
+  // Estados de seleção para correção
+  const [selectedMissing, setSelectedMissing] = useState<Set<number>>(new Set())
+  const [selectedExtra, setSelectedExtra] = useState<Set<number>>(new Set())
+  const [selectedDuplicates, setSelectedDuplicates] = useState<Set<number>>(new Set())
+
   const exchangeTradesMutation = useMutation({
     mutationFn: (params: { from: string; to: string; accountId: number }) => 
       adminService.auditExchangeTrades(params),
@@ -208,6 +213,11 @@ export function AuditPositions() {
     // Converter datetime-local para ISO string
     const fromDate = new Date(dateFrom).toISOString()
     const toDate = new Date(dateTo).toISOString()
+
+    // Limpar seleções anteriores
+    setSelectedMissing(new Set())
+    setSelectedExtra(new Set())
+    setSelectedDuplicates(new Set())
 
     exchangeTradesMutation.mutate({
       from: fromDate,
@@ -554,14 +564,57 @@ export function AuditPositions() {
             {/* Trades Faltando no Sistema */}
             {exchangeTradesResult.missing_in_system.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-orange-500">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="font-medium">Trades na Exchange que não estão no Sistema ({exchangeTradesResult.missing_in_system.length})</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-orange-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="font-medium">Trades na Exchange que não estão no Sistema ({exchangeTradesResult.missing_in_system.length})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={selectedMissing.size === exchangeTradesResult.missing_in_system.length && selectedMissing.size > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedMissing(new Set(exchangeTradesResult.missing_in_system.map((_, i) => i)))
+                        } else {
+                          setSelectedMissing(new Set())
+                        }
+                      }}
+                    />
+                    <span className="text-sm">Selecionar todos</span>
+                    {selectedMissing.size > 0 && (
+                      <Button
+                        onClick={() => {
+                          const missingTrades = Array.from(selectedMissing)
+                            .map(index => exchangeTradesResult.missing_in_system[index])
+                          fixExchangeTradesMutation.mutate({
+                            accountId: exchangeTradesResult.account_id,
+                            missingTrades,
+                          })
+                        }}
+                        disabled={fixExchangeTradesMutation.isPending}
+                        size="sm"
+                        variant="default"
+                      >
+                        {fixExchangeTradesMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Importando...
+                          </>
+                        ) : (
+                          <>
+                            <Wrench className="mr-2 h-4 w-4" />
+                            Importar Selecionados ({selectedMissing.size})
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="border rounded-lg overflow-x-auto max-h-[500px]">
                   <Table className="min-w-full">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-12"></TableHead>
                         <TableHead className="min-w-[150px]">Order ID</TableHead>
                         <TableHead className="min-w-[80px]">Side</TableHead>
                         <TableHead className="min-w-[120px]">Symbol</TableHead>
@@ -573,6 +626,20 @@ export function AuditPositions() {
                     <TableBody>
                       {exchangeTradesResult.missing_in_system.map((trade, index) => (
                         <TableRow key={index}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedMissing.has(index)}
+                              onCheckedChange={(checked) => {
+                                const newSet = new Set(selectedMissing)
+                                if (checked) {
+                                  newSet.add(index)
+                                } else {
+                                  newSet.delete(index)
+                                }
+                                setSelectedMissing(newSet)
+                              }}
+                            />
+                          </TableCell>
                           <TableCell className="font-mono text-xs">{trade.order_id}</TableCell>
                           <TableCell>
                             <Badge variant={trade.side === 'BUY' ? 'default' : 'destructive'}>
@@ -594,14 +661,58 @@ export function AuditPositions() {
             {/* Executions a Mais no Sistema */}
             {exchangeTradesResult.extra_in_system.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-red-500">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="font-medium">Executions no Sistema que não estão na Exchange ({exchangeTradesResult.extra_in_system.length})</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-red-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="font-medium">Executions no Sistema que não estão na Exchange ({exchangeTradesResult.extra_in_system.length})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={selectedExtra.size === exchangeTradesResult.extra_in_system.length && selectedExtra.size > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedExtra(new Set(exchangeTradesResult.extra_in_system.map((_, i) => i)))
+                        } else {
+                          setSelectedExtra(new Set())
+                        }
+                      }}
+                    />
+                    <span className="text-sm">Selecionar todos</span>
+                    {selectedExtra.size > 0 && (
+                      <Button
+                        onClick={() => {
+                          const extraExecutionIds = Array.from(selectedExtra)
+                            .map(index => exchangeTradesResult.extra_in_system[index]?.execution_id)
+                            .filter(Boolean) as number[]
+                          fixExchangeTradesMutation.mutate({
+                            accountId: exchangeTradesResult.account_id,
+                            extraExecutionIds,
+                          })
+                        }}
+                        disabled={fixExchangeTradesMutation.isPending}
+                        size="sm"
+                        variant="destructive"
+                      >
+                        {fixExchangeTradesMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Deletando...
+                          </>
+                        ) : (
+                          <>
+                            <Wrench className="mr-2 h-4 w-4" />
+                            Deletar Selecionados ({selectedExtra.size})
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="border rounded-lg overflow-x-auto max-h-[500px]">
                   <Table className="min-w-full">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-12"></TableHead>
                         <TableHead className="min-w-[120px]">Execution ID</TableHead>
                         <TableHead className="min-w-[100px]">Job ID</TableHead>
                         <TableHead className="min-w-[150px]">Order ID</TableHead>
@@ -613,6 +724,20 @@ export function AuditPositions() {
                     <TableBody>
                       {exchangeTradesResult.extra_in_system.map((exec, index) => (
                         <TableRow key={index}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedExtra.has(index)}
+                              onCheckedChange={(checked) => {
+                                const newSet = new Set(selectedExtra)
+                                if (checked) {
+                                  newSet.add(index)
+                                } else {
+                                  newSet.delete(index)
+                                }
+                                setSelectedExtra(newSet)
+                              }}
+                            />
+                          </TableCell>
                           <TableCell>{exec.execution_id}</TableCell>
                           <TableCell>{exec.job_id}</TableCell>
                           <TableCell className="font-mono text-xs">{exec.exchange_order_id}</TableCell>
@@ -645,14 +770,59 @@ export function AuditPositions() {
             {/* Duplicados */}
             {exchangeTradesResult.duplicates.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-orange-500">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="font-medium">Executions Duplicados ({exchangeTradesResult.duplicates.length})</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-orange-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="font-medium">Executions Duplicados ({exchangeTradesResult.duplicates.length})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={selectedDuplicates.size === exchangeTradesResult.duplicates.filter(d => !d.values_differ).length && selectedDuplicates.size > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          // Apenas selecionar duplicados com valores iguais
+                          setSelectedDuplicates(new Set(exchangeTradesResult.duplicates.map((d, i) => !d.values_differ ? i : -1).filter(i => i >= 0)))
+                        } else {
+                          setSelectedDuplicates(new Set())
+                        }
+                      }}
+                    />
+                    <span className="text-sm">Selecionar todos (apenas valores iguais)</span>
+                    {selectedDuplicates.size > 0 && (
+                      <Button
+                        onClick={() => {
+                          const duplicateOrderIds = Array.from(selectedDuplicates)
+                            .map(index => exchangeTradesResult.duplicates[index]?.exchange_order_id)
+                            .filter(Boolean) as string[]
+                          fixExchangeTradesMutation.mutate({
+                            accountId: exchangeTradesResult.account_id,
+                            duplicateOrderIds,
+                          })
+                        }}
+                        disabled={fixExchangeTradesMutation.isPending}
+                        size="sm"
+                        variant="default"
+                      >
+                        {fixExchangeTradesMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Corrigindo...
+                          </>
+                        ) : (
+                          <>
+                            <Wrench className="mr-2 h-4 w-4" />
+                            Corrigir Selecionados ({selectedDuplicates.size})
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="border rounded-lg overflow-x-auto max-h-[500px]">
                   <Table className="min-w-full">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-12"></TableHead>
                         <TableHead className="min-w-[150px]">Order ID</TableHead>
                         <TableHead className="min-w-[80px]">Count</TableHead>
                         <TableHead className="min-w-[200px]">Execution IDs</TableHead>
@@ -663,6 +833,22 @@ export function AuditPositions() {
                     <TableBody>
                       {exchangeTradesResult.duplicates.map((dup, index) => (
                         <TableRow key={index}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedDuplicates.has(index)}
+                              disabled={dup.values_differ}
+                              onCheckedChange={(checked) => {
+                                if (dup.values_differ) return
+                                const newSet = new Set(selectedDuplicates)
+                                if (checked) {
+                                  newSet.add(index)
+                                } else {
+                                  newSet.delete(index)
+                                }
+                                setSelectedDuplicates(newSet)
+                              }}
+                            />
+                          </TableCell>
                           <TableCell className="font-mono text-xs">{dup.exchange_order_id}</TableCell>
                           <TableCell>
                             <Badge variant="destructive">{dup.count}</Badge>
@@ -673,6 +859,7 @@ export function AuditPositions() {
                             {dup.values_differ ? (
                               <div className="text-xs">
                                 <Badge variant="destructive" className="text-xs mb-1">Valores Diferentes</Badge>
+                                <div className="mt-1 text-muted-foreground text-xs">Não pode ser corrigido automaticamente</div>
                                 {dup.execution_values && (
                                   <div className="mt-1 space-y-1">
                                     {dup.execution_values.map((v: any, i: number) => (

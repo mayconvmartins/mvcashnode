@@ -348,6 +348,32 @@ export const adminService = {
         return response.data
     },
 
+    fixExchangeTrades: async (data: {
+        accountId: number
+        missingTrades?: Array<{
+            orderId: string
+            symbol: string
+            side: 'BUY' | 'SELL'
+            price: number
+            qty: number
+            timestamp: string
+        }>
+        extraExecutionIds?: number[]
+        duplicateOrderIds?: string[]
+    }): Promise<{
+        missing_imported: number
+        extra_deleted: number
+        duplicates_fixed: number
+        errors: number
+        error_details?: Array<{ type: string; data: any; error: string }>
+        duration_ms?: number
+    }> => {
+        const response = await apiClient.post('/admin/system/fix-exchange-trades', data, {
+            timeout: 600000, // 10 minutos
+        })
+        return response.data
+    },
+
     auditFifoPositions: async (hours?: number, dryRun?: boolean): Promise<{
         totalExecutions: number
         checkedExecutions: number
