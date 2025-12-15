@@ -1062,7 +1062,7 @@ export class ReportsService {
         where: {
           ...whereBase,
           status: 'CLOSED',
-          ...(Object.keys(dateFilter).length > 0 && { closed_at: dateFilter }),
+          ...(Object.keys(closedDateFilter).length > 0 && { closed_at: closedDateFilter }),
         },
         select: {
           id: true,
