@@ -36,7 +36,7 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
       // Performance: reiniciar se usar mais de 1GB RAM por instância
-      max_memory_restart: '1G',
+      max_memory_restart: '2G',
       // Graceful shutdown
       kill_timeout: 5000,
       wait_ready: true,
@@ -60,7 +60,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '512M',
+      max_memory_restart: '4096M',
       kill_timeout: 10000, // Mais tempo para finalizar trades em andamento
     },
     {
@@ -79,7 +79,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '512M',
+      max_memory_restart: '4096M',
     },
     {
       name: 'mvcashnode-frontend',
@@ -101,7 +101,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '1G',
+      max_memory_restart: '2G',
       kill_timeout: 5000,
     },
     {
@@ -123,7 +123,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '512M',
+      max_memory_restart: '1512M',
     },
     {
       name: 'mvcashnode-backup',
@@ -141,7 +141,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '512M',
+      max_memory_restart: '1512M',
     },
   ],
 };

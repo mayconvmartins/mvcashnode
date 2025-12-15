@@ -4,14 +4,18 @@ import type { NextConfig } from "next";
  * Next.js Configuration otimizado para produção
  * 
  * Otimizações de performance:
- * - output: 'standalone' - Reduz tamanho do bundle para deploy
+ * - output: 'standalone' - Reduz tamanho do bundle para deploy (apenas Linux/produção)
  * - compiler.removeConsole - Remove console.log em produção
  * - optimizePackageImports - Tree-shaking mais agressivo para pacotes grandes
  * - poweredByHeader: false - Remove header X-Powered-By (segurança e bytes)
  */
 const nextConfig: NextConfig = {
   // Output standalone para produção (menor footprint, melhor para containers)
-  output: 'standalone',
+  // Desabilitado no Windows devido a problemas com symlinks (EPERM)
+  // Habilitar apenas em Linux/produção via variável de ambiente
+  ...(process.env.NEXT_OUTPUT_STANDALONE === 'true' && process.platform !== 'win32' 
+    ? { output: 'standalone' as const }
+    : {}),
   
   // Compressão habilitada por padrão no Next.js
   compress: true,

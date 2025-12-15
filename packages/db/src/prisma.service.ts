@@ -18,7 +18,6 @@ import { PrismaClient } from '@prisma/client';
  * - Ajustar max_connections do MySQL para suportar: 300-500 conexões
  */
 export class PrismaService extends PrismaClient {
-  private static instance: PrismaService | null = null;
   private connectionAttempts = 0;
   private maxConnectionAttempts = 5;
   private reconnectDelay = 1000;
