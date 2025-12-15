@@ -1028,23 +1028,16 @@ export default function PositionsPage() {
                     <CardHeader className="pb-3">
                         <CardDescription className="flex items-center gap-2">
                             <DollarSign className="h-4 w-4" />
-                            Valor Investido
+                            Valor Atual
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
                         {loadingOpen ? (
                             <Skeleton className="h-8 w-32" />
                         ) : (
-                            <>
-                                <div className="text-2xl font-bold">
-                                    {formatCurrency(consolidatedMetrics.totalInvested)}
-                                </div>
-                                {consolidatedMetrics.totalCurrentValue > 0 && (
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                        Valor atual: {formatCurrency(consolidatedMetrics.totalCurrentValue)}
-                                    </p>
-                                )}
-                            </>
+                            <div className="text-2xl font-bold">
+                                {formatCurrency(consolidatedMetrics.totalCurrentValue)}
+                            </div>
                         )}
                     </CardContent>
                 </Card>
