@@ -4798,6 +4798,7 @@ export class AdminSystemController {
                 });
               }
             }
+          }
           } catch (dupError: any) {
             console.error(`[ADMIN] Erro ao processar posições duplicadas para job_id_open ${dup.job_id_open}:`, dupError.message);
             errors.push({
@@ -4812,55 +4813,56 @@ export class AdminSystemController {
         for (const dup of validations.duplicate_jobs) {
           try {
             const jobs = await this.prisma.tradeJob.findMany({
-            where: {
-              id: { in: dup.job_ids },
-            },
-            include: {
-              executions: true,
-              position_open: {
-                select: {
-                  id: true,
+              where: {
+                id: { in: dup.job_ids },
+              },
+              include: {
+                executions: true,
+                position_open: {
+                  select: {
+                    id: true,
+                  },
                 },
               },
-            },
-            orderBy: {
-              created_at: 'desc',
-            },
-          });
+              orderBy: {
+                created_at: 'desc',
+              },
+            });
 
-          if (jobs.length > 1) {
-            const toKeep = jobs[0];
-            const toDelete = jobs.slice(1);
+            if (jobs.length > 1) {
+              const toKeep = jobs[0];
+              const toDelete = jobs.slice(1);
 
-            for (const job of toDelete) {
-              try {
-                if (job.position_open) {
+              for (const job of toDelete) {
+                try {
+                  if (job.position_open) {
+                    errors.push({
+                      type: 'DUPLICATE_JOB',
+                      id: job.id,
+                      error: 'Job tem posição vinculada, não pode ser deletado',
+                    });
+                    continue;
+                  }
+
+                  // Deletar executions primeiro
+                  for (const exec of job.executions) {
+                    await this.prisma.tradeExecution.delete({
+                      where: { id: exec.id },
+                    });
+                  }
+
+                  await this.prisma.tradeJob.delete({
+                    where: { id: job.id },
+                  });
+                  fixesApplied.jobs_deleted++;
+                  console.log(`[ADMIN] ✅ Trade job duplicado ${job.id} deletado (order_id: ${dup.order_id})`);
+                } catch (error: any) {
                   errors.push({
                     type: 'DUPLICATE_JOB',
                     id: job.id,
-                    error: 'Job tem posição vinculada, não pode ser deletado',
-                  });
-                  continue;
-                }
-
-                // Deletar executions primeiro
-                for (const exec of job.executions) {
-                  await this.prisma.tradeExecution.delete({
-                    where: { id: exec.id },
+                    error: error.message || 'Erro desconhecido',
                   });
                 }
-
-                await this.prisma.tradeJob.delete({
-                  where: { id: job.id },
-                });
-                fixesApplied.jobs_deleted++;
-                console.log(`[ADMIN] ✅ Trade job duplicado ${job.id} deletado (order_id: ${dup.order_id})`);
-              } catch (error: any) {
-                errors.push({
-                  type: 'DUPLICATE_JOB',
-                  id: job.id,
-                  error: error.message || 'Erro desconhecido',
-                });
               }
             }
           } catch (dupError: any) {
