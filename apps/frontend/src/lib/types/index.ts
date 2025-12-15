@@ -540,6 +540,7 @@ export interface TradeJob {
     vault_id?: number
     limit_order_expires_at?: string
     position_id_to_close?: number
+    created_by?: string
     created_at: string
     updated_at: string
 }
