@@ -1189,7 +1189,6 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       }
 
       // VALIDAÇÃO: Verificar se exchange_order_id existe na exchange (exceto DUST orders)
-      let orderVerified = false;
       let orderValidationError: string | null = null;
       
       if (order.id && !String(order.id).startsWith('DUST-')) {
@@ -1197,7 +1196,6 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           // Tentar buscar ordem na exchange para validar
           const verifiedOrder = await adapter.fetchOrder(order.id, tradeJob.symbol);
           if (verifiedOrder && verifiedOrder.id) {
-            orderVerified = true;
             this.logger.log(`[EXECUTOR] ✅ Order ID ${order.id} validado na exchange`);
           }
         } catch (verifyError: any) {
@@ -1216,7 +1214,6 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               });
               
               if (orderTrades.length > 0) {
-                orderVerified = true;
                 this.logger.log(`[EXECUTOR] ✅ Order ID ${order.id} encontrado em trades arquivados`);
               } else {
                 orderValidationError = `Order ID ${order.id} não encontrado na exchange (arquivada ou inválida)`;
