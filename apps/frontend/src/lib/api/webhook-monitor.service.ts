@@ -77,8 +77,9 @@ export interface WebhookMonitorConfig {
 
 export const webhookMonitorService = {
   async listAlerts(): Promise<WebhookMonitorAlert[]> {
-    const response = await apiClient.get<WebhookMonitorAlert[]>('/webhooks/monitor/alerts')
-    return response.data
+    const response = await apiClient.get<{ data: WebhookMonitorAlert[]; pagination: any }>('/webhooks/monitor/alerts')
+    // Backend retorna formato paginado { data: [...], pagination: {...} }
+    return response.data.data || response.data || []
   },
 
   async getAlert(id: number): Promise<WebhookMonitorAlert> {
@@ -104,8 +105,9 @@ export const webhookMonitorService = {
     if (filters?.endDate) params.append('endDate', filters.endDate)
     if (filters?.limit) params.append('limit', filters.limit.toString())
 
-    const response = await apiClient.get<WebhookMonitorAlert[]>(`/webhooks/monitor/history?${params.toString()}`)
-    return response.data
+    const response = await apiClient.get<{ data: WebhookMonitorAlert[]; pagination: any }>(`/webhooks/monitor/history?${params.toString()}`)
+    // Backend retorna formato paginado { data: [...], pagination: {...} }
+    return response.data.data || response.data || []
   },
 
   async getConfig(): Promise<WebhookMonitorConfig> {

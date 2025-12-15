@@ -4993,12 +4993,12 @@ export class AdminSystemController {
                 },
               } : {}),
               OR: [
-                { position_open_id: null },
+                { position_open: null },
                 { position_open: { status: 'CLOSED' } },
               ],
             },
             include: {
-              grouped_jobs: {
+              grouped_in: {
                 include: {
                   position: {
                     select: { id: true, status: true },
@@ -5009,12 +5009,16 @@ export class AdminSystemController {
           });
 
           for (const job of jobsToFix) {
-            if (job.grouped_jobs && job.grouped_jobs.length > 0) {
-              const groupedJob = job.grouped_jobs[0];
+            if (job.grouped_in && job.grouped_in.length > 0) {
+              const groupedJob = job.grouped_in[0];
               if (groupedJob.position && groupedJob.position.status === 'OPEN') {
                 await this.prisma.tradeJob.update({
                   where: { id: job.id },
-                  data: { position_open_id: groupedJob.position.id },
+                  data: {
+                    position_open: {
+                      connect: { id: groupedJob.position.id },
+                    },
+                  },
                 });
                 fixesApplied.jobs_corrected++;
                 console.log(`[ADMIN] ✅ Job ${job.id}: position_open corrigido para posição #${groupedJob.position.id}`);
