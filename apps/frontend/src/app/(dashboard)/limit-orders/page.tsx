@@ -54,7 +54,19 @@ export default function LimitOrdersPage() {
         { 
             key: 'id', 
             label: 'ID', 
-            render: (order) => <span className="font-mono text-sm">#{order.id}</span> 
+            render: (order) => (
+                <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm">#{order.id}</span>
+                    {order.created_by && (
+                        <Badge variant="outline" className="text-xs">
+                            {order.created_by === 'USER_MANUAL' ? 'Manual' :
+                             order.created_by === 'WEBHOOK' ? 'Webhook' :
+                             order.created_by === 'SLTP_MONITOR' ? 'Monitor TP/SL' :
+                             order.created_by}
+                        </Badge>
+                    )}
+                </div>
+            )
         },
         { 
             key: 'symbol', 
@@ -130,26 +142,6 @@ export default function LimitOrdersPage() {
             key: 'created_at', 
             label: 'Criado em', 
             render: (order) => <span className="text-sm">{formatDateTime(order.created_at)}</span> 
-        },
-        {
-            key: 'created_by',
-            label: 'Criado Por',
-            render: (order) => {
-                if (!order.created_by) {
-                    return <span className="text-muted-foreground text-sm">-</span>
-                }
-                const labels: Record<string, string> = {
-                    'USER_MANUAL': 'Manual',
-                    'WEBHOOK': 'Webhook',
-                    'SLTP_MONITOR': 'Monitor TP/SL',
-                }
-                const label = labels[order.created_by] || order.created_by
-                return (
-                    <Badge variant="outline" className="text-xs">
-                        {label}
-                    </Badge>
-                )
-            },
         },
         {
             key: 'actions',
