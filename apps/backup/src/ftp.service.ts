@@ -86,8 +86,8 @@ export class FtpService {
       const files = await client.list();
       
       return files
-        .filter((file) => file.type === 1 && file.name.startsWith('mvcash_'))
-        .map((file) => file.name);
+        .filter((file: any) => file.type === 1 && file.name.startsWith('mvcash_'))
+        .map((file: any) => file.name);
     } catch (error: any) {
       console.error(`[FTP] Erro ao listar arquivos remotos: ${error.message}`);
       return [];

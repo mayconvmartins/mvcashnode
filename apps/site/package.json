@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 6010",
-    "build": "next build",
+    "build": "pnpm exec next build",
     "start": "next start -p 6010",
     "type-check": "tsc --noEmit"
   },

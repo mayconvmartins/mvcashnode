@@ -8,9 +8,6 @@ const nextConfig: NextConfig = {
   // Otimização de imports de pacotes
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
-    // Usar múltiplos workers para build paralelo
-    workerThreads: true,
-    cpus: Math.max(1, Math.floor(os.cpus().length * 0.8)), // 80% dos núcleos
   },
   
   // Headers de cache APENAS para assets estáticos
