@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { TradeParameter } from '@/lib/types'
+import type { TradeParameter, PaginatedResponse } from '@/lib/types'
 
 export interface CreateTradeParameterDto {
     exchange_account_id: number
@@ -25,8 +25,11 @@ export interface UpdateTradeParameterDto extends Partial<CreateTradeParameterDto
 
 export const tradeParametersService = {
     list: async (): Promise<TradeParameter[]> => {
-        const response = await apiClient.get<TradeParameter[]>('/trade-parameters')
-        return response.data
+        const response = await apiClient.get<PaginatedResponse<TradeParameter> | TradeParameter[]>('/trade-parameters')
+        // Backend agora retorna formato paginado { data: [...], pagination: {...} }
+        // Extrair array de dados da resposta paginada
+        const isPaginated = response.data && typeof response.data === 'object' && 'data' in response.data
+        return isPaginated ? (response.data as PaginatedResponse<TradeParameter>).data : (response.data as TradeParameter[])
     },
 
     getById: async (id: string | number): Promise<TradeParameter> => {
