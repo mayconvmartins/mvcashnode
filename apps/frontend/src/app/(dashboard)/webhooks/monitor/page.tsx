@@ -25,18 +25,21 @@ export default function WebhookMonitorPage() {
     const { data: alerts, isLoading: alertsLoading, dataUpdatedAt } = useQuery({
         queryKey: ['webhook-monitor-alerts'],
         queryFn: webhookMonitorService.listAlerts,
-        refetchInterval: 3000, // Atualizar a cada 3 segundos para realtime
+        refetchInterval: 10000, // Atualizar a cada 10 segundos (otimizado de 3s para reduzir carga)
+        staleTime: 5000, // Dados considerados frescos por 5 segundos
     })
 
     const { data: history, isLoading: historyLoading } = useQuery({
         queryKey: ['webhook-monitor-history'],
         queryFn: () => webhookMonitorService.getHistory({ limit: 50 }),
+        staleTime: 30000, // Histórico considerado fresco por 30 segundos
     })
 
     const { data: summary } = useQuery({
         queryKey: ['webhook-monitor-summary'],
         queryFn: webhookMonitorService.getSummary,
-        refetchInterval: 10000, // Atualizar a cada 10 segundos
+        refetchInterval: 30000, // Atualizar a cada 30 segundos (otimizado de 10s)
+        staleTime: 15000, // Dados considerados frescos por 15 segundos
     })
 
     const cancelMutation = useMutation({

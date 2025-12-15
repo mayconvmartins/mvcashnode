@@ -1,16 +1,81 @@
 import type { NextConfig } from "next";
-import * as os from "os";
 
+/**
+ * Next.js Configuration otimizado para produção
+ * 
+ * Otimizações de performance:
+ * - output: 'standalone' - Reduz tamanho do bundle para deploy
+ * - compiler.removeConsole - Remove console.log em produção
+ * - optimizePackageImports - Tree-shaking mais agressivo para pacotes grandes
+ * - poweredByHeader: false - Remove header X-Powered-By (segurança e bytes)
+ */
 const nextConfig: NextConfig = {
+  // Output standalone para produção (menor footprint, melhor para containers)
+  output: 'standalone',
+  
   // Compressão habilitada por padrão no Next.js
   compress: true,
   
-  // Otimização de imports de pacotes
-  experimental: {
-    optimizePackageImports: ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+  // Remover header X-Powered-By (segurança e performance)
+  poweredByHeader: false,
+  
+  // React Strict Mode para detectar problemas
+  reactStrictMode: true,
+  
+  // Otimizações do compilador SWC
+  compiler: {
+    // Remover console.log em produção (exceto console.error e console.warn)
+    removeConsole: process.env.NODE_ENV === 'production' ? {
+      exclude: ['error', 'warn'],
+    } : false,
   },
   
-  // Headers de cache APENAS para assets estáticos
+  // Otimização de imports de pacotes (tree-shaking mais agressivo)
+  experimental: {
+    optimizePackageImports: [
+      // UI Components
+      'lucide-react',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-select',
+      '@radix-ui/react-tabs',
+      '@radix-ui/react-tooltip',
+      '@radix-ui/react-popover',
+      '@radix-ui/react-checkbox',
+      '@radix-ui/react-switch',
+      '@radix-ui/react-label',
+      '@radix-ui/react-avatar',
+      '@radix-ui/react-separator',
+      '@radix-ui/react-scroll-area',
+      '@radix-ui/react-collapsible',
+      '@radix-ui/react-alert-dialog',
+      '@radix-ui/react-radio-group',
+      '@radix-ui/react-slot',
+      '@radix-ui/react-toast',
+      // Data handling
+      'date-fns',
+      'zod',
+      // State management
+      'zustand',
+      // Charts
+      'recharts',
+      // Animation
+      'framer-motion',
+      // Form handling
+      'react-hook-form',
+      '@hookform/resolvers',
+    ],
+  },
+  
+  // Otimização de imagens
+  images: {
+    // Formatos modernos para melhor compressão
+    formats: ['image/avif', 'image/webp'],
+    // Desabilitar otimização remota se não usar imagens externas
+    remotePatterns: [],
+  },
+  
+  // Headers de cache para assets estáticos
   headers: async () => [
     {
       // Manifest.json - CORS headers
@@ -49,7 +114,7 @@ const nextConfig: NextConfig = {
       ],
     },
     {
-      // Assets estáticos (JS, CSS) - cache longo
+      // Assets estáticos (JS, CSS) - cache longo (1 ano)
       source: '/_next/static/:path*',
       headers: [
         {
@@ -59,7 +124,7 @@ const nextConfig: NextConfig = {
       ],
     },
     {
-      // Imagens - cache médio
+      // Imagens - cache médio (1 dia)
       source: '/:path*\\.(jpg|jpeg|png|gif|webp|svg|ico)',
       headers: [
         {
@@ -69,7 +134,7 @@ const nextConfig: NextConfig = {
       ],
     },
     {
-      // Fontes - cache longo
+      // Fontes - cache longo (1 ano)
       source: '/:path*\\.(woff|woff2|ttf|otf|eot)',
       headers: [
         {

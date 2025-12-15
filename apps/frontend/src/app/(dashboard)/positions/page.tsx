@@ -135,18 +135,21 @@ export default function PositionsPage() {
     const { data: openPositionsData, isLoading: loadingOpen } = useQuery({
         queryKey: ['positions', 'OPEN', openFilters],
         queryFn: () => positionsService.list(openFilters),
-        refetchInterval: 30000, // Refetch a cada 30s
+        refetchInterval: 60000, // Refetch a cada 60s (otimizado de 30s)
+        staleTime: 30000, // Dados considerados frescos por 30 segundos
     })
 
     const { data: closedPositionsData, isLoading: loadingClosed } = useQuery({
         queryKey: ['positions', 'CLOSED', closedFilters],
         queryFn: () => positionsService.list(closedFilters),
+        staleTime: 60000, // Posições fechadas mudam pouco, staleTime maior
     })
 
     const { data: dustPositionsData, isLoading: loadingDust } = useQuery({
         queryKey: ['positions', 'DUST', dustFilters],
         queryFn: () => positionsService.list(dustFilters),
-        refetchInterval: 30000, // Refetch a cada 30s
+        refetchInterval: 60000, // Refetch a cada 60s (otimizado de 30s)
+        staleTime: 30000, // Dados considerados frescos por 30 segundos
     })
 
     // Extrair dados, paginação e summary

@@ -18,39 +18,44 @@ import { toast } from 'sonner'
 export default function MonitoringPage() {
     const [autoRefresh, setAutoRefresh] = useState(true)
 
-    // Query para status do sistema
+    // Query para status do sistema (otimizado de 10s para 30s)
     const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useQuery({
         queryKey: ['monitoring', 'status'],
         queryFn: () => monitoringService.getStatus(),
-        refetchInterval: autoRefresh ? 10000 : false, // Auto-refresh a cada 10 segundos
+        refetchInterval: autoRefresh ? 30000 : false, // Auto-refresh a cada 30 segundos
+        staleTime: 15000, // Dados considerados frescos por 15 segundos
     })
 
     // Query para processos
     const { data: processes, refetch: refetchProcesses } = useQuery({
         queryKey: ['monitoring', 'processes'],
         queryFn: () => monitoringService.getProcesses(),
-        refetchInterval: autoRefresh ? 10000 : false,
+        refetchInterval: autoRefresh ? 30000 : false, // Otimizado de 10s para 30s
+        staleTime: 15000,
     })
 
     // Query para alertas
     const { data: alerts, refetch: refetchAlerts } = useQuery({
         queryKey: ['monitoring', 'alerts'],
         queryFn: () => monitoringService.getAlerts(),
-        refetchInterval: autoRefresh ? 10000 : false,
+        refetchInterval: autoRefresh ? 30000 : false, // Otimizado de 10s para 30s
+        staleTime: 15000,
     })
 
     // Query para jobs
     const { data: jobs, refetch: refetchJobs } = useQuery({
         queryKey: ['monitoring', 'jobs'],
         queryFn: () => monitoringService.getJobs(),
-        refetchInterval: autoRefresh ? 10000 : false,
+        refetchInterval: autoRefresh ? 30000 : false, // Otimizado de 10s para 30s
+        staleTime: 15000,
     })
 
     // Query para logs
     const { data: logs, refetch: refetchLogs } = useQuery({
         queryKey: ['monitoring', 'history'],
         queryFn: () => monitoringService.getHistory(undefined, 50),
-        refetchInterval: autoRefresh ? 10000 : false,
+        refetchInterval: autoRefresh ? 30000 : false, // Otimizado de 10s para 30s
+        staleTime: 15000,
     })
 
     const handleResolveAlert = async (alertId: number) => {

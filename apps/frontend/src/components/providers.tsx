@@ -7,21 +7,47 @@ import { Toaster } from '@/components/ui/toaster'
 import { WebSocketProvider } from '@/components/websocket/WebSocketProvider'
 import { MercadoPagoProvider } from './providers/MercadoPagoProvider'
 
+/**
+ * Configurações de cache do React Query otimizadas para performance
+ * 
+ * staleTime: Tempo que os dados são considerados "frescos" (não refetch automático)
+ * - Padrão: 30s - bom equilíbrio entre atualização e performance
+ * - Dados em tempo real devem sobrescrever com staleTime menor
+ * 
+ * gcTime: Tempo que os dados ficam em cache após não serem mais usados
+ * - 10 minutos - mantém dados em memória para navegação rápida
+ * 
+ * Para queries específicas, sobrescrever nas chamadas:
+ * - Monitor alerts: staleTime: 5000 (5s)
+ * - Positions: staleTime: 30000 (30s)
+ * - Configurações: staleTime: 300000 (5min)
+ */
 export function Providers({ children }: { children: ReactNode }) {
     const [queryClient] = useState(
         () =>
             new QueryClient({
                 defaultOptions: {
                     queries: {
-                        staleTime: 0, // Dados sempre considerados stale (tempo real)
-                        gcTime: 5 * 60 * 1000, // 5 minutos de cache em memória (antes era cacheTime)
-                        refetchOnWindowFocus: false, // Não refetch ao focar janela
-                        refetchOnReconnect: true, // Refetch ao reconectar
-                        retry: 1, // Apenas 1 tentativa de retry
-                        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Backoff exponencial
+                        // Dados considerados frescos por 30 segundos (reduz requisições)
+                        staleTime: 30 * 1000, // 30 segundos
+                        // Cache em memória por 10 minutos (navegação rápida entre páginas)
+                        gcTime: 10 * 60 * 1000, // 10 minutos
+                        // Não refetch ao focar janela (reduz requisições desnecessárias)
+                        refetchOnWindowFocus: false,
+                        // Refetch ao reconectar para garantir dados atualizados
+                        refetchOnReconnect: true,
+                        // Apenas 1 tentativa de retry para não sobrecarregar
+                        retry: 1,
+                        // Backoff exponencial: 1s, 2s, 4s... até 30s
+                        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+                        // Não refetch em background quando dados estão stale (economiza recursos)
+                        refetchOnMount: true,
+                        // Estrutural sharing para otimizar re-renders
+                        structuralSharing: true,
                     },
                     mutations: {
-                        retry: 0, // Não retry em mutations
+                        // Não retry em mutations para evitar duplicação
+                        retry: 0,
                     },
                 },
             })
