@@ -467,6 +467,7 @@ model TradeJob {
   vault_id               Int?
   limit_order_expires_at DateTime?
   position_id_to_close   Int?      // Posição específica a fechar (para SELL)
+  created_by             String?   @db.VarChar(50) // Quem ou qual serviço criou a ordem (USER_MANUAL, WEBHOOK, SLTP_MONITOR, etc.)
   created_at             DateTime  @default(now())
   updated_at             DateTime  @updatedAt
 

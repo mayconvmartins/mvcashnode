@@ -204,6 +204,35 @@ export function AuditPositions() {
     },
   })
 
+  const fixExchangeTradesMutation = useMutation({
+    mutationFn: (data: {
+      accountId: number
+      missingTrades?: Array<any>
+      extraExecutionIds?: number[]
+      duplicateOrderIds?: string[]
+    }) => adminService.fixExchangeTrades(data),
+    retry: false,
+    onSuccess: (data) => {
+      toast.success(
+        `Correções aplicadas: ${data.missing_imported} importado(s), ${data.extra_deleted} deletado(s), ${data.duplicates_fixed} duplicado(s) corrigido(s)`
+      )
+      if (data.errors > 0) {
+        toast.warning(`${data.errors} erro(s) ao aplicar correções`)
+      }
+      // Limpar seleções
+      setSelectedMissing(new Set())
+      setSelectedExtra(new Set())
+      setSelectedDuplicates(new Set())
+      // Recarregar auditoria
+      if (dateFrom && dateTo && selectedAccountId !== 'all') {
+        handleAuditExchangeTrades()
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erro ao aplicar correções')
+    },
+  })
+
   const handleAuditExchangeTrades = () => {
     if (!dateFrom || !dateTo || selectedAccountId === 'all') {
       toast.error('Selecione data inicial, data final e uma conta específica para auditar trades da exchange')
