@@ -4875,7 +4875,150 @@ export class AdminSystemController {
           }
         }
 
-        // 4.3 Deletar trade jobs órfãos (sem execution válida na exchange)
+        // 4.3 ✅ NOVO: Corrigir quantidades de posições baseado em saldos da exchange
+        console.log('[ADMIN] Corrigindo quantidades de posições baseado em saldos da exchange...');
+        try {
+          const openPositions = await this.prisma.tradePosition.findMany({
+            where: {
+              exchange_account_id: accountIdNum,
+              status: 'OPEN',
+              qty_remaining: { gt: 0 },
+            },
+            select: {
+              id: true,
+              symbol: true,
+              qty_remaining: true,
+            },
+          });
+
+          // Agrupar por símbolo
+          const positionsBySymbol = new Map<string, typeof openPositions>();
+          for (const pos of openPositions) {
+            if (!positionsBySymbol.has(pos.symbol)) {
+              positionsBySymbol.set(pos.symbol, []);
+            }
+            positionsBySymbol.get(pos.symbol)!.push(pos);
+          }
+
+          // Para cada símbolo, buscar saldo na exchange
+          for (const [symbol, positions] of positionsBySymbol.entries()) {
+            try {
+              const baseAsset = symbol.split('/')[0];
+              const balances = await adapter.fetchBalance();
+              const exchangeBalance = balances[baseAsset]?.free || 0;
+
+              const localTotalQty = positions.reduce((sum, pos) => sum + pos.qty_remaining.toNumber(), 0);
+              const difference = Math.abs(localTotalQty - exchangeBalance);
+              const differencePct = exchangeBalance > 0 
+                ? (difference / exchangeBalance) * 100 
+                : (localTotalQty > 0 ? 100 : 0);
+
+              // Se discrepância > 0.1%, corrigir proporcionalmente
+              if (differencePct > 0.1 && exchangeBalance > 0) {
+                const ratio = exchangeBalance / localTotalQty;
+                for (const pos of positions) {
+                  const correctedQty = pos.qty_remaining.toNumber() * ratio;
+                  await this.prisma.tradePosition.update({
+                    where: { id: pos.id },
+                    data: {
+                      qty_remaining: correctedQty,
+                    },
+                  });
+                  fixesApplied.executions_corrected++;
+                  console.log(
+                    `[ADMIN] ✅ Quantidade corrigida: Posição ${pos.id} - ` +
+                    `Local: ${pos.qty_remaining.toNumber()}, Exchange: ${correctedQty.toFixed(8)}`
+                  );
+                }
+              }
+            } catch (symbolError: any) {
+              console.error(`[ADMIN] Erro ao corrigir quantidades para ${symbol}: ${symbolError.message}`);
+            }
+          }
+        } catch (qtyError: any) {
+          console.error(`[ADMIN] Erro ao corrigir quantidades: ${qtyError.message}`);
+          errors.push({
+            type: 'QUANTITY_CORRECTION',
+            id: 0,
+            error: `Erro ao corrigir quantidades: ${qtyError.message}`,
+          });
+        }
+
+        // 4.4 ✅ NOVO: Corrigir taxas baseado em trades reais da exchange
+        console.log('[ADMIN] Corrigindo taxas baseado em trades reais da exchange...');
+        try {
+          const executionsToFix = await this.prisma.tradeExecution.findMany({
+            where: {
+              exchange_account_id: accountIdNum,
+              exchange_order_id: { not: null },
+              created_at: {
+                gte: dateFrom,
+                lte: dateTo,
+              },
+            },
+            include: {
+              trade_job: {
+                select: {
+                  symbol: true,
+                },
+              },
+            },
+            take: 100, // Limitar a 100 por execução
+          });
+
+          for (const exec of executionsToFix) {
+            try {
+              if (!exec.exchange_order_id || !exec.trade_job.symbol) continue;
+
+              const since = exec.created_at.getTime() - 60000;
+              const trades = await adapter.fetchMyTrades(exec.trade_job.symbol, since, 100);
+              const orderTrades = trades.filter((t: any) => {
+                return t.order === exec.exchange_order_id || 
+                       t.orderId === exec.exchange_order_id;
+              });
+
+              if (orderTrades.length === 0) continue;
+
+              const fees = adapter.extractFeesFromTrades(orderTrades);
+              if (fees.feeAmount === 0) continue;
+
+              const localFee = exec.fee_amount?.toNumber() || 0;
+              const differencePct = fees.feeAmount > 0
+                ? (Math.abs(localFee - fees.feeAmount) / fees.feeAmount) * 100
+                : 0;
+
+              // Se discrepância > 1%, corrigir
+              if (differencePct > 1) {
+                await this.prisma.tradeExecution.update({
+                  where: { id: exec.id },
+                  data: {
+                    fee_amount: fees.feeAmount,
+                    fee_currency: fees.feeCurrency,
+                    fee_rate: exec.cumm_quote_qty.toNumber() > 0
+                      ? (fees.feeAmount / exec.cumm_quote_qty.toNumber()) * 100
+                      : null,
+                  },
+                });
+                fixesApplied.executions_corrected++;
+                console.log(
+                  `[ADMIN] ✅ Taxa corrigida: Execução ${exec.id} - ` +
+                  `Local: ${localFee}, Exchange: ${fees.feeAmount}`
+                );
+              }
+            } catch (execError: any) {
+              // Continuar com próximo
+            }
+          }
+        } catch (feeError: any) {
+          console.error(`[ADMIN] Erro ao corrigir taxas: ${feeError.message}`);
+          errors.push({
+            type: 'FEE_CORRECTION',
+            id: 0,
+            error: `Erro ao corrigir taxas: ${feeError.message}`,
+          });
+        }
+
+        // 4.5 Deletar trade jobs órfãos (sem execution válida na exchange)
         for (const orphan of validations.orphan_jobs) {
           try {
             const job = await this.prisma.tradeJob.findUnique({
@@ -4994,6 +5137,104 @@ export class AdminSystemController {
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro na sincronização com exchange:', error);
+      throw error;
+    }
+  }
+
+  @Get('system/validate-integrity')
+  @ApiOperation({
+    summary: 'Validar integridade de posições',
+    description: 'Valida a integridade de todas as posições abertas, verificando quantidades, taxas e consistência.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Resultado da validação de integridade',
+  })
+  async validateIntegrity(
+    @Query('accountId') accountId?: string,
+    @Query('positionId') positionId?: string
+  ) {
+    console.log('[ADMIN] Iniciando validação de integridade...');
+
+    const positionService = new PositionService(this.prisma);
+    const results: Array<{
+      position_id: number;
+      valid: boolean;
+      errors: string[];
+      warnings: string[];
+      details: any;
+    }> = [];
+
+    try {
+      let positionsToValidate;
+
+      if (positionId) {
+        // Validar posição específica
+        const posId = parseInt(positionId);
+        const position = await this.prisma.tradePosition.findUnique({
+          where: { id: posId },
+        });
+        positionsToValidate = position ? [position] : [];
+      } else if (accountId) {
+        // Validar posições de uma conta
+        const accountIdNum = parseInt(accountId);
+        positionsToValidate = await this.prisma.tradePosition.findMany({
+          where: {
+            exchange_account_id: accountIdNum,
+            status: 'OPEN',
+          },
+        });
+      } else {
+        // Validar todas as posições abertas
+        positionsToValidate = await this.prisma.tradePosition.findMany({
+          where: {
+            status: 'OPEN',
+          },
+          take: 1000, // Limitar a 1000 para não sobrecarregar
+        });
+      }
+
+      console.log(`[ADMIN] Validando ${positionsToValidate.length} posição(ões)...`);
+
+      for (const position of positionsToValidate) {
+        try {
+          const validation = await positionService.validatePositionIntegrity(position.id);
+          results.push({
+            position_id: position.id,
+            valid: validation.valid,
+            errors: validation.errors,
+            warnings: validation.warnings,
+            details: validation.details,
+          });
+        } catch (error: any) {
+          results.push({
+            position_id: position.id,
+            valid: false,
+            errors: [`Erro ao validar: ${error.message}`],
+            warnings: [],
+            details: {},
+          });
+        }
+      }
+
+      const invalidCount = results.filter(r => !r.valid).length;
+      const totalErrors = results.reduce((sum, r) => sum + r.errors.length, 0);
+      const totalWarnings = results.reduce((sum, r) => sum + r.warnings.length, 0);
+
+      console.log(
+        `[ADMIN] ✅ Validação concluída: ${results.length} posição(ões) validada(s), ` +
+        `${invalidCount} inválida(s), ${totalErrors} erro(s), ${totalWarnings} aviso(s)`
+      );
+
+      return {
+        total_validated: results.length,
+        invalid_count: invalidCount,
+        total_errors: totalErrors,
+        total_warnings: totalWarnings,
+        results: results.slice(0, 100), // Limitar a 100 resultados
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro na validação de integridade:', error);
       throw error;
     }
   }

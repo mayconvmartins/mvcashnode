@@ -652,6 +652,39 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             throw new Error(`[SEGURANÇA] Quantidade ${amountToUse} excede posição ${posQtyRemaining}`);
           }
         }
+
+        // ✅ NOVO: Verificar saldo real na exchange para SELL
+        try {
+          const baseAsset = tradeJob.symbol.split('/')[0];
+          const balance = await adapter.fetchBalance();
+          const availableBalance = balance.free[baseAsset] || 0;
+          
+          if (amountToUse > availableBalance * 1.01) { // 1% tolerância
+            this.logger.error(
+              `[EXECUTOR] [SEGURANÇA] ❌ Job ${tradeJobId} - Quantidade (${amountToUse}) > saldo disponível na exchange (${availableBalance})`
+            );
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: {
+                status: TradeJobStatus.FAILED,
+                reason_code: 'QUANTITY_EXCEEDS_EXCHANGE_BALANCE',
+                reason_message: `Quantidade ${amountToUse} excede saldo disponível na exchange (${availableBalance} ${baseAsset})`,
+              },
+            });
+            throw new Error(
+              `[SEGURANÇA] Quantidade ${amountToUse} excede saldo disponível na exchange (${availableBalance} ${baseAsset})`
+            );
+          }
+          
+          this.logger.log(
+            `[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Saldo verificado: ${availableBalance} ${baseAsset} disponível, quantidade: ${amountToUse}`
+          );
+        } catch (balanceError: any) {
+          // Se falhar ao verificar saldo, logar mas continuar (pode ser problema de API)
+          this.logger.warn(
+            `[EXECUTOR] [SEGURANÇA] ⚠️ Job ${tradeJobId} - Não foi possível verificar saldo na exchange: ${balanceError.message}`
+          );
+        }
       }
       
       this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Dupla verificação PASSOU: amountToUse=${amountToUse}`);

@@ -157,9 +157,12 @@ export class SystemMonitorProcessor extends WorkerHost {
       );
     }
 
-    // Verificar processos travados
-    await this.checkStuckProcesses();
-  }
+      // Verificar processos travados
+      await this.checkStuckProcesses();
+
+      // ✅ NOVO: Verificar inconsistências críticas de posições
+      await this.checkPositionInconsistencies();
+    }
 
   /**
    * Verifica se há processos travados
@@ -251,6 +254,124 @@ export class SystemMonitorProcessor extends WorkerHost {
           this.logger.error(`[ALERT] Erro ao enviar email de alerta: ${error}`);
         }
       }
+    }
+  }
+
+  /**
+   * Verifica inconsistências críticas de posições
+   */
+  private async checkPositionInconsistencies(): Promise<void> {
+    try {
+      // 1. Verificar posições com qty_remaining negativo
+      const negativeQtyPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          status: 'OPEN',
+          qty_remaining: { lt: 0 },
+        },
+        select: {
+          id: true,
+          symbol: true,
+          qty_remaining: true,
+          exchange_account_id: true,
+        },
+        take: 10, // Limitar para não sobrecarregar
+      });
+
+      if (negativeQtyPositions.length > 0) {
+        await this.createAlert(
+          'POSITION_NEGATIVE_QTY',
+          'critical',
+          `Encontradas ${negativeQtyPositions.length} posição(ões) com qty_remaining negativo: ${negativeQtyPositions.map(p => `#${p.id} (${p.symbol})`).join(', ')}`,
+          'MONITORS',
+          { positions: negativeQtyPositions }
+        );
+      }
+
+      // 2. Verificar posições com qty_remaining > qty_total
+      const invalidQtyPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          status: 'OPEN',
+        },
+        select: {
+          id: true,
+          symbol: true,
+          qty_total: true,
+          qty_remaining: true,
+          exchange_account_id: true,
+        },
+        take: 100,
+      });
+
+      const invalidPositions = invalidQtyPositions.filter(
+        p => p.qty_remaining.toNumber() > p.qty_total.toNumber()
+      );
+
+      if (invalidPositions.length > 0) {
+        await this.createAlert(
+          'POSITION_INVALID_QTY',
+          'critical',
+          `Encontradas ${invalidPositions.length} posição(ões) com qty_remaining > qty_total: ${invalidPositions.map(p => `#${p.id} (${p.symbol})`).join(', ')}`,
+          'MONITORS',
+          { positions: invalidPositions }
+        );
+      }
+
+      // 3. Verificar posições duplicadas (mesmo trade_job_id_open)
+      const duplicatePositions = await this.prisma.$queryRaw<Array<{
+        trade_job_id_open: number;
+        count: bigint;
+        position_ids: string;
+      }>>`
+        SELECT 
+          trade_job_id_open,
+          COUNT(*) as count,
+          GROUP_CONCAT(id ORDER BY id) as position_ids
+        FROM trade_positions
+        WHERE trade_job_id_open IS NOT NULL
+          AND status = 'OPEN'
+        GROUP BY trade_job_id_open
+        HAVING COUNT(*) > 1
+        LIMIT 10
+      `;
+
+      if (duplicatePositions.length > 0) {
+        await this.createAlert(
+          'POSITION_DUPLICATES',
+          'high',
+          `Encontradas ${duplicatePositions.length} posição(ões) duplicada(s) (mesmo trade_job_id_open)`,
+          'MONITORS',
+          { duplicates: duplicatePositions }
+        );
+      }
+
+      // 4. Verificar execuções órfãs (BUY sem position_fill)
+      const orphanExecutions = await this.prisma.$queryRaw<Array<{
+        execution_id: number;
+        job_id: number;
+      }>>`
+        SELECT 
+          te.id as execution_id,
+          te.trade_job_id as job_id
+        FROM trade_executions te
+        INNER JOIN trade_jobs tj ON te.trade_job_id = tj.id
+        LEFT JOIN position_fills pf ON te.id = pf.trade_execution_id
+        WHERE tj.side = 'BUY'
+          AND tj.status = 'FILLED'
+          AND pf.id IS NULL
+        LIMIT 10
+      `;
+
+      if (orphanExecutions.length > 0) {
+        await this.createAlert(
+          'EXECUTION_ORPHANS',
+          'high',
+          `Encontradas ${orphanExecutions.length} execução(ões) órfã(s) (BUY sem position_fill): ${orphanExecutions.map(e => `exec ${e.execution_id}, job ${e.job_id}`).join(', ')}`,
+          'MONITORS',
+          { executions: orphanExecutions }
+        );
+      }
+    } catch (error: any) {
+      this.logger.error(`[SYSTEM-MONITOR] Erro ao verificar inconsistências de posições: ${error.message}`);
     }
   }
 

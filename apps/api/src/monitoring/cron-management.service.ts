@@ -25,6 +25,10 @@ export class CronManagementService implements OnModuleInit {
     @InjectQueue('dust-positions-monitor') private dustPositionsMonitorQueue: Queue,
     @InjectQueue('webhook-monitor') private webhookMonitorQueue: Queue,
     @InjectQueue('positions-sell-sync') private positionsSellSyncQueue: Queue,
+    @InjectQueue('positions-sync-duplicates') private positionsSyncDuplicatesQueue: Queue,
+    @InjectQueue('positions-sync-quantity') private positionsSyncQuantityQueue: Queue,
+    @InjectQueue('positions-sync-fees') private positionsSyncFeesQueue: Queue,
+    @InjectQueue('positions-sync-exchange') private positionsSyncExchangeQueue: Queue,
   ) {}
 
   /**
@@ -44,6 +48,10 @@ export class CronManagementService implements OnModuleInit {
       'dust-positions-monitor': this.dustPositionsMonitorQueue,
       'webhook-monitor': this.webhookMonitorQueue,
       'positions-sell-sync': this.positionsSellSyncQueue,
+      'positions-sync-duplicates': this.positionsSyncDuplicatesQueue,
+      'positions-sync-quantity': this.positionsSyncQuantityQueue,
+      'positions-sync-fees': this.positionsSyncFeesQueue,
+      'positions-sync-exchange': this.positionsSyncExchangeQueue,
     };
   }
 
@@ -65,6 +73,10 @@ export class CronManagementService implements OnModuleInit {
       'dust-positions-monitor': 'monitor-dust-positions',
       'webhook-monitor': 'monitor-webhook-alerts',
       'positions-sell-sync': 'sync-positions-sell',
+      'positions-sync-duplicates': 'sync-duplicates',
+      'positions-sync-quantity': 'sync-quantity',
+      'positions-sync-fees': 'sync-fees',
+      'positions-sync-exchange': 'sync-exchange',
     };
     return nameMap[jobName] || null;
   }
@@ -164,6 +176,34 @@ export class CronManagementService implements OnModuleInit {
         queue_name: 'webhook-monitor',
         job_id: 'webhook-monitor-repeat',
         interval_ms: 30000, // 30 segundos
+      },
+      {
+        name: 'positions-sync-duplicates',
+        description: 'Detecção de posições e jobs duplicados',
+        queue_name: 'positions-sync-duplicates',
+        job_id: 'positions-sync-duplicates-repeat',
+        interval_ms: 300000, // 5 minutos
+      },
+      {
+        name: 'positions-sync-quantity',
+        description: 'Sincronização de quantidades de posições com saldos da exchange',
+        queue_name: 'positions-sync-quantity',
+        job_id: 'positions-sync-quantity-repeat',
+        interval_ms: 600000, // 10 minutos
+      },
+      {
+        name: 'positions-sync-fees',
+        description: 'Sincronização de taxas de execuções com trades reais da exchange',
+        queue_name: 'positions-sync-fees',
+        job_id: 'positions-sync-fees-repeat',
+        interval_ms: 1800000, // 30 minutos
+      },
+      {
+        name: 'positions-sync-exchange',
+        description: 'Sincronização completa com exchange - busca ordens faltantes e atualiza dados',
+        queue_name: 'positions-sync-exchange',
+        job_id: 'positions-sync-exchange-repeat',
+        interval_ms: 600000, // 10 minutos
       },
     ];
 

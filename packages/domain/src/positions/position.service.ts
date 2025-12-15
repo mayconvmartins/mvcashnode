@@ -564,22 +564,69 @@ export class PositionService {
     }
 
     // Se não encontrou posição elegível ou agrupamento desabilitado, criar nova posição
-    return await this.createNewPosition(
-      this.prisma,
-      job,
-      jobId,
-      executionId,
-      executedQty,
-      avgPrice,
-      minProfitPct,
-      slEnabled,
-      slPct,
-      tpEnabled,
-      tpPct,
-      false,
-      null,
-      feeUsd
-    );
+    // ✅ MELHORIA: Usar transação atômica para prevenir race conditions
+    return await this.prisma.$transaction(async (tx) => {
+      // ✅ VALIDAÇÃO ATÔMICA: Verificar novamente dentro da transação (com lock implícito)
+      const existingPositionInTx = await tx.tradePosition.findUnique({
+        where: {
+          trade_job_id_open: jobId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (existingPositionInTx) {
+        if (existingPositionInTx.status === 'OPEN') {
+          console.log(`[POSITION-SERVICE] ⚠️ [TX] Job ${jobId} já tem posição aberta #${existingPositionInTx.id} (detectado na transação), retornando ID existente`);
+          return existingPositionInTx.id;
+        } else {
+          throw new Error(`Job ${jobId} já tem posição CLOSED (#${existingPositionInTx.id}). Não é possível criar nova posição.`);
+        }
+      }
+
+      // ✅ VALIDAÇÃO DUPLA: Verificar também o relacionamento position_open do job
+      const jobInTx = await tx.tradeJob.findUnique({
+        where: { id: jobId },
+        select: {
+          position_open: {
+            select: {
+              id: true,
+              status: true,
+            },
+          },
+        },
+      });
+
+      if (jobInTx?.position_open) {
+        if (jobInTx.position_open.status === 'OPEN') {
+          console.log(`[POSITION-SERVICE] ⚠️ [TX] Job ${jobId} já tem position_open apontando para posição aberta #${jobInTx.position_open.id}, retornando ID existente`);
+          return jobInTx.position_open.id;
+        }
+      }
+
+      // Criar nova posição dentro da transação
+      return await this.createNewPosition(
+        tx,
+        job,
+        jobId,
+        executionId,
+        executedQty,
+        avgPrice,
+        minProfitPct,
+        slEnabled,
+        slPct,
+        tpEnabled,
+        tpPct,
+        false,
+        null,
+        feeUsd
+      );
+    }, {
+      isolationLevel: 'Serializable', // ✅ Lock mais forte para prevenir race conditions
+      timeout: 30000, // 30 segundos de timeout
+    });
   }
 
   /**
@@ -1153,28 +1200,77 @@ export class PositionService {
         return;
       }
 
+      // ✅ VALIDAÇÃO ROBUSTA: Recalcular qty_remaining a partir dos fills antes de fechar
+      const fills = await tx.positionFill.findMany({
+        where: { position_id: currentPosition.id },
+      });
+
+      // qty_remaining = qty_total - soma de todos os fills SELL
+      let totalSellQty = 0;
+      for (const fill of fills) {
+        if (fill.side === 'SELL') {
+          totalSellQty += fill.qty.toNumber();
+        }
+      }
+      const calculatedQtyRemaining = currentPosition.qty_total.toNumber() - totalSellQty;
+
+      // Se houver discrepância, usar o valor calculado (mais confiável)
+      const storedQtyRemaining = currentPosition.qty_remaining.toNumber();
+      if (Math.abs(calculatedQtyRemaining - storedQtyRemaining) > 0.00000001) {
+        console.warn(
+          `[POSITION-SERVICE] ⚠️ Discrepância detectada na posição ${currentPosition.id}: ` +
+          `qty_remaining armazenado=${storedQtyRemaining}, calculado=${calculatedQtyRemaining}. ` +
+          `Usando valor calculado.`
+        );
+      }
+
+      const actualQtyRemaining = calculatedQtyRemaining;
+
       // Calcular quantidade a fechar (não pode exceder qty_remaining)
-      const qtyToClose = Math.min(currentPosition.qty_remaining.toNumber(), executedQty);
+      const qtyToClose = Math.min(actualQtyRemaining, executedQty);
       
+      // ✅ VALIDAÇÃO CRÍTICA: Verificar que quantidade não é zero ou negativa
+      if (qtyToClose <= 0) {
+        throw new Error(
+          `Quantidade a fechar deve ser maior que zero. ` +
+          `qty_remaining: ${actualQtyRemaining}, executedQty: ${executedQty}, qtyToClose: ${qtyToClose}`
+        );
+      }
+
       // Se a quantidade executada é diferente da quantidade da posição, logar aviso
-      if (Math.abs(executedQty - currentPosition.qty_remaining.toNumber()) > 0.00000001) {
-        console.warn(`[POSITION-SERVICE] Quantidade executada (${executedQty}) diferente da quantidade da posição (${currentPosition.qty_remaining.toNumber()}). Fechando ${qtyToClose}`);
+      if (Math.abs(executedQty - actualQtyRemaining) > 0.00000001) {
+        console.warn(
+          `[POSITION-SERVICE] Quantidade executada (${executedQty}) diferente da quantidade da posição (${actualQtyRemaining}). ` +
+          `Fechando ${qtyToClose}`
+        );
       }
       
-      console.log(`[POSITION-SERVICE] Fechando posição ${currentPosition.id}: qty_remaining=${currentPosition.qty_remaining.toNumber()}, qtyToClose=${qtyToClose}, executedQty=${executedQty}, origin=${origin}`);
+      console.log(
+        `[POSITION-SERVICE] Fechando posição ${currentPosition.id}: ` +
+        `qty_remaining=${actualQtyRemaining}, qtyToClose=${qtyToClose}, executedQty=${executedQty}, origin=${origin}`
+      );
       
       // Calcular lucro descontando a taxa
       const grossProfitUsd = (avgPrice - currentPosition.price_open.toNumber()) * qtyToClose;
       const profitUsd = grossProfitUsd - feeUsd;
 
-      const newQtyRemaining = currentPosition.qty_remaining.toNumber() - qtyToClose;
+      const newQtyRemaining = actualQtyRemaining - qtyToClose;
       
       // ✅ BUG-CRIT-003 FIX: Validar que qty_remaining não ficará negativo
       if (newQtyRemaining < 0) {
         throw new Error(
           `Operation would result in negative remaining quantity. ` +
-          `Current qty_remaining: ${currentPosition.qty_remaining.toNumber()}, ` +
+          `Current qty_remaining: ${actualQtyRemaining}, ` +
           `qtyToClose: ${qtyToClose}, ` +
+          `newQtyRemaining: ${newQtyRemaining}`
+        );
+      }
+
+      // ✅ VALIDAÇÃO ADICIONAL: Verificar que qty_remaining não excede qty_total
+      if (newQtyRemaining > currentPosition.qty_total.toNumber()) {
+        throw new Error(
+          `Operation would result in qty_remaining exceeding qty_total. ` +
+          `qty_total: ${currentPosition.qty_total.toNumber()}, ` +
           `newQtyRemaining: ${newQtyRemaining}`
         );
       }
@@ -3293,6 +3389,141 @@ export class PositionService {
         errors: [error.message],
       };
     }
+  }
+
+  /**
+   * Valida a integridade de uma posição
+   * Verifica que qty_remaining está correto, que realized_profit está correto, etc.
+   * @param positionId ID da posição
+   * @returns Resultado da validação com detalhes de inconsistências
+   */
+  async validatePositionIntegrity(positionId: number): Promise<{
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+    details: {
+      qty_total: number;
+      qty_remaining: number;
+      qty_calculated_from_fills: number;
+      qty_buy_fills: number;
+      qty_sell_fills: number;
+      realized_profit_usd: number;
+      total_fees_paid_usd: number;
+      fees_on_buy_usd: number;
+      fees_on_sell_usd: number;
+      fees_calculated: number;
+    };
+  }> {
+    const position = await this.prisma.tradePosition.findUnique({
+      where: { id: positionId },
+      include: {
+        fills: {
+          orderBy: { created_at: 'asc' },
+        },
+      },
+    });
+
+    if (!position) {
+      return {
+        valid: false,
+        errors: [`Posição ${positionId} não encontrada`],
+        warnings: [],
+        details: {
+          qty_total: 0,
+          qty_remaining: 0,
+          qty_calculated_from_fills: 0,
+          qty_buy_fills: 0,
+          qty_sell_fills: 0,
+          realized_profit_usd: 0,
+          total_fees_paid_usd: 0,
+          fees_on_buy_usd: 0,
+          fees_on_sell_usd: 0,
+          fees_calculated: 0,
+        },
+      };
+    }
+
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Calcular quantidades a partir dos fills
+    let qtyBuyFills = 0;
+    let qtySellFills = 0;
+
+    for (const fill of position.fills) {
+      if (fill.side === 'BUY') {
+        qtyBuyFills += fill.qty.toNumber();
+      } else if (fill.side === 'SELL') {
+        qtySellFills += fill.qty.toNumber();
+      }
+    }
+
+    const qtyCalculatedFromFills = qtyBuyFills - qtySellFills;
+    const qtyTotal = position.qty_total.toNumber();
+    const qtyRemaining = position.qty_remaining.toNumber();
+
+    // Validar qty_total
+    if (Math.abs(qtyTotal - qtyBuyFills) > 0.00000001) {
+      errors.push(
+        `qty_total (${qtyTotal}) não corresponde à soma dos fills BUY (${qtyBuyFills}). Diferença: ${Math.abs(qtyTotal - qtyBuyFills)}`
+      );
+    }
+
+    // Validar qty_remaining
+    if (Math.abs(qtyRemaining - qtyCalculatedFromFills) > 0.00000001) {
+      errors.push(
+        `qty_remaining (${qtyRemaining}) não corresponde ao cálculo (${qtyCalculatedFromFills}). Diferença: ${Math.abs(qtyRemaining - qtyCalculatedFromFills)}`
+      );
+    }
+
+    // Validar que qty_remaining não é negativo
+    if (qtyRemaining < 0) {
+      errors.push(`qty_remaining é negativo: ${qtyRemaining}`);
+    }
+
+    // Validar que qty_remaining não excede qty_total
+    if (qtyRemaining > qtyTotal) {
+      errors.push(`qty_remaining (${qtyRemaining}) excede qty_total (${qtyTotal})`);
+    }
+
+    // Validar taxas
+    const feesOnBuy = position.fees_on_buy_usd.toNumber();
+    const feesOnSell = position.fees_on_sell_usd.toNumber();
+    const totalFeesPaid = position.total_fees_paid_usd.toNumber();
+    const feesCalculated = feesOnBuy + feesOnSell;
+
+    if (Math.abs(totalFeesPaid - feesCalculated) > 0.01) {
+      warnings.push(
+        `total_fees_paid_usd (${totalFeesPaid}) não corresponde à soma de fees_on_buy_usd + fees_on_sell_usd (${feesCalculated}). Diferença: ${Math.abs(totalFeesPaid - feesCalculated)}`
+      );
+    }
+
+    // Validar status vs qty_remaining
+    if (position.status === 'OPEN' && qtyRemaining <= 0) {
+      errors.push(`Posição está OPEN mas qty_remaining é ${qtyRemaining} (deveria ser CLOSED)`);
+    }
+
+    if (position.status === 'CLOSED' && qtyRemaining > 0.00000001) {
+      warnings.push(`Posição está CLOSED mas qty_remaining é ${qtyRemaining} (deveria ser 0)`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      details: {
+        qty_total: qtyTotal,
+        qty_remaining: qtyRemaining,
+        qty_calculated_from_fills: qtyCalculatedFromFills,
+        qty_buy_fills: qtyBuyFills,
+        qty_sell_fills: qtySellFills,
+        realized_profit_usd: position.realized_profit_usd.toNumber(),
+        total_fees_paid_usd: totalFeesPaid,
+        fees_on_buy_usd: feesOnBuy,
+        fees_on_sell_usd: feesOnSell,
+        fees_calculated: feesCalculated,
+      },
+    };
   }
 
   /**

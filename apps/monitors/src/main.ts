@@ -224,6 +224,70 @@ async function bootstrap() {
   );
   console.log('✅ Positions Sync Missing configurado (a cada 5min)');
 
+  // Configurar Positions Sync Duplicates - executa a cada 5 minutos
+  const positionsSyncDuplicatesQueue = app.get<Queue>(getQueueToken('positions-sync-duplicates'));
+  await positionsSyncDuplicatesQueue.add(
+    'sync-duplicates',
+    {},
+    {
+      repeat: {
+        every: 300000, // 5 minutos
+      },
+      jobId: 'positions-sync-duplicates-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Positions Sync Duplicates configurado (a cada 5min)');
+
+  // Configurar Positions Sync Quantity - executa a cada 10 minutos
+  const positionsSyncQuantityQueue = app.get<Queue>(getQueueToken('positions-sync-quantity'));
+  await positionsSyncQuantityQueue.add(
+    'sync-quantity',
+    {},
+    {
+      repeat: {
+        every: 600000, // 10 minutos
+      },
+      jobId: 'positions-sync-quantity-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Positions Sync Quantity configurado (a cada 10min)');
+
+  // Configurar Positions Sync Fees - executa a cada 30 minutos
+  const positionsSyncFeesQueue = app.get<Queue>(getQueueToken('positions-sync-fees'));
+  await positionsSyncFeesQueue.add(
+    'sync-fees',
+    {},
+    {
+      repeat: {
+        every: 1800000, // 30 minutos
+      },
+      jobId: 'positions-sync-fees-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Positions Sync Fees configurado (a cada 30min)');
+
+  // Configurar Positions Sync Exchange - executa a cada 10 minutos
+  const positionsSyncExchangeQueue = app.get<Queue>(getQueueToken('positions-sync-exchange'));
+  await positionsSyncExchangeQueue.add(
+    'sync-exchange',
+    {},
+    {
+      repeat: {
+        every: 600000, // 10 minutos
+      },
+      jobId: 'positions-sync-exchange-repeat',
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+  console.log('✅ Positions Sync Exchange configurado (a cada 10min)');
+
   // Configurar Positions Params Fix - executa a cada 60 segundos (1 minuto)
   const positionsParamsFixQueue = app.get<Queue>(getQueueToken('positions-params-fix'));
   await positionsParamsFixQueue.add(
