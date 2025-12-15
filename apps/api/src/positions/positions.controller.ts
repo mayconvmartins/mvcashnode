@@ -340,6 +340,7 @@ export class PositionsController {
             dust_value_usd: true,
             original_position_id: true,
             created_at: true,
+            closed_at: true,
             exchange_account: {
               select: {
                 id: true,
@@ -409,9 +410,9 @@ export class PositionsController {
               // Não limitar para poder calcular valor vendido total
             },
           },
-          orderBy: {
-            created_at: 'desc',
-          },
+          orderBy: status && status.toUpperCase() === 'CLOSED' 
+            ? { closed_at: 'desc' } // Para posições fechadas, ordenar por data de fechamento (mais recentes primeiro)
+            : { created_at: 'desc' }, // Para posições abertas, ordenar por data de abertura
           skip,
           take: limitNum,
         }),

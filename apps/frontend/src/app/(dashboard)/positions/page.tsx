@@ -953,6 +953,21 @@ export default function PositionsPage() {
             ),
         },
         {
+            key: 'closed_at',
+            label: 'Fechamento',
+            render: (position) => {
+                // Mostrar apenas para posições fechadas
+                if (position.status === 'CLOSED' && position.closed_at) {
+                    return (
+                        <span className="text-sm text-muted-foreground">
+                            {formatDateTime(position.closed_at)}
+                        </span>
+                    );
+                }
+                return <span className="text-muted-foreground">-</span>;
+            },
+        },
+        {
             key: 'actions',
             label: 'Ações',
             render: (position) => (
