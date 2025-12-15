@@ -93,7 +93,14 @@ export function AuditPositions() {
       }
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Erro ao executar auditoria')
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        toast.error('A auditoria está demorando muito. O gateway pode ter expirado. Verifique os logs do servidor.')
+      } else if (error.response?.status === 504) {
+        toast.error('Gateway Timeout: A auditoria demorou mais de 60 segundos. Verifique os logs do servidor - a auditoria pode ter sido concluída no backend.')
+      } else {
+        toast.error(error.response?.data?.message || 'Erro ao executar auditoria')
+      }
+      console.error('[AuditPositions] Erro na auditoria:', error)
     },
   })
 

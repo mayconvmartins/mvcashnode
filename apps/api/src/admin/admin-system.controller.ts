@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, UseGuards, Body, BadRequestException, Param, ParseIntPipe, NotFoundException, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, UseGuards, Body, BadRequestException, Param, ParseIntPipe, NotFoundException, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -1586,7 +1587,8 @@ export class AdminSystemController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('accountId') accountId?: string,
-    @Query('checkJobsOnly') checkJobsOnly?: string
+    @Query('checkJobsOnly') checkJobsOnly?: string,
+    @Res({ passthrough: true }) res?: Response
   ) {
     const dateFrom = from ? new Date(from) : undefined;
     const dateTo = to ? new Date(to) : undefined;
@@ -2349,8 +2351,8 @@ export class AdminSystemController {
 
       const duration = Date.now() - startTime;
       console.log(`[ADMIN] Auditoria concluída em ${duration}ms: ${totalPositionsChecked} posições, ${totalExecutionsChecked} execuções, ${totalJobsChecked} jobs, ${discrepancies.length} discrepância(s), ${errors.length} erro(s)`);
-
-      return {
+      
+      const response = {
         total_positions_checked: totalPositionsChecked,
         total_executions_checked: totalExecutionsChecked,
         total_jobs_checked: totalJobsChecked,
@@ -2360,6 +2362,19 @@ export class AdminSystemController {
         error_details: errors,
         duration_ms: duration,
       };
+      
+      console.log(`[ADMIN] Preparando resposta: ${response.discrepancies_found} discrepâncias, ${response.errors} erros`);
+      const responseSize = JSON.stringify(response).length;
+      console.log(`[ADMIN] Tamanho da resposta: ${responseSize} bytes`);
+      
+      // Adicionar headers para ajudar o gateway a manter a conexão
+      if (res) {
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('Keep-Alive', 'timeout=1800');
+        res.setHeader('X-Response-Size', responseSize.toString());
+      }
+      
+      return response;
     } catch (error: any) {
       console.error('[ADMIN] Erro na auditoria:', error);
       throw error;
