@@ -1503,6 +1503,20 @@ export class PositionsController {
         return true;
       });
 
+      // Log de diagnóstico: mostrar quantas posições foram filtradas
+      if (validPositions.length !== positions.length) {
+        const filtered = positions.length - validPositions.length;
+        console.warn(`[PositionsController] ⚠️ ${filtered} posição(ões) FILTRADA(S) no monitor SL/TP (${positions.length} total → ${validPositions.length} válidas)`);
+        
+        // Log das posições filtradas para debug
+        const invalidPositions = positions.filter(p => !validPositions.includes(p));
+        invalidPositions.forEach(p => {
+          console.warn(`[PositionsController] 🚫 Posição ${p.id} filtrada: status=${p.status}, qty_remaining=${p.qty_remaining.toNumber()}, closed_at=${p.closed_at ? 'SIM' : 'NÃO'}`);
+        });
+      } else {
+        console.log(`[PositionsController] ✅ Todas as ${positions.length} posições são válidas (abertas)`);
+      }
+
       if (validPositions.length === 0) {
         return { data: [] };
       }
@@ -1510,7 +1524,7 @@ export class PositionsController {
       // Agrupar símbolos por exchange para buscar preços em batch
       const symbolExchangeMap = new Map<string, { symbols: Set<string>; exchange: string }>();
       
-      positions.forEach((position) => {
+      validPositions.forEach((position) => {
         const exchange = position.exchange_account.exchange;
         const key = exchange;
         if (!symbolExchangeMap.has(key)) {
