@@ -25,7 +25,7 @@ import {
 
 interface Discrepancy {
   type: string
-  entityType: 'EXECUTION' | 'POSITION'
+  entityType: 'EXECUTION' | 'POSITION' | 'JOB'
   entityId: number
   field: string
   currentValue: number | string
