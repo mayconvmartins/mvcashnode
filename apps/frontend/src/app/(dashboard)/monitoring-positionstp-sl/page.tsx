@@ -24,7 +24,7 @@ export default function MonitoringPositionstpSlPage() {
     const [selectedAccount, setSelectedAccount] = useState<string>('all')
     const [filtersOpen, setFiltersOpen] = useState(false)
     const [autoRefresh, setAutoRefresh] = useState(true)
-    const [sortBy, setSortBy] = useState<string>('default')
+    const [sortBy, setSortBy] = useState<string>('tp-closest') // Padrão: Mais próximo do TP
 
     // Buscar contas
     const { data: accounts } = useQuery({
@@ -45,22 +45,36 @@ export default function MonitoringPositionstpSlPage() {
         queryKey: ['positions', 'monitoring-tp-sl', filters],
         queryFn: () => positionsService.getMonitoringTPSL(filters),
         refetchInterval: autoRefresh ? 15000 : false, // Auto-refresh a cada 15 segundos
+        staleTime: 0, // Não usar cache - sempre buscar dados frescos para garantir apenas posições abertas
     })
 
     const positions: PositionTPSLMonitoring[] = monitoringData?.data || []
+
+    // Log para debug: verificar se há posições sendo retornadas
+    if (positions.length > 0) {
+        console.log(`[MonitoringPage] Total de posições recebidas do backend: ${positions.length}`);
+        console.log(`[MonitoringPage] Primeira posição:`, positions[0]);
+    }
 
     // Filtro de segurança: garantir que apenas posições válidas sejam exibidas
     // (camada de segurança caso o backend retorne algo incorreto)
     // O tipo PositionTPSLMonitoring já garante que apenas posições abertas são retornadas
     const validPositions = useMemo(() => {
-        return positions.filter((pos) => {
+        const filtered = positions.filter((pos) => {
             // Garantir que tem quantidade restante (validação de segurança)
             if (pos.qty_remaining <= 0) {
-                console.warn(`[MonitoringPage] Posição ${pos.id} com qty_remaining <= 0 encontrada - será filtrada`);
+                console.warn(`[MonitoringPage] ⚠️ Posição ${pos.id} com qty_remaining <= 0 encontrada - será filtrada`);
                 return false;
             }
             return true;
         });
+        
+        if (filtered.length !== positions.length) {
+            console.warn(`[MonitoringPage] ${positions.length - filtered.length} posição(ões) filtrada(s) no frontend`);
+        }
+        
+        console.log(`[MonitoringPage] Total de posições válidas após filtro: ${filtered.length}`);
+        return filtered;
     }, [positions])
 
     // Ordenar posições baseado no critério selecionado
