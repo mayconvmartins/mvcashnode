@@ -296,7 +296,7 @@ export class AdminSystemController {
         where: {
           fee_amount: null,
           trade_mode: 'REAL',
-          exchange_order_id: { not: null },
+          exchange_order_id: { isNot: null },
         },
         take: 50,
         skip: 0,
@@ -739,7 +739,7 @@ export class AdminSystemController {
       // Critério: taxa em quote asset (USDT) mas deveria ser em base asset para BUY
       const executionsWithFees = await this.prisma.tradeExecution.findMany({
         where: {
-          fee_amount: { not: null },
+          fee_amount: { isNot: null },
           trade_mode: 'REAL',
         },
         include: {
@@ -2236,7 +2236,7 @@ export class AdminSystemController {
         // Buscar todas as posições para verificar duplicatas
         const allPositionsForDupCheck = await this.prisma.tradePosition.findMany({
           where: {
-            trade_job_id_open: { not: null },
+            trade_job_id_open: { isNot: null },
             ...(accountIdNum && { exchange_account_id: accountIdNum }),
             ...(dateFrom || dateTo ? {
               created_at: {
@@ -3270,7 +3270,7 @@ export class AdminSystemController {
 
       const allPositions = await this.prisma.tradePosition.findMany({
         where: {
-          trade_job_id_open: { not: null },
+          trade_job_id_open: { isNot: null },
           exchange_account_id: accountIdNum,
           ...(dateFrom || dateTo ? {
             created_at: {
@@ -4098,7 +4098,7 @@ export class AdminSystemController {
         include: {
           executions: {
             where: {
-              exchange_order_id: { not: null },
+              exchange_order_id: { isNot: null },
             },
             select: {
               exchange_order_id: true,
@@ -4184,7 +4184,7 @@ export class AdminSystemController {
 
       const allPositions = await this.prisma.tradePosition.findMany({
         where: {
-          trade_job_id_open: { not: null },
+          trade_job_id_open: { isNot: null },
           ...(accountIdNum && { exchange_account_id: accountIdNum }),
           ...(dateFrom || dateTo ? {
             created_at: {
@@ -4616,7 +4616,7 @@ export class AdminSystemController {
       try {
         const allPositions = await this.prisma.tradePosition.findMany({
           where: {
-            trade_job_id_open: { not: null },
+            trade_job_id_open: { isNot: null },
             exchange_account_id: accountIdNum,
             ...(dateFrom || dateTo ? {
               created_at: {
@@ -4673,7 +4673,7 @@ export class AdminSystemController {
         const systemExecutions = await this.prisma.tradeExecution.findMany({
           where: {
             exchange_account_id: accountIdNum,
-            exchange_order_id: { not: null },
+            exchange_order_id: { isNot: null },
             created_at: {
               gte: dateFrom,
               lte: dateTo,
@@ -4950,7 +4950,7 @@ export class AdminSystemController {
           const executionsToFix = await this.prisma.tradeExecution.findMany({
             where: {
               exchange_account_id: accountIdNum,
-              exchange_order_id: { not: null },
+              exchange_order_id: { isNot: null },
               created_at: {
                 gte: dateFrom,
                 lte: dateTo,
@@ -5858,7 +5858,7 @@ export class AdminSystemController {
       include: {
         exchange_account: true,
         executions: {
-          where: { exchange_order_id: { not: null } },
+          where: { exchange_order_id: { isNot: null } },
           take: 1,
           orderBy: { id: 'desc' },
         },
