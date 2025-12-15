@@ -23,6 +23,49 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
     super();
   }
 
+  private async getCurrentPrice(
+    exchangeAccountId: number,
+    symbol: string,
+    exchange: string,
+    testnet: boolean
+  ): Promise<number | null> {
+    // Verificar cache primeiro
+    const cacheKey = `price:${exchange}:${symbol}`;
+    const cachedPrice = await this.cacheService.get<number>(cacheKey);
+    if (cachedPrice !== null && cachedPrice > 0) {
+      return cachedPrice;
+    }
+
+    // Buscar da exchange
+    try {
+      const accountService = new (await import('@mvcashnode/domain')).ExchangeAccountService(
+        this.prisma,
+        this.encryptionService
+      );
+      const keys = await accountService.decryptApiKeys(exchangeAccountId);
+      if (!keys) return null;
+
+      const adapter = AdapterFactory.createAdapter(
+        exchange as ExchangeType,
+        keys.apiKey,
+        keys.apiSecret,
+        { testnet }
+      );
+
+      const ticker = await adapter.fetchTicker(symbol);
+      const currentPrice = ticker.last;
+      
+      if (currentPrice && currentPrice > 0) {
+        await this.cacheService.set(cacheKey, currentPrice, { ttl: 25 });
+      }
+      
+      return currentPrice;
+    } catch (error: any) {
+      this.logger.warn(`[SL-TP-MONITOR-REAL] Erro ao buscar preço para ${symbol}: ${error.message}`);
+      return null;
+    }
+  }
+
   async process(_job: Job<any>): Promise<any> {
     const startTime = Date.now();
     const jobName = 'sl-tp-monitor-real';
@@ -111,26 +154,151 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         const hasValidJob = position.close_jobs.length > 0;
         
         if (!hasValidJob) {
-          // Não tem job válido, tentar criar novamente
+          // 1.5 Detectar Cancelamento Manual e Resetar Flags
+          // Verificar se existe job cancelado recentemente (últimas 24h)
+          const cancelledJob = await this.prisma.tradeJob.findFirst({
+            where: {
+              position_id_to_close: position.id,
+              side: 'SELL',
+              status: 'CANCELLED',
+              created_at: {
+                gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Últimas 24h
+              },
+            },
+            orderBy: {
+              created_at: 'desc',
+            },
+          });
+
+          if (cancelledJob) {
+            // Resetar a flag correspondente ao tipo de trigger
+            const updateData: any = {};
+            
+            if (position.sl_triggered) {
+              updateData.sl_triggered = false;
+            }
+            if (position.tp_triggered) {
+              updateData.tp_triggered = false;
+            }
+            if (position.trailing_triggered) {
+              updateData.trailing_triggered = false;
+            }
+            
+            if (Object.keys(updateData).length > 0) {
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: updateData,
+              });
+              
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flags resetadas para posição ${position.id}: ` +
+                `job #${cancelledJob.id} foi cancelado manualmente em ${cancelledJob.updated_at}. ` +
+                `Flags resetadas: ${Object.keys(updateData).join(', ')}`
+              );
+            }
+            continue; // Não recriar job
+          }
+
+          // Buscar preço atual para validação
+          const currentPrice = await this.getCurrentPrice(
+            position.exchange_account_id,
+            position.symbol,
+            position.exchange_account.exchange,
+            position.exchange_account.testnet
+          );
+
+          if (!currentPrice || currentPrice <= 0) {
+            this.logger.warn(`[SL-TP-MONITOR-REAL] Não foi possível obter preço atual para posição ${position.id}, pulando retry`);
+            continue;
+          }
+
+          const priceOpen = position.price_open.toNumber();
+          const pnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+
+          // Não tem job válido, validar condições antes de tentar criar novamente
           let shouldRetry = false;
           let limitPrice = 0;
           let triggerType: 'SL' | 'TP' | 'TRAILING' | null = null;
 
+          // 1.3 Validar Condição de Stop Loss
           if (position.sl_triggered && position.sl_enabled && position.sl_pct) {
+            // Verificar se SL ainda é válido
+            if (pnlPct > -position.sl_pct.toNumber()) {
+              // Condição não mais atendida, resetar flag
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { sl_triggered: false },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag sl_triggered resetada para posição ${position.id}: ` +
+                `preço atual ${currentPrice} não atende mais SL (requer PnL <= -${position.sl_pct.toNumber()}%, atual: ${pnlPct.toFixed(2)}%)`
+              );
+              continue; // Não criar job
+            }
             shouldRetry = true;
             triggerType = 'SL';
             const slPct = position.sl_pct.toNumber();
-            limitPrice = position.price_open.toNumber() * (1 - slPct / 100);
-          } else if (position.tp_triggered && position.tp_enabled && position.tp_pct) {
+            limitPrice = priceOpen * (1 - slPct / 100);
+          }
+          // 1.2 Validar Condição de Take Profit
+          else if (position.tp_triggered && position.tp_enabled && position.tp_pct) {
+            // Verificar se TP ainda é válido
+            if (pnlPct < position.tp_pct.toNumber()) {
+              // Condição não mais atendida, resetar flag
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { tp_triggered: false },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag tp_triggered resetada para posição ${position.id}: ` +
+                `preço atual ${currentPrice} não atende mais TP (requer PnL >= ${position.tp_pct.toNumber()}%, atual: ${pnlPct.toFixed(2)}%)`
+              );
+              continue; // Não criar job
+            }
             shouldRetry = true;
             triggerType = 'TP';
             const tpPct = position.tp_pct.toNumber();
-            limitPrice = position.price_open.toNumber() * (1 + tpPct / 100);
-          } else if (position.trailing_triggered && position.trailing_enabled && position.trailing_distance_pct && position.trailing_max_price) {
+            limitPrice = priceOpen * (1 + tpPct / 100);
+          }
+          // 1.4 Validar e Atualizar Trailing Stop
+          else if (position.trailing_triggered && position.trailing_enabled && position.trailing_distance_pct) {
+            // Atualizar trailing_max_price se preço subiu
+            let trailingMaxPrice = position.trailing_max_price?.toNumber() || priceOpen;
+            if (currentPrice > trailingMaxPrice) {
+              trailingMaxPrice = currentPrice;
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { 
+                  trailing_max_price: trailingMaxPrice,
+                  trailing_triggered: false, // Resetar pois preço subiu novamente
+                },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Trailing stop resetado para posição ${position.id}: ` +
+                `preço subiu para ${currentPrice}, novo max: ${trailingMaxPrice}`
+              );
+              continue; // Não criar job
+            }
+
+            // Verificar se ainda está abaixo do trigger
+            const trailingDistance = position.trailing_distance_pct.toNumber();
+            const trailingTriggerPrice = trailingMaxPrice * (1 - trailingDistance / 100);
+            if (currentPrice > trailingTriggerPrice) {
+              // Não está mais na zona de trigger
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { trailing_triggered: false },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag trailing_triggered resetada para posição ${position.id}: ` +
+                `preço ${currentPrice} acima do trigger ${trailingTriggerPrice}`
+              );
+              continue; // Não criar job
+            }
+
             shouldRetry = true;
             triggerType = 'TRAILING';
-            const trailingDistance = position.trailing_distance_pct.toNumber();
-            limitPrice = position.trailing_max_price.toNumber() * (1 - trailingDistance / 100);
+            limitPrice = trailingTriggerPrice;
           }
 
           if (shouldRetry && limitPrice > 0) {
