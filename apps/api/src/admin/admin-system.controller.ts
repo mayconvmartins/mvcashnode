@@ -296,7 +296,6 @@ export class AdminSystemController {
         where: {
           fee_amount: null,
           trade_mode: 'REAL',
-          exchange_order_id: { isNot: null },
         },
         take: 50,
         skip: 0,
@@ -739,7 +738,7 @@ export class AdminSystemController {
       // Critério: taxa em quote asset (USDT) mas deveria ser em base asset para BUY
       const executionsWithFees = await this.prisma.tradeExecution.findMany({
         where: {
-          fee_amount: { isNot: null },
+          fee_amount: { not: null },
           trade_mode: 'REAL',
         },
         include: {
@@ -2236,7 +2235,7 @@ export class AdminSystemController {
         // Buscar todas as posições para verificar duplicatas
         const allPositionsForDupCheck = await this.prisma.tradePosition.findMany({
           where: {
-            trade_job_id_open: { isNot: null },
+            trade_job_id_open: { not: null },
             ...(accountIdNum && { exchange_account_id: accountIdNum }),
             ...(dateFrom || dateTo ? {
               created_at: {
@@ -3270,7 +3269,7 @@ export class AdminSystemController {
 
       const allPositions = await this.prisma.tradePosition.findMany({
         where: {
-          trade_job_id_open: { isNot: null },
+          trade_job_id_open: { not: null },
           exchange_account_id: accountIdNum,
           ...(dateFrom || dateTo ? {
             created_at: {
@@ -4097,9 +4096,6 @@ export class AdminSystemController {
         },
         include: {
           executions: {
-            where: {
-              exchange_order_id: { isNot: null },
-            },
             select: {
               exchange_order_id: true,
             },
@@ -4184,7 +4180,7 @@ export class AdminSystemController {
 
       const allPositions = await this.prisma.tradePosition.findMany({
         where: {
-          trade_job_id_open: { isNot: null },
+          trade_job_id_open: { not: null },
           ...(accountIdNum && { exchange_account_id: accountIdNum }),
           ...(dateFrom || dateTo ? {
             created_at: {
@@ -4616,7 +4612,7 @@ export class AdminSystemController {
       try {
         const allPositions = await this.prisma.tradePosition.findMany({
           where: {
-            trade_job_id_open: { isNot: null },
+            trade_job_id_open: { not: null },
             exchange_account_id: accountIdNum,
             ...(dateFrom || dateTo ? {
               created_at: {
@@ -4673,7 +4669,6 @@ export class AdminSystemController {
         const systemExecutions = await this.prisma.tradeExecution.findMany({
           where: {
             exchange_account_id: accountIdNum,
-            exchange_order_id: { isNot: null },
             created_at: {
               gte: dateFrom,
               lte: dateTo,
@@ -4950,7 +4945,6 @@ export class AdminSystemController {
           const executionsToFix = await this.prisma.tradeExecution.findMany({
             where: {
               exchange_account_id: accountIdNum,
-              exchange_order_id: { isNot: null },
               created_at: {
                 gte: dateFrom,
                 lte: dateTo,
@@ -4968,7 +4962,7 @@ export class AdminSystemController {
 
           for (const exec of executionsToFix) {
             try {
-              if (!exec.exchange_order_id || !exec.trade_job.symbol) continue;
+              if (!exec.exchange_order_id || !exec.trade_job?.symbol) continue;
 
               const since = exec.created_at.getTime() - 60000;
               const trades = await adapter.fetchMyTrades(exec.trade_job.symbol, since, 100);
@@ -5858,16 +5852,15 @@ export class AdminSystemController {
       include: {
         exchange_account: true,
         executions: {
-          where: { exchange_order_id: { isNot: null } },
           take: 1,
           orderBy: { id: 'desc' },
         },
       },
     });
 
-    // Identificar ordens órfãs (sem executions)
-    const orphanedOrders = pendingOrders.filter((o) => o.executions.length === 0);
-    const ordersWithExecutions = pendingOrders.filter((o) => o.executions.length > 0);
+    // Identificar ordens órfãs (sem executions ou sem exchange_order_id)
+    const orphanedOrders = pendingOrders.filter((o) => o.executions.length === 0 || !o.executions[0]?.exchange_order_id);
+    const ordersWithExecutions = pendingOrders.filter((o) => o.executions.length > 0 && o.executions[0]?.exchange_order_id);
 
     console.log(`[ADMIN] Encontradas ${pendingOrders.length} ordens pendentes:`);
     console.log(`[ADMIN] - ${orphanedOrders.length} órfãs (sem executions - nunca foram enfileiradas)`);
@@ -5886,7 +5879,7 @@ export class AdminSystemController {
           side: o.side,
           orderType: o.order_type,
           status: o.status,
-          hasExchangeOrder: o.executions.length > 0,
+          hasExchangeOrder: o.executions.length > 0 && !!o.executions[0]?.exchange_order_id,
           exchangeOrderId: o.executions[0]?.exchange_order_id || null,
           accountId: o.exchange_account_id,
           accountLabel: o.exchange_account.label,
