@@ -298,7 +298,10 @@ export class PositionsController {
 
       // Paginação - converter strings para números de forma segura
       const pageNum = page ? parseInt(page, 10) : 1;
-      const limitNum = limit ? parseInt(limit, 10) : 20;
+      // Para posições abertas sem limite especificado, usar um valor alto para retornar todas
+      // Para outras consultas, usar o padrão de 20
+      const defaultLimit = status === 'OPEN' && !limit ? 1000 : 20;
+      const limitNum = limit ? parseInt(limit, 10) : defaultLimit;
       
       // Validar valores numéricos
       if (isNaN(pageNum) || pageNum < 1) {
@@ -307,8 +310,8 @@ export class PositionsController {
       if (isNaN(limitNum) || limitNum < 1) {
         throw new BadRequestException('Parâmetro "limit" deve ser um número maior que 0');
       }
-      if (limitNum > 100) {
-        throw new BadRequestException('Parâmetro "limit" não pode ser maior que 100');
+      if (limitNum > 1000) {
+        throw new BadRequestException('Parâmetro "limit" não pode ser maior que 1000');
       }
       
       const skip = (pageNum - 1) * limitNum;

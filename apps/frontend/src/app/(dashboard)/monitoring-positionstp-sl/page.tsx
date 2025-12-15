@@ -24,6 +24,7 @@ export default function MonitoringPositionstpSlPage() {
     const [selectedAccount, setSelectedAccount] = useState<string>('all')
     const [filtersOpen, setFiltersOpen] = useState(false)
     const [autoRefresh, setAutoRefresh] = useState(true)
+    const [sortBy, setSortBy] = useState<string>('default')
 
     // Buscar contas
     const { data: accounts } = useQuery({
@@ -47,6 +48,53 @@ export default function MonitoringPositionstpSlPage() {
     })
 
     const positions: PositionTPSLMonitoring[] = monitoringData?.data || []
+
+    // Ordenar posições baseado no critério selecionado
+    const sortedPositions = useMemo(() => {
+        const sorted = [...positions]
+        switch (sortBy) {
+            case 'tp-closest':
+                return sorted.sort((a, b) => {
+                    const aVal = a.tp_proximity_pct ?? 0
+                    const bVal = b.tp_proximity_pct ?? 0
+                    return bVal - aVal // Maior proximidade primeiro
+                })
+            case 'sl-closest':
+                return sorted.sort((a, b) => {
+                    const aVal = a.sl_proximity_pct ?? 0
+                    const bVal = b.sl_proximity_pct ?? 0
+                    return bVal - aVal // Maior proximidade primeiro
+                })
+            case 'tp-farthest':
+                return sorted.sort((a, b) => {
+                    const aVal = a.tp_proximity_pct ?? 0
+                    const bVal = b.tp_proximity_pct ?? 0
+                    return aVal - bVal // Menor proximidade primeiro
+                })
+            case 'sl-farthest':
+                return sorted.sort((a, b) => {
+                    const aVal = a.sl_proximity_pct ?? 0
+                    const bVal = b.sl_proximity_pct ?? 0
+                    return aVal - bVal // Menor proximidade primeiro
+                })
+            case 'profit-highest':
+                return sorted.sort((a, b) => {
+                    const aVal = a.pnl_pct ?? 0
+                    const bVal = b.pnl_pct ?? 0
+                    return bVal - aVal // Maior lucro primeiro
+                })
+            case 'loss-highest':
+                return sorted.sort((a, b) => {
+                    const aVal = a.pnl_pct ?? 0
+                    const bVal = b.pnl_pct ?? 0
+                    return aVal - bVal // Maior perda primeiro (menor valor)
+                })
+            case 'default':
+            default:
+                // Manter ordem original (mais recente primeiro, que é a ordem da API)
+                return sorted
+        }
+    }, [positions, sortBy])
 
     const handleRefresh = () => {
         refetch()
@@ -122,6 +170,20 @@ export default function MonitoringPositionstpSlPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Select value={sortBy} onValueChange={setSortBy}>
+                        <SelectTrigger className="w-[200px]">
+                            <SelectValue placeholder="Ordenar por..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="default">Padrão (Mais recente)</SelectItem>
+                            <SelectItem value="tp-closest">Mais próximo do TP</SelectItem>
+                            <SelectItem value="sl-closest">Mais próximo do SL</SelectItem>
+                            <SelectItem value="tp-farthest">Mais distante do TP</SelectItem>
+                            <SelectItem value="sl-farthest">Mais distante do SL</SelectItem>
+                            <SelectItem value="profit-highest">Maior lucro</SelectItem>
+                            <SelectItem value="loss-highest">Maior perda</SelectItem>
+                        </SelectContent>
+                    </Select>
                     <Button
                         variant="outline"
                         size="sm"
@@ -176,14 +238,14 @@ export default function MonitoringPositionstpSlPage() {
             </Collapsible>
 
             {/* Estatísticas */}
-            {positions.length > 0 && (
+            {sortedPositions.length > 0 && (
                 <div className="grid gap-4 md:grid-cols-4">
                     <Card>
                         <CardHeader className="pb-2">
                             <CardDescription>Total de Posições</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">{positions.length}</div>
+                            <div className="text-2xl font-bold">{sortedPositions.length}</div>
                         </CardContent>
                     </Card>
                     <Card>
@@ -192,7 +254,7 @@ export default function MonitoringPositionstpSlPage() {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-green-500">
-                                {positions.filter(p => p.status === 'PROFIT' || p.status === 'AT_TP').length}
+                                {sortedPositions.filter(p => p.status === 'PROFIT' || p.status === 'AT_TP').length}
                             </div>
                         </CardContent>
                     </Card>
@@ -202,7 +264,7 @@ export default function MonitoringPositionstpSlPage() {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-red-500">
-                                {positions.filter(p => p.status === 'LOSS' || p.status === 'AT_SL').length}
+                                {sortedPositions.filter(p => p.status === 'LOSS' || p.status === 'AT_SL').length}
                             </div>
                         </CardContent>
                     </Card>
@@ -212,7 +274,7 @@ export default function MonitoringPositionstpSlPage() {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-green-600">
-                                {positions.filter(p => p.tp_proximity_pct !== null && p.tp_proximity_pct >= 80).length}
+                                {sortedPositions.filter(p => p.tp_proximity_pct !== null && p.tp_proximity_pct >= 80).length}
                             </div>
                         </CardContent>
                     </Card>
@@ -220,7 +282,7 @@ export default function MonitoringPositionstpSlPage() {
             )}
 
             {/* Lista de Posições */}
-            {positions.length === 0 ? (
+            {sortedPositions.length === 0 ? (
                 <Card>
                     <CardContent className="py-12 text-center">
                         <Target className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -231,7 +293,7 @@ export default function MonitoringPositionstpSlPage() {
                 </Card>
             ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {positions.map((position) => (
+                    {sortedPositions.map((position) => (
                         <Card key={position.id} className="relative">
                             <CardHeader>
                                 <div className="flex items-start justify-between">

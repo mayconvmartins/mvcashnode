@@ -89,6 +89,7 @@ export default function PositionsPage() {
         const filters: any = {
             status: 'OPEN',
             trade_mode: tradeMode,
+            limit: 1000, // Carregar todas as posições abertas
         }
         if (selectedSymbol !== 'all') filters.symbol = selectedSymbol
         if (selectedAccount !== 'all') filters.exchange_account_id = parseInt(selectedAccount)
