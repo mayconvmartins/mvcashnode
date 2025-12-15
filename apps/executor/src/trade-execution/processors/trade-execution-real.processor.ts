@@ -1188,6 +1188,54 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         }
       }
 
+      // VALIDAÇÃO: Verificar se exchange_order_id existe na exchange (exceto DUST orders)
+      let orderVerified = false;
+      let orderValidationError: string | null = null;
+      
+      if (order.id && !String(order.id).startsWith('DUST-')) {
+        try {
+          // Tentar buscar ordem na exchange para validar
+          const verifiedOrder = await adapter.fetchOrder(order.id, tradeJob.symbol);
+          if (verifiedOrder && verifiedOrder.id) {
+            orderVerified = true;
+            this.logger.log(`[EXECUTOR] ✅ Order ID ${order.id} validado na exchange`);
+          }
+        } catch (verifyError: any) {
+          // Se for erro de ordem arquivada, tentar buscar via fetchMyTrades
+          if (
+            verifyError.message?.includes('-2026') || 
+            verifyError.message?.includes('archived') ||
+            verifyError.message?.includes('over 90 days')
+          ) {
+            try {
+              const since = Date.now() - 7 * 24 * 60 * 60 * 1000; // Últimos 7 dias
+              const trades = await adapter.fetchMyTrades(tradeJob.symbol, since, 1000);
+              const orderTrades = trades.filter((t: any) => {
+                const tradeOrderId = String(t.order || t.orderId || (t.info && (t.info.orderId || t.info.orderListId)) || '');
+                return tradeOrderId === String(order.id);
+              });
+              
+              if (orderTrades.length > 0) {
+                orderVerified = true;
+                this.logger.log(`[EXECUTOR] ✅ Order ID ${order.id} encontrado em trades arquivados`);
+              } else {
+                orderValidationError = `Order ID ${order.id} não encontrado na exchange (arquivada ou inválida)`;
+                this.logger.warn(`[EXECUTOR] ⚠️ ${orderValidationError}`);
+              }
+            } catch (tradesError: any) {
+              orderValidationError = `Erro ao validar order ID ${order.id}: ${tradesError.message}`;
+              this.logger.warn(`[EXECUTOR] ⚠️ ${orderValidationError}`);
+            }
+          } else {
+            orderValidationError = `Erro ao validar order ID ${order.id}: ${verifyError.message}`;
+            this.logger.warn(`[EXECUTOR] ⚠️ ${orderValidationError}`);
+          }
+        }
+      } else if (String(order.id).startsWith('DUST-')) {
+        // DUST orders são especiais e não existem na exchange
+        this.logger.log(`[EXECUTOR] ℹ️ Order ID ${order.id} é DUST (não existe na exchange, é normal)`);
+      }
+
       // Create execution
       const execution = await this.prisma.tradeExecution.create({
         data: {
@@ -1208,6 +1256,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           raw_response_json: JSON.parse(JSON.stringify(order)),
         },
       });
+
+      // Log warning se order não foi validado (mas não bloquear)
+      if (orderValidationError) {
+        this.logger.warn(`[EXECUTOR] ⚠️ Execution ${execution.id} criado com order ID não validado: ${orderValidationError}`);
+      }
 
       this.logger.log(`[EXECUTOR] Execution criado: ${execution.id}, qty: ${executedQty}, price: ${avgPrice}`);
 

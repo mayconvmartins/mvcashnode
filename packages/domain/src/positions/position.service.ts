@@ -42,11 +42,45 @@ export class PositionService {
 
     const job = await this.prisma.tradeJob.findUnique({
       where: { id: jobId },
-      include: { exchange_account: true },
+      include: {
+        exchange_account: {
+          select: {
+            id: true,
+            exchange: true,
+            is_simulation: true,
+            testnet: true,
+          },
+        },
+        position_open: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
     });
 
     if (!job || job.side !== 'BUY') {
       throw new Error('Invalid buy job');
+    }
+
+    // VALIDAÇÃO PREVENTIVA: Verificar se job já tem position_open
+    if (job.position_open) {
+      if (job.position_open.status === 'OPEN') {
+        console.log(`[POSITION-SERVICE] ⚠️ Job ${jobId} já tem position_open apontando para posição aberta #${job.position_open.id}, retornando ID existente`);
+        return job.position_open.id;
+      } else {
+        console.warn(`[POSITION-SERVICE] ⚠️ Job ${jobId} tem position_open apontando para posição fechada #${job.position_open.id}, limpando referência`);
+        // Limpar referência incorreta antes de continuar
+        await this.prisma.tradeJob.update({
+          where: { id: jobId },
+          data: {
+            position_open: {
+              disconnect: true,
+            },
+          },
+        });
+      }
     }
 
     // Buscar parâmetros de trading para copiar configurações
@@ -474,6 +508,17 @@ export class PositionService {
           },
         });
 
+        // Atualizar position_open do job para apontar para a posição agrupada
+        await tx.tradeJob.update({
+          where: { id: jobId },
+          data: {
+            position_open: {
+              connect: { id: updatedPosition.id },
+            },
+          },
+        });
+        console.log(`[POSITION-SERVICE] ✅ Atualizado position_open do job ${jobId} para posição ${updatedPosition.id}`);
+
         // Criar registro de agrupamento também para o job da posição existente (se ainda não existir)
         if (positionToUpdate.trade_job_id_open) {
           const existingGroupedJob = await tx.positionGroupedJob.findFirst({
@@ -491,6 +536,24 @@ export class PositionService {
               },
             });
             console.log(`[POSITION-SERVICE] ✅ Criado PositionGroupedJob para job existente: ${positionToUpdate.trade_job_id_open}`);
+          }
+
+          // Garantir que o job existente também tenha position_open correto
+          const existingJob = await tx.tradeJob.findUnique({
+            where: { id: positionToUpdate.trade_job_id_open },
+            select: { position_open: { select: { id: true } } },
+          });
+
+          if (!existingJob?.position_open || existingJob.position_open.id !== updatedPosition.id) {
+            await tx.tradeJob.update({
+              where: { id: positionToUpdate.trade_job_id_open },
+              data: {
+                position_open: {
+                  connect: { id: updatedPosition.id },
+                },
+              },
+            });
+            console.log(`[POSITION-SERVICE] ✅ Atualizado position_open do job existente ${positionToUpdate.trade_job_id_open} para posição ${updatedPosition.id}`);
           }
         }
 

@@ -2612,44 +2612,180 @@ export class AdminSystemController {
       }
 
       // Identificar executions a mais no sistema (no sistema mas não na exchange)
+      // E validar se orderIds realmente existem na exchange
       const extraInSystem: Array<{
         execution_id: number;
         job_id: number;
         exchange_order_id: string;
         side: 'BUY' | 'SELL';
         symbol: string;
+        validation_error?: string;
+        values_mismatch?: boolean;
       }> = [];
 
       for (const [orderId, execs] of executionsByOrderId.entries()) {
+        // Ignorar DUST orders (não existem na exchange)
+        if (String(orderId).startsWith('DUST-')) {
+          continue;
+        }
+
         if (!exchangeTradesByOrderId.has(orderId)) {
-          // Execution no sistema mas não na exchange
+          // Execution no sistema mas não na exchange - validar se realmente não existe
           for (const exec of execs) {
+            let validationError: string | undefined;
+            let orderExists = false;
+
+            try {
+              // Tentar buscar ordem na exchange
+              const order = await adapter.fetchOrder(orderId, exec.trade_job.symbol);
+              if (order && order.id) {
+                orderExists = true;
+                // Se encontrou, verificar valores
+                const exchangeQty = order.filled || order.amount || 0;
+                const exchangePrice = order.average || order.price || 0;
+                const systemQty = exec.executed_qty.toNumber();
+                const systemPrice = exec.avg_price.toNumber();
+
+                const qtyDiff = Math.abs(exchangeQty - systemQty);
+                const priceDiff = Math.abs(exchangePrice - systemPrice);
+                const qtyTolerance = systemQty * 0.001; // 0.1% de tolerância
+                const priceTolerance = systemPrice * 0.001; // 0.1% de tolerância
+
+                if (qtyDiff > qtyTolerance || priceDiff > priceTolerance) {
+                  validationError = `Valores diferentes: Qty (sistema: ${systemQty}, exchange: ${exchangeQty}), Price (sistema: ${systemPrice}, exchange: ${exchangePrice})`;
+                }
+              }
+            } catch (orderError: any) {
+              // Se for erro de ordem arquivada, tentar buscar via fetchMyTrades
+              if (
+                orderError.message?.includes('-2026') ||
+                orderError.message?.includes('archived') ||
+                orderError.message?.includes('over 90 days')
+              ) {
+                try {
+                  const since = dateFrom.getTime();
+                  const until = dateTo.getTime();
+                  const trades = await adapter.fetchMyTrades(exec.trade_job.symbol, since, 1000);
+                  const orderTrades = trades.filter((t: any) => {
+                    const tradeOrderId = String(t.order || t.orderId || (t.info && (t.info.orderId || t.info.orderListId)) || '');
+                    return tradeOrderId === String(orderId);
+                  });
+
+                  if (orderTrades.length > 0) {
+                    orderExists = true;
+                    // Comparar valores dos trades
+                    const totalQty = orderTrades.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+                    const totalCost = orderTrades.reduce((sum: number, t: any) => sum + (t.cost || (t.amount || 0) * (t.price || 0)), 0);
+                    const avgPrice = totalQty > 0 ? totalCost / totalQty : 0;
+                    const systemQty = exec.executed_qty.toNumber();
+                    const systemPrice = exec.avg_price.toNumber();
+
+                    const qtyDiff = Math.abs(totalQty - systemQty);
+                    const priceDiff = Math.abs(avgPrice - systemPrice);
+                    const qtyTolerance = systemQty * 0.001;
+                    const priceTolerance = systemPrice * 0.001;
+
+                    if (qtyDiff > qtyTolerance || priceDiff > priceTolerance) {
+                      validationError = `Valores diferentes (arquivado): Qty (sistema: ${systemQty}, exchange: ${totalQty}), Price (sistema: ${systemPrice}, exchange: ${avgPrice})`;
+                    }
+                  } else {
+                    validationError = `Order ID não encontrado na exchange (arquivada ou inválida)`;
+                  }
+                } catch (tradesError: any) {
+                  validationError = `Erro ao validar: ${tradesError.message}`;
+                }
+              } else {
+                validationError = `Erro ao buscar ordem: ${orderError.message}`;
+              }
+            }
+
             extraInSystem.push({
               execution_id: exec.id,
               job_id: exec.trade_job.id,
               exchange_order_id: orderId,
               side: exec.trade_job.side as 'BUY' | 'SELL',
               symbol: exec.trade_job.symbol,
+              validation_error: validationError,
+              values_mismatch: !!validationError && validationError.includes('Valores diferentes'),
             });
+          }
+        } else {
+          // Order existe na exchange - comparar valores
+          const exchangeTrades = exchangeTradesByOrderId.get(orderId) || [];
+          if (exchangeTrades.length > 0) {
+            const totalQty = exchangeTrades.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+            const totalCost = exchangeTrades.reduce((sum: number, t: any) => sum + (t.cost || (t.amount || 0) * (t.price || 0)), 0);
+            const avgPrice = totalQty > 0 ? totalCost / totalQty : 0;
+
+            for (const exec of execs) {
+              const systemQty = exec.executed_qty.toNumber();
+              const systemPrice = exec.avg_price.toNumber();
+
+              const qtyDiff = Math.abs(totalQty - systemQty);
+              const priceDiff = Math.abs(avgPrice - systemPrice);
+              const qtyTolerance = systemQty * 0.001; // 0.1% de tolerância
+              const priceTolerance = systemPrice * 0.001; // 0.1% de tolerância
+
+              if (qtyDiff > qtyTolerance || priceDiff > priceTolerance) {
+                // Adicionar à lista de extra se valores não batem (pode ser ordem diferente)
+                extraInSystem.push({
+                  execution_id: exec.id,
+                  job_id: exec.trade_job.id,
+                  exchange_order_id: orderId,
+                  side: exec.trade_job.side as 'BUY' | 'SELL',
+                  symbol: exec.trade_job.symbol,
+                  validation_error: `Valores diferentes: Qty (sistema: ${systemQty}, exchange: ${totalQty}), Price (sistema: ${systemPrice}, exchange: ${avgPrice})`,
+                  values_mismatch: true,
+                });
+              }
+            }
           }
         }
       }
 
       // Identificar executions duplicados (mesmo exchange_order_id)
+      // E verificar se valores são diferentes entre duplicados
       const duplicates: Array<{
         exchange_order_id: string;
         execution_ids: number[];
         job_ids: number[];
         count: number;
+        values_differ?: boolean;
+        execution_values?: Array<{ execution_id: number; qty: number; price: number }>;
       }> = [];
 
       for (const [orderId, execs] of executionsByOrderId.entries()) {
         if (execs.length > 1) {
+          // Verificar se valores são diferentes entre duplicados
+          const values = execs.map(e => ({
+            execution_id: e.id,
+            qty: e.executed_qty.toNumber(),
+            price: e.avg_price.toNumber(),
+          }));
+
+          let valuesDiffer = false;
+          const firstQty = values[0].qty;
+          const firstPrice = values[0].price;
+
+          for (let i = 1; i < values.length; i++) {
+            const qtyDiff = Math.abs(values[i].qty - firstQty);
+            const priceDiff = Math.abs(values[i].price - firstPrice);
+            const qtyTolerance = firstQty * 0.001; // 0.1% de tolerância
+            const priceTolerance = firstPrice * 0.001; // 0.1% de tolerância
+
+            if (qtyDiff > qtyTolerance || priceDiff > priceTolerance) {
+              valuesDiffer = true;
+              break;
+            }
+          }
+
           duplicates.push({
             exchange_order_id: orderId,
             execution_ids: execs.map(e => e.id),
             job_ids: execs.map(e => e.trade_job.id),
             count: execs.length,
+            values_differ: valuesDiffer,
+            execution_values: valuesDiffer ? values : undefined,
           });
         }
       }

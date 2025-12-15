@@ -232,7 +232,7 @@ export function AuditPositions() {
   }
 
   return (
-    <Card>
+    <Card className="w-full max-w-none">
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Search className="h-4 w-4" />
@@ -408,17 +408,17 @@ export function AuditPositions() {
                   )}
                 </div>
 
-                <div className="border rounded-lg overflow-x-auto">
-                  <Table>
+                <div className="border rounded-lg overflow-x-auto max-h-[600px]">
+                  <Table className="min-w-full">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-12"></TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Entidade</TableHead>
-                        <TableHead>Campo</TableHead>
-                        <TableHead>Valor Atual</TableHead>
-                        <TableHead>Valor Esperado</TableHead>
-                        <TableHead>Descrição</TableHead>
+                        <TableHead className="w-12 sticky left-0 bg-background z-10"></TableHead>
+                        <TableHead className="min-w-[120px]">Tipo</TableHead>
+                        <TableHead className="min-w-[100px]">Entidade</TableHead>
+                        <TableHead className="min-w-[120px]">Campo</TableHead>
+                        <TableHead className="min-w-[150px]">Valor Atual</TableHead>
+                        <TableHead className="min-w-[150px]">Valor Esperado</TableHead>
+                        <TableHead className="min-w-[300px]">Descrição</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -526,7 +526,7 @@ export function AuditPositions() {
             </div>
 
             {/* Estatísticas */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
               <div className="p-3 rounded-lg bg-muted/50">
                 <div className="text-sm text-muted-foreground">Trades Exchange</div>
                 <div className="text-2xl font-bold">{exchangeTradesResult.exchange_trades.total_count}</div>
@@ -558,16 +558,16 @@ export function AuditPositions() {
                   <AlertTriangle className="h-4 w-4" />
                   <span className="font-medium">Trades na Exchange que não estão no Sistema ({exchangeTradesResult.missing_in_system.length})</span>
                 </div>
-                <div className="border rounded-lg overflow-x-auto max-h-60">
-                  <Table>
+                <div className="border rounded-lg overflow-x-auto max-h-[500px]">
+                  <Table className="min-w-full">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Order ID</TableHead>
-                        <TableHead>Side</TableHead>
-                        <TableHead>Symbol</TableHead>
-                        <TableHead>Qty</TableHead>
-                        <TableHead>Price</TableHead>
-                        <TableHead>Timestamp</TableHead>
+                        <TableHead className="min-w-[150px]">Order ID</TableHead>
+                        <TableHead className="min-w-[80px]">Side</TableHead>
+                        <TableHead className="min-w-[120px]">Symbol</TableHead>
+                        <TableHead className="min-w-[120px]">Qty</TableHead>
+                        <TableHead className="min-w-[120px]">Price</TableHead>
+                        <TableHead className="min-w-[180px]">Timestamp</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -598,15 +598,16 @@ export function AuditPositions() {
                   <AlertTriangle className="h-4 w-4" />
                   <span className="font-medium">Executions no Sistema que não estão na Exchange ({exchangeTradesResult.extra_in_system.length})</span>
                 </div>
-                <div className="border rounded-lg overflow-x-auto max-h-60">
-                  <Table>
+                <div className="border rounded-lg overflow-x-auto max-h-[500px]">
+                  <Table className="min-w-full">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Execution ID</TableHead>
-                        <TableHead>Job ID</TableHead>
-                        <TableHead>Order ID</TableHead>
-                        <TableHead>Side</TableHead>
-                        <TableHead>Symbol</TableHead>
+                        <TableHead className="min-w-[120px]">Execution ID</TableHead>
+                        <TableHead className="min-w-[100px]">Job ID</TableHead>
+                        <TableHead className="min-w-[150px]">Order ID</TableHead>
+                        <TableHead className="min-w-[80px]">Side</TableHead>
+                        <TableHead className="min-w-[120px]">Symbol</TableHead>
+                        <TableHead className="min-w-[200px]">Validação</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -621,6 +622,18 @@ export function AuditPositions() {
                             </Badge>
                           </TableCell>
                           <TableCell>{exec.symbol}</TableCell>
+                          <TableCell>
+                            {exec.validation_error && (
+                              <div className="text-xs text-red-500">
+                                {exec.values_mismatch ? (
+                                  <Badge variant="destructive" className="text-xs">Valores Diferentes</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs">Não Encontrado</Badge>
+                                )}
+                                <div className="mt-1 text-muted-foreground">{exec.validation_error}</div>
+                              </div>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -636,14 +649,15 @@ export function AuditPositions() {
                   <AlertTriangle className="h-4 w-4" />
                   <span className="font-medium">Executions Duplicados ({exchangeTradesResult.duplicates.length})</span>
                 </div>
-                <div className="border rounded-lg overflow-x-auto max-h-60">
-                  <Table>
+                <div className="border rounded-lg overflow-x-auto max-h-[500px]">
+                  <Table className="min-w-full">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Order ID</TableHead>
-                        <TableHead>Count</TableHead>
-                        <TableHead>Execution IDs</TableHead>
-                        <TableHead>Job IDs</TableHead>
+                        <TableHead className="min-w-[150px]">Order ID</TableHead>
+                        <TableHead className="min-w-[80px]">Count</TableHead>
+                        <TableHead className="min-w-[200px]">Execution IDs</TableHead>
+                        <TableHead className="min-w-[200px]">Job IDs</TableHead>
+                        <TableHead className="min-w-[150px]">Valores</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -655,6 +669,24 @@ export function AuditPositions() {
                           </TableCell>
                           <TableCell className="text-xs">{dup.execution_ids.join(', ')}</TableCell>
                           <TableCell className="text-xs">{dup.job_ids.join(', ')}</TableCell>
+                          <TableCell>
+                            {dup.values_differ ? (
+                              <div className="text-xs">
+                                <Badge variant="destructive" className="text-xs mb-1">Valores Diferentes</Badge>
+                                {dup.execution_values && (
+                                  <div className="mt-1 space-y-1">
+                                    {dup.execution_values.map((v, i) => (
+                                      <div key={i} className="text-muted-foreground">
+                                        Exec {v.execution_id}: {v.qty.toFixed(8)} @ {v.price.toFixed(8)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <Badge variant="outline" className="text-xs">Valores Iguais</Badge>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -670,15 +702,15 @@ export function AuditPositions() {
                   <AlertTriangle className="h-4 w-4" />
                   <span className="font-medium">Jobs sem Exchange Order ID ({exchangeTradesResult.jobs_without_order_id.length})</span>
                 </div>
-                <div className="border rounded-lg overflow-x-auto max-h-60">
-                  <Table>
+                <div className="border rounded-lg overflow-x-auto max-h-[500px]">
+                  <Table className="min-w-full">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Job ID</TableHead>
-                        <TableHead>Execution ID</TableHead>
-                        <TableHead>Side</TableHead>
-                        <TableHead>Symbol</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead className="min-w-[100px]">Job ID</TableHead>
+                        <TableHead className="min-w-[120px]">Execution ID</TableHead>
+                        <TableHead className="min-w-[80px]">Side</TableHead>
+                        <TableHead className="min-w-[120px]">Symbol</TableHead>
+                        <TableHead className="min-w-[100px]">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
