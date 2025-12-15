@@ -45,10 +45,8 @@ export class PositionsSyncDuplicatesProcessor extends WorkerHost {
 
       // 1. Detectar posições duplicadas (mesmo trade_job_id_open)
       this.logger.log('[POSITIONS-SYNC-DUPLICATES] Detectando posições duplicadas...');
+      // trade_job_id_open é obrigatório no schema, então todas as posições já têm esse campo
       const allPositions = await this.prisma.tradePosition.findMany({
-        where: {
-          trade_job_id_open: { isNot: null },
-        },
         select: {
           id: true,
           trade_job_id_open: true,
