@@ -3338,7 +3338,7 @@ export class AdminSystemController {
           }
           const jobInfo = {
             job_id: exec.trade_job.id,
-            created_at: exec.trade_job.created_at || exec.created_at,
+            created_at: exec.created_at,
             symbol: exec.trade_job.symbol,
             side: exec.trade_job.side,
           };
@@ -4675,7 +4675,7 @@ export class AdminSystemController {
           }
           const jobInfo = {
             job_id: exec.trade_job.id,
-            created_at: exec.trade_job.created_at || exec.created_at,
+            created_at: exec.trade_job.created_at,
             has_position: !!exec.trade_job.position_open,
           };
           if (!jobsByOrderId.get(orderId)!.some(j => j.job_id === jobInfo.job_id)) {
