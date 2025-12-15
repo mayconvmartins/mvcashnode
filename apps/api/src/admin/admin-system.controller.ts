@@ -2792,13 +2792,29 @@ export class AdminSystemController {
         }
       }
 
-      // Identificar jobs sem exchange_order_id
+      // Identificar jobs sem exchange_order_id e validar jobs órfãos
       const jobsWithoutOrderId: Array<{
         job_id: number;
         symbol: string;
         side: 'BUY' | 'SELL';
         status: string;
         execution_id?: number;
+      }> = [];
+
+      const orphanJobs: Array<{
+        job_id: number;
+        symbol: string;
+        side: 'BUY' | 'SELL';
+        reason: string;
+        execution_id?: number;
+        order_id?: string;
+      }> = [];
+
+      const jobsWithoutExchange: Array<{
+        job_id: number;
+        order_id: string;
+        symbol: string;
+        side: 'BUY' | 'SELL';
       }> = [];
 
       const jobsFilled = await this.prisma.tradeJob.findMany({
@@ -2815,8 +2831,9 @@ export class AdminSystemController {
             select: {
               id: true,
               exchange_order_id: true,
+              executed_qty: true,
+              avg_price: true,
             },
-            take: 1,
             orderBy: {
               created_at: 'desc',
             },
@@ -2824,18 +2841,121 @@ export class AdminSystemController {
         },
       });
 
+      console.log(`[ADMIN] Validando ${jobsFilled.length} trade jobs FILLED...`);
+
       for (const job of jobsFilled) {
         const execution = job.executions[0];
-        if (!execution || !execution.exchange_order_id) {
+
+        // Caso 1: Job sem executions
+        if (!execution) {
+          orphanJobs.push({
+            job_id: job.id,
+            symbol: job.symbol,
+            side: job.side as 'BUY' | 'SELL',
+            reason: 'Job FILLED sem executions',
+          });
+          continue;
+        }
+
+        // Caso 2: Job sem exchange_order_id
+        if (!execution.exchange_order_id) {
           jobsWithoutOrderId.push({
             job_id: job.id,
             symbol: job.symbol,
             side: job.side as 'BUY' | 'SELL',
             status: job.status,
-            execution_id: execution?.id,
+            execution_id: execution.id,
           });
+          continue;
+        }
+
+        // Caso 3: Job com exchange_order_id DUST (não existe na exchange)
+        if (String(execution.exchange_order_id).startsWith('DUST-')) {
+          orphanJobs.push({
+            job_id: job.id,
+            symbol: job.symbol,
+            side: job.side as 'BUY' | 'SELL',
+            reason: 'Job com execution DUST (não existe na exchange)',
+            execution_id: execution.id,
+            order_id: execution.exchange_order_id,
+          });
+          continue;
+        }
+
+        // Caso 4: Validar se exchange_order_id existe na exchange
+        try {
+          const order = await adapter.fetchOrder(execution.exchange_order_id, job.symbol);
+          
+          if (!order || !order.id) {
+            jobsWithoutExchange.push({
+              job_id: job.id,
+              order_id: execution.exchange_order_id,
+              symbol: job.symbol,
+              side: job.side as 'BUY' | 'SELL',
+            });
+          } else {
+            // Validar valores (qty e price) - tolerância 0.1%
+            const exchangeQty = order.filled || order.amount || 0;
+            const exchangePrice = order.average || order.price || 0;
+            const systemQty = execution.executed_qty.toNumber();
+            const systemPrice = execution.avg_price.toNumber();
+
+            const qtyDiff = Math.abs(exchangeQty - systemQty);
+            const priceDiff = Math.abs(exchangePrice - systemPrice);
+            const qtyTolerance = systemQty * 0.001;
+            const priceTolerance = systemPrice * 0.001;
+
+            if (qtyDiff > qtyTolerance || priceDiff > priceTolerance) {
+              console.log(`[ADMIN] ⚠️ Job ${job.id}: valores diferentes (sistema: qty=${systemQty}, price=${systemPrice}, exchange: qty=${exchangeQty}, price=${exchangePrice})`);
+            }
+          }
+        } catch (orderError: any) {
+          // Se for erro de ordem arquivada, tentar buscar via fetchMyTrades
+          if (
+            orderError.message?.includes('-2026') ||
+            orderError.message?.includes('archived') ||
+            orderError.message?.includes('over 90 days')
+          ) {
+            try {
+              const since = dateFrom.getTime();
+              const until = dateTo.getTime();
+              const trades = await adapter.fetchMyTrades(job.symbol, since, 1000);
+              const orderTrades = trades.filter((t: any) => {
+                const tradeOrderId = String(t.order || t.orderId || (t.info && (t.info.orderId || t.info.orderListId)) || '');
+                return tradeOrderId === String(execution.exchange_order_id);
+              });
+
+              if (orderTrades.length === 0) {
+                jobsWithoutExchange.push({
+                  job_id: job.id,
+                  order_id: execution.exchange_order_id,
+                  symbol: job.symbol,
+                  side: job.side as 'BUY' | 'SELL',
+                });
+              }
+            } catch (tradesError: any) {
+              jobsWithoutExchange.push({
+                job_id: job.id,
+                order_id: execution.exchange_order_id,
+                symbol: job.symbol,
+                side: job.side as 'BUY' | 'SELL',
+              });
+            }
+          } else {
+            // Ordem não encontrada
+            jobsWithoutExchange.push({
+              job_id: job.id,
+              order_id: execution.exchange_order_id,
+              symbol: job.symbol,
+              side: job.side as 'BUY' | 'SELL',
+            });
+          }
         }
       }
+
+      console.log(`[ADMIN] Jobs órfãos encontrados: ${orphanJobs.length}`);
+      console.log(`[ADMIN] Jobs sem exchange_order_id: ${jobsWithoutOrderId.length}`);
+      console.log(`[ADMIN] Jobs com order_id que não existe na exchange: ${jobsWithoutExchange.length}`);
 
       // Contar executions do sistema por lado
       const systemBuyCount = systemExecutions.filter(e => e.trade_job.side === 'BUY').length;
@@ -3141,11 +3261,119 @@ export class AdminSystemController {
       }
 
       const duration = Date.now() - startTime;
+      // Validar posições duplicadas (mesmo trade_job_id_open)
+      const duplicatePositions: Array<{
+        job_id_open: number;
+        position_ids: number[];
+        created_at: string[];
+      }> = [];
+
+      const allPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          trade_job_id_open: { not: null },
+          exchange_account_id: accountIdNum,
+          ...(dateFrom || dateTo ? {
+            created_at: {
+              ...(dateFrom && { gte: dateFrom }),
+              ...(dateTo && { lte: dateTo }),
+            },
+          } : {}),
+        },
+        select: {
+          id: true,
+          trade_job_id_open: true,
+          created_at: true,
+        },
+        orderBy: {
+          created_at: 'asc',
+        },
+      });
+
+      // Agrupar por trade_job_id_open
+      const positionsByJob = new Map<number, typeof allPositions>();
+      for (const pos of allPositions) {
+        if (pos.trade_job_id_open) {
+          if (!positionsByJob.has(pos.trade_job_id_open)) {
+            positionsByJob.set(pos.trade_job_id_open, []);
+          }
+          positionsByJob.get(pos.trade_job_id_open)!.push(pos);
+        }
+      }
+
+      // Verificar duplicatas
+      for (const [jobId, positions] of positionsByJob.entries()) {
+        if (positions.length > 1) {
+          const firstPosition = positions[0];
+          const duplicatePositionsList = positions.slice(1);
+
+          duplicatePositions.push({
+            job_id_open: jobId,
+            position_ids: [firstPosition.id, ...duplicatePositionsList.map(p => p.id)],
+            created_at: [firstPosition.created_at.toISOString(), ...duplicatePositionsList.map(p => p.created_at.toISOString())],
+          });
+        }
+      }
+
+      // Validar trade jobs duplicados (mesmo exchange_order_id via executions)
+      const duplicateJobs: Array<{
+        order_id: string;
+        job_ids: number[];
+        created_at: string[];
+        symbol: string;
+        side: string;
+      }> = [];
+
+      // Agrupar jobs por exchange_order_id
+      const jobsByOrderId = new Map<string, Array<{
+        job_id: number;
+        created_at: Date;
+        symbol: string;
+        side: string;
+      }>>();
+
+      for (const exec of systemExecutions) {
+        if (exec.exchange_order_id && !String(exec.exchange_order_id).startsWith('DUST-')) {
+          if (!jobsByOrderId.has(exec.exchange_order_id)) {
+            jobsByOrderId.set(exec.exchange_order_id, []);
+          }
+          const jobInfo = {
+            job_id: exec.trade_job.id,
+            created_at: exec.trade_job.created_at || exec.created_at,
+            symbol: exec.trade_job.symbol,
+            side: exec.trade_job.side,
+          };
+          // Evitar duplicatas no array
+          if (!jobsByOrderId.get(exec.exchange_order_id)!.some(j => j.job_id === jobInfo.job_id)) {
+            jobsByOrderId.get(exec.exchange_order_id)!.push(jobInfo);
+          }
+        }
+      }
+
+      // Verificar duplicatas
+      for (const [orderId, jobs] of jobsByOrderId.entries()) {
+        if (jobs.length > 1) {
+          // Ordenar por created_at (mais recente primeiro)
+          const sortedJobs = jobs.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+          
+          duplicateJobs.push({
+            order_id: orderId,
+            job_ids: sortedJobs.map(j => j.job_id),
+            created_at: sortedJobs.map(j => j.created_at.toISOString()),
+            symbol: sortedJobs[0].symbol,
+            side: sortedJobs[0].side,
+          });
+        }
+      }
+
       console.log(`[ADMIN] Auditoria de trades concluída em ${duration}ms`);
       console.log(`[ADMIN] Trades faltando no sistema: ${missingInSystem.length}`);
       console.log(`[ADMIN] Executions a mais no sistema: ${extraInSystem.length}`);
       console.log(`[ADMIN] Executions duplicados: ${duplicates.length}`);
       console.log(`[ADMIN] Jobs sem exchange_order_id: ${jobsWithoutOrderId.length}`);
+      console.log(`[ADMIN] Jobs órfãos: ${orphanJobs.length}`);
+      console.log(`[ADMIN] Jobs com order_id inexistente na exchange: ${jobsWithoutExchange.length}`);
+      console.log(`[ADMIN] Posições duplicadas: ${duplicatePositions.length}`);
+      console.log(`[ADMIN] Trade jobs duplicados: ${duplicateJobs.length}`);
 
       return {
         account_id: accountIdNum,
@@ -3167,6 +3395,10 @@ export class AdminSystemController {
         extra_in_system: extraInSystem,
         duplicates,
         jobs_without_order_id: jobsWithoutOrderId,
+        orphan_jobs: orphanJobs,
+        jobs_without_exchange: jobsWithoutExchange,
+        duplicate_positions: duplicatePositions,
+        duplicate_jobs: duplicateJobs,
         errors: errors.length > 0 ? errors : undefined,
         duration_ms: duration,
         ...(autoDeleteFlag ? {
@@ -4204,6 +4436,488 @@ export class AdminSystemController {
       };
     } catch (error: any) {
       console.error('[ADMIN] Erro ao deletar duplicatas:', error);
+      throw error;
+    }
+  }
+
+  @Post('system/sync-with-exchange')
+  @ApiOperation({
+    summary: 'Sincronizar sistema com exchange',
+    description: 'Executa auditoria completa e sincroniza sistema com exchange, detectando e corrigindo inconsistências: trade jobs órfãos, posições duplicadas, trade jobs duplicados e jobs sem correspondência na exchange.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Sincronização concluída',
+  })
+  async syncWithExchange(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('accountId') accountId?: string,
+    @Query('autoFix') autoFix?: string
+  ) {
+    if (!accountId) {
+      throw new BadRequestException('accountId é obrigatório para sincronização com exchange');
+    }
+
+    const accountIdNum = parseInt(accountId);
+    const dateFrom = from ? new Date(from) : undefined;
+    const dateTo = to ? new Date(to) : undefined;
+    const autoFixFlag = autoFix === 'true' || autoFix === '1';
+
+    if (!dateFrom || !dateTo) {
+      throw new BadRequestException('from e to são obrigatórios para sincronização com exchange');
+    }
+
+    console.log(`[ADMIN] Iniciando sincronização com exchange para conta ${accountIdNum}...`);
+    console.log(`[ADMIN] Período: ${dateFrom.toISOString()} até ${dateTo.toISOString()}`);
+    console.log(`[ADMIN] AutoFix: ${autoFixFlag ? 'HABILITADO' : 'DESABILITADO'}`);
+
+    const startTime = Date.now();
+    const validations = {
+      orphan_jobs: [] as Array<{ job_id: number; reason: string }>,
+      duplicate_positions: [] as Array<{ job_id_open: number; position_ids: number[] }>,
+      duplicate_jobs: [] as Array<{ order_id: string; job_ids: number[] }>,
+      jobs_without_exchange: [] as Array<{ job_id: number; order_id: string }>,
+    };
+
+    const fixesApplied = {
+      jobs_deleted: 0,
+      positions_deleted: 0,
+      jobs_corrected: 0,
+      executions_corrected: 0,
+    };
+
+    const errors: Array<{ type: string; id: number; error: string }> = [];
+
+    try {
+      // Buscar conta
+      const account = await this.prisma.exchangeAccount.findUnique({
+        where: { id: accountIdNum },
+        select: {
+          id: true,
+          exchange: true,
+          api_key_enc: true,
+          api_secret_enc: true,
+          testnet: true,
+          is_simulation: true,
+        },
+      });
+
+      if (!account) {
+        throw new NotFoundException(`ExchangeAccount ${accountIdNum} not found`);
+      }
+
+      if (account.is_simulation) {
+        throw new BadRequestException('Não é possível sincronizar conta de simulação');
+      }
+
+      if (!account.api_key_enc || !account.api_secret_enc) {
+        throw new BadRequestException('Conta sem API keys configuradas');
+      }
+
+      // Descriptografar API keys
+      const apiKey = await this.encryptionService.decrypt(account.api_key_enc);
+      const apiSecret = await this.encryptionService.decrypt(account.api_secret_enc);
+
+      // Criar adapter
+      const adapter = AdapterFactory.createAdapter(
+        account.exchange as ExchangeType,
+        apiKey,
+        apiSecret,
+        { testnet: account.testnet }
+      );
+
+      // 1. Detectar trade jobs órfãos
+      console.log('[ADMIN] Detectando trade jobs órfãos...');
+      const jobsFilled = await this.prisma.tradeJob.findMany({
+        where: {
+          exchange_account_id: accountIdNum,
+          status: 'FILLED',
+          created_at: {
+            gte: dateFrom,
+            lte: dateTo,
+          },
+        },
+        include: {
+          executions: {
+            select: {
+              id: true,
+              exchange_order_id: true,
+            },
+            orderBy: {
+              created_at: 'desc',
+            },
+          },
+          position_open: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      });
+
+      for (const job of jobsFilled) {
+        const execution = job.executions[0];
+        
+        if (!execution) {
+          validations.orphan_jobs.push({
+            job_id: job.id,
+            reason: 'Job FILLED sem executions',
+          });
+        } else if (!execution.exchange_order_id) {
+          validations.orphan_jobs.push({
+            job_id: job.id,
+            reason: 'Job FILLED sem exchange_order_id',
+          });
+        } else if (String(execution.exchange_order_id).startsWith('DUST-')) {
+          validations.orphan_jobs.push({
+            job_id: job.id,
+            reason: 'Job com execution DUST (não existe na exchange)',
+          });
+        } else {
+          // Validar se existe na exchange
+          try {
+            await adapter.fetchOrder(execution.exchange_order_id, job.symbol);
+          } catch (orderError: any) {
+            if (
+              orderError.message?.includes('not found') ||
+              orderError.message?.includes('does not exist') ||
+              orderError.message?.includes('-2013')
+            ) {
+              validations.jobs_without_exchange.push({
+                job_id: job.id,
+                order_id: execution.exchange_order_id,
+              });
+            }
+          }
+        }
+      }
+
+      // 2. Detectar posições duplicadas
+      console.log('[ADMIN] Detectando posições duplicadas...');
+      const allPositions = await this.prisma.tradePosition.findMany({
+        where: {
+          trade_job_id_open: { not: null },
+          exchange_account_id: accountIdNum,
+          ...(dateFrom || dateTo ? {
+            created_at: {
+              ...(dateFrom && { gte: dateFrom }),
+              ...(dateTo && { lte: dateTo }),
+            },
+          } : {}),
+        },
+        include: {
+          fills: true,
+        },
+        orderBy: {
+          created_at: 'asc',
+        },
+      });
+
+      const positionsByJob = new Map<number, typeof allPositions>();
+      for (const pos of allPositions) {
+        if (pos.trade_job_id_open) {
+          if (!positionsByJob.has(pos.trade_job_id_open)) {
+            positionsByJob.set(pos.trade_job_id_open, []);
+          }
+          positionsByJob.get(pos.trade_job_id_open)!.push(pos);
+        }
+      }
+
+      for (const [jobId, positions] of positionsByJob.entries()) {
+        if (positions.length > 1) {
+          validations.duplicate_positions.push({
+            job_id_open: jobId,
+            position_ids: positions.map(p => p.id),
+          });
+        }
+      }
+
+      // 3. Detectar trade jobs duplicados
+      console.log('[ADMIN] Detectando trade jobs duplicados...');
+      const systemExecutions = await this.prisma.tradeExecution.findMany({
+        where: {
+          exchange_account_id: accountIdNum,
+          exchange_order_id: { not: null },
+          created_at: {
+            gte: dateFrom,
+            lte: dateTo,
+          },
+        },
+        include: {
+          trade_job: {
+            select: {
+              id: true,
+              created_at: true,
+              symbol: true,
+              side: true,
+              position_open: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const jobsByOrderId = new Map<string, Array<{
+        job_id: number;
+        created_at: Date;
+        has_position: boolean;
+      }>>();
+
+      for (const exec of systemExecutions) {
+        const orderId = exec.exchange_order_id;
+        if (orderId && !String(orderId).startsWith('DUST-')) {
+          if (!jobsByOrderId.has(orderId)) {
+            jobsByOrderId.set(orderId, []);
+          }
+          const jobInfo = {
+            job_id: exec.trade_job.id,
+            created_at: exec.trade_job.created_at || exec.created_at,
+            has_position: !!exec.trade_job.position_open,
+          };
+          if (!jobsByOrderId.get(orderId)!.some(j => j.job_id === jobInfo.job_id)) {
+            jobsByOrderId.get(orderId)!.push(jobInfo);
+          }
+        }
+      }
+
+      for (const [orderId, jobs] of jobsByOrderId.entries()) {
+        if (jobs.length > 1) {
+          validations.duplicate_jobs.push({
+            order_id: orderId,
+            job_ids: jobs.map(j => j.job_id),
+          });
+        }
+      }
+
+      // 4. Aplicar correções se autoFix estiver habilitado
+      if (autoFixFlag) {
+        console.log('[ADMIN] Aplicando correções automáticas...');
+
+        // 4.1 Deletar posições duplicadas (manter apenas a primeira)
+        for (const dup of validations.duplicate_positions) {
+          const positions = await this.prisma.tradePosition.findMany({
+            where: {
+              id: { in: dup.position_ids },
+            },
+            include: {
+              fills: true,
+            },
+            orderBy: {
+              created_at: 'asc',
+            },
+          });
+
+          if (positions.length > 1) {
+            const toKeep = positions[0];
+            const toDelete = positions.slice(1);
+
+            for (const pos of toDelete) {
+              try {
+                if (pos.fills.length > 0) {
+                  errors.push({
+                    type: 'DUPLICATE_POSITION',
+                    id: pos.id,
+                    error: `Posição tem ${pos.fills.length} fill(s) vinculado(s), não pode ser deletada`,
+                  });
+                  continue;
+                }
+
+                await this.prisma.tradePosition.delete({
+                  where: { id: pos.id },
+                });
+                fixesApplied.positions_deleted++;
+                console.log(`[ADMIN] ✅ Posição duplicada ${pos.id} deletada (job_id_open: ${dup.job_id_open})`);
+              } catch (error: any) {
+                errors.push({
+                  type: 'DUPLICATE_POSITION',
+                  id: pos.id,
+                  error: error.message || 'Erro desconhecido',
+                });
+              }
+            }
+          }
+        }
+
+        // 4.2 Deletar trade jobs duplicados (manter apenas o mais recente)
+        for (const dup of validations.duplicate_jobs) {
+          const jobs = await this.prisma.tradeJob.findMany({
+            where: {
+              id: { in: dup.job_ids },
+            },
+            include: {
+              executions: true,
+              position_open: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+            orderBy: {
+              created_at: 'desc',
+            },
+          });
+
+          if (jobs.length > 1) {
+            const toKeep = jobs[0];
+            const toDelete = jobs.slice(1);
+
+            for (const job of toDelete) {
+              try {
+                if (job.position_open) {
+                  errors.push({
+                    type: 'DUPLICATE_JOB',
+                    id: job.id,
+                    error: 'Job tem posição vinculada, não pode ser deletado',
+                  });
+                  continue;
+                }
+
+                // Deletar executions primeiro
+                for (const exec of job.executions) {
+                  await this.prisma.tradeExecution.delete({
+                    where: { id: exec.id },
+                  });
+                }
+
+                await this.prisma.tradeJob.delete({
+                  where: { id: job.id },
+                });
+                fixesApplied.jobs_deleted++;
+                console.log(`[ADMIN] ✅ Trade job duplicado ${job.id} deletado (order_id: ${dup.order_id})`);
+              } catch (error: any) {
+                errors.push({
+                  type: 'DUPLICATE_JOB',
+                  id: job.id,
+                  error: error.message || 'Erro desconhecido',
+                });
+              }
+            }
+          }
+        }
+
+        // 4.3 Deletar trade jobs órfãos (sem execution válida na exchange)
+        for (const orphan of validations.orphan_jobs) {
+          try {
+            const job = await this.prisma.tradeJob.findUnique({
+              where: { id: orphan.job_id },
+              include: {
+                executions: true,
+                position_open: {
+                  select: {
+                    id: true,
+                  },
+                },
+              },
+            });
+
+            if (!job) {
+              continue;
+            }
+
+            if (job.position_open) {
+              errors.push({
+                type: 'ORPHAN_JOB',
+                id: job.id,
+                error: 'Job órfão tem posição vinculada, não pode ser deletado',
+              });
+              continue;
+            }
+
+            // Deletar executions primeiro
+            for (const exec of job.executions) {
+              await this.prisma.tradeExecution.delete({
+                where: { id: exec.id },
+              });
+            }
+
+            await this.prisma.tradeJob.delete({
+              where: { id: job.id },
+            });
+            fixesApplied.jobs_deleted++;
+            console.log(`[ADMIN] ✅ Trade job órfão ${job.id} deletado: ${orphan.reason}`);
+          } catch (error: any) {
+            errors.push({
+              type: 'ORPHAN_JOB',
+              id: orphan.job_id,
+              error: error.message || 'Erro desconhecido',
+            });
+          }
+        }
+
+        // 4.4 Deletar trade jobs sem correspondência na exchange
+        for (const jobWithoutExchange of validations.jobs_without_exchange) {
+          try {
+            const job = await this.prisma.tradeJob.findUnique({
+              where: { id: jobWithoutExchange.job_id },
+              include: {
+                executions: true,
+                position_open: {
+                  select: {
+                    id: true,
+                  },
+                },
+              },
+            });
+
+            if (!job) {
+              continue;
+            }
+
+            if (job.position_open) {
+              errors.push({
+                type: 'JOB_WITHOUT_EXCHANGE',
+                id: job.id,
+                error: 'Job tem posição vinculada, não pode ser deletado',
+              });
+              continue;
+            }
+
+            // Deletar executions primeiro
+            for (const exec of job.executions) {
+              await this.prisma.tradeExecution.delete({
+                where: { id: exec.id },
+              });
+            }
+
+            await this.prisma.tradeJob.delete({
+              where: { id: job.id },
+            });
+            fixesApplied.jobs_deleted++;
+            console.log(`[ADMIN] ✅ Trade job ${job.id} sem correspondência na exchange deletado (order_id: ${jobWithoutExchange.order_id})`);
+          } catch (error: any) {
+            errors.push({
+              type: 'JOB_WITHOUT_EXCHANGE',
+              id: jobWithoutExchange.job_id,
+              error: error.message || 'Erro desconhecido',
+            });
+          }
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      console.log(`[ADMIN] Sincronização concluída em ${duration}ms`);
+      console.log(`[ADMIN] Validações: ${validations.orphan_jobs.length} jobs órfãos, ${validations.duplicate_positions.length} posições duplicadas, ${validations.duplicate_jobs.length} jobs duplicados, ${validations.jobs_without_exchange.length} jobs sem exchange`);
+      if (autoFixFlag) {
+        console.log(`[ADMIN] Correções: ${fixesApplied.jobs_deleted} jobs deletados, ${fixesApplied.positions_deleted} posições deletadas`);
+      }
+
+      return {
+        account_id: accountIdNum,
+        period: {
+          from: dateFrom.toISOString(),
+          to: dateTo.toISOString(),
+        },
+        validations,
+        ...(autoFixFlag ? { fixes_applied: fixesApplied } : {}),
+        errors: errors.length > 0 ? errors : undefined,
+        duration_ms: duration,
+      };
+    } catch (error: any) {
+      console.error('[ADMIN] Erro na sincronização com exchange:', error);
       throw error;
     }
   }

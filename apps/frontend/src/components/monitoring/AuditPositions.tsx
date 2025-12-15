@@ -178,6 +178,10 @@ export function AuditPositions() {
     extra_in_system: Array<any>
     duplicates: Array<any>
     jobs_without_order_id: Array<any>
+    orphan_jobs?: Array<{ job_id: number; reason: string }>
+    jobs_without_exchange?: Array<{ job_id: number; order_id: string; symbol: string; side: 'BUY' | 'SELL' }>
+    duplicate_positions?: Array<{ job_id_open: number; position_ids: number[]; created_at: string[] }>
+    duplicate_jobs?: Array<{ order_id: string; job_ids: number[]; created_at: string[]; symbol: string; side: string }>
     errors?: Array<{ symbol?: string; error: string }>
     duration_ms?: number
     deletions?: {
@@ -198,6 +202,27 @@ export function AuditPositions() {
   const [selectedExtra, setSelectedExtra] = useState<Set<number>>(new Set())
   const [selectedDuplicates, setSelectedDuplicates] = useState<Set<number>>(new Set())
   const [autoDelete, setAutoDelete] = useState(false)
+
+  // Estado para sincronização completa
+  const [syncResult, setSyncResult] = useState<{
+    account_id: number
+    period: { from: string; to: string }
+    validations: {
+      orphan_jobs: Array<{ job_id: number; reason: string }>
+      duplicate_positions: Array<{ job_id_open: number; position_ids: number[] }>
+      duplicate_jobs: Array<{ order_id: string; job_ids: number[] }>
+      jobs_without_exchange: Array<{ job_id: number; order_id: string }>
+    }
+    fixes_applied?: {
+      jobs_deleted: number
+      positions_deleted: number
+      jobs_corrected: number
+      executions_corrected: number
+    }
+    errors?: Array<{ type: string; id: number; error: string }>
+    duration_ms?: number
+  } | null>(null)
+  const [autoFix, setAutoFix] = useState(false)
 
   const exchangeTradesMutation = useMutation({
     mutationFn: (params: { from: string; to: string; accountId: number; autoDelete?: boolean }) => 
@@ -265,6 +290,53 @@ export function AuditPositions() {
       to: toDate,
       accountId: parseInt(selectedAccountId),
       autoDelete: autoDelete,
+    })
+  }
+
+  const syncMutation = useMutation({
+    mutationFn: (params: { from: string; to: string; accountId: number; autoFix?: boolean }) => 
+      adminService.syncWithExchange(params),
+    retry: false,
+    onSuccess: (data) => {
+      setSyncResult(data)
+      const totalIssues = data.validations.orphan_jobs.length + 
+                         data.validations.duplicate_positions.length + 
+                         data.validations.duplicate_jobs.length + 
+                         data.validations.jobs_without_exchange.length
+      
+      if (totalIssues > 0) {
+        if (data.fixes_applied) {
+          toast.success(
+            `Sincronização concluída: ${data.fixes_applied.jobs_deleted} jobs deletados, ${data.fixes_applied.positions_deleted} posições deletadas`
+          )
+        } else {
+          toast.warning(
+            `Sincronização: ${data.validations.orphan_jobs.length} jobs órfãos, ${data.validations.duplicate_positions.length} posições duplicadas, ${data.validations.duplicate_jobs.length} jobs duplicados, ${data.validations.jobs_without_exchange.length} jobs sem exchange`
+          )
+        }
+      } else {
+        toast.success('Sincronização concluída: Sistema totalmente sincronizado com a exchange!')
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erro ao sincronizar com exchange')
+    },
+  })
+
+  const handleSyncWithExchange = () => {
+    if (!dateFrom || !dateTo || selectedAccountId === 'all') {
+      toast.error('Selecione data inicial, data final e uma conta específica para sincronizar com exchange')
+      return
+    }
+
+    const fromDate = new Date(dateFrom).toISOString()
+    const toDate = new Date(dateTo).toISOString()
+
+    syncMutation.mutate({
+      from: fromDate,
+      to: toDate,
+      accountId: parseInt(selectedAccountId),
+      autoFix: autoFix,
     })
   }
 
@@ -363,14 +435,24 @@ export function AuditPositions() {
                 Deletar automaticamente executions duplicados e inexistentes na exchange
               </Label>
             </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="auto-fix"
+                checked={autoFix}
+                onCheckedChange={(checked) => setAutoFix(checked as boolean)}
+              />
+              <Label htmlFor="auto-fix" className="cursor-pointer">
+                Aplicar correções automáticas na sincronização completa (deletar jobs órfãos, posições duplicadas, etc)
+              </Label>
+            </div>
           </CollapsibleContent>
         </Collapsible>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
             onClick={() => auditMutation.mutate()}
             disabled={auditMutation.isPending}
-            className="flex-1"
+            className="flex-1 min-w-[200px]"
           >
             {auditMutation.isPending ? (
               <>
@@ -388,7 +470,7 @@ export function AuditPositions() {
             onClick={handleAuditExchangeTrades}
             disabled={exchangeTradesMutation.isPending || !dateFrom || !dateTo || selectedAccountId === 'all'}
             variant="outline"
-            className="flex-1"
+            className="flex-1 min-w-[200px]"
           >
             {exchangeTradesMutation.isPending ? (
               <>
@@ -399,6 +481,24 @@ export function AuditPositions() {
               <>
                 <Search className="mr-2 h-4 w-4" />
                 Auditar Trades Exchange
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleSyncWithExchange}
+            disabled={syncMutation.isPending || !dateFrom || !dateTo || selectedAccountId === 'all'}
+            variant="default"
+            className="flex-1 min-w-[200px] bg-blue-600 hover:bg-blue-700"
+          >
+            {syncMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Sincronizando...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Sincronizar com Exchange
               </>
             )}
           </Button>
@@ -1045,6 +1145,183 @@ export function AuditPositions() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Resultados da Sincronização Completa */}
+        {syncResult && (
+          <div className="space-y-4 pt-4 border-t">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-primary" />
+              <h3 className="text-lg font-semibold">Sincronização Completa com Exchange</h3>
+            </div>
+
+            {/* Estatísticas de Validação */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="text-sm text-muted-foreground">Jobs Órfãos</div>
+                <div className="text-2xl font-bold text-orange-500">{syncResult.validations.orphan_jobs.length}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="text-sm text-muted-foreground">Posições Duplicadas</div>
+                <div className="text-2xl font-bold text-red-500">{syncResult.validations.duplicate_positions.length}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="text-sm text-muted-foreground">Jobs Duplicados</div>
+                <div className="text-2xl font-bold text-yellow-500">{syncResult.validations.duplicate_jobs.length}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="text-sm text-muted-foreground">Jobs sem Exchange</div>
+                <div className="text-2xl font-bold text-purple-500">{syncResult.validations.jobs_without_exchange.length}</div>
+              </div>
+            </div>
+
+            {/* Correções Aplicadas */}
+            {syncResult.fixes_applied && (
+              <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
+                <div className="flex items-center gap-2 text-green-700 dark:text-green-400 mb-2">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span className="font-medium">Correções Aplicadas</span>
+                </div>
+                <div className="text-sm space-y-1">
+                  <div>Jobs deletados: {syncResult.fixes_applied.jobs_deleted}</div>
+                  <div>Posições deletadas: {syncResult.fixes_applied.positions_deleted}</div>
+                  <div>Jobs corrigidos: {syncResult.fixes_applied.jobs_corrected}</div>
+                  <div>Executions corrigidos: {syncResult.fixes_applied.executions_corrected}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Detalhes das Validações */}
+            {syncResult.validations.orphan_jobs.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-orange-500">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Jobs Órfãos ({syncResult.validations.orphan_jobs.length})</span>
+                </div>
+                <div className="border rounded-lg overflow-x-auto max-h-[300px]">
+                  <Table className="min-w-full">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Job ID</TableHead>
+                        <TableHead>Razão</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {syncResult.validations.orphan_jobs.map((job, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{job.job_id}</TableCell>
+                          <TableCell className="text-sm">{job.reason}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {syncResult.validations.duplicate_positions.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-red-500">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Posições Duplicadas ({syncResult.validations.duplicate_positions.length})</span>
+                </div>
+                <div className="border rounded-lg overflow-x-auto max-h-[300px]">
+                  <Table className="min-w-full">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Job ID Open</TableHead>
+                        <TableHead>Position IDs</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {syncResult.validations.duplicate_positions.map((dup, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{dup.job_id_open}</TableCell>
+                          <TableCell className="text-xs">{dup.position_ids.join(', ')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {syncResult.validations.duplicate_jobs.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-yellow-500">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Trade Jobs Duplicados ({syncResult.validations.duplicate_jobs.length})</span>
+                </div>
+                <div className="border rounded-lg overflow-x-auto max-h-[300px]">
+                  <Table className="min-w-full">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Order ID</TableHead>
+                        <TableHead>Job IDs</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {syncResult.validations.duplicate_jobs.map((dup, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-mono text-xs">{dup.order_id}</TableCell>
+                          <TableCell className="text-xs">{dup.job_ids.join(', ')}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {syncResult.validations.jobs_without_exchange.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-purple-500">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Jobs sem Correspondência na Exchange ({syncResult.validations.jobs_without_exchange.length})</span>
+                </div>
+                <div className="border rounded-lg overflow-x-auto max-h-[300px]">
+                  <Table className="min-w-full">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Job ID</TableHead>
+                        <TableHead>Order ID</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {syncResult.validations.jobs_without_exchange.map((job, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{job.job_id}</TableCell>
+                          <TableCell className="font-mono text-xs">{job.order_id}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {syncResult.errors && syncResult.errors.length > 0 && (
+              <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
+                <div className="flex items-center gap-2 text-red-700 dark:text-red-400 mb-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Erros ({syncResult.errors.length})</span>
+                </div>
+                <div className="text-sm space-y-1 max-h-60 overflow-y-auto">
+                  {syncResult.errors.map((error, index) => (
+                    <div key={index} className="text-red-700 dark:text-red-400">
+                      {error.type} #{error.id}: {error.error}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {syncResult.duration_ms && (
+              <div className="text-sm text-muted-foreground">
+                Tempo de execução: {(syncResult.duration_ms / 1000).toFixed(2)}s
               </div>
             )}
           </div>

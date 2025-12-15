@@ -389,6 +389,44 @@ export const adminService = {
         return response.data
     },
 
+    syncWithExchange: async (params: {
+        from: string
+        to: string
+        accountId: number
+        autoFix?: boolean
+    }): Promise<{
+        account_id: number
+        period: { from: string; to: string }
+        validations: {
+            orphan_jobs: Array<{ job_id: number; reason: string }>
+            duplicate_positions: Array<{ job_id_open: number; position_ids: number[] }>
+            duplicate_jobs: Array<{ order_id: string; job_ids: number[] }>
+            jobs_without_exchange: Array<{ job_id: number; order_id: string }>
+        }
+        fixes_applied?: {
+            jobs_deleted: number
+            positions_deleted: number
+            jobs_corrected: number
+            executions_corrected: number
+        }
+        errors?: Array<{ type: string; id: number; error: string }>
+        duration_ms?: number
+    }> => {
+        const queryParams = new URLSearchParams()
+        queryParams.append('from', params.from)
+        queryParams.append('to', params.to)
+        queryParams.append('accountId', params.accountId.toString())
+        if (params.autoFix) {
+            queryParams.append('autoFix', 'true')
+        }
+        
+        const url = `/admin/system/sync-with-exchange?${queryParams.toString()}`
+        const response = await apiClient.post(url, {}, {
+            timeout: 1800000, // 30 minutos
+        })
+        return response.data
+    },
+
     auditFifoPositions: async (hours?: number, dryRun?: boolean): Promise<{
         totalExecutions: number
         checkedExecutions: number
