@@ -93,6 +93,89 @@ Take Profit fecha a posição automaticamente quando o preço sobe acima de um p
 
 **Exemplo**: Se comprou BTC a $50,000 com TP de 5%, a posição será fechada se o preço subir para $52,500.
 
+### Stop Gain (SG)
+
+Stop Gain é uma funcionalidade de saída antecipada dentro do Take Profit que funciona como um **trailing stop de lucro**. Ele permite proteger lucros parciais ao vender automaticamente se o preço cair após atingir um threshold de ativação.
+
+#### Como Funciona
+
+O Stop Gain possui dois parâmetros principais:
+
+- **sg_pct**: Percentual de lucro que ativa o Stop Gain (ex: 2.0 = 2%)
+- **sg_drop_pct**: Percentual de queda permitida após ativação (ex: 0.5 = 0.5%)
+- **sg_activated**: Flag indicando se o threshold de ativação foi atingido
+- **sg_triggered**: Flag indicando se a venda foi executada
+
+#### Fluxo de Operação
+
+```
+1. Posição é aberta (ex: BTC @ $50,000)
+2. TP configurado em 5% ($52,500)
+3. SG configurado em 2% com queda de 0.5%
+
+Cenário 1 - Atingiu TP diretamente:
+├─ Preço sobe para $52,500 (5%)
+└─ Vende por TAKE_PROFIT
+
+Cenário 2 - Stop Gain ativado e vendido:
+├─ Preço sobe para $51,000 (2%) → SG ATIVADO (sg_activated = true)
+├─ Preço sobe para $51,500 (3%)
+├─ Preço cai para $50,750 (1.5% = 2% - 0.5%) → SG VENDIDO
+└─ Vende por STOP_GAIN
+
+Cenário 3 - SG ativado mas atingiu TP antes de cair:
+├─ Preço sobe para $51,000 (2%) → SG ATIVADO
+├─ Preço continua subindo
+├─ Preço atinge $52,500 (5%)
+└─ Vende por TAKE_PROFIT
+```
+
+#### Validações e Regras
+
+1. **Dependência de TP**: Stop Gain só pode ser habilitado se Take Profit estiver habilitado
+2. **Ordem de Valores**: `sg_pct` deve ser < `tp_pct` (ex: SG 2% < TP 5%)
+3. **Queda Obrigatória**: `sg_drop_pct` deve ser > 0 e < `sg_pct`
+4. **Threshold de Venda**: A venda ocorre quando lucro cai para `sg_pct - sg_drop_pct` ou menos
+
+#### Exemplo Prático
+
+**Configuração**:
+- Preço de Entrada: $50,000
+- Take Profit: 5% ($52,500)
+- Stop Gain: 2% (ativa em $51,000)
+- Queda SG: 0.5% (vende em $50,750)
+
+**Timeline**:
+1. Compra BTC @ $50,000
+2. Preço sobe para $51,200 (2.4% de lucro)
+   - ✅ Stop Gain é ATIVADO (`sg_activated = true`)
+   - Sistema passa a monitorar quedas
+3. Preço cai para $50,700 (1.4% de lucro)
+   - ✅ Lucro está em 1.4%, abaixo do threshold de venda (1.5%)
+   - Sistema executa venda automática por STOP_GAIN
+4. Resultado: Lucro de 1.4% protegido ao invés de esperar pelo TP de 5%
+
+#### Quando Usar
+
+**Use Stop Gain quando**:
+- Quer garantir lucros parciais em mercados voláteis
+- Tem um Take Profit alto mas aceita sair mais cedo
+- Quer proteção contra reversões rápidas de tendência
+
+**Não use Stop Gain quando**:
+- Quer manter a posição até o TP máximo sem interferências
+- O mercado está em tendência forte sem correções
+- A volatilidade do ativo torna difícil calibrar a queda permitida
+
+#### Diferença entre Stop Gain e Take Profit Parcial
+
+| Característica | Stop Gain | Take Profit Parcial |
+|----------------|-----------|---------------------|
+| Ativa quando | Atingir threshold de lucro | N/A |
+| Vende quando | Cair X% após ativar | Atingir % específico |
+| Proteção | Dinâmica (trailing) | Estática |
+| Flexibilidade | Permite subir mais | Vende imediatamente |
+
 ### Trailing Stop
 
 Trailing Stop ajusta o SL conforme o preço sobe:
