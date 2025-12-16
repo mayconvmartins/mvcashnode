@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { CryptoLogosService } from './crypto-logos.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Crypto Logos')
 @Controller('crypto-logos')

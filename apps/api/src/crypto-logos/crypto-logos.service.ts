@@ -258,8 +258,8 @@ export class CryptoLogosService {
         return null;
       }
 
-      const data = await response.json();
-      const logoUrl = data?.image?.small || data?.image?.thumb || data?.image?.large;
+    const data = await response.json() as any;
+    const logoUrl = (data?.image?.small || data?.image?.thumb || data?.image?.large) as string | undefined;
 
       if (!logoUrl) {
         this.logger.warn(`No logo URL found for ${symbol}`);
