@@ -142,6 +142,12 @@ export default function PositionDetailPage() {
     const tpPrice = position.tp_enabled && position.tp_pct
         ? priceOpen * (1 + Number(position.tp_pct || 0) / 100)
         : null
+    const sgPrice = position.sg_enabled && position.sg_pct
+        ? priceOpen * (1 + Number(position.sg_pct || 0) / 100)
+        : null
+    const sgSellPrice = position.sg_enabled && position.sg_pct && position.sg_drop_pct
+        ? priceOpen * (1 + (Number(position.sg_pct || 0) - Number(position.sg_drop_pct || 0)) / 100)
+        : null
 
     // Colunas para tabela de fills
     const fillsColumns: Column<PositionFill>[] = [
