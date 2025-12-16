@@ -6,8 +6,35 @@
 // Cache em memória para a sessão atual
 const logoCache = new Map<string, string | null>();
 
-// URL da API
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
+// URL da API - obtém do config da API service
+function getApiUrl(): string {
+  if (typeof window === 'undefined') {
+    // Server-side: usar variável de ambiente
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
+  }
+  // Client-side: buscar do localStorage ou usar window.location
+  try {
+    const storedConfig = localStorage.getItem('api_config');
+    if (storedConfig) {
+      const config = JSON.parse(storedConfig);
+      return config.apiUrl || 'http://localhost:4010';
+    }
+  } catch (e) {
+    // Ignorar erro
+  }
+  
+  // Fallback: usar mesma origem do frontend
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  
+  // Se estiver em produção (mvcash.com.br), usar core.mvcash.com.br
+  if (hostname.includes('mvcash.com.br')) {
+    return `${protocol}//core.mvcash.com.br`;
+  }
+  
+  // Desenvolvimento
+  return 'http://localhost:4010';
+}
 
 /**
  * Normaliza um símbolo de trading removendo sufixos comuns
@@ -42,7 +69,11 @@ export async function getCryptoLogo(symbol: string): Promise<string | null> {
       return null;
     }
 
-    const response = await fetch(`${API_URL}/crypto-logos/${normalized}`, {
+    const apiUrl = getApiUrl();
+    const url = `${apiUrl}/crypto-logos/${normalized}`;
+    console.log(`[CryptoLogos] Fetching logo for ${symbol} from ${url}`);
+    
+    const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json',
@@ -102,7 +133,8 @@ export async function getCryptoLogos(symbols: string[]): Promise<Map<string, str
       return results;
     }
 
-    const response = await fetch(`${API_URL}/crypto-logos/batch`, {
+    const apiUrl = getApiUrl();
+    const response = await fetch(`${apiUrl}/crypto-logos/batch`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,

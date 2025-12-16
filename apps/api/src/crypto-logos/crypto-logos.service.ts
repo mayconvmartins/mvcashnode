@@ -127,10 +127,14 @@ export class CryptoLogosService {
   constructor(private prisma: PrismaService) {
     // Caminho para salvar logos
     this.logosDir = join(process.cwd(), 'apps', 'api', 'public', 'logos');
-    this.publicUrl = process.env.API_URL || 'http://localhost:4010';
+    // URL pública da API (sem barra no final)
+    const baseUrl = process.env.API_PUBLIC_URL || process.env.SWAGGER_SERVER_URL || 'http://localhost:4010';
+    this.publicUrl = baseUrl.replace(/\/$/, ''); // Remove barra final se existir
     
     // Criar diretório se não existir
     this.ensureLogosDirectory();
+    this.logger.log(`Logos directory: ${this.logosDir}`);
+    this.logger.log(`Public URL for logos: ${this.publicUrl}/logos/`);
   }
 
   private async ensureLogosDirectory() {

@@ -340,14 +340,25 @@ async function bootstrap() {
   console.log('[Performance] ✅ Interceptor de performance habilitado');
   
   // Servir arquivos estáticos (logos de criptomoedas)
-  const logosPath = path.join(process.cwd(), 'apps', 'api', 'public', 'logos');
-  app.useStaticAssets(logosPath, {
-    prefix: '/logos/',
+  const publicPath = path.join(process.cwd(), 'apps', 'api', 'public');
+  app.useStaticAssets(publicPath, {
+    prefix: '/',
     maxAge: 604800000, // 7 dias em ms
     etag: true,
     lastModified: true,
+    index: false,
   });
-  console.log(`[Static Files] ✅ Servindo logos de: ${logosPath}`);
+  console.log(`[Static Files] ✅ Servindo arquivos estáticos de: ${publicPath}`);
+  console.log(`[Static Files] ✅ Logos acessíveis via: /logos/`);
+  
+  // Verificar se o diretório de logos existe
+  const logosPath = path.join(publicPath, 'logos');
+  try {
+    await require('fs').promises.access(logosPath);
+    console.log(`[Static Files] ✅ Diretório de logos existe: ${logosPath}`);
+  } catch {
+    console.warn(`[Static Files] ⚠️ Diretório de logos não existe: ${logosPath}`);
+  }
 
   // Swagger/OpenAPI
   const swaggerServerUrl = process.env.SWAGGER_SERVER_URL || 'https://core.mvcash.com.br';
