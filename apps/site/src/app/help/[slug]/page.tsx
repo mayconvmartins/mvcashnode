@@ -212,6 +212,19 @@ const manuals: Record<string, { title: string; content: string }> = {
   },
 };
 
+// Gerar rotas estáticas em build time para todos os manuais
+export function generateStaticParams() {
+  return [
+    { slug: 'login' },
+    { slug: 'ativar-2fa' },
+    { slug: 'criar-parametros' },
+    { slug: 'criar-api-binance' },
+    { slug: 'adicionar-conta' },
+    { slug: 'monitor-sltp' },
+    { slug: 'definir-sltp' },
+  ];
+}
+
 export default function ManualPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const manual = manuals[slug];

@@ -7,9 +7,12 @@
  * - Frontend: 4 instâncias (cluster mode) - SSR e renderização
  * - Executor: 1 instância (fork) - Worker único para execução de trades
  * - Monitors: 1 instância (fork) - Worker único para jobs agendados
- * - Site: 2 instâncias (cluster mode) - Site público
+ * - Site: Servido estaticamente pelo nginx (não precisa de PM2)
  * - Backup: 1 instância (fork) - Worker único para backups
- * Total: ~17 instâncias, deixando margem para o SO e MySQL/Redis
+ * Total: ~15 instâncias, deixando margem para o SO e MySQL/Redis
+ * 
+ * NOTA: O site (apps/site) é exportado como estático e servido pelo nginx.
+ * Não precisa de processo Node.js rodando, reduzindo consumo de CPU/RAM.
  * 
  * Para aplicar mudanças: pm2 reload ecosystem.config.js
  */
@@ -104,27 +107,9 @@ module.exports = {
       max_memory_restart: '2G',
       kill_timeout: 5000,
     },
-    {
-      name: 'mvcashnode-site',
-      script: 'pnpm',
-      args: 'exec next start -p 6010',
-      cwd: './apps/site',
-      // Cluster mode para site público
-      instances: 2, // 2 instâncias para o site público
-      exec_mode: 'cluster',
-      env: {
-        NODE_ENV: 'production',
-        PORT: '6010',
-      },
-      error_file: './logs/site-error.log',
-      out_file: './logs/site-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true,
-      autorestart: true,
-      max_restarts: 10,
-      min_uptime: '10s',
-      max_memory_restart: '1512M',
-    },
+    // Site removido - agora é servido estaticamente pelo nginx
+    // Build: cd apps/site && pnpm build
+    // Output: apps/site/out/ (servir com nginx)
     {
       name: 'mvcashnode-backup',
       script: './apps/backup/dist/main.js',
