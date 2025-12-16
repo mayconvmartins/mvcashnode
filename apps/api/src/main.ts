@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WsAdapter } from '@nestjs/platform-ws';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -69,7 +70,7 @@ async function bootstrap() {
   AdapterFactory.setNtpService(ntpService);
   console.log('[Exchange] ✅ AdapterFactory configurado para usar NTP Service');
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false, // Desabilitar body parser padrão globalmente
   });
   
@@ -339,15 +340,13 @@ async function bootstrap() {
   console.log('[Performance] ✅ Interceptor de performance habilitado');
   
   // Servir arquivos estáticos (logos de criptomoedas)
-  // Importar express.static dinamicamente do express que o NestJS já usa
-  const expressStatic = (await import('express')).static;
   const logosPath = path.join(process.cwd(), 'apps', 'api', 'public', 'logos');
-  
-  app.use('/logos', expressStatic(logosPath, {
-    maxAge: '7d',
+  app.useStaticAssets(logosPath, {
+    prefix: '/logos/',
+    maxAge: 604800000, // 7 dias em ms
     etag: true,
     lastModified: true,
-  }));
+  });
   console.log(`[Static Files] ✅ Servindo logos de: ${logosPath}`);
 
   // Swagger/OpenAPI
