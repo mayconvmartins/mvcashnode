@@ -56,14 +56,15 @@ export function sanitizeString(str: string): string {
 }
 
 export function isValidSymbol(symbol: string): boolean {
-  // Formato básico: BASE/QUOTE (ex: BTC/USDT, SOL/USDT)
-  const symbolRegex = /^[A-Z0-9]+\/[A-Z0-9]+$/;
+  // Formato aceito: BASEQUOTE (ex: BTCUSDT, SOLUSDT) - sem barra
+  // Deve ter pelo menos 4 caracteres (ex: BTCUSDT = 8, mínimo seria algo como ABTC = 4)
+  const symbolRegex = /^[A-Z0-9]{4,}$/;
   return symbolRegex.test(symbol);
 }
 
 export function normalizeSymbol(symbol: string): string {
-  // Remove sufixos como .P, .F, etc e normaliza para BASE/QUOTE
-  return symbol.replace(/\.(P|F|PERP)$/i, '').toUpperCase();
+  // Remove sufixos como .P, .F, etc, remove barras "/" e normaliza uppercase
+  return symbol.replace(/\.(P|F|PERP|FUTURES)$/i, '').replace(/\//g, '').replace(/\s/g, '').toUpperCase();
 }
 
 /**

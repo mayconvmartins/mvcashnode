@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, TradeJobStatus, ensureSymbolFormat, isValidSymbol } from '@mvcashnode/shared';
+import { TradeMode, TradeJobStatus, normalizeSymbol, isValidSymbol } from '@mvcashnode/shared';
 import { TradeParameterService } from './trade-parameter.service';
 
 export interface CreateTradeJobDto {
@@ -27,10 +27,10 @@ export class TradeJobService {
   }
 
   async createJob(dto: CreateTradeJobDto): Promise<any> {
-    // ✅ BUG 2-4 FIX: Validar e normalizar símbolo antes de usar
+    // ✅ BUG 2-4 FIX: Validar e normalizar símbolo antes de usar (sem barra)
     let normalizedSymbol: string;
     try {
-      normalizedSymbol = ensureSymbolFormat(dto.symbol);
+      normalizedSymbol = normalizeSymbol(dto.symbol);
       if (!isValidSymbol(normalizedSymbol)) {
         throw new Error(`Símbolo normalizado "${normalizedSymbol}" não é válido após normalização`);
       }
