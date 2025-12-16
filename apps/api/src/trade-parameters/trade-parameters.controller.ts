@@ -161,6 +161,9 @@ export class TradeParametersController {
             default_sl_pct: true,
             default_tp_enabled: true,
             default_tp_pct: true,
+            default_sg_enabled: true,
+            default_sg_pct: true,
+            default_sg_drop_pct: true,
             created_at: true,
             updated_at: true,
             exchange_account: {

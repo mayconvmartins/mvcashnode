@@ -191,6 +191,21 @@ export default function ParameterDetailPage() {
                         ) : (
                             <div className="text-sm text-muted-foreground">TP desabilitado</div>
                         )}
+                        {parameter.default_sg_enabled && parameter.default_sg_pct ? (
+                            <div>
+                                <label className="text-xs text-muted-foreground">Stop Gain</label>
+                                <div className="text-lg font-semibold text-purple-500">
+                                    Ativa em: {parameter.default_sg_pct}%
+                                </div>
+                                {parameter.default_sg_drop_pct && (
+                                    <div className="text-sm text-muted-foreground">
+                                        Vende com queda de: {parameter.default_sg_drop_pct}%
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="text-sm text-muted-foreground">SG desabilitado</div>
+                        )}
                         {parameter.trailing_stop_enabled && parameter.trailing_distance_pct && (
                             <div>
                                 <label className="text-xs text-muted-foreground">Trailing Stop</label>
