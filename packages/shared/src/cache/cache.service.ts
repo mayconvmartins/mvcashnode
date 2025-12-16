@@ -15,8 +15,8 @@ export class CacheService {
     private port: number = parseInt(process.env.REDIS_PORT || '6379'),
     private password?: string
   ) {
-    // TTL máximo para preços (padrão: 25 segundos)
-    this.priceTtlMax = parseInt(process.env.CACHE_PRICE_TTL_MAX || '25', 10);
+    // ✅ OTIMIZAÇÃO CPU: TTL máximo aumentado para 35s (Price Sync roda a cada 22s)
+    this.priceTtlMax = parseInt(process.env.CACHE_PRICE_TTL_MAX || '35', 10);
   }
 
   async connect(): Promise<void> {

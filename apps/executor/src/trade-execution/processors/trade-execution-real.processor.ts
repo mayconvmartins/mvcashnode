@@ -297,6 +297,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const side = (tradeJob.side || '').toUpperCase().trim();
       this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Side normalizado: "${side}"`);
 
+      // Extrair position_id_to_close para usar nas validações
+      const positionIdToClose = tradeJob.position_id_to_close;
+
       // Extrair e validar quantidades do banco
       let baseQty = 0;
       let quoteAmount = 0;
@@ -576,8 +579,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           const balances: Record<string, { free: number; locked: number }> = {};
           for (const [asset, amount] of Object.entries(balance.free || {})) {
             balances[asset] = {
-              free: amount,
-              locked: balance.used?.[asset] || 0,
+              free: Number(amount) || 0,
+              locked: Number(balance.used?.[asset]) || 0,
             };
           }
           await accountService.syncBalance(
