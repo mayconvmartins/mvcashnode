@@ -72,8 +72,8 @@ const symbolToCoinGeckoId: Record<string, string> = {
  * Ex: BTCUSDT -> BTC, ETHBUSD -> ETH
  */
 function normalizeSymbol(symbol: string): string {
-  // Remover sufixos comuns
-  const suffixes = ['USDT', 'BUSD', 'USDC', 'USD', 'BTC', 'ETH', 'BNB'];
+  // Remover sufixos comuns (ordenados do mais longo ao mais curto para evitar remoções parciais)
+  const suffixes = ['USDT', 'BUSD', 'USDC', 'TUSD', 'FDUSD', 'USD', 'BTC', 'ETH', 'BNB', 'EUR', 'GBP'];
   let normalized = symbol.toUpperCase();
   
   for (const suffix of suffixes) {
