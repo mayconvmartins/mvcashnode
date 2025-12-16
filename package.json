@@ -36,6 +36,8 @@
     "db:migrate:apply-email": "node -e \"const {execSync} = require('child_process'); const fs = require('fs'); const sql = fs.readFileSync('scripts/apply-email-migration.sql', 'utf8'); console.log('Execute este SQL manualmente no seu banco MySQL:'); console.log(sql);\"",
     "db:studio": "node scripts/prisma-helper.js pnpm prisma studio",
     "db:seed": "node scripts/seed-helper.js",
+    "cleanup-orphan-jobs": "ts-node -r tsconfig-paths/register scripts/cleanup-orphan-jobs.ts",
+    "cleanup-orphan-jobs:dry": "ts-node -r tsconfig-paths/register scripts/cleanup-orphan-jobs.ts --dry-run",
     "clean": "pnpm -r clean && rm -rf node_modules"
   },
   "devDependencies": {
@@ -43,6 +45,7 @@
     "dotenv-cli": "^7.4.4",
     "prettier": "^3.2.4",
     "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.3"
   },
   "engines": {

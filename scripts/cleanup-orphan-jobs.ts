@@ -11,7 +11,7 @@
  *   ts-node scripts/cleanup-orphan-jobs.ts [--dry-run]
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@mvcashnode/db';
 import { Queue } from 'bullmq';
 
 const prisma = new PrismaClient();

@@ -55,6 +55,7 @@ module.exports = {
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
+        LOG_LEVEL: 'info', // Reduzir logs desnecessários
       },
       error_file: './logs/executor-error.log',
       out_file: './logs/executor-out.log',
@@ -63,8 +64,22 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '4096M',
-      kill_timeout: 10000, // Mais tempo para finalizar trades em andamento
+      // Reiniciar se usar mais de 2GB RAM (reduzido de 4GB)
+      max_memory_restart: '2048M',
+      // Reiniciar diariamente às 3h da manhã para liberar recursos
+      cron_restart: '0 3 * * *',
+      // Graceful shutdown - mais tempo para finalizar trades em andamento
+      kill_timeout: 30000,
+      // Node.js flags para otimizar CPU e memória
+      node_args: [
+        '--max-old-space-size=1536',
+        '--gc-interval=100',
+        '--optimize-for-size'
+      ].join(' '),
+      // Desabilitar watch de arquivos
+      watch: false,
+      // Desabilitar restart automático em caso de falha temporária
+      exp_backoff_restart_delay: 100,
     },
     {
       name: 'mvcashnode-monitors',
@@ -74,6 +89,7 @@ module.exports = {
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
+        LOG_LEVEL: 'info', // Reduzir logs desnecessários
       },
       error_file: './logs/monitors-error.log',
       out_file: './logs/monitors-out.log',
@@ -82,7 +98,22 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '4096M',
+      // Reiniciar se usar mais de 2GB RAM (reduzido de 4GB)
+      max_memory_restart: '2048M',
+      // Reiniciar diariamente às 4h da manhã para liberar recursos
+      cron_restart: '0 4 * * *',
+      // Graceful shutdown
+      kill_timeout: 30000, // 30s para finalizar jobs em andamento
+      // Node.js flags para otimizar CPU e memória
+      node_args: [
+        '--max-old-space-size=1536',
+        '--gc-interval=100',
+        '--optimize-for-size'
+      ].join(' '),
+      // Desabilitar watch de arquivos
+      watch: false,
+      // Desabilitar restart automático em caso de falha temporária
+      exp_backoff_restart_delay: 100,
     },
     {
       name: 'mvcashnode-frontend',

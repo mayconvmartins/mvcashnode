@@ -94,3 +94,4 @@ if (feeAmount && feeAmount > 0 && cummQuoteQty > 0) { ... }
   - Adicionados casts `Number()` para variáveis de balance
   - Adicionadas verificações de null para `feeAmount` e `updatedFeeAmount`
 
+
