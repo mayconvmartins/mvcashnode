@@ -17,21 +17,21 @@ interface HeatmapCardProps {
 function getHeatmapColor(pnlPct: number): string {
   if (pnlPct < -5) return 'from-red-900/90 to-red-800/80'
   if (pnlPct < -2) return 'from-red-700/90 to-red-600/80'
-  if (pnlPct < 0) return 'from-red-500/90 to-red-400/80'
-  if (pnlPct < 1) return 'from-orange-500/90 to-orange-400/80'
-  if (pnlPct < 2) return 'from-yellow-500/90 to-yellow-400/80'
-  if (pnlPct < 5) return 'from-green-500/90 to-green-600/80'
-  if (pnlPct < 10) return 'from-green-600/90 to-green-700/80'
-  return 'from-green-700/90 to-green-800/90'
+  if (pnlPct < 0) return 'from-yellow-500/90 to-yellow-400/80' // -2% a 0%: amarelo
+  // Positivas sempre verde (variando intensidade)
+  if (pnlPct < 2) return 'from-green-500/90 to-green-600/80'
+  if (pnlPct < 5) return 'from-green-600/90 to-green-700/80'
+  if (pnlPct < 10) return 'from-green-700/90 to-green-800/90'
+  return 'from-green-800/90 to-green-900/90'
 }
 
 /**
  * Calcula a cor do texto baseado no PNL%
  */
 function getTextColor(pnlPct: number): string {
-  if (pnlPct < 0) return 'text-red-100'
-  if (pnlPct < 2) return 'text-yellow-100'
-  return 'text-green-100'
+  if (pnlPct < -2) return 'text-red-100'
+  if (pnlPct < 0) return 'text-yellow-100' // -2% a 0%: texto amarelo
+  return 'text-green-100' // Positivas sempre verde
 }
 
 export function HeatmapCard({ position, logoUrl }: HeatmapCardProps) {
@@ -67,7 +67,7 @@ export function HeatmapCard({ position, logoUrl }: HeatmapCardProps) {
         {/* Frente do Card */}
         <div
           className={cn(
-            'absolute inset-0 rounded-lg p-4 flex flex-col items-center justify-center gap-3',
+            'absolute inset-0 rounded-lg p-3 flex flex-col items-center justify-center gap-2',
             'bg-gradient-to-br border border-white/10 shadow-lg',
             'backface-hidden',
             colorGradient
@@ -75,12 +75,12 @@ export function HeatmapCard({ position, logoUrl }: HeatmapCardProps) {
           style={{ backfaceVisibility: 'hidden' }}
         >
           {/* Logo da Cripto */}
-          <div className="flex items-center justify-center w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm">
+          <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm">
             {logoUrl ? (
               <img
                 src={logoUrl}
                 alt={baseSymbol}
-                className="w-12 h-12 rounded-full"
+                className="w-9 h-9 rounded-full"
                 onError={(e) => {
                   // Fallback para ícone genérico se a imagem falhar
                   e.currentTarget.style.display = 'none'
@@ -88,24 +88,21 @@ export function HeatmapCard({ position, logoUrl }: HeatmapCardProps) {
                 }}
               />
             ) : null}
-            <Coins className={cn('h-8 w-8', textColor, logoUrl ? 'hidden' : '')} />
+            <Coins className={cn('h-6 w-6', textColor, logoUrl ? 'hidden' : '')} />
           </div>
 
           {/* Símbolo */}
           <div className="text-center">
-            <h3 className={cn('text-xl font-bold font-mono', textColor)}>
+            <h3 className={cn('text-base font-bold font-mono', textColor)}>
               {baseSymbol}
             </h3>
-            <p className="text-xs text-white/70 mt-1">
-              {position.exchange_account_id}
-            </p>
           </div>
 
           {/* Badge de PNL% */}
-          <div className="mt-2">
+          <div>
             <div
               className={cn(
-                'px-4 py-2 rounded-full font-bold text-2xl',
+                'px-3 py-1 rounded-full font-bold text-lg',
                 'bg-black/30 backdrop-blur-sm',
                 textColor
               )}
@@ -115,15 +112,15 @@ export function HeatmapCard({ position, logoUrl }: HeatmapCardProps) {
           </div>
 
           {/* Indicador de click */}
-          <div className="absolute bottom-2 right-2 text-white/50 text-xs">
-            Clique para detalhes
+          <div className="absolute bottom-1 right-2 text-white/50 text-[10px]">
+            Clique
           </div>
         </div>
 
         {/* Verso do Card */}
         <div
           className={cn(
-            'absolute inset-0 rounded-lg p-4 flex flex-col items-center justify-center gap-4',
+            'absolute inset-0 rounded-lg p-2 flex flex-col items-center justify-center gap-2',
             'bg-gradient-to-br border border-white/10 shadow-lg',
             'backface-hidden',
             colorGradient
@@ -135,41 +132,41 @@ export function HeatmapCard({ position, logoUrl }: HeatmapCardProps) {
         >
           {/* Símbolo no topo */}
           <div className="text-center">
-            <h3 className={cn('text-lg font-bold font-mono', textColor)}>
+            <h3 className={cn('text-sm font-bold font-mono', textColor)}>
               {baseSymbol}
             </h3>
           </div>
 
           {/* Valores em USD */}
-          <div className="w-full space-y-3">
+          <div className="w-full space-y-1.5">
             {/* Valor Comprado */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-lg p-3">
-              <p className="text-xs text-white/70 mb-1">Valor Comprado</p>
-              <p className={cn('text-xl font-bold font-mono', textColor)}>
+            <div className="bg-black/30 backdrop-blur-sm rounded p-1.5">
+              <p className="text-[9px] text-white/70 mb-0.5">Comprado</p>
+              <p className={cn('text-xs font-bold font-mono', textColor)}>
                 {formatCurrency(investedValue)}
               </p>
             </div>
 
             {/* PNL Não Realizado */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-lg p-3">
-              <p className="text-xs text-white/70 mb-1">PNL Não Realizado</p>
-              <p className={cn('text-xl font-bold font-mono', textColor)}>
+            <div className="bg-black/30 backdrop-blur-sm rounded p-1.5">
+              <p className="text-[9px] text-white/70 mb-0.5">PNL</p>
+              <p className={cn('text-xs font-bold font-mono', textColor)}>
                 {unrealizedPnl >= 0 ? '+' : ''}{formatCurrency(unrealizedPnl)}
               </p>
             </div>
 
             {/* Quantidade */}
-            <div className="bg-black/30 backdrop-blur-sm rounded-lg p-3">
-              <p className="text-xs text-white/70 mb-1">Quantidade</p>
-              <p className={cn('text-sm font-mono', textColor)}>
-                {Number(position.qty_remaining || 0).toFixed(6)}
+            <div className="bg-black/30 backdrop-blur-sm rounded p-1.5">
+              <p className="text-[9px] text-white/70 mb-0.5">Qtd</p>
+              <p className={cn('text-[10px] font-mono', textColor)}>
+                {Number(position.qty_remaining || 0).toFixed(4)}
               </p>
             </div>
           </div>
 
           {/* Indicador de click */}
-          <div className="absolute bottom-2 right-2 text-white/50 text-xs">
-            Clique para voltar
+          <div className="absolute bottom-1 right-2 text-white/50 text-[9px]">
+            Clique
           </div>
         </div>
       </div>

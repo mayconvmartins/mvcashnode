@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Flame, Filter, RefreshCw, ChevronDown } from 'lucide-react'
+import { Flame, Filter, RefreshCw, ChevronDown, Zap, ZapOff } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -28,6 +28,8 @@ export default function HeatmapPage() {
   const [sortBy, setSortBy] = useState<SortOption>('pnl_desc')
   const [logoMap, setLogoMap] = useState<Map<string, string | null>>(new Map())
   const [logosLoading, setLogosLoading] = useState(true)
+  const [realtimeEnabled, setRealtimeEnabled] = useState(false)
+  const [nextUpdate, setNextUpdate] = useState<number>(60)
 
   // Buscar contas
   const { data: accounts } = useQuery({
@@ -53,13 +55,35 @@ export default function HeatmapPage() {
   const { data: positionsData, isLoading: loadingPositions, refetch } = useQuery({
     queryKey: ['positions', 'heatmap', filters],
     queryFn: () => positionsService.list(filters),
-    refetchInterval: 60000, // Atualizar a cada 60 segundos
+    refetchInterval: realtimeEnabled ? 60000 : false, // Atualizar a cada 60 segundos apenas se realtime ativo
     staleTime: 30000,
   })
 
   const positions = Array.isArray(positionsData) 
     ? positionsData 
     : (positionsData as any)?.data || []
+
+  // Contador para próxima atualização (quando realtime ativo)
+  useEffect(() => {
+    if (!realtimeEnabled) {
+      setNextUpdate(60)
+      return
+    }
+
+    // Resetar contador quando refetch acontecer
+    setNextUpdate(60)
+    
+    const interval = setInterval(() => {
+      setNextUpdate((prev) => {
+        if (prev <= 1) {
+          return 60 // Resetar após refetch
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [realtimeEnabled, positionsData]) // Adicionar positionsData para resetar ao atualizar
 
   // Buscar logos quando as posições mudarem
   useEffect(() => {
@@ -122,6 +146,28 @@ export default function HeatmapPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant={realtimeEnabled ? 'default' : 'outline'}
+            onClick={() => setRealtimeEnabled(!realtimeEnabled)}
+            className={cn(
+              realtimeEnabled && 'bg-green-600 hover:bg-green-700'
+            )}
+          >
+            {realtimeEnabled ? (
+              <>
+                <Zap className="h-4 w-4 mr-2 animate-pulse" />
+                Realtime ON
+                <Badge variant="secondary" className="ml-2 bg-black/20">
+                  {nextUpdate}s
+                </Badge>
+              </>
+            ) : (
+              <>
+                <ZapOff className="h-4 w-4 mr-2" />
+                Realtime OFF
+              </>
+            )}
+          </Button>
           <Button
             variant="outline"
             onClick={() => refetch()}
@@ -277,8 +323,8 @@ export default function HeatmapPage() {
         <CardContent>
           {loadingPositions || logosLoading ? (
             // Loading state
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {Array.from({ length: 8 }).map((_, i) => (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3">
+              {Array.from({ length: 12 }).map((_, i) => (
                 <div key={i} className="aspect-square">
                   <Skeleton className="w-full h-full rounded-lg" />
                 </div>
@@ -296,7 +342,7 @@ export default function HeatmapPage() {
             </div>
           ) : (
             // Grid de cards
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 animate-fade-in">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3 animate-fade-in">
               {sortedPositions.map((position: Position) => (
                 <HeatmapCard
                   key={position.id}
@@ -321,23 +367,27 @@ export default function HeatmapPage() {
               <span className="text-muted-foreground">&lt; -5%</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded bg-gradient-to-br from-red-500/90 to-red-400/80 border border-white/10" />
-              <span className="text-muted-foreground">-5% a 0%</span>
+              <div className="w-6 h-6 rounded bg-gradient-to-br from-red-700/90 to-red-600/80 border border-white/10" />
+              <span className="text-muted-foreground">-5% a -2%</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded bg-gradient-to-br from-yellow-500/90 to-yellow-400/80 border border-white/10" />
-              <span className="text-muted-foreground">0% a 2%</span>
+              <span className="text-muted-foreground">-2% a 0%</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded bg-gradient-to-br from-green-500/90 to-green-600/80 border border-white/10" />
-              <span className="text-muted-foreground">2% a 5%</span>
+              <span className="text-muted-foreground">0% a 2%</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded bg-gradient-to-br from-green-600/90 to-green-700/80 border border-white/10" />
-              <span className="text-muted-foreground">5% a 10%</span>
+              <span className="text-muted-foreground">2% a 5%</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded bg-gradient-to-br from-green-700/90 to-green-800/90 border border-white/10" />
+              <span className="text-muted-foreground">5% a 10%</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded bg-gradient-to-br from-green-800/90 to-green-900/90 border border-white/10" />
               <span className="text-muted-foreground">&gt; 10%</span>
             </div>
           </div>
