@@ -826,7 +826,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // ============================================
       this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ VALIDAÇÃO FINAL: Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${amountToUse} ${tradeJob.symbol} @ ${tradeJob.limit_price?.toNumber() || 'MARKET'}`);
       
-      let order;
+      let order: any;
       let orderCreatedAfterAdjustment = false;
       try {
         // Log informativo sobre quantidade que será enviada
@@ -918,8 +918,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                 const balances: Record<string, { free: number; locked: number }> = {};
                 for (const [asset, amount] of Object.entries(balance.free || {})) {
                   balances[asset] = {
-                    free: amount,
-                    locked: balance.used?.[asset] || 0,
+                    free: Number(amount) || 0,
+                    locked: Number(balance.used?.[asset]) || 0,
                   };
                 }
                 await accountService.syncBalance(
@@ -1292,17 +1292,17 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           const fees = adapter.extractFeesFromOrder(order, tradeJob.side.toLowerCase() as 'buy' | 'sell');
           feeAmount = fees.feeAmount;
           feeCurrency = fees.feeCurrency;
-          if (feeAmount > 0) {
+          if (feeAmount && feeAmount > 0) {
             this.logger.log(`[EXECUTOR] Taxas extraídas da ordem: ${feeAmount} ${feeCurrency}`);
           }
         }
         
         // 3. Calcular taxa percentual se possível
-        if (feeAmount > 0 && cummQuoteQty > 0) {
+        if (feeAmount && feeAmount > 0 && cummQuoteQty > 0) {
           feeRate = (feeAmount / cummQuoteQty) * 100;
         }
         
-        if (feeAmount > 0) {
+        if (feeAmount && feeAmount > 0) {
           this.logger.log(`[EXECUTOR] Taxas finais: ${feeAmount} ${feeCurrency}, taxa: ${feeRate?.toFixed(4)}%`);
         } else {
           // ✅ TAXAS FIX: Se não encontrou taxa, tentar buscar ordem novamente após 2 segundos
@@ -1318,10 +1318,10 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             
             // Tentar extrair taxas novamente
             const refreshedFees = adapter.extractFeesFromOrder(refreshedOrder, tradeJob.side.toLowerCase() as 'buy' | 'sell');
-            if (refreshedFees.feeAmount > 0 && refreshedFees.feeCurrency) {
+            if (refreshedFees.feeAmount && refreshedFees.feeAmount > 0 && refreshedFees.feeCurrency) {
               feeAmount = refreshedFees.feeAmount;
               feeCurrency = refreshedFees.feeCurrency;
-              if (cummQuoteQty > 0) {
+              if (feeAmount && cummQuoteQty > 0) {
                 feeRate = (feeAmount / cummQuoteQty) * 100;
               }
               this.logger.log(`[EXECUTOR] ✅ Taxas encontradas após retry: ${feeAmount} ${feeCurrency}, taxa: ${feeRate?.toFixed(4)}%`);
@@ -1536,7 +1536,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                 updatedFeeCurrency = fees.feeCurrency;
               }
               
-              if (updatedFeeAmount > 0 && finalCummQuoteQty > 0) {
+              if (updatedFeeAmount && updatedFeeAmount > 0 && finalCummQuoteQty > 0) {
                 updatedFeeRate = (updatedFeeAmount / finalCummQuoteQty) * 100;
               }
             } catch (feeError: any) {
