@@ -337,6 +337,16 @@ async function bootstrap() {
   const { PerformanceInterceptor } = await import('./common/interceptors/performance.interceptor');
   app.useGlobalInterceptors(new PerformanceInterceptor());
   console.log('[Performance] ✅ Interceptor de performance habilitado');
+  
+  // Servir arquivos estáticos (logos de criptomoedas)
+  const express = require('express');
+  const logosPath = path.join(process.cwd(), 'apps', 'api', 'public', 'logos');
+  app.use('/logos', express.static(logosPath, {
+    maxAge: '7d', // Cache de 7 dias
+    etag: true,
+    lastModified: true,
+  }));
+  console.log(`[Static Files] ✅ Servindo logos de: ${logosPath}`);
 
   // Swagger/OpenAPI
   const swaggerServerUrl = process.env.SWAGGER_SERVER_URL || 'https://core.mvcash.com.br';

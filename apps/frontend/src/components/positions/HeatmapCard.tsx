@@ -42,14 +42,8 @@ export function HeatmapCard({ position, logoUrl }: HeatmapCardProps) {
   const unrealizedPnl = position.unrealized_pnl ?? 0
   const investedValue = position.invested_value_usd ?? 0
 
-  // Extrair símbolo base (remover sufixos de quote currency)
-  // Regex que remove apenas sufixos conhecidos do final ($ = final da string)
-  const baseSymbol = position.symbol.replace(/(USDT|BUSD|USDC|TUSD|FDUSD|USD|BTC|ETH|BNB|EUR|GBP)$/i, '')
-  
-  // Debug: log se houver discrepância (temporário)
-  if (position.symbol.includes('BNB') && baseSymbol !== 'BNB' && !position.symbol.startsWith('BNB')) {
-    console.log('Símbolo original:', position.symbol, '-> Base extraído:', baseSymbol)
-  }
+  // Extrair símbolo base - como os pares são sempre com USDT, simplesmente remover USDT do final
+  const baseSymbol = position.symbol.replace(/USDT$/i, '')
 
   const colorGradient = getHeatmapColor(pnlPct)
   const textColor = getTextColor(pnlPct)

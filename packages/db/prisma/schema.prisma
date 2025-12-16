@@ -1006,6 +1006,26 @@ model SubscriberParameters {
   @@map("subscriber_parameters")
 }
 
+// ============================================
+// CRYPTO SYMBOLS CACHE
+// ============================================
+
+model CryptoSymbol {
+  id              Int       @id @default(autoincrement())
+  symbol          String    @unique @db.VarChar(20)
+  coingecko_id    String?   @db.VarChar(100)
+  name            String?   @db.VarChar(255)
+  logo_url        String?   @db.VarChar(500)
+  logo_local_path String?   @db.VarChar(500)
+  last_updated    DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  @@index([symbol])
+  @@index([coingecko_id])
+  @@map("crypto_symbols")
+}
+
 model SubscriptionPayment {
   id              Int      @id @default(autoincrement())
   subscription_id  Int?     // Opcional: só vinculado quando pagamento é aprovado
