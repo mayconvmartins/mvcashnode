@@ -339,10 +339,12 @@ async function bootstrap() {
   console.log('[Performance] ✅ Interceptor de performance habilitado');
   
   // Servir arquivos estáticos (logos de criptomoedas)
-  const express = require('express');
+  // Importar express.static dinamicamente do express que o NestJS já usa
+  const expressStatic = (await import('express')).static;
   const logosPath = path.join(process.cwd(), 'apps', 'api', 'public', 'logos');
-  app.use('/logos', express.static(logosPath, {
-    maxAge: '7d', // Cache de 7 dias
+  
+  app.use('/logos', expressStatic(logosPath, {
+    maxAge: '7d',
     etag: true,
     lastModified: true,
   }));
