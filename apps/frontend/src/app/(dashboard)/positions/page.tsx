@@ -365,7 +365,7 @@ export default function PositionsPage() {
             }
             
             if (sgDropPctNum <= 0 || sgDropPctNum >= sgPctNum) {
-                toast.error('Queda do Stop Gain deve ser > 0 e < Stop Gain')
+                toast.error('Queda do Stop Gain deve ser maior que 0 e menor que Stop Gain')
                 return
             }
             
@@ -1692,7 +1692,7 @@ export default function PositionsPage() {
                                                 />
                                                 {bulkSGDropPct && bulkSGPct && 
                                                     (parseFloat(bulkSGDropPct) <= 0 || parseFloat(bulkSGDropPct) >= parseFloat(bulkSGPct)) && (
-                                                    <p className="text-sm text-destructive">Queda deve ser > 0 e < Stop Gain</p>
+                                                    <p className="text-sm text-destructive">Queda deve ser maior que 0 e menor que Stop Gain</p>
                                                 )}
                                                 {bulkSGDropPct && bulkSGPct && 
                                                     parseFloat(bulkSGDropPct) > 0 && parseFloat(bulkSGDropPct) < parseFloat(bulkSGPct) && (

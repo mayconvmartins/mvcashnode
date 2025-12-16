@@ -21,7 +21,7 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
     // Validação: sgDropPercent deve ser > 0 e < sgPercent
     const sgDropError = data.stopGain && data.stopGainDropPercent && data.stopGainPercent &&
       (data.stopGainDropPercent <= 0 || data.stopGainDropPercent >= data.stopGainPercent)
-      ? 'Queda deve ser > 0 e < Stop Gain'
+      ? 'Queda deve ser maior que 0 e menor que Stop Gain'
       : null
     
     return (

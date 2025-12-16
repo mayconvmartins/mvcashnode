@@ -37,7 +37,7 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
     // Validação: sgDropPct deve ser > 0 e < sgPct
     const sgDropError = sgEnabled && sgDropPct && sgPct && 
       (parseFloat(sgDropPct) <= 0 || parseFloat(sgDropPct) >= parseFloat(sgPct))
-      ? 'Queda deve ser > 0 e < Stop Gain'
+      ? 'Queda deve ser maior que 0 e menor que Stop Gain'
       : null
 
     const updateMutation = useMutation({
