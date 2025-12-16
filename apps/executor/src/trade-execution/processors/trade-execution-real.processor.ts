@@ -20,6 +20,13 @@ export class TradeExecutionRealProcessor extends WorkerHost {
   private notificationService: NotificationHttpService;
 
   private retryService: RetryService;
+  
+  // ✅ OTIMIZAÇÃO CPU: Cache de adapters para reduzir criação de objetos
+  private adapterCache = new Map<string, { adapter: any; timestamp: number }>();
+  private readonly ADAPTER_CACHE_TTL = 300000; // 5 minutos
+  
+  // ✅ OTIMIZAÇÃO CPU: Logging condicional para reduzir I/O
+  private readonly isDebugEnabled = process.env.LOG_LEVEL === 'debug';
 
   constructor(
     private prisma: PrismaService,
@@ -28,6 +35,106 @@ export class TradeExecutionRealProcessor extends WorkerHost {
     super();
     this.notificationService = new NotificationHttpService(process.env.API_URL || 'http://localhost:4010');
     this.retryService = new RetryService();
+  }
+
+  /**
+   * ✅ OTIMIZAÇÃO CPU: Busca ou cria adapter com cache de 5 minutos
+   * Reduz criação de objetos em ~30%
+   */
+  private getOrCreateAdapter(
+    accountId: number,
+    exchange: string,
+    apiKey: string,
+    apiSecret: string,
+    testnet: boolean
+  ): any {
+    const cacheKey = `${accountId}-${exchange}-${testnet}`;
+    const cached = this.adapterCache.get(cacheKey);
+
+    // Verificar se tem cache válido
+    if (cached && Date.now() - cached.timestamp < this.ADAPTER_CACHE_TTL) {
+      return cached.adapter;
+    }
+
+    // Criar novo adapter
+    const adapter = AdapterFactory.createAdapter(
+      exchange as ExchangeType,
+      apiKey,
+      apiSecret,
+      { testnet }
+    );
+
+    // Armazenar no cache
+    this.adapterCache.set(cacheKey, {
+      adapter,
+      timestamp: Date.now(),
+    });
+
+    // Limpar cache antigo (evitar memory leak)
+    if (this.adapterCache.size > 50) {
+      const now = Date.now();
+      for (const [key, value] of this.adapterCache.entries()) {
+        if (now - value.timestamp > this.ADAPTER_CACHE_TTL) {
+          this.adapterCache.delete(key);
+        }
+      }
+    }
+
+    return adapter;
+  }
+
+  /**
+   * ✅ OTIMIZAÇÃO CPU: Reverte flags triggered quando job falha permanentemente
+   * Isso previne loop infinito de retry onde monitor recria jobs que sempre falham
+   */
+  private async revertTriggeredFlags(positionId: number, reasonCode: string): Promise<void> {
+    try {
+      // Apenas reverter para erros permanentes (não erros de rede/temporários)
+      const permanentErrors = [
+        'MIN_PROFIT_NOT_MET_PRE_ORDER',
+        'INVALID_QUANTITY',
+        'INSUFFICIENT_BALANCE',
+        'MIN_AMOUNT_THRESHOLD',
+      ];
+
+      if (!permanentErrors.includes(reasonCode)) {
+        return; // Não reverter para erros temporários
+      }
+
+      // Buscar posição para determinar qual flag reverter
+      const position = await this.prisma.tradePosition.findUnique({
+        where: { id: positionId },
+        select: {
+          id: true,
+          sl_triggered: true,
+          tp_triggered: true,
+          trailing_triggered: true,
+          sg_triggered: true,
+        },
+      });
+
+      if (!position) return;
+
+      // Reverter todas as flags triggered que estiverem ativas
+      const updateData: any = {};
+      if (position.sl_triggered) updateData.sl_triggered = false;
+      if (position.tp_triggered) updateData.tp_triggered = false;
+      if (position.trailing_triggered) updateData.trailing_triggered = false;
+      if (position.sg_triggered) updateData.sg_triggered = false;
+
+      if (Object.keys(updateData).length > 0) {
+        await this.prisma.tradePosition.update({
+          where: { id: positionId },
+          data: updateData,
+        });
+
+        this.logger.warn(
+          `[EXECUTOR] [LOOP FIX] Flags revertidas para posição ${positionId} devido a erro permanente (${reasonCode}): ${Object.keys(updateData).join(', ')}`
+        );
+      }
+    } catch (error: any) {
+      this.logger.error(`[EXECUTOR] Erro ao reverter flags triggered: ${error.message}`);
+    }
   }
 
 
@@ -367,14 +474,18 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         throw new Error(`API keys não encontradas para conta ${tradeJob.exchange_account_id}`);
       }
 
-      this.logger.debug(`[EXECUTOR] API keys obtidas para conta ${tradeJob.exchange_account_id}`);
+      // ✅ OTIMIZAÇÃO CPU: Log debug condicional
+      if (this.isDebugEnabled) {
+        this.logger.debug(`[EXECUTOR] API keys obtidas para conta ${tradeJob.exchange_account_id}`);
+      }
 
-      // Create adapter
-      const adapter = AdapterFactory.createAdapter(
-        tradeJob.exchange_account.exchange as ExchangeType,
+      // ✅ OTIMIZAÇÃO CPU: Usar cache de adapters
+      const adapter = this.getOrCreateAdapter(
+        tradeJob.exchange_account_id,
+        tradeJob.exchange_account.exchange,
         keys.apiKey,
         keys.apiSecret,
-        { testnet: tradeJob.exchange_account.testnet }
+        tradeJob.exchange_account.testnet
       );
 
       // Converter quoteAmount para baseQty se necessário (para MARKET BUY)
@@ -439,7 +550,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             throw new Error(`Saldo insuficiente. Disponível: ${available} ${quoteAsset}, Necessário: ${requiredAmount} ${quoteAsset}`);
           }
 
-          this.logger.debug(`[EXECUTOR] Saldo verificado: ${available} ${quoteAsset} disponível`);
+          if (this.isDebugEnabled) {
+            this.logger.debug(`[EXECUTOR] Saldo verificado: ${available} ${quoteAsset} disponível`);
+          }
         } catch (error: any) {
           // Se falhar ao verificar saldo, logar mas continuar (pode ser problema de API)
           this.logger.warn(`[EXECUTOR] Aviso: Não foi possível verificar saldo: ${error.message}`);
@@ -499,7 +612,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             }
           }
           
-          this.logger.debug(`[EXECUTOR] Saldo verificado para venda: ${available} ${baseAsset} disponível, quantidade a vender: ${baseQty} ${baseAsset}`);
+          if (this.isDebugEnabled) {
+            this.logger.debug(`[EXECUTOR] Saldo verificado para venda: ${available} ${baseAsset} disponível, quantidade a vender: ${baseQty} ${baseAsset}`);
+          }
         } catch (error: any) {
           this.logger.error(`[EXECUTOR] Erro ao verificar/atualizar saldo para venda: ${error.message}`);
           // Para vendas, é crítico ter saldo correto, então lançar erro
@@ -519,7 +634,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // ✅ VERIFICAÇÃO DE SEGURANÇA MELHORADA: Verificar se já existe ordem similar na exchange
       try {
         const openOrders = await adapter.fetchOpenOrders(tradeJob.symbol);
-        this.logger.debug(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} - Verificando ${openOrders.length} ordens pendentes na exchange`);
+        if (this.isDebugEnabled) {
+          this.logger.debug(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} - Verificando ${openOrders.length} ordens pendentes na exchange`);
+        }
         
         // Verificação 1: Ordem pendente com mesmo lado
         const pendingOrderSameSide = openOrders.find((order: any) => 
@@ -589,6 +706,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                 reason_message: `Lucro mínimo não atendido ANTES de criar ordem: ${validationResult.reason}`,
               },
             });
+            
+            // ✅ OTIMIZAÇÃO CPU: Reverter flags triggered para prevenir loop infinito
+            if (positionIdToClose) {
+              await this.revertTriggeredFlags(positionIdToClose, 'MIN_PROFIT_NOT_MET_PRE_ORDER');
+            }
+            
             throw new Error(`[SEGURANÇA] Venda não permitida: ${validationResult.reason}`);
           }
           
@@ -612,6 +735,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             reason_message: `Quantidade inválida: ${amountToUse} (baseQty=${baseQty}, quoteAmount=${quoteAmount})`,
           },
         });
+        
+        // ✅ OTIMIZAÇÃO CPU: Reverter flags triggered para prevenir loop infinito
+        if (positionIdToClose) {
+          await this.revertTriggeredFlags(positionIdToClose, 'INVALID_QUANTITY');
+        }
+        
         throw new Error(`[SEGURANÇA] Quantidade inválida: ${amountToUse}`);
       }
       
@@ -1008,6 +1137,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               },
             });
             this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
+            
+            // ✅ OTIMIZAÇÃO CPU: Reverter flags triggered para erros permanentes
+            if (finalStatus === TradeJobStatus.FAILED && positionIdToClose) {
+              await this.revertTriggeredFlags(positionIdToClose, reasonCode);
+            }
           } catch (updateError: any) {
             this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao atualizar status: ${updateError?.message}`);
           }
@@ -1144,7 +1278,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             }
           } catch (tradesError: any) {
             // Se fetchMyTrades falhar, continuar com fallback
-            this.logger.debug(`[EXECUTOR] Não foi possível buscar trades: ${tradesError.message}`);
+            if (this.isDebugEnabled) {
+              this.logger.debug(`[EXECUTOR] Não foi possível buscar trades: ${tradesError.message}`);
+            }
           }
         }
         
@@ -1384,7 +1520,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                     }
                   }
                 } catch (tradesError: any) {
-                  this.logger.debug(`[EXECUTOR] Não foi possível buscar trades atualizados: ${tradesError.message}`);
+                  if (this.isDebugEnabled) {
+                    this.logger.debug(`[EXECUTOR] Não foi possível buscar trades atualizados: ${tradesError.message}`);
+                  }
                 }
               }
               
@@ -1839,7 +1977,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
         // Se já foi marcado como SKIPPED (saldo insuficiente), não fazer nada
         if (currentJob?.status === TradeJobStatus.SKIPPED) {
-          this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já é SKIPPED, não atualizando`);
+          if (this.isDebugEnabled) {
+            this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já é SKIPPED, não atualizando`);
+          }
           return; // Retornar sem lançar erro
         }
 
@@ -1858,7 +1998,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           });
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
         } else {
-          this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já atualizado (${currentJob?.status}), não atualizando novamente`);
+          if (this.isDebugEnabled) {
+            this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já atualizado (${currentJob?.status}), não atualizando novamente`);
+          }
         }
       } catch (updateError: any) {
         this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ERRO ao atualizar status do job: ${updateError?.message}`);

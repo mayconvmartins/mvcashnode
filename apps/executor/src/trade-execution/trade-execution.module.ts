@@ -10,9 +10,21 @@ import { ConfigService } from '@nestjs/config';
   imports: [
     BullModule.registerQueue({
       name: 'trade-execution-real',
+      // ✅ OTIMIZAÇÃO CPU: Configurar para remover jobs após falha e completar
+      // Previne acúmulo de jobs órfãos no Redis
+      defaultJobOptions: {
+        attempts: 1, // Não retry automático
+        removeOnComplete: true, // Remove após completar
+        removeOnFail: { age: 3600 }, // Remove após 1h se falhar
+      },
     }),
     BullModule.registerQueue({
       name: 'trade-execution-sim',
+      defaultJobOptions: {
+        attempts: 1,
+        removeOnComplete: true,
+        removeOnFail: { age: 3600 },
+      },
     }),
   ],
   providers: [

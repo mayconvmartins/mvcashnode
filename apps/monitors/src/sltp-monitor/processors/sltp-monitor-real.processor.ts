@@ -371,9 +371,12 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 createdBy: 'SLTP_MONITOR',
               });
 
+              // ✅ OTIMIZAÇÃO CPU: RemoveOnFail para prevenir acúmulo no Redis
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
                 attempts: 1,
+                removeOnComplete: true,
+                removeOnFail: { age: 3600 },
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] ${triggerType} - Job recriado: ID=${tradeJob.id} para posição ${position.id}`);
@@ -516,9 +519,12 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               this.logger.log(`[SL-TP-MONITOR-REAL] Stop Loss - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
 
               // Enfileirar job para execução
+              // ✅ OTIMIZAÇÃO CPU: RemoveOnFail para prevenir acúmulo no Redis
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
                 attempts: 1,
+                removeOnComplete: true,
+                removeOnFail: { age: 3600 },
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] Stop Loss - Job ${tradeJob.id} enfileirado na fila trade-execution-real`);
@@ -627,10 +633,16 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               });
               
               // Enfileirar
+              // ✅ OTIMIZAÇÃO CPU: RemoveOnFail para prevenir acúmulo no Redis
               await this.tradeExecutionQueue.add(
                 'execute-trade',
                 { tradeJobId: tradeJob.id },
-                { jobId: `trade-job-${tradeJob.id}`, attempts: 1 }
+                { 
+                  jobId: `trade-job-${tradeJob.id}`, 
+                  attempts: 1,
+                  removeOnComplete: true,
+                  removeOnFail: { age: 3600 },
+                }
               );
               
               this.logger.log(
@@ -727,9 +739,12 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               this.logger.log(`[SL-TP-MONITOR-REAL] Take Profit - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
 
               // Enfileirar job para execução
+              // ✅ OTIMIZAÇÃO CPU: RemoveOnFail para prevenir acúmulo no Redis
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
                 attempts: 1,
+                removeOnComplete: true,
+                removeOnFail: { age: 3600 },
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] Take Profit - Job ${tradeJob.id} enfileirado na fila trade-execution-real`);
@@ -794,9 +809,12 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               this.logger.log(`[SL-TP-MONITOR-REAL] Trailing Stop - Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, symbol=${position.symbol}, side=SELL, orderType=LIMIT, baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`);
 
               // Enfileirar job para execução
+              // ✅ OTIMIZAÇÃO CPU: RemoveOnFail para prevenir acúmulo no Redis
               await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
                 jobId: `trade-job-${tradeJob.id}`,
                 attempts: 1,
+                removeOnComplete: true,
+                removeOnFail: { age: 3600 },
               });
 
               this.logger.log(`[SL-TP-MONITOR-REAL] Trailing Stop - Job ${tradeJob.id} enfileirado na fila trade-execution-real`);
