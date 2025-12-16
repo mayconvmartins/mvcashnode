@@ -591,8 +591,11 @@ export class WebhookMonitorService {
       const fallFromMaxPct = ((priceMaximum - currentPrice) / priceMaximum) * 100;
       const variationPct = ((currentPrice - priceMaximum) / priceMaximum) * 100;
       
+      // Log de debug para troubleshooting
+      console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: fallFromMaxPct=${fallFromMaxPct.toFixed(4)}%, variationPct=${variationPct.toFixed(4)}%`);
+      
       // Verificar se está lateralizando (dentro da tolerância do máximo)
-      if (variationPct <= config.sell_lateral_tolerance_pct) {
+      if (fallFromMaxPct <= config.sell_lateral_tolerance_pct) {
         trend = PriceTrend.LATERAL;
         
         // Se está lateral há ciclos suficientes, pode executar
@@ -610,8 +613,8 @@ export class WebhookMonitorService {
           console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Condição de execução atendida - Em queda há ${cyclesWithoutNewHigh} ciclos (>= ${config.sell_fall_cycles_min} configurado)`);
         }
       } else {
-        // Ainda próximo do máximo, mas não fez novo topo
-        trend = PriceTrend.RISING;
+        // Entre lateral e queda - continua monitorando
+        trend = PriceTrend.LATERAL;
       }
     }
 
