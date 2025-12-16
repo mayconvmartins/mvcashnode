@@ -120,9 +120,9 @@ module.exports = {
       script: 'pnpm',
       args: 'exec next start -p 5010',
       cwd: './apps/frontend',
-      // Cluster mode para melhor performance SSR
-      instances: 4, // 4 instâncias para renderização paralela
-      exec_mode: 'cluster',
+      // Fork mode - Next.js não suporta cluster mode nativamente
+      instances: 1,
+      exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
         PORT: '5010',
