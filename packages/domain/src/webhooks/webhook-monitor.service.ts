@@ -281,7 +281,7 @@ export class WebhookMonitorService {
 
               // Criar snapshot REPLACED
               await this.createSnapshot(existingAlert.id, 'REPLACED', {
-                monitoringStatus: existingAlert.monitoring_status,
+                monitoringStatus: existingAlert.monitoring_status || undefined,
                 currentPrice: existingAlert.current_price?.toNumber(),
                 priceMinimum: existingAlert.price_minimum?.toNumber(),
                 cyclesWithoutNewLow: existingAlert.cycles_without_new_low,
@@ -322,7 +322,7 @@ export class WebhookMonitorService {
 
               // Criar snapshot REPLACED
               await this.createSnapshot(existingAlert.id, 'REPLACED', {
-                monitoringStatus: existingAlert.monitoring_status,
+                monitoringStatus: existingAlert.monitoring_status || undefined,
                 currentPrice: existingAlert.current_price?.toNumber(),
                 priceMaximum: existingAlert.price_maximum?.toNumber(),
                 cyclesWithoutNewHigh: existingAlert.cycles_without_new_high,
@@ -958,7 +958,7 @@ export class WebhookMonitorService {
     // Criar snapshot EXECUTED
     const side = alertBeforeUpdate?.side || 'BUY';
     await this.createSnapshot(alertId, 'EXECUTED', {
-      monitoringStatus: alertBeforeUpdate?.monitoring_status,
+      monitoringStatus: alertBeforeUpdate?.monitoring_status || undefined,
       currentPrice: executionPrice?.toNumber(),
       priceMinimum: side === 'BUY' ? alertBeforeUpdate?.price_minimum?.toNumber() : undefined,
       priceMaximum: side === 'SELL' ? alertBeforeUpdate?.price_maximum?.toNumber() : undefined,
@@ -1043,7 +1043,7 @@ export class WebhookMonitorService {
     // Criar snapshot CANCELLED
     const side = alert.side || 'BUY';
     await this.createSnapshot(alertId, 'CANCELLED', {
-      monitoringStatus: alert.monitoring_status,
+      monitoringStatus: alert.monitoring_status || undefined,
       currentPrice: alert.current_price?.toNumber(),
       priceMinimum: side === 'BUY' ? alert.price_minimum?.toNumber() : undefined,
       priceMaximum: side === 'SELL' ? alert.price_maximum?.toNumber() : undefined,
