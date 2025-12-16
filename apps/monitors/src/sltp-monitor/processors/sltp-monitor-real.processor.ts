@@ -525,24 +525,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               // Calcular preço LIMIT (preço atual ou ligeiramente abaixo para garantir execução)
               const limitPrice = currentPrice * 0.999; // 0.1% abaixo
               
-              // Validar lucro mínimo
-              const validationResult = await positionService.validateMinProfit(
-                position.id,
-                limitPrice
-              );
-              
-              if (!validationResult.valid) {
-                this.logger.warn(
-                  `[SL-TP-MONITOR-REAL] Stop Gain NÃO acionado - lucro mínimo não atingido: ${validationResult.reason}`
-                );
-                
-                // Reverter flag
-                await this.prisma.tradePosition.update({
-                  where: { id: position.id },
-                  data: { sg_triggered: false },
-                });
-                continue;
-              }
+              // Stop Gain NÃO valida min_profit_pct pois já foi ativado em um lucro maior
+              // e deve proteger os lucros obtidos mesmo que caiam abaixo do mínimo configurado
               
               // Criar job de venda
               const tradeJob = await tradeJobService.createJob({
