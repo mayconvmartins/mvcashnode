@@ -15,10 +15,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { WebhookMonitorConfigForm } from '@/components/webhooks/WebhookMonitorConfigForm'
+import { WebhookMonitorTimeline } from '@/components/webhooks/WebhookMonitorTimeline'
+import { Info } from 'lucide-react'
 
 export default function WebhookMonitorPage() {
     const queryClient = useQueryClient()
     const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
+    const [timelineDialogOpen, setTimelineDialogOpen] = useState(false)
     const [selectedAlert, setSelectedAlert] = useState<WebhookMonitorAlert | null>(null)
     const [cancelReason, setCancelReason] = useState('')
 
@@ -401,6 +404,23 @@ export default function WebhookMonitorPage() {
                 </span>
             ),
         },
+        {
+            key: 'actions',
+            label: 'Ações',
+            render: (alert: any) => (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                        setSelectedAlert(alert)
+                        setTimelineDialogOpen(true)
+                    }}
+                >
+                    <Info className="h-4 w-4 mr-1" />
+                    Detalhes
+                </Button>
+            ),
+        },
     ]
 
     return (
@@ -616,6 +636,21 @@ export default function WebhookMonitorPage() {
                             </Button>
                         </div>
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Dialog de Timeline */}
+            <Dialog open={timelineDialogOpen} onOpenChange={setTimelineDialogOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Timeline do Alerta</DialogTitle>
+                        <DialogDescription>
+                            Histórico detalhado de monitoramento do alerta
+                        </DialogDescription>
+                    </DialogHeader>
+                    {selectedAlert && (
+                        <WebhookMonitorTimeline alertId={selectedAlert.id} />
+                    )}
                 </DialogContent>
             </Dialog>
         </div>

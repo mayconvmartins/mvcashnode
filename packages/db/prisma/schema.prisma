@@ -406,6 +406,7 @@ model WebhookMonitorAlert {
   webhook_source   WebhookSource   @relation(fields: [webhook_source_id], references: [id], onDelete: Cascade)
   webhook_event    WebhookEvent   @relation("WebhookEventMonitorAlert", fields: [webhook_event_id], references: [id], onDelete: Cascade)
   exchange_account ExchangeAccount? @relation(fields: [exchange_account_id], references: [id], onDelete: Cascade)
+  snapshots        WebhookMonitorSnapshot[]
 
   @@index([webhook_source_id])
   @@index([webhook_source_id, symbol, trade_mode, state], name: "wh_monitor_alerts_active_idx")
@@ -447,6 +448,25 @@ model WebhookMonitorConfig {
   @@unique([user_id])
   @@index([user_id])
   @@map("webhook_monitor_config")
+}
+
+model WebhookMonitorSnapshot {
+  id                      Int       @id @default(autoincrement())
+  alert_id                Int
+  event_type              String    @db.VarChar(50) // 'CREATED' | 'PRICE_CHECK' | 'STATUS_CHANGE' | 'REPLACED' | 'EXECUTED' | 'CANCELLED'
+  monitoring_status       String?   @db.VarChar(20) // 'FALLING' | 'LATERAL' | 'RISING'
+  current_price           Decimal?  @db.Decimal(36, 18)
+  price_minimum           Decimal?  @db.Decimal(36, 18)
+  price_maximum           Decimal?  @db.Decimal(36, 18)
+  cycles_without_new_low  Int?
+  cycles_without_new_high Int?
+  details                 Json?     // Dados extras como: replaced_by_alert_id, cancel_reason, etc
+  created_at              DateTime  @default(now())
+
+  alert WebhookMonitorAlert @relation(fields: [alert_id], references: [id], onDelete: Cascade)
+
+  @@index([alert_id, created_at])
+  @@map("webhook_monitor_snapshots")
 }
 
 // ============================================

@@ -549,5 +549,78 @@ export class WebhookMonitorController {
       sell_cooldown_after_execution_min: (config as any).sell_cooldown_after_execution_min || 30,
     };
   }
+
+  @Get('alerts/:id/timeline')
+  @ApiOperation({ summary: 'Obter timeline detalhada de um alerta de monitoramento' })
+  @ApiParam({ name: 'id', description: 'ID do alerta', type: Number })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Timeline completa do alerta com snapshots e resumo',
+    schema: {
+      type: 'object',
+      properties: {
+        alert: { type: 'object', description: 'Dados do alerta' },
+        snapshots: { 
+          type: 'array', 
+          items: { type: 'object' },
+          description: 'Lista de snapshots ordenados por data'
+        },
+        summary: {
+          type: 'object',
+          properties: {
+            totalDuration: { type: 'number', description: 'Duração total em minutos' },
+            cyclesByStatus: {
+              type: 'object',
+              properties: {
+                FALLING: { type: 'number' },
+                LATERAL: { type: 'number' },
+                RISING: { type: 'number' },
+              },
+            },
+            priceRange: {
+              type: 'object',
+              properties: {
+                min: { type: 'number' },
+                max: { type: 'number' },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  async getAlertTimeline(
+    @CurrentUser() user: any,
+    @Param('id', ParseIntPipe) id: number
+  ) {
+    // Verificar se o alerta pertence ao usuário
+    const alert = await this.prisma.webhookMonitorAlert.findUnique({
+      where: { id },
+      include: { webhook_source: true },
+    });
+
+    if (!alert) {
+      throw new NotFoundException(`Alerta ${id} não encontrado`);
+    }
+
+    // Verificar permissão
+    if (alert.webhook_source.owner_user_id !== user.userId) {
+      // Se não é o owner, verificar se tem acesso via binding
+      const hasAccess = await this.prisma.accountWebhookBinding.findFirst({
+        where: {
+          webhook_source_id: alert.webhook_source_id,
+          exchange_account: {
+            user_id: user.userId,
+          },
+        },
+      });
+
+      if (!hasAccess) {
+        throw new NotFoundException(`Alerta ${id} não encontrado`);
+      }
+    }
+
+    return this.monitorService.getAlertTimeline(id);
+  }
 }
 

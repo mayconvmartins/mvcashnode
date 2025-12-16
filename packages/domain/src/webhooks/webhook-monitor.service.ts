@@ -279,6 +279,18 @@ export class WebhookMonitorService {
                 },
               });
 
+              // Criar snapshot REPLACED
+              await this.createSnapshot(existingAlert.id, 'REPLACED', {
+                monitoringStatus: existingAlert.monitoring_status,
+                currentPrice: existingAlert.current_price?.toNumber(),
+                priceMinimum: existingAlert.price_minimum?.toNumber(),
+                cyclesWithoutNewLow: existingAlert.cycles_without_new_low,
+                details: {
+                  replaced_by_price: dto.priceAlert,
+                  new_webhook_event_id: dto.webhookEventId,
+                },
+              });
+
               // Atualizar webhook_event para REPLACED
               if (existingAlert.webhook_event_id) {
                 await tx.webhookEvent.update({
@@ -305,6 +317,18 @@ export class WebhookMonitorService {
                   state: WebhookMonitorAlertState.CANCELLED,
                   cancel_reason: `Substituído por alerta ${dto.priceAlert > existingMaxPrice ? 'mais alto' : 'mais recente'} (${dto.priceAlert} ${dto.priceAlert > existingMaxPrice ? '>' : '='} ${existingMaxPrice})`,
                   exit_reason: 'REPLACED',
+                },
+              });
+
+              // Criar snapshot REPLACED
+              await this.createSnapshot(existingAlert.id, 'REPLACED', {
+                monitoringStatus: existingAlert.monitoring_status,
+                currentPrice: existingAlert.current_price?.toNumber(),
+                priceMaximum: existingAlert.price_maximum?.toNumber(),
+                cyclesWithoutNewHigh: existingAlert.cycles_without_new_high,
+                details: {
+                  replaced_by_price: dto.priceAlert,
+                  new_webhook_event_id: dto.webhookEventId,
                 },
               });
 
@@ -396,6 +420,21 @@ export class WebhookMonitorService {
     });
 
     console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${dto.side} criado: ID=${alert.id}, símbolo=${dto.symbol}, preço=${dto.priceAlert}`);
+    
+    // Criar snapshot CREATED
+    await this.createSnapshot(alert.id, 'CREATED', {
+      monitoringStatus: isBuy ? PriceTrend.FALLING : PriceTrend.RISING,
+      currentPrice: dto.priceAlert,
+      priceMinimum: isBuy ? dto.priceAlert : undefined,
+      priceMaximum: !isBuy ? dto.priceAlert : undefined,
+      cyclesWithoutNewLow: 0,
+      cyclesWithoutNewHigh: 0,
+      details: {
+        webhook_event_id: dto.webhookEventId,
+        webhook_source_id: dto.webhookSourceId,
+      },
+    });
+    
     return alert;
   }
 
@@ -539,6 +578,27 @@ export class WebhookMonitorService {
       },
     });
 
+    // Criar snapshot se necessário (estratégia de logging inteligente)
+    const previousStatus = alert.monitoring_status;
+    const shouldCreateSnapshot = 
+      previousStatus !== trend || // Status mudou
+      cyclesWithoutNewLow === 0 || // Fez novo fundo
+      cyclesWithoutNewLow % 5 === 0; // A cada 5 ciclos
+    
+    if (shouldCreateSnapshot) {
+      await this.createSnapshot(alertId, 'PRICE_CHECK', {
+        monitoringStatus: trend,
+        currentPrice,
+        priceMinimum: newPriceMinimum,
+        cyclesWithoutNewLow,
+        details: {
+          price_variation_pct: ((currentPrice - newPriceMinimum) / newPriceMinimum) * 100,
+          status_changed: previousStatus !== trend,
+          new_low: cyclesWithoutNewLow === 0,
+        },
+      });
+    }
+
     return {
       alert: updatedAlert,
       trend,
@@ -636,6 +696,28 @@ export class WebhookMonitorService {
         monitoring_status: trend, // Salvar status de monitoramento
       },
     });
+
+    // Criar snapshot se necessário (estratégia de logging inteligente)
+    const previousStatus = alert.monitoring_status;
+    const shouldCreateSnapshot = 
+      previousStatus !== trend || // Status mudou
+      cyclesWithoutNewHigh === 0 || // Fez novo topo
+      cyclesWithoutNewHigh % 5 === 0; // A cada 5 ciclos
+    
+    if (shouldCreateSnapshot) {
+      const fallFromMaxPct = ((priceMaximum - currentPrice) / priceMaximum) * 100;
+      await this.createSnapshot(alertId, 'PRICE_CHECK', {
+        monitoringStatus: trend,
+        currentPrice,
+        priceMaximum: newPriceMaximum,
+        cyclesWithoutNewHigh,
+        details: {
+          fall_from_max_pct: fallFromMaxPct,
+          status_changed: previousStatus !== trend,
+          new_high: cyclesWithoutNewHigh === 0,
+        },
+      });
+    }
 
     return {
       alert: updatedAlert,
@@ -873,6 +955,24 @@ export class WebhookMonitorService {
 
     console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${alertId} executado, ${tradeJobIds.length} TradeJob(s) criado(s): ${tradeJobIds.join(', ')}`);
 
+    // Criar snapshot EXECUTED
+    const side = alertBeforeUpdate?.side || 'BUY';
+    await this.createSnapshot(alertId, 'EXECUTED', {
+      monitoringStatus: alertBeforeUpdate?.monitoring_status,
+      currentPrice: executionPrice?.toNumber(),
+      priceMinimum: side === 'BUY' ? alertBeforeUpdate?.price_minimum?.toNumber() : undefined,
+      priceMaximum: side === 'SELL' ? alertBeforeUpdate?.price_maximum?.toNumber() : undefined,
+      cyclesWithoutNewLow: alertBeforeUpdate?.cycles_without_new_low,
+      cyclesWithoutNewHigh: alertBeforeUpdate?.cycles_without_new_high,
+      details: {
+        exit_details: exitDetails,
+        trade_job_ids: tradeJobIds,
+        monitoring_duration_minutes: monitoringDurationMinutes,
+        savings_pct: savingsPct,
+        efficiency_pct: efficiencyPct,
+      },
+    });
+
     // ✅ BUG 5 FIX: Atualizar webhook_event para JOB_CREATED após criar jobs
     if (alert.webhook_event_id) {
       try {
@@ -933,6 +1033,23 @@ export class WebhookMonitorService {
       where: { id: alertId },
       data: {
         state: WebhookMonitorAlertState.CANCELLED,
+        cancel_reason: reason,
+        exit_reason: exitReason,
+        exit_details: exitDetails,
+        monitoring_duration_minutes: monitoringDurationMinutes,
+      },
+    });
+
+    // Criar snapshot CANCELLED
+    const side = alert.side || 'BUY';
+    await this.createSnapshot(alertId, 'CANCELLED', {
+      monitoringStatus: alert.monitoring_status,
+      currentPrice: alert.current_price?.toNumber(),
+      priceMinimum: side === 'BUY' ? alert.price_minimum?.toNumber() : undefined,
+      priceMaximum: side === 'SELL' ? alert.price_maximum?.toNumber() : undefined,
+      cyclesWithoutNewLow: alert.cycles_without_new_low,
+      cyclesWithoutNewHigh: alert.cycles_without_new_high,
+      details: {
         cancel_reason: reason,
         exit_reason: exitReason,
         exit_details: exitDetails,
@@ -1443,6 +1560,115 @@ export class WebhookMonitorService {
     }
 
     return { processed, errors };
+  }
+
+  /**
+   * Criar snapshot do estado atual do alerta (timeline)
+   */
+  async createSnapshot(
+    alertId: number,
+    eventType: 'CREATED' | 'PRICE_CHECK' | 'STATUS_CHANGE' | 'REPLACED' | 'EXECUTED' | 'CANCELLED',
+    data: {
+      monitoringStatus?: string;
+      currentPrice?: number;
+      priceMinimum?: number;
+      priceMaximum?: number;
+      cyclesWithoutNewLow?: number;
+      cyclesWithoutNewHigh?: number;
+      details?: any;
+    }
+  ): Promise<void> {
+    try {
+      await this.prisma.webhookMonitorSnapshot.create({
+        data: {
+          alert_id: alertId,
+          event_type: eventType,
+          monitoring_status: data.monitoringStatus,
+          current_price: data.currentPrice,
+          price_minimum: data.priceMinimum,
+          price_maximum: data.priceMaximum,
+          cycles_without_new_low: data.cyclesWithoutNewLow,
+          cycles_without_new_high: data.cyclesWithoutNewHigh,
+          details: data.details,
+        },
+      });
+    } catch (error: any) {
+      console.error(`[WEBHOOK-MONITOR] Erro ao criar snapshot para alerta ${alertId}:`, error.message);
+      // Não propagar erro para não interromper o fluxo principal
+    }
+  }
+
+  /**
+   * Buscar timeline completa de um alerta
+   */
+  async getAlertTimeline(alertId: number): Promise<{
+    alert: any;
+    snapshots: any[];
+    summary: {
+      totalDuration: number;
+      cyclesByStatus: { FALLING: number; LATERAL: number; RISING: number };
+      priceRange: { min: number; max: number };
+    };
+  }> {
+    // Buscar alerta
+    const alert = await this.prisma.webhookMonitorAlert.findUnique({
+      where: { id: alertId },
+      include: {
+        webhook_source: true,
+        webhook_event: true,
+        exchange_account: true,
+      },
+    });
+
+    if (!alert) {
+      throw new Error(`Alerta ${alertId} não encontrado`);
+    }
+
+    // Buscar snapshots ordenados por data
+    const snapshots = await this.prisma.webhookMonitorSnapshot.findMany({
+      where: { alert_id: alertId },
+      orderBy: { created_at: 'asc' },
+    });
+
+    // Calcular resumo
+    const cyclesByStatus = {
+      FALLING: 0,
+      LATERAL: 0,
+      RISING: 0,
+    };
+
+    let minPrice = Infinity;
+    let maxPrice = -Infinity;
+
+    snapshots.forEach((snapshot) => {
+      // Contar ciclos por status
+      if (snapshot.monitoring_status === 'FALLING') cyclesByStatus.FALLING++;
+      if (snapshot.monitoring_status === 'LATERAL') cyclesByStatus.LATERAL++;
+      if (snapshot.monitoring_status === 'RISING') cyclesByStatus.RISING++;
+
+      // Rastrear preço mínimo e máximo
+      if (snapshot.current_price) {
+        const price = snapshot.current_price.toNumber();
+        if (price < minPrice) minPrice = price;
+        if (price > maxPrice) maxPrice = price;
+      }
+    });
+
+    // Calcular duração total
+    const totalDuration = alert.monitoring_duration_minutes || 0;
+
+    return {
+      alert,
+      snapshots,
+      summary: {
+        totalDuration,
+        cyclesByStatus,
+        priceRange: {
+          min: minPrice === Infinity ? 0 : minPrice,
+          max: maxPrice === -Infinity ? 0 : maxPrice,
+        },
+      },
+    };
   }
 }
 

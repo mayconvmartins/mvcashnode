@@ -75,6 +75,30 @@ export interface WebhookMonitorConfig {
   sell_cooldown_after_execution_min: number
 }
 
+export interface WebhookMonitorSnapshot {
+  id: number
+  alert_id: number
+  event_type: 'CREATED' | 'PRICE_CHECK' | 'STATUS_CHANGE' | 'REPLACED' | 'EXECUTED' | 'CANCELLED'
+  monitoring_status: 'FALLING' | 'LATERAL' | 'RISING' | null
+  current_price: number | null
+  price_minimum: number | null
+  price_maximum: number | null
+  cycles_without_new_low: number | null
+  cycles_without_new_high: number | null
+  details: any
+  created_at: string
+}
+
+export interface AlertTimeline {
+  alert: WebhookMonitorAlert
+  snapshots: WebhookMonitorSnapshot[]
+  summary: {
+    totalDuration: number
+    cyclesByStatus: { FALLING: number; LATERAL: number; RISING: number }
+    priceRange: { min: number; max: number }
+  }
+}
+
 export const webhookMonitorService = {
   async listAlerts(): Promise<WebhookMonitorAlert[]> {
     const response = await apiClient.get<{ data: WebhookMonitorAlert[]; pagination: any }>('/webhooks/monitor/alerts')
@@ -122,6 +146,11 @@ export const webhookMonitorService = {
 
   async getSummary(): Promise<WebhookMonitorSummary> {
     const response = await apiClient.get<WebhookMonitorSummary>('/webhooks/monitor/summary')
+    return response.data
+  },
+
+  async getAlertTimeline(alertId: number): Promise<AlertTimeline> {
+    const response = await apiClient.get<AlertTimeline>(`/webhooks/monitor/alerts/${alertId}/timeline`)
     return response.data
   },
 }
