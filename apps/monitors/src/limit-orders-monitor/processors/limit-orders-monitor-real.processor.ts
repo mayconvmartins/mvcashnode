@@ -55,6 +55,8 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
           select: {
             id: true,
             exchange_order_id: true,
+            executed_qty: true,
+            avg_price: true,
           },
         },
       },
