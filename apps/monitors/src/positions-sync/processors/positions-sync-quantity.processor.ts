@@ -9,7 +9,8 @@ import { ExchangeType } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 import { ConfigService } from '@nestjs/config';
 
-@Processor('positions-sync-quantity')
+// ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos ciclos em paralelo
+@Processor('positions-sync-quantity', { concurrency: 2 })
 export class PositionsSyncQuantityProcessor extends WorkerHost {
   private readonly logger = new Logger(PositionsSyncQuantityProcessor.name);
   private encryptionService: EncryptionService;

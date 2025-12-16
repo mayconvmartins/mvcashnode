@@ -2,14 +2,15 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
-import { ExchangeAccountService } from '@mvcashnode/domain';
+import { ExchangeAccountService, PositionService } from '@mvcashnode/domain';
 import { EncryptionService } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 import { ConfigService } from '@nestjs/config';
 
-@Processor('positions-sync-exchange')
+// ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos ciclos em paralelo
+@Processor('positions-sync-exchange', { concurrency: 2 })
 export class PositionsSyncExchangeProcessor extends WorkerHost {
   private readonly logger = new Logger(PositionsSyncExchangeProcessor.name);
   private encryptionService: EncryptionService;
@@ -234,7 +235,7 @@ export class PositionsSyncExchangeProcessor extends WorkerHost {
                   });
 
                   if (!existingPosition) {
-                    const { PositionService } = await import('@mvcashnode/domain');
+                    // ✅ OTIMIZAÇÃO CPU: Import movido para o topo do arquivo
                     // tx é compatível com PrismaClient para os métodos usados pelo PositionService
                     const positionService = new PositionService(tx as any);
                     await positionService.onBuyExecuted(

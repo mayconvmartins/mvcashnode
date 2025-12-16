@@ -15,18 +15,23 @@ import { CacheService } from '@mvcashnode/shared';
     ConfigModule,
     BullModule.registerQueue({
       name: 'positions-sync-missing',
+      // ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos jobs em paralelo
     }),
     BullModule.registerQueue({
       name: 'positions-sync-duplicates',
+      // ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos jobs em paralelo
     }),
     BullModule.registerQueue({
       name: 'positions-sync-quantity',
+      // ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos jobs em paralelo
     }),
     BullModule.registerQueue({
       name: 'positions-sync-fees',
+      // ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos jobs em paralelo
     }),
     BullModule.registerQueue({
       name: 'positions-sync-exchange',
+      // ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos jobs em paralelo
     }),
   ],
   providers: [

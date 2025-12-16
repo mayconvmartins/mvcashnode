@@ -56,7 +56,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
       const currentPrice = ticker.last;
       
       if (currentPrice && currentPrice > 0) {
-        await this.cacheService.set(cacheKey, currentPrice, { ttl: 25 });
+        // ✅ OTIMIZAÇÃO CPU: TTL aumentado para 35s
+        await this.cacheService.set(cacheKey, currentPrice, { ttl: 35 });
       }
       
       return currentPrice;
@@ -74,7 +75,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
     try {
       // Registrar início da execução
       await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
-    // Get all open positions with SL/TP enabled
+    // ✅ OTIMIZAÇÃO CPU: Select específico para buscar apenas campos necessários
     // IMPORTANTE: Monitor SL/TP deve processar APENAS posições abertas
     // Posições fechadas não devem ser monitoradas pois não faz sentido e pode causar problemas
     const positions = await this.prisma.tradePosition.findMany({
@@ -89,8 +90,36 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           { trailing_enabled: true },
         ],
       },
-      include: {
-        exchange_account: true,
+      select: {
+        id: true,
+        symbol: true,
+        exchange_account_id: true,
+        status: true,
+        qty_remaining: true,
+        closed_at: true,
+        price_open: true,
+        sl_enabled: true,
+        sl_pct: true,
+        sl_triggered: true,
+        tp_enabled: true,
+        tp_pct: true,
+        tp_triggered: true,
+        sg_enabled: true,
+        sg_pct: true,
+        sg_drop_pct: true,
+        sg_activated: true,
+        sg_triggered: true,
+        trailing_enabled: true,
+        trailing_distance_pct: true,
+        trailing_max_price: true,
+        trailing_triggered: true,
+        exchange_account: {
+          select: {
+            id: true,
+            exchange: true,
+            testnet: true,
+          },
+        },
       },
     });
 
@@ -120,7 +149,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
     let triggered = 0;
     let retried = 0;
 
-    // Primeiro, verificar posições com flags triggered mas sem job válido (retry)
+    // ✅ OTIMIZAÇÃO CPU: Select específico para retry de posições triggered
     // IMPORTANTE: Apenas posições abertas devem ser verificadas
     const positionsWithTriggeredFlags = await this.prisma.tradePosition.findMany({
       where: {
@@ -134,8 +163,28 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           { trailing_triggered: true },
         ],
       },
-      include: {
-        exchange_account: true,
+      select: {
+        id: true,
+        symbol: true,
+        exchange_account_id: true,
+        price_open: true,
+        qty_remaining: true,
+        sl_enabled: true,
+        sl_pct: true,
+        sl_triggered: true,
+        tp_enabled: true,
+        tp_pct: true,
+        tp_triggered: true,
+        trailing_enabled: true,
+        trailing_distance_pct: true,
+        trailing_max_price: true,
+        trailing_triggered: true,
+        exchange_account: {
+          select: {
+            exchange: true,
+            testnet: true,
+          },
+        },
         close_jobs: {
           where: {
             side: 'SELL',
@@ -143,6 +192,10 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           },
           orderBy: { created_at: 'desc' },
           take: 1,
+          select: {
+            id: true,
+            status: true,
+          },
         },
       },
     });
@@ -335,25 +388,42 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
       }
     }
 
-    // Processar apenas posições válidas (abertas)
-    for (const position of validPositions) {
-      try {
-        // Get API keys for read-only price check
-        const accountService = new (await import('@mvcashnode/domain')).ExchangeAccountService(
-          this.prisma,
-          this.encryptionService
-        );
-        const keys = await accountService.decryptApiKeys(position.exchange_account_id);
+    // ✅ OTIMIZAÇÃO CPU: Batch processing - agrupar posições por exchange
+    // Isso reduz criação de adapters e permite paralelização
+    const accountService = new (await import('@mvcashnode/domain')).ExchangeAccountService(
+      this.prisma,
+      this.encryptionService
+    );
 
+    // Agrupar posições por exchange_account_id para reutilizar adapters
+    const positionsByAccount = new Map<number, typeof validPositions>();
+    for (const position of validPositions) {
+      const accountId = position.exchange_account_id;
+      if (!positionsByAccount.has(accountId)) {
+        positionsByAccount.set(accountId, []);
+      }
+      positionsByAccount.get(accountId)!.push(position);
+    }
+
+    // Processar cada grupo de posições (por account) com adapter reutilizado
+    for (const [accountId, accountPositions] of positionsByAccount.entries()) {
+      try {
+        // Buscar keys uma vez por account
+        const keys = await accountService.decryptApiKeys(accountId);
         if (!keys) continue;
 
-        // Create read-only adapter
+        const firstPosition = accountPositions[0];
+        // Criar adapter uma vez por exchange account
         const adapter = AdapterFactory.createAdapter(
-          position.exchange_account.exchange as ExchangeType,
+          firstPosition.exchange_account.exchange as ExchangeType,
           keys.apiKey,
           keys.apiSecret,
-          { testnet: position.exchange_account.testnet }
+          { testnet: firstPosition.exchange_account.testnet }
         );
+
+        // Processar todas as posições deste account
+        for (const position of accountPositions) {
+      try {
 
         // Get current price - verificar cache primeiro
         const exchange = position.exchange_account.exchange;
@@ -364,16 +434,16 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         const cachedPrice = await this.cacheService.get<number>(cacheKey);
         if (cachedPrice !== null && cachedPrice > 0) {
           currentPrice = cachedPrice;
-          this.logger.debug(`[SL-TP-MONITOR-REAL] Preço de ${position.symbol} obtido do cache: ${currentPrice}`);
+          // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
         } else {
           // Se não estiver no cache, buscar da exchange e adicionar ao cache
           try {
             const ticker = await adapter.fetchTicker(position.symbol);
             currentPrice = ticker.last;
             if (currentPrice && currentPrice > 0) {
-              // Armazenar no cache com TTL de 25 segundos
-              await this.cacheService.set(cacheKey, currentPrice, { ttl: 25 });
-              this.logger.debug(`[SL-TP-MONITOR-REAL] Preço de ${position.symbol} obtido da exchange e armazenado no cache: ${currentPrice}`);
+              // ✅ OTIMIZAÇÃO CPU: TTL aumentado para 35s
+              await this.cacheService.set(cacheKey, currentPrice, { ttl: 35 });
+              // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
             }
           } catch (error: any) {
             this.logger.warn(`[SL-TP-MONITOR-REAL] Erro ao buscar preço para ${position.symbol} na ${exchange}: ${error.message}`);
@@ -404,7 +474,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
             if (lockResult.count === 0) {
               // Outra execução já marcou, pular esta posição
-              this.logger.debug(`[SL-TP-MONITOR-REAL] Posição ${position.id} já foi processada por outra execução (SL)`);
+              // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
               continue;
             }
 
@@ -504,7 +574,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             });
             
             if (lockResult.count === 0) {
-              this.logger.debug(`[SL-TP-MONITOR-REAL] Posição ${position.id} já processada (SG)`);
+              // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
               continue;
             }
             
@@ -527,9 +597,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               const currentPnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
               
               if (currentPnlPct > sellThreshold) {
-                this.logger.debug(
-                  `[SL-TP-MONITOR-REAL] Stop Gain cancelado - preço recuperou: ${currentPnlPct.toFixed(2)}% > ${sellThreshold.toFixed(2)}%`
-                );
+                // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
                 // Reverter flag pois preço voltou a subir
                 await this.prisma.tradePosition.update({
                   where: { id: position.id },
@@ -600,7 +668,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
             if (lockResult.count === 0) {
               // Outra execução já marcou, pular esta posição
-              this.logger.debug(`[SL-TP-MONITOR-REAL] Posição ${position.id} já foi processada por outra execução (TP)`);
+              // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
               continue;
             }
 
@@ -748,7 +816,11 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
       } catch (error) {
         console.error(`Error processing position ${position.id}:`, error);
       }
-    }
+        } // Fim do loop de posições do account
+      } catch (accountError: any) {
+        this.logger.error(`[SL-TP-MONITOR-REAL] Erro ao processar account ${accountId}: ${accountError.message}`);
+      }
+    } // Fim do loop de accounts
 
     const result = { positionsChecked: positions.length, triggered, retried };
     const durationMs = Date.now() - startTime;

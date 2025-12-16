@@ -4,7 +4,8 @@ import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
-@Processor('positions-sync-duplicates')
+// ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos ciclos em paralelo
+@Processor('positions-sync-duplicates', { concurrency: 2 })
 export class PositionsSyncDuplicatesProcessor extends WorkerHost {
   private readonly logger = new Logger(PositionsSyncDuplicatesProcessor.name);
 

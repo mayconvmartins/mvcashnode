@@ -11,6 +11,8 @@ export class SystemMonitorProcessor extends WorkerHost {
   private readonly logger = new Logger(SystemMonitorProcessor.name);
   private monitorService: MonitorService;
   private emailService: EmailService | null = null;
+  // ✅ OTIMIZAÇÃO CPU: Executar validações pesadas apenas a cada 5 minutos (10 ciclos de 30s)
+  private executionCounter = 0;
 
   constructor(
     private prisma: PrismaService,
@@ -157,11 +159,17 @@ export class SystemMonitorProcessor extends WorkerHost {
       );
     }
 
-      // Verificar processos travados
-      await this.checkStuckProcesses();
-
-      // ✅ NOVO: Verificar inconsistências críticas de posições
-      await this.checkPositionInconsistencies();
+      // ✅ OTIMIZAÇÃO CPU: Executar validações pesadas apenas a cada 5 minutos
+      this.executionCounter++;
+      const shouldRunHeavyChecks = this.executionCounter % 10 === 0; // A cada 10 execuções (5min)
+      
+      if (shouldRunHeavyChecks) {
+        this.logger.log('[SYSTEM-MONITOR] Executando validações pesadas (a cada 5min)...');
+        // Verificar processos travados
+        await this.checkStuckProcesses();
+        // ✅ Verificar inconsistências críticas de posições
+        await this.checkPositionInconsistencies();
+      }
     }
 
   /**

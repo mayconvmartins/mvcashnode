@@ -3,7 +3,8 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
-@Processor('positions-sync-missing')
+// ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos ciclos em paralelo
+@Processor('positions-sync-missing', { concurrency: 2 })
 export class PositionsSyncMissingProcessor extends WorkerHost {
   private readonly logger = new Logger(PositionsSyncMissingProcessor.name);
   private apiUrl: string;

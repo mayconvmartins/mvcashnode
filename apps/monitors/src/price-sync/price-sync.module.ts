@@ -11,6 +11,14 @@ import { CronExecutionService } from '../shared/cron-execution.service';
     ConfigModule,
     BullModule.registerQueue({
       name: 'price-sync',
+      // ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos jobs em paralelo
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+      },
     }),
   ],
   providers: [

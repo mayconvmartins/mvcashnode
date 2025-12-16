@@ -159,13 +159,7 @@ export class WebhookMonitorProcessor extends WorkerHost {
               }
             }
           } else {
-            const side = (alert as any).side || 'BUY';
-            const priceRef = side === 'BUY' 
-              ? (alert.price_minimum?.toNumber() || alert.price_alert.toNumber())
-              : (alert.price_maximum?.toNumber() || alert.price_alert.toNumber());
-            this.logger.debug(
-              `[WEBHOOK-MONITOR] Alerta ${alert.id} ainda em monitoramento (preço: ${currentPrice}, ${side === 'BUY' ? 'mínimo' : 'máximo'}: ${priceRef})`
-            );
+            // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O em loop)
           }
         } catch (error: any) {
           errors++;
@@ -238,9 +232,7 @@ export class WebhookMonitorProcessor extends WorkerHost {
         const cacheKey = `price:${exchange}:${symbol}`;
         const cachedPrice = await this.cacheService.get<number>(cacheKey);
         if (cachedPrice !== null && cachedPrice > 0) {
-          this.logger.debug(
-            `[WEBHOOK-MONITOR] Preço de ${symbol} obtido do cache (${exchange}): ${cachedPrice}`
-          );
+          // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
           return cachedPrice;
         }
       } catch (error: any) {
@@ -251,21 +243,17 @@ export class WebhookMonitorProcessor extends WorkerHost {
 
     // Se não encontrou no cache, tentar buscar diretamente da Binance
     try {
-      this.logger.debug(
-        `[WEBHOOK-MONITOR] Preço não encontrado no cache, buscando da exchange BINANCE_SPOT...`
-      );
+      // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
 
       const adapter = AdapterFactory.createAdapter('BINANCE_SPOT' as ExchangeType);
       const ticker = await adapter.fetchTicker(symbol);
       const price = ticker.last;
 
       if (price && price > 0) {
-        // Armazenar no cache com TTL de 25 segundos (usar chave padrão BINANCE_SPOT)
+        // ✅ OTIMIZAÇÃO CPU: TTL aumentado para 35s
         const cacheKey = `price:BINANCE_SPOT:${symbol}`;
-        await this.cacheService.set(cacheKey, price, { ttl: 25 });
-        this.logger.debug(
-          `[WEBHOOK-MONITOR] Preço de ${symbol} obtido da BINANCE_SPOT e armazenado no cache: ${price}`
-        );
+        await this.cacheService.set(cacheKey, price, { ttl: 35 });
+        // ✅ OTIMIZAÇÃO CPU: Debug log removido (economiza I/O)
         return price;
       }
 

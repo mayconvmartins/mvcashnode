@@ -7,7 +7,8 @@ import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
-@Processor('price-sync')
+// ✅ OTIMIZAÇÃO CPU: Concurrency 2 permite processar múltiplos ciclos em paralelo
+@Processor('price-sync', { concurrency: 2 })
 export class PriceSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(PriceSyncProcessor.name);
 
@@ -28,7 +29,7 @@ export class PriceSyncProcessor extends WorkerHost {
       // Registrar início da execução
       await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
 
-      // Buscar todas as posições abertas com suas exchanges
+      // ✅ OTIMIZAÇÃO CPU: Select específico para buscar apenas campos necessários
       const openPositions = await this.prisma.tradePosition.findMany({
         where: {
           status: 'OPEN',
@@ -97,9 +98,9 @@ export class PriceSyncProcessor extends WorkerHost {
               const price = ticker.last;
 
               if (price && price > 0) {
-                // Armazenar no cache com TTL de 25 segundos (máximo)
+                // ✅ OTIMIZAÇÃO CPU: TTL aumentado para 35s (Price Sync roda a cada 22s)
                 const cacheKey = `price:${exchange}:${symbol}`;
-                await this.cacheService.set(cacheKey, price, { ttl: 25 });
+                await this.cacheService.set(cacheKey, price, { ttl: 35 });
                 return { symbol, price, success: true };
               } else {
                 this.logger.warn(

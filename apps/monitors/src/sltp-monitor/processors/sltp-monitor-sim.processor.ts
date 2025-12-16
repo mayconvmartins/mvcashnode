@@ -42,7 +42,8 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
       const currentPrice = ticker.last;
       
       if (currentPrice && currentPrice > 0) {
-        await this.cacheService.set(cacheKey, currentPrice, { ttl: 25 });
+        // ✅ OTIMIZAÇÃO CPU: TTL aumentado para 35s
+        await this.cacheService.set(cacheKey, currentPrice, { ttl: 35 });
       }
       
       return currentPrice;
@@ -319,13 +320,26 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
       }
     }
 
-    // Processar apenas posições válidas (abertas)
+    // ✅ OTIMIZAÇÃO CPU: Batch processing - agrupar posições por exchange
+    // Agrupar por exchange para reutilizar adapters
+    const positionsByExchange = new Map<string, typeof validPositions>();
     for (const position of validPositions) {
+      const exchange = position.exchange_account.exchange;
+      if (!positionsByExchange.has(exchange)) {
+        positionsByExchange.set(exchange, []);
+      }
+      positionsByExchange.get(exchange)!.push(position);
+    }
+
+    // Processar cada grupo de posições por exchange com adapter reutilizado
+    for (const [exchange, exchangePositions] of positionsByExchange.entries()) {
       try {
-        // Create read-only adapter (no API keys needed for simulation)
-        const adapter = AdapterFactory.createAdapter(
-          position.exchange_account.exchange as ExchangeType
-        );
+        // Criar adapter uma vez por exchange (simulation não precisa de API keys)
+        const adapter = AdapterFactory.createAdapter(exchange as ExchangeType);
+
+        // Processar todas as posições desta exchange
+        for (const position of exchangePositions) {
+      try {
 
         // Get current price - verificar cache primeiro
         const exchange = position.exchange_account.exchange;
@@ -343,8 +357,8 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             const ticker = await adapter.fetchTicker(position.symbol);
             currentPrice = ticker.last;
             if (currentPrice && currentPrice > 0) {
-              // Armazenar no cache com TTL de 25 segundos
-              await this.cacheService.set(cacheKey, currentPrice, { ttl: 25 });
+              // ✅ OTIMIZAÇÃO CPU: TTL aumentado para 35s
+              await this.cacheService.set(cacheKey, currentPrice, { ttl: 35 });
               this.logger.debug(`[SL-TP-MONITOR-SIM] Preço de ${position.symbol} obtido da exchange e armazenado no cache: ${currentPrice}`);
             }
           } catch (error: any) {
@@ -709,7 +723,11 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
       } catch (error) {
         console.error(`Error processing position ${position.id}:`, error);
       }
-    }
+        } // Fim do loop de posições da exchange
+      } catch (exchangeError: any) {
+        this.logger.error(`[SL-TP-MONITOR-SIM] Erro ao processar exchange ${exchange}: ${exchangeError.message}`);
+      }
+    } // Fim do loop de exchanges
 
     const result = { positionsChecked: positions.length, triggered, retried };
     const durationMs = Date.now() - startTime;

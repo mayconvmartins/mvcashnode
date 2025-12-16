@@ -2,8 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { getQueueToken } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { NtpService, TimezoneService, MonitorService } from '@mvcashnode/shared';
-import { PrismaService } from '@mvcashnode/db';
+import { NtpService, TimezoneService } from '@mvcashnode/shared';
 
 async function bootstrap() {
   // Inicializar serviços de tempo
@@ -42,37 +41,12 @@ async function bootstrap() {
   console.log('Monitors service started');
   console.log('Configurando jobs repetitivos...');
 
-  // Inicializar monitoramento do próprio serviço
-  const monitorService = new MonitorService();
-  const prisma = app.get(PrismaService);
+  // ✅ OTIMIZAÇÃO CPU: Métricas são coletadas pelo System Monitor a cada 30s
+  // Removido setInterval duplicado para economizar ~120 queries/hora
 
-  // ✅ BUG-MED-008 FIX: Armazenar interval ID para cleanup
-  // Reportar métricas a cada 30 segundos (não precisa de job BullMQ pois já roda aqui)
-  const metricsInterval = setInterval(async () => {
-    try {
-      const metrics = await monitorService.getCurrentProcessMetrics('MONITORS');
-      await prisma.systemMonitoringLog.create({
-        data: {
-          service_name: metrics.name,
-          process_id: metrics.pid,
-          status: metrics.status,
-          cpu_usage: metrics.cpu,
-          memory_usage: metrics.memory / (1024 * 1024), // Converter bytes para MB
-          metrics_json: {
-            uptime: metrics.uptime,
-            memory_bytes: metrics.memory, // Manter valor original em bytes no JSON
-          },
-        },
-      });
-    } catch (error) {
-      console.error('[Monitors] Erro ao salvar métricas:', error);
-    }
-  }, 30000);
-
-  // ✅ BUG-MED-008 FIX: Cleanup de setInterval em shutdown
+  // ✅ Cleanup em shutdown
   const shutdown = async () => {
     console.log('[Monitors] Encerrando serviço...');
-    clearInterval(metricsInterval);
     await app.close();
     process.exit(0);
   };

@@ -28,18 +28,34 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
     try {
       // Registrar início da execução
       await this.cronExecutionService.recordExecution(jobName, CronExecutionStatus.RUNNING);
-    // Get all pending limit orders
+    // ✅ OTIMIZAÇÃO CPU: Select específico para buscar apenas campos necessários
     const limitOrders = await this.prisma.tradeJob.findMany({
       where: {
         trade_mode: TradeMode.REAL,
         status: TradeJobStatus.PENDING_LIMIT,
         order_type: 'LIMIT',
       },
-      include: {
-        exchange_account: true,
+      select: {
+        id: true,
+        symbol: true,
+        side: true,
+        exchange_account_id: true,
+        trade_mode: true,
+        limit_order_expires_at: true,
+        exchange_account: {
+          select: {
+            id: true,
+            exchange: true,
+            testnet: true,
+          },
+        },
         executions: {
           take: 1,
           orderBy: { id: 'desc' },
+          select: {
+            id: true,
+            exchange_order_id: true,
+          },
         },
       },
     });
