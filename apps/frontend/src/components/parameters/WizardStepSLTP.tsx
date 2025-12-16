@@ -10,7 +10,13 @@ interface WizardStepSLTPProps {
 }
 
 export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
-    const hasCurrentValues = data.stopLossPercent || data.takeProfitPercent || data.minProfitPct || data.trailingStop
+    const hasCurrentValues = data.stopLossPercent || data.takeProfitPercent || data.stopGainPercent || data.minProfitPct || data.trailingStop
+    
+    // Validação: Stop Gain deve ser menor que Take Profit
+    const sgError = data.stopGain && data.takeProfitPercent && data.stopGainPercent && 
+      data.stopGainPercent >= data.takeProfitPercent 
+      ? 'Stop Gain deve ser menor que Take Profit' 
+      : null
     
     return (
         <div className="space-y-6">
@@ -33,6 +39,12 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Take Profit:</span>
                                     <span className="font-medium">{data.takeProfitPercent}%</span>
+                                </div>
+                            )}
+                            {data.stopGainPercent && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Stop Gain:</span>
+                                    <span className="font-medium">{data.stopGainPercent}%</span>
                                 </div>
                             )}
                             {data.minProfitPct && (
@@ -82,6 +94,37 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                         Porcentagem de lucro alvo da entrada
                     </p>
                 </div>
+
+                {data.takeProfitPercent && (
+                    <div className="mt-3 p-4 bg-muted/50 rounded-lg border border-dashed">
+                        <div className="flex items-center justify-between mb-3">
+                            <Label>Stop Gain (Saída Antecipada)</Label>
+                            <Switch
+                                checked={data.stopGain || false}
+                                onCheckedChange={(checked) => updateData({ stopGain: checked })}
+                            />
+                        </div>
+                        {data.stopGain && (
+                            <>
+                                <Input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max={data.takeProfitPercent}
+                                    value={data.stopGainPercent || ''}
+                                    onChange={(e) => updateData({ stopGainPercent: e.target.value ? parseFloat(e.target.value) : undefined })}
+                                    placeholder="Ex: 2.0"
+                                />
+                                {sgError && <p className="text-xs text-destructive mt-2">{sgError}</p>}
+                                {!sgError && data.stopGainPercent && (
+                                    <p className="text-xs text-muted-foreground mt-2">
+                                        Vende se atingir {data.stopGainPercent}% antes do TP de {data.takeProfitPercent}%
+                                    </p>
+                                )}
+                            </>
+                        )}
+                    </div>
+                )}
 
                 <div>
                     <Label htmlFor="minProfitPct">Lucro Mínimo (%) *</Label>

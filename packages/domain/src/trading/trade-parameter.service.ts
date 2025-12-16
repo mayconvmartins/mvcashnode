@@ -16,6 +16,8 @@ export interface CreateTradeParameterDto {
   defaultSlPct?: number;
   defaultTpEnabled?: boolean;
   defaultTpPct?: number;
+  defaultSgEnabled?: boolean;
+  defaultSgPct?: number;
   trailingStopEnabled?: boolean;
   trailingDistancePct?: number;
   minProfitPct?: number;
@@ -31,6 +33,16 @@ export class TradeParameterService {
     // Validação: não permitir criar parâmetro sem lucro mínimo definido
     if (!dto.minProfitPct || dto.minProfitPct <= 0) {
       throw new Error('Lucro mínimo (min_profit_pct) é obrigatório e deve ser maior que zero');
+    }
+
+    // Validação: Stop Gain só pode ser habilitado se TP estiver habilitado
+    if (dto.defaultSgEnabled && !dto.defaultTpEnabled) {
+      throw new Error('Stop Gain só pode ser habilitado quando Take Profit estiver habilitado');
+    }
+
+    // Validação: Stop Gain % deve ser menor que Take Profit %
+    if (dto.defaultSgEnabled && dto.defaultSgPct !== undefined && dto.defaultTpPct !== undefined && dto.defaultSgPct >= dto.defaultTpPct) {
+      throw new Error('Stop Gain % deve ser menor que Take Profit %');
     }
 
     // ✅ BUG-MED-006 FIX: Validar se já existe parâmetro ativo para mesmo símbolo/lado/exchange_account
@@ -65,6 +77,8 @@ export class TradeParameterService {
         default_sl_pct: dto.defaultSlPct || null,
         default_tp_enabled: dto.defaultTpEnabled || false,
         default_tp_pct: dto.defaultTpPct || null,
+        default_sg_enabled: dto.defaultSgEnabled || false,
+        default_sg_pct: dto.defaultSgPct || null,
         trailing_stop_enabled: dto.trailingStopEnabled || false,
         trailing_distance_pct: dto.trailingDistancePct || null,
         min_profit_pct: dto.minProfitPct || null,
@@ -88,11 +102,37 @@ export class TradeParameterService {
     // Se não tiver e não estiver sendo atualizado, não permitir atualização de outros campos
     const currentParameter = await this.prisma.tradeParameter.findUnique({
       where: { id },
-      select: { min_profit_pct: true },
+      select: { 
+        min_profit_pct: true,
+        default_tp_enabled: true,
+        default_tp_pct: true,
+        default_sg_enabled: true,
+        default_sg_pct: true
+      },
     });
 
     if (currentParameter && !currentParameter.min_profit_pct && dto.minProfitPct === undefined) {
       throw new Error('Parâmetro não possui lucro mínimo configurado. É obrigatório definir min_profit_pct antes de atualizar outros campos.');
+    }
+
+    // Validação: Stop Gain só pode ser habilitado se TP estiver habilitado
+    const tpEnabled = dto.defaultTpEnabled !== undefined ? dto.defaultTpEnabled : currentParameter?.default_tp_enabled;
+    if (dto.defaultSgEnabled && !tpEnabled) {
+      throw new Error('Stop Gain só pode ser habilitado quando Take Profit estiver habilitado');
+    }
+
+    // Validação: Stop Gain % deve ser menor que Take Profit %
+    const tpPct = dto.defaultTpPct !== undefined ? dto.defaultTpPct : currentParameter?.default_tp_pct?.toNumber();
+    const sgPct = dto.defaultSgPct !== undefined ? dto.defaultSgPct : currentParameter?.default_sg_pct?.toNumber();
+    
+    if (dto.defaultSgEnabled && sgPct !== undefined && sgPct !== null && tpPct !== undefined && tpPct !== null && sgPct >= tpPct) {
+      throw new Error('Stop Gain % deve ser menor que Take Profit %');
+    }
+
+    // Se TP for desabilitado, desabilitar também SG
+    if (dto.defaultTpEnabled === false && currentParameter?.default_sg_enabled) {
+      dto.defaultSgEnabled = false;
+      dto.defaultSgPct = undefined;
     }
 
     return this.prisma.tradeParameter.update({
@@ -110,6 +150,8 @@ export class TradeParameterService {
         ...(dto.defaultSlPct !== undefined && { default_sl_pct: dto.defaultSlPct || null }),
         ...(dto.defaultTpEnabled !== undefined && { default_tp_enabled: dto.defaultTpEnabled }),
         ...(dto.defaultTpPct !== undefined && { default_tp_pct: dto.defaultTpPct || null }),
+        ...(dto.defaultSgEnabled !== undefined && { default_sg_enabled: dto.defaultSgEnabled }),
+        ...(dto.defaultSgPct !== undefined && { default_sg_pct: dto.defaultSgPct || null }),
         ...(dto.trailingStopEnabled !== undefined && { trailing_stop_enabled: dto.trailingStopEnabled }),
         ...(dto.trailingDistancePct !== undefined && { trailing_distance_pct: dto.trailingDistancePct || null }),
         ...(dto.minProfitPct !== undefined && { min_profit_pct: dto.minProfitPct }),

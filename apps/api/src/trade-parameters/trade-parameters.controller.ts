@@ -378,6 +378,10 @@ export class TradeParametersController {
           ? (createDto.takeProfit !== undefined || createDto.takeProfitPercent !== undefined)
           : (subscriberParams?.default_tp_pct !== null && subscriberParams?.default_tp_pct !== undefined),
         defaultTpPct: createDto.takeProfitPercent || createDto.takeProfit || subscriberParams?.default_tp_pct,
+        defaultSgEnabled: createDto.stopGain !== undefined || createDto.stopGainPercent !== undefined
+          ? (createDto.stopGain !== undefined || createDto.stopGainPercent !== undefined)
+          : (subscriberParams?.default_sg_pct !== null && subscriberParams?.default_sg_pct !== undefined),
+        defaultSgPct: createDto.stopGainPercent || createDto.stopGain || subscriberParams?.default_sg_pct,
         trailingStopEnabled: createDto.trailingStop || false,
         trailingDistancePct: createDto.trailingDistancePct,
         minProfitPct: createDto.minProfitPct ?? createDto.min_profit_pct,
@@ -521,8 +525,22 @@ export class TradeParametersController {
       if (updateDto.slippage_bps !== undefined) updateData.slippage_bps = updateDto.slippage_bps;
       if (updateDto.default_sl_enabled !== undefined) updateData.default_sl_enabled = updateDto.default_sl_enabled;
       if (updateDto.default_sl_pct !== undefined) updateData.default_sl_pct = updateDto.default_sl_pct;
+      if (updateDto.stopLoss !== undefined || updateDto.stopLossPercent !== undefined) {
+        updateData.default_sl_enabled = true;
+        updateData.default_sl_pct = updateDto.stopLossPercent || updateDto.stopLoss;
+      }
       if (updateDto.default_tp_enabled !== undefined) updateData.default_tp_enabled = updateDto.default_tp_enabled;
       if (updateDto.default_tp_pct !== undefined) updateData.default_tp_pct = updateDto.default_tp_pct;
+      if (updateDto.takeProfit !== undefined || updateDto.takeProfitPercent !== undefined) {
+        updateData.default_tp_enabled = true;
+        updateData.default_tp_pct = updateDto.takeProfitPercent || updateDto.takeProfit;
+      }
+      if (updateDto.default_sg_enabled !== undefined) updateData.default_sg_enabled = updateDto.default_sg_enabled;
+      if (updateDto.default_sg_pct !== undefined) updateData.default_sg_pct = updateDto.default_sg_pct;
+      if (updateDto.stopGain !== undefined || updateDto.stopGainPercent !== undefined) {
+        updateData.default_sg_enabled = true;
+        updateData.default_sg_pct = updateDto.stopGainPercent || updateDto.stopGain;
+      }
       if (updateDto.trailing_stop_enabled !== undefined) updateData.trailing_stop_enabled = updateDto.trailing_stop_enabled;
       if (updateDto.trailing_distance_pct !== undefined) updateData.trailing_distance_pct = updateDto.trailing_distance_pct;
       if (updateDto.min_profit_pct !== undefined || updateDto.minProfitPct !== undefined) {

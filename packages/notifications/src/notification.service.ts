@@ -9,6 +9,7 @@ export type NotificationTemplateType =
   | 'POSITION_OPENED'
   | 'POSITION_CLOSED'
   | 'STOP_LOSS_TRIGGERED'
+  | 'STOP_GAIN_TRIGGERED'
   | 'PARTIAL_TP_TRIGGERED';
 
 export class NotificationService {
@@ -213,7 +214,7 @@ export class NotificationService {
    */
   private async getPositionNotificationRecipients(
     accountUserId: number,
-    notificationType: 'POSITION_OPENED' | 'POSITION_CLOSED' | 'STOP_LOSS' | 'PARTIAL_TP' = 'POSITION_OPENED'
+    notificationType: 'POSITION_OPENED' | 'POSITION_CLOSED' | 'STOP_LOSS' | 'STOP_GAIN' | 'TAKE_PROFIT' | 'PARTIAL_TP' = 'POSITION_OPENED'
   ): Promise<string[]> {
     const recipients: string[] = [];
 
@@ -229,6 +230,8 @@ export class NotificationService {
       case 'STOP_LOSS':
         configFlag = 'stop_loss_enabled';
         break;
+      case 'STOP_GAIN':
+      case 'TAKE_PROFIT':
       case 'PARTIAL_TP':
         configFlag = 'take_profit_enabled';
         break;
@@ -592,6 +595,8 @@ export class NotificationService {
     let closeReasonText = '';
     if (position.close_reason?.includes('STOP_LOSS')) {
       closeReasonText = '🛑 *Fechado por Stop Loss*';
+    } else if (position.close_reason?.includes('STOP_GAIN')) {
+      closeReasonText = '🎯 *Fechado por Stop Gain (Saída Antecipada)*';
     } else if (position.close_reason?.includes('TAKE_PROFIT')) {
       closeReasonText = '🎯 *Fechado por Take Profit*';
     } else if (position.close_reason?.includes('TRAILING')) {
@@ -728,6 +733,81 @@ export class NotificationService {
         }
       } catch (error) {
         console.error('[NOTIFICATIONS] Erro ao enviar email de stop loss:', error);
+      }
+    }
+  }
+
+  /**
+   * Envia notificação de Stop Gain acionado
+   */
+  async sendStopGainAlert(positionId: number, executionId: number): Promise<void> {
+    const position = await this.prisma.tradePosition.findUnique({
+      where: { id: positionId },
+      include: {
+        exchange_account: true,
+      },
+    });
+
+    const execution = await this.prisma.tradeExecution.findUnique({
+      where: { id: executionId },
+    });
+
+    if (!position || !execution) {
+      return;
+    }
+
+    const recipients = await this.getPositionNotificationRecipients(position.exchange_account.user_id, 'STOP_GAIN');
+    if (recipients.length === 0) {
+      return;
+    }
+
+    const qty = execution.executed_qty.toNumber();
+    const sellPrice = execution.avg_price.toNumber();
+    const total = qty * sellPrice;
+    const buyPrice = position.price_open.toNumber();
+    const profitPct = ((sellPrice - buyPrice) / buyPrice) * 100;
+    const positionIdShort = position.id.toString().slice(0, 8).toUpperCase();
+    const sgPct = position.sg_pct?.toNumber() || 0;
+    const tpPct = position.tp_pct?.toNumber() || 0;
+
+    const variables: TemplateVariables = {
+      'account.label': position.exchange_account.label || 'Conta',
+      'symbol': position.symbol,
+      'qty': qty,
+      'sellPrice': sellPrice,
+      'total': total,
+      'buyPrice': buyPrice,
+      'profitPct': profitPct,
+      'positionId': positionIdShort,
+      'sgPct': sgPct,
+      'tpPct': tpPct,
+      'datetime': new Date(),
+    };
+
+    await this.sendWithTemplate('STOP_GAIN_TRIGGERED', variables, recipients);
+
+    // Enviar email se configurado
+    if (this.emailService) {
+      try {
+        const emailRecipients = await this.getEmailRecipients(position.exchange_account.user_id, 'operations_enabled');
+        for (const email of emailRecipients) {
+          await this.emailService.sendOperationAlert(email, {
+            type: 'STOP_GAIN',
+            message: `Stop Gain acionado para ${position.symbol} - Saída antecipada com ${profitPct.toFixed(2)}%`,
+            details: {
+              positionId: position.id,
+              symbol: position.symbol,
+              qty,
+              sellPrice,
+              profitPct,
+              sgPct,
+              tpPct,
+            },
+            datetime: new Date(),
+          });
+        }
+      } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao enviar email de stop gain:', error);
       }
     }
   }

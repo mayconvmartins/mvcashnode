@@ -114,9 +114,11 @@ export class PositionsSellSyncProcessor extends WorkerHost {
             }
 
             // Determinar origin baseado na posição
-            let origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'WEBHOOK';
+            let origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'STOP_GAIN' | 'MANUAL' | 'TRAILING' = 'WEBHOOK';
             
-            if (currentPosition.tp_triggered) {
+            if (currentPosition.sg_triggered) {
+              origin = 'STOP_GAIN';
+            } else if (currentPosition.tp_triggered) {
               origin = 'TAKE_PROFIT';
             } else if (currentPosition.sl_triggered) {
               origin = 'STOP_LOSS';

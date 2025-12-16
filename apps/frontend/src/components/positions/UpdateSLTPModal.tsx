@@ -24,6 +24,14 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
     const [tpPct, setTpPct] = useState(position.tp_pct?.toString() || '')
     const [slEnabled, setSlEnabled] = useState(position.sl_enabled)
     const [tpEnabled, setTpEnabled] = useState(position.tp_enabled)
+    const [sgEnabled, setSgEnabled] = useState(position.sg_enabled)
+    const [sgPct, setSgPct] = useState(position.sg_pct?.toString() || '')
+
+    // Validação: Stop Gain deve ser menor que Take Profit
+    const sgError = sgEnabled && tpEnabled && sgPct && tpPct && 
+      parseFloat(sgPct) >= parseFloat(tpPct) 
+      ? 'Stop Gain deve ser menor que Take Profit' 
+      : null
 
     const updateMutation = useMutation({
         mutationFn: () => positionsService.updateSLTP(position.id, {
@@ -31,6 +39,8 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
             slPct: slEnabled && slPct ? parseFloat(slPct) : undefined,
             tpEnabled: tpEnabled,
             tpPct: tpEnabled && tpPct ? parseFloat(tpPct) : undefined,
+            sgEnabled: sgEnabled,
+            sgPct: sgEnabled && sgPct ? parseFloat(sgPct) : undefined,
         }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['position', position.id] })
@@ -117,21 +127,56 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                                 onChange={(e) => setTpPct(e.target.value)}
                                 placeholder="Ex: 5.0"
                             />
-                            {tpPrice && (
-                                <p className="text-sm mt-1 text-muted-foreground">
-                                    Preço: {formatCurrency(tpPrice)} ({tpPct}% acima da entrada)
+                    {tpPrice && (
+                        <p className="text-sm mt-1 text-muted-foreground">
+                            Preço: {formatCurrency(tpPrice)} ({tpPct}% acima da entrada)
+                        </p>
+                    )}
+                </div>
+            )}
+            {tpEnabled && (
+                <div className="mt-4 p-4 bg-muted rounded-lg">
+                    <div className="flex items-center space-x-2 mb-3">
+                        <input
+                            type="checkbox"
+                            id="sgEnabled"
+                            checked={sgEnabled}
+                            onChange={(e) => setSgEnabled(e.target.checked)}
+                            className="rounded"
+                        />
+                        <Label htmlFor="sgEnabled">Ativar Stop Gain (Saída Antecipada)</Label>
+                    </div>
+                    {sgEnabled && (
+                        <div>
+                            <Label htmlFor="sgPct">Stop Gain (%) - Vende antes do TP</Label>
+                            <Input
+                                id="sgPct"
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max={tpPct ? parseFloat(tpPct) : undefined}
+                                value={sgPct}
+                                onChange={(e) => setSgPct(e.target.value)}
+                                placeholder="Ex: 2.0"
+                            />
+                            {sgError && <p className="text-sm text-destructive mt-1">{sgError}</p>}
+                            {sgPct && tpPct && !sgError && (
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Vende se atingir {sgPct}% antes do TP de {tpPct}%
                                 </p>
                             )}
                         </div>
                     )}
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={onClose}>
-                            Cancelar
-                        </Button>
-                        <Button type="submit" disabled={updateMutation.isPending}>
-                            {updateMutation.isPending ? 'Atualizando...' : 'Atualizar'}
-                        </Button>
-                    </DialogFooter>
+                </div>
+            )}
+            <DialogFooter>
+                <Button type="button" variant="outline" onClick={onClose}>
+                    Cancelar
+                </Button>
+                <Button type="submit" disabled={updateMutation.isPending || !!sgError}>
+                    {updateMutation.isPending ? 'Atualizando...' : 'Atualizar'}
+                </Button>
+            </DialogFooter>
                 </form>
             </DialogContent>
         </Dialog>

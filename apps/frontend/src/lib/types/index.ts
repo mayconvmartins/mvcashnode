@@ -211,6 +211,8 @@ export interface TradeParameter {
     default_sl_pct?: number
     default_tp_enabled: boolean
     default_tp_pct?: number
+    default_sg_enabled: boolean
+    default_sg_pct?: number
     trailing_stop_enabled: boolean
     trailing_distance_pct?: number
     min_profit_pct?: number
@@ -372,12 +374,15 @@ export interface Position {
     sl_pct?: number
     tp_enabled: boolean
     tp_pct?: number
+    sg_enabled: boolean
+    sg_pct?: number
     trailing_enabled: boolean
     trailing_distance_pct?: number
     trailing_max_price?: number
     min_profit_pct?: number
     sl_triggered: boolean
     tp_triggered: boolean
+    sg_triggered: boolean
     trailing_triggered: boolean
     partial_tp_triggered: boolean
     lock_sell_by_webhook: boolean
@@ -476,6 +481,8 @@ export interface UpdateSLTPDto {
     slPct?: number
     tpEnabled?: boolean
     tpPct?: number
+    sgEnabled?: boolean
+    sgPct?: number
     trailingEnabled?: boolean
     trailingDistancePct?: number
 }
@@ -491,17 +498,22 @@ export interface PositionTPSLMonitoring {
     pnl_pct: number | null
     tp_enabled: boolean
     tp_pct: number | null
+    sg_enabled: boolean
+    sg_pct: number | null
     sl_enabled: boolean
     sl_pct: number | null
     tp_proximity_pct: number | null
+    sg_proximity_pct: number | null
     sl_proximity_pct: number | null
     distance_to_tp_pct: number | null
+    distance_to_sg_pct: number | null
     distance_to_sl_pct: number | null
     status: 'PROFIT' | 'LOSS' | 'AT_TP' | 'AT_SL' | 'UNKNOWN'
     qty_remaining: number
     qty_total: number
     sl_triggered: boolean
     tp_triggered: boolean
+    sg_triggered: boolean
     total_value_usd: number
     current_value_usd: number | null
     unrealized_pnl_usd: number | null

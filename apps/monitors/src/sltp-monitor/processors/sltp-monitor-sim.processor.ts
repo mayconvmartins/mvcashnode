@@ -435,6 +435,100 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           }
         }
 
+        // Check Stop Gain (executado ANTES do Take Profit)
+        if (position.tp_enabled && position.sg_enabled && position.sg_pct && position.tp_pct &&
+            !position.tp_triggered && !position.sg_triggered) {
+          const sgPct = position.sg_pct.toNumber();
+          const tpPct = position.tp_pct.toNumber();
+          
+          // Se atingiu Stop Gain mas não atingiu TP ainda
+          if (pnlPct >= sgPct && pnlPct < tpPct) {
+            // Lock otimista
+            const lockResult = await this.prisma.tradePosition.updateMany({
+              where: {
+                id: position.id,
+                sg_triggered: false,
+              },
+              data: { sg_triggered: true },
+            });
+            
+            if (lockResult.count === 0) {
+              this.logger.debug(`[SL-TP-MONITOR-SIM] Posição ${position.id} já foi processada por outra execução (SG)`);
+              continue;
+            }
+            
+            // Verificar se já existe job
+            const existingJob = await this.prisma.tradeJob.findFirst({
+              where: {
+                position_id_to_close: position.id,
+                status: {
+                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING'],
+                },
+              },
+              select: { id: true, status: true },
+            });
+            
+            if (existingJob) {
+              this.logger.warn(
+                `[SL-TP-MONITOR-SIM] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, flag SG já está marcada`
+              );
+              continue;
+            }
+            
+            try {
+              // Calcular preço LIMIT para Stop Gain
+              const limitPrice = priceOpen * (1 + sgPct / 100);
+              
+              // Validar lucro mínimo
+              const validationResult = await positionService.validateMinProfit(
+                position.id,
+                limitPrice
+              );
+              
+              if (!validationResult.valid) {
+                this.logger.warn(`[SL-TP-MONITOR-SIM] ⚠️ Stop Gain SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+                // Reverter flag
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { sg_triggered: false },
+                });
+                continue;
+              }
+              
+              const tradeJob = await tradeJobService.createJob({
+                exchangeAccountId: position.exchange_account_id,
+                tradeMode: TradeMode.SIMULATION,
+                symbol: position.symbol,
+                side: 'SELL',
+                orderType: 'LIMIT',
+                baseQuantity: position.qty_remaining.toNumber(),
+                limitPrice,
+                positionIdToClose: position.id,
+                skipParameterValidation: true,
+                createdBy: 'STOP_GAIN',
+              });
+              
+              this.logger.log(`[SL-TP-MONITOR-SIM] Stop Gain - Job criado: ID=${tradeJob.id}, symbol=${position.symbol}, sgPct=${sgPct}%, limitPrice=${limitPrice}`);
+              
+              await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
+                jobId: `trade-job-${tradeJob.id}`,
+                attempts: 3,
+              });
+              
+              this.logger.log(`[SL-TP-MONITOR-SIM] Stop Gain - Job ${tradeJob.id} enfileirado`);
+              triggered++;
+            } catch (error: any) {
+              this.logger.error(`[SL-TP-MONITOR-SIM] Erro ao criar job de Stop Gain para posição ${position.id}: ${error.message}`);
+              // Reverter flag se falhou
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { sg_triggered: false },
+              });
+              this.logger.warn(`[SL-TP-MONITOR-SIM] Flag sg_triggered revertida para posição ${position.id}`);
+            }
+          }
+        }
+
         // Check Take Profit
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
           if (!position.tp_triggered) {

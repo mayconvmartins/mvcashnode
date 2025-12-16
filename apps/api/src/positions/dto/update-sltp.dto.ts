@@ -26,6 +26,18 @@ export class UpdateSLTPDto {
   @Max(100)
   tpPct?: number;
 
+  @ApiProperty({ required: false, description: 'Ativar Stop Gain (saída antecipada do TP)' })
+  @IsOptional()
+  @IsBoolean()
+  sgEnabled?: boolean;
+
+  @ApiProperty({ required: false, example: 2.0, description: 'Porcentagem de Stop Gain (deve ser menor que TP)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  sgPct?: number;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()

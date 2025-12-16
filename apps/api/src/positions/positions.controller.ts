@@ -1683,6 +1683,20 @@ export class PositionsController {
           }
         }
 
+        // Calcular proximidade e distância para Stop Gain
+        let sgProximityPct: number | null = null;
+        let distanceToSgPct: number | null = null;
+        if (position.sg_enabled && position.sg_pct) {
+          const sgPct = position.sg_pct.toNumber();
+          if (pnlPct >= sgPct) {
+            sgProximityPct = 100;
+            distanceToSgPct = 0;
+          } else {
+            sgProximityPct = pnlPct > 0 ? (pnlPct / sgPct) * 100 : 0;
+            distanceToSgPct = sgPct - pnlPct;
+          }
+        }
+
         // Determinar status
         let status: 'PROFIT' | 'LOSS' | 'AT_TP' | 'AT_SL' = pnlPct >= 0 ? 'PROFIT' : 'LOSS';
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
@@ -1702,17 +1716,22 @@ export class PositionsController {
           pnl_pct: pnlPct,
           tp_enabled: position.tp_enabled,
           tp_pct: position.tp_pct?.toNumber() || null,
+          sg_enabled: position.sg_enabled,
+          sg_pct: position.sg_pct?.toNumber() || null,
           sl_enabled: position.sl_enabled,
           sl_pct: position.sl_pct?.toNumber() || null,
           tp_proximity_pct: tpProximityPct,
+          sg_proximity_pct: sgProximityPct,
           sl_proximity_pct: slProximityPct,
           distance_to_tp_pct: distanceToTpPct,
+          distance_to_sg_pct: distanceToSgPct,
           distance_to_sl_pct: distanceToSlPct,
           status,
           qty_remaining: qtyRemaining,
           qty_total: qtyTotal,
           sl_triggered: position.sl_triggered,
           tp_triggered: position.tp_triggered,
+          sg_triggered: position.sg_triggered,
           total_value_usd: totalInvestedUsd,
           current_value_usd: currentValueUsd,
           unrealized_pnl_usd: unrealizedPnlUsd,
@@ -2077,7 +2096,7 @@ export class PositionsController {
   })
   @ApiResponse({ 
     status: 200, 
-    description: 'SL/TP atualizado com sucesso',
+    description: 'SL/TP/SG atualizado com sucesso',
     schema: {
       type: 'object',
       properties: {
@@ -2086,6 +2105,8 @@ export class PositionsController {
         sl_pct: { type: 'number', example: 2.0, description: 'Stop Loss em percentual (ex: 2.0 = 2%)' },
         tp_enabled: { type: 'boolean', example: true },
         tp_pct: { type: 'number', example: 5.0, description: 'Take Profit em percentual (ex: 5.0 = 5%)' },
+        sg_enabled: { type: 'boolean', example: true },
+        sg_pct: { type: 'number', example: 2.5, description: 'Stop Gain em percentual (ex: 2.5 = 2.5%) - Deve ser menor que TP' },
         updated_at: { type: 'string', format: 'date-time', example: '2025-02-12T10:30:00.000Z' },
       },
     },
@@ -2135,7 +2156,9 @@ export class PositionsController {
         updateDto.slEnabled,
         updateDto.slPct,
         updateDto.tpEnabled,
-        updateDto.tpPct
+        updateDto.tpPct,
+        updateDto.sgEnabled,
+        updateDto.sgPct
       );
 
       // Emitir evento WebSocket
@@ -2146,6 +2169,8 @@ export class PositionsController {
         sl_pct: updatedPosition.sl_pct,
         tp_enabled: updatedPosition.tp_enabled,
         tp_pct: updatedPosition.tp_pct,
+        sg_enabled: updatedPosition.sg_enabled,
+        sg_pct: updatedPosition.sg_pct,
       });
 
       return updatedPosition;

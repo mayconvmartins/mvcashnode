@@ -89,6 +89,8 @@ export class PositionService {
     let slPct: number | null = null;
     let tpEnabled: boolean = false;
     let tpPct: number | null = null;
+    let sgEnabled: boolean = false;
+    let sgPct: number | null = null;
     let groupPositionsEnabled: boolean = false;
     let groupPositionsIntervalMinutes: number | null = null;
 
@@ -191,6 +193,16 @@ export class PositionService {
           tpPct = bothParameter.default_tp_pct.toNumber();
           console.log(`[POSITION-SERVICE] ✓ tp_pct=${tpPct}% copiado do parâmetro BOTH`);
         }
+        
+        if (bothParameter.default_sg_enabled !== undefined && bothParameter.default_sg_enabled !== null) {
+          sgEnabled = bothParameter.default_sg_enabled;
+          console.log(`[POSITION-SERVICE] ✓ sg_enabled=${sgEnabled} copiado do parâmetro BOTH`);
+        }
+        
+        if (bothParameter.default_sg_pct !== null && bothParameter.default_sg_pct !== undefined) {
+          sgPct = bothParameter.default_sg_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ sg_pct=${sgPct}% copiado do parâmetro BOTH`);
+        }
       } else {
         // Não encontrou BOTH, usar BUY e SELL separadamente
         console.log(`[POSITION-SERVICE] Parâmetro BOTH não encontrado, buscando BUY e SELL separadamente`);
@@ -227,6 +239,16 @@ export class PositionService {
             tpPct = buyParameter.default_tp_pct.toNumber();
             console.log(`[POSITION-SERVICE] ✓ tp_pct=${tpPct}% copiado do parâmetro BUY`);
           }
+          
+          if (buyParameter.default_sg_enabled !== undefined && buyParameter.default_sg_enabled !== null) {
+            sgEnabled = buyParameter.default_sg_enabled;
+            console.log(`[POSITION-SERVICE] ✓ sg_enabled=${sgEnabled} copiado do parâmetro BUY`);
+          }
+          
+          if (buyParameter.default_sg_pct !== null && buyParameter.default_sg_pct !== undefined) {
+            sgPct = buyParameter.default_sg_pct.toNumber();
+            console.log(`[POSITION-SERVICE] ✓ sg_pct=${sgPct}% copiado do parâmetro BUY`);
+          }
         }
       }
 
@@ -235,6 +257,7 @@ export class PositionService {
       console.log(`[POSITION-SERVICE]   - min_profit_pct: ${minProfitPct !== null ? `${minProfitPct}%` : 'null'}`);
       console.log(`[POSITION-SERVICE]   - sl_enabled: ${slEnabled}, sl_pct: ${slPct !== null ? `${slPct}%` : 'null'}`);
       console.log(`[POSITION-SERVICE]   - tp_enabled: ${tpEnabled}, tp_pct: ${tpPct !== null ? `${tpPct}%` : 'null'}`);
+      console.log(`[POSITION-SERVICE]   - sg_enabled: ${sgEnabled}, sg_pct: ${sgPct !== null ? `${sgPct}%` : 'null'}`);
 
       if (!parameter) {
         console.warn(`[POSITION-SERVICE] ⚠️ Nenhum parâmetro encontrado para account=${job.exchange_account_id}, symbol=${job.symbol}. Usando valores padrão.`);
@@ -448,7 +471,7 @@ export class PositionService {
         if (!positionToUpdate || positionToUpdate.status !== PositionStatus.OPEN) {
           // Posição não existe mais ou foi fechada, criar nova
           console.log(`[POSITION-SERVICE] ⚠️ Posição elegível não está mais disponível, criando nova posição`);
-          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, false, null, feeUsd);
+          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, sgEnabled, sgPct, false, null, feeUsd);
         }
 
         // Calcular novo custo médio ponderado
@@ -619,6 +642,8 @@ export class PositionService {
         slPct,
         tpEnabled,
         tpPct,
+        sgEnabled,
+        sgPct,
         false,
         null,
         feeUsd
@@ -644,6 +669,8 @@ export class PositionService {
     slPct: number | null,
     tpEnabled: boolean,
     tpPct: number | null,
+    sgEnabled: boolean,
+    sgPct: number | null,
     isGrouped: boolean,
     groupStartedAt: Date | null,
     feesOnBuyUsd: number = 0
@@ -665,6 +692,8 @@ export class PositionService {
         sl_pct: slPct,
         tp_enabled: tpEnabled,
         tp_pct: tpPct,
+        sg_enabled: sgEnabled,
+        sg_pct: sgPct,
         is_grouped: isGrouped,
         group_started_at: groupStartedAt,
         fees_on_buy_usd: feesOnBuyUsd,
@@ -955,7 +984,7 @@ export class PositionService {
     executionId: number,
     executedQty: number,
     avgPrice: number,
-    origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING',
+    origin: 'WEBHOOK' | 'STOP_LOSS' | 'STOP_GAIN' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING',
     feeAmount?: number,
     feeCurrency?: string
   ): Promise<void> {
@@ -1356,7 +1385,7 @@ export class PositionService {
     accountId: number,
     tradeMode: TradeMode,
     symbol: string,
-    origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL'
+    origin: 'WEBHOOK' | 'STOP_LOSS' | 'STOP_GAIN' | 'TAKE_PROFIT' | 'MANUAL'
   ): Promise<any[]> {
     return this.prisma.tradePosition.findMany({
       where: {
@@ -1372,12 +1401,40 @@ export class PositionService {
     });
   }
 
-  async updateSLTP(positionId: number, slEnabled?: boolean, slPct?: number, tpEnabled?: boolean, tpPct?: number): Promise<any> {
+  async updateSLTP(
+    positionId: number, 
+    slEnabled?: boolean, 
+    slPct?: number, 
+    tpEnabled?: boolean, 
+    tpPct?: number,
+    sgEnabled?: boolean,
+    sgPct?: number
+  ): Promise<any> {
+    // Validação: Stop Gain só pode ser habilitado se TP estiver habilitado
+    if (sgEnabled && !tpEnabled) {
+      throw new Error('Stop Gain só pode ser habilitado quando Take Profit estiver habilitado');
+    }
+
+    // Validação: Stop Gain % deve ser menor que Take Profit %
+    if (sgEnabled && sgPct !== undefined && tpPct !== undefined && sgPct >= tpPct) {
+      throw new Error('Stop Gain % deve ser menor que Take Profit %');
+    }
+
+    // Se tpEnabled for definido como false, desabilitar também o Stop Gain
     const updateData: any = {};
     if (slEnabled !== undefined) updateData.sl_enabled = slEnabled;
     if (slPct !== undefined) updateData.sl_pct = slPct;
-    if (tpEnabled !== undefined) updateData.tp_enabled = tpEnabled;
+    if (tpEnabled !== undefined) {
+      updateData.tp_enabled = tpEnabled;
+      // Se TP for desabilitado, desabilitar também SG
+      if (!tpEnabled) {
+        updateData.sg_enabled = false;
+        updateData.sg_pct = null;
+      }
+    }
     if (tpPct !== undefined) updateData.tp_pct = tpPct;
+    if (sgEnabled !== undefined) updateData.sg_enabled = sgEnabled;
+    if (sgPct !== undefined) updateData.sg_pct = sgPct;
 
     return this.prisma.tradePosition.update({
       where: { id: positionId },
@@ -3329,7 +3386,7 @@ export class PositionService {
           const feeCurrency = executionAfterRevert.fee_currency || undefined;
 
           // Determinar origin baseado no job
-          let origin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'MANUAL';
+          let origin: 'WEBHOOK' | 'STOP_LOSS' | 'STOP_GAIN' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'MANUAL';
           const job = executionAfterRevert.trade_job;
           
           if (!job) {
@@ -3347,7 +3404,8 @@ export class PositionService {
           });
 
           if (relatedPosition) {
-            if (relatedPosition.tp_triggered) origin = 'TAKE_PROFIT';
+            if (relatedPosition.sg_triggered) origin = 'STOP_GAIN';
+            else if (relatedPosition.tp_triggered) origin = 'TAKE_PROFIT';
             else if (relatedPosition.sl_triggered) origin = 'STOP_LOSS';
             else if (relatedPosition.trailing_triggered) origin = 'TRAILING';
             else if (job.webhook_event_id) origin = 'WEBHOOK';
