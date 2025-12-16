@@ -61,6 +61,9 @@ export default function PositionsPage() {
     const [bulkWebhookLockAction, setBulkWebhookLockAction] = useState<boolean | null>(null)
     const [bulkTPEnabled, setBulkTPEnabled] = useState(false)
     const [bulkTPPct, setBulkTPPct] = useState<string>('')
+    const [bulkSGEnabled, setBulkSGEnabled] = useState(false)
+    const [bulkSGPct, setBulkSGPct] = useState<string>('')
+    const [bulkSGDropPct, setBulkSGDropPct] = useState<string>('')
     const [createManualModalOpen, setCreateManualModalOpen] = useState(false)
     const [manualBuyModalOpen, setManualBuyModalOpen] = useState(false)
     const [bulkMinProfitDialogOpen, setBulkMinProfitDialogOpen] = useState(false)
@@ -311,6 +314,9 @@ export default function PositionsPage() {
             setBulkSLPct('')
             setBulkTPEnabled(false)
             setBulkTPPct('')
+            setBulkSGEnabled(false)
+            setBulkSGPct('')
+            setBulkSGDropPct('')
             if (data.updated > 0) {
                 toast.success(`${data.updated} posição(ões) atualizada(s) com sucesso`)
             }
@@ -345,6 +351,14 @@ export default function PositionsPage() {
             updateData.tpPct = parseFloat(bulkTPPct)
         } else if (bulkTPEnabled === false) {
             updateData.tpEnabled = false
+        }
+
+        if (bulkSGEnabled && bulkSGPct && bulkSGDropPct) {
+            updateData.sgEnabled = true
+            updateData.sgPct = parseFloat(bulkSGPct)
+            updateData.sgDropPct = parseFloat(bulkSGDropPct)
+        } else if (bulkSGEnabled === false) {
+            updateData.sgEnabled = false
         }
 
         bulkUpdateSLTPMutation.mutate(updateData)
@@ -674,6 +688,12 @@ export default function PositionsPage() {
                 <div className="flex gap-1">
                     {position.sl_enabled && <Badge variant="outline">SL</Badge>}
                     {position.tp_enabled && <Badge variant="outline">TP</Badge>}
+                    {position.sg_enabled && (
+                        <Badge variant="outline" className="text-xs">
+                            SG: {position.sg_pct}% (-{position.sg_drop_pct}%)
+                            {position.sg_activated && ' ✓'}
+                        </Badge>
+                    )}
                 </div>
             ),
         },
@@ -929,6 +949,12 @@ export default function PositionsPage() {
                 <div className="flex gap-1">
                     {position.sl_enabled && <Badge variant="outline">SL</Badge>}
                     {position.tp_enabled && <Badge variant="outline">TP</Badge>}
+                    {position.sg_enabled && (
+                        <Badge variant="outline" className="text-xs">
+                            SG: {position.sg_pct}% (-{position.sg_drop_pct}%)
+                            {position.sg_activated && ' ✓'}
+                        </Badge>
+                    )}
                 </div>
             ),
         },
@@ -1596,13 +1622,16 @@ export default function PositionsPage() {
                                 setBulkSLPct('')
                                 setBulkTPEnabled(false)
                                 setBulkTPPct('')
+                                setBulkSGEnabled(false)
+                                setBulkSGPct('')
+                                setBulkSGDropPct('')
                             }}
                         >
                             Cancelar
                         </Button>
                         <Button
                             onClick={handleBulkUpdateSLTP}
-                            disabled={bulkUpdateSLTPMutation.isPending || (!bulkSLEnabled && !bulkTPEnabled)}
+                            disabled={bulkUpdateSLTPMutation.isPending || (!bulkSLEnabled && !bulkTPEnabled && !bulkSGEnabled)}
                         >
                             {bulkUpdateSLTPMutation.isPending ? 'Atualizando...' : 'Aplicar'}
                         </Button>

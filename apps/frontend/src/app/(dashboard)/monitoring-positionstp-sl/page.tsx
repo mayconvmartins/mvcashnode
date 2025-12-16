@@ -402,6 +402,49 @@ export default function MonitoringPositionstpSlPage() {
                                     </div>
                                 )}
 
+                                {/* Stop Gain */}
+                                {position.sg_enabled && position.sg_pct !== null && (
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between text-xs">
+                                            <div className="flex items-center gap-1">
+                                                <TrendingUp className="h-3 w-3 text-amber-500" />
+                                                <span className="text-muted-foreground">Stop Gain</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {position.sg_proximity_pct !== null ? (
+                                                    <>
+                                                        <span className="text-xs font-medium">
+                                                            {position.sg_proximity_pct.toFixed(1)}%
+                                                        </span>
+                                                        {position.distance_to_sg_pct !== null && position.distance_to_sg_pct > 0 && (
+                                                            <span className="text-xs text-muted-foreground">
+                                                                ({position.distance_to_sg_pct.toFixed(2)}% restante)
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground">N/A</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {position.sg_proximity_pct !== null && (
+                                            <Progress
+                                                value={position.sg_proximity_pct}
+                                                className="h-1.5"
+                                            />
+                                        )}
+                                        <p className="text-xs text-muted-foreground">
+                                            Ativa: {position.sg_pct}% • Vende: {position.sg_pct && position.sg_drop_pct ? (position.sg_pct - position.sg_drop_pct).toFixed(1) : 'N/A'}%
+                                            {position.sg_activated && (
+                                                <Badge variant="outline" className="ml-1 text-xs bg-amber-500/10">Ativado</Badge>
+                                            )}
+                                            {position.sg_triggered && (
+                                                <Badge variant="outline" className="ml-1 text-xs">Triggered</Badge>
+                                            )}
+                                        </p>
+                                    </div>
+                                )}
+
                                 {/* Stop Loss */}
                                 {position.sl_enabled && position.sl_pct !== null && (
                                     <div className="space-y-1">
