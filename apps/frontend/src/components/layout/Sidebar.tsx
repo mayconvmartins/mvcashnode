@@ -28,7 +28,8 @@ import {
     CreditCard,
     Receipt,
     Package,
-    Wrench
+    Wrench,
+    Flame
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -47,6 +48,7 @@ const menuItems = [
     { icon: Webhook, label: 'Webhooks', href: '/webhooks', subscriberBlocked: true }, // Bloqueado para assinantes
     { icon: Activity, label: 'Monitor Webhook', href: '/webhooks/monitor', subscriberBlocked: true }, // Bloqueado para assinantes
     { icon: LineChart, label: 'Posições', href: '/positions' },
+    { icon: Flame, label: 'Mapa de Calor', href: '/heatmap' },
     { icon: ArrowLeftRight, label: 'Ordens Limit', href: '/limit-orders' },
     { icon: History, label: 'Operações', href: '/operations', subscriberBlocked: true }, // Bloqueado para assinantes
     { icon: FileBarChart, label: 'Relatórios', href: '/reports' },
