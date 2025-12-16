@@ -1691,15 +1691,15 @@ export default function PositionsPage() {
                                                     onChange={(e) => setBulkSGDropPct(e.target.value)}
                                                 />
                                                 {bulkSGDropPct && bulkSGPct && 
-                                                    (parseFloat(bulkSGDropPct) <= 0 || parseFloat(bulkSGDropPct) >= parseFloat(bulkSGPct)) ? (
+                                                    (parseFloat(bulkSGDropPct) <= 0 || parseFloat(bulkSGDropPct) >= parseFloat(bulkSGPct)) && (
                                                     <p className="text-sm text-destructive">Queda deve ser > 0 e < Stop Gain</p>
-                                                ) : null}
+                                                )}
                                                 {bulkSGDropPct && bulkSGPct && 
-                                                    parseFloat(bulkSGDropPct) > 0 && parseFloat(bulkSGDropPct) < parseFloat(bulkSGPct) ? (
+                                                    parseFloat(bulkSGDropPct) > 0 && parseFloat(bulkSGDropPct) < parseFloat(bulkSGPct) && (
                                                     <p className="text-sm text-muted-foreground">
                                                         Vende se cair {bulkSGDropPct}% após ativar (venda em {parseFloat(bulkSGPct) - parseFloat(bulkSGDropPct)}%)
                                                     </p>
-                                                ) : null}
+                                                )}
                                             </div>
                                         )}
                                     </div>
