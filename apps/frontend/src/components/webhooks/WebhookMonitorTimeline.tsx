@@ -37,20 +37,28 @@ export function WebhookMonitorTimeline({ alertId }: WebhookMonitorTimelineProps)
     )
   }
 
-  if (error || !timeline) {
+  if (error || !timeline || !timeline.alert) {
     return (
       <Card>
         <CardContent className="pt-6">
           <div className="text-center text-red-600">
             <AlertCircle className="mx-auto h-8 w-8 mb-2" />
             <p>Erro ao carregar timeline do alerta</p>
+            {error && <p className="text-sm mt-2">{String(error)}</p>}
           </div>
         </CardContent>
       </Card>
     )
   }
 
-  const { alert, snapshots, summary } = timeline
+  const { alert, snapshots = [], summary } = timeline
+  
+  // Valores seguros com fallback
+  const priceAlert = Number(alert.price_alert) || 0
+  const priceMinimum = alert.price_minimum ? Number(alert.price_minimum) : null
+  const priceMaximum = alert.price_maximum ? Number(alert.price_maximum) : null
+  const executionPrice = alert.execution_price ? Number(alert.execution_price) : null
+  const savingsPct = alert.savings_pct !== null && alert.savings_pct !== undefined ? Number(alert.savings_pct) : null
 
   return (
     <div className="space-y-6">
@@ -81,27 +89,30 @@ export function WebhookMonitorTimeline({ alertId }: WebhookMonitorTimelineProps)
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-sm text-muted-foreground">Preço Alerta</p>
-              <p className="font-mono font-semibold">${alert.price_alert.toFixed(8)}</p>
+              <p className="font-mono font-semibold">${priceAlert.toFixed(8)}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">
                 {alert.side === 'BUY' ? 'Preço Mínimo' : 'Preço Máximo'}
               </p>
               <p className="font-mono font-semibold">
-                ${(alert.side === 'BUY' ? alert.price_minimum : alert.price_maximum)?.toFixed(8) || '-'}
+                {alert.side === 'BUY' 
+                  ? (priceMinimum !== null ? `$${priceMinimum.toFixed(8)}` : '-')
+                  : (priceMaximum !== null ? `$${priceMaximum.toFixed(8)}` : '-')
+                }
               </p>
             </div>
-            {alert.execution_price && (
+            {executionPrice !== null && (
               <div>
                 <p className="text-sm text-muted-foreground">Preço Execução</p>
-                <p className="font-mono font-semibold">${alert.execution_price.toFixed(8)}</p>
+                <p className="font-mono font-semibold">${executionPrice.toFixed(8)}</p>
               </div>
             )}
-            {alert.savings_pct !== null && alert.savings_pct !== undefined && (
+            {savingsPct !== null && (
               <div>
                 <p className="text-sm text-muted-foreground">Economia</p>
-                <p className={`font-mono font-semibold ${alert.savings_pct > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {alert.savings_pct > 0 ? '+' : ''}{alert.savings_pct.toFixed(2)}%
+                <p className={`font-mono font-semibold ${savingsPct > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {savingsPct > 0 ? '+' : ''}{savingsPct.toFixed(2)}%
                 </p>
               </div>
             )}
@@ -117,7 +128,7 @@ export function WebhookMonitorTimeline({ alertId }: WebhookMonitorTimelineProps)
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summary.totalDuration} min</div>
+            <div className="text-2xl font-bold">{summary?.totalDuration || 0} min</div>
           </CardContent>
         </Card>
 
@@ -128,7 +139,10 @@ export function WebhookMonitorTimeline({ alertId }: WebhookMonitorTimelineProps)
           </CardHeader>
           <CardContent>
             <div className="text-lg font-mono">
-              ${summary.priceRange.min.toFixed(4)} - ${summary.priceRange.max.toFixed(4)}
+              {summary?.priceRange?.min > 0 && summary?.priceRange?.max > 0
+                ? `$${summary.priceRange.min.toFixed(4)} - $${summary.priceRange.max.toFixed(4)}`
+                : '-'
+              }
             </div>
           </CardContent>
         </Card>
@@ -142,15 +156,15 @@ export function WebhookMonitorTimeline({ alertId }: WebhookMonitorTimelineProps)
             <div className="flex gap-3 text-sm">
               <div className="flex items-center gap-1">
                 <TrendingDown className="h-3 w-3 text-red-500" />
-                <span>{summary.cyclesByStatus.FALLING}</span>
+                <span>{summary?.cyclesByStatus?.FALLING || 0}</span>
               </div>
               <div className="flex items-center gap-1">
                 <Minus className="h-3 w-3 text-yellow-500" />
-                <span>{summary.cyclesByStatus.LATERAL}</span>
+                <span>{summary?.cyclesByStatus?.LATERAL || 0}</span>
               </div>
               <div className="flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 text-green-500" />
-                <span>{summary.cyclesByStatus.RISING}</span>
+                <span>{summary?.cyclesByStatus?.RISING || 0}</span>
               </div>
             </div>
           </CardContent>
@@ -164,8 +178,13 @@ export function WebhookMonitorTimeline({ alertId }: WebhookMonitorTimelineProps)
         </CardHeader>
         <CardContent>
           {snapshots.length === 0 ? (
-            <div className="text-center text-muted-foreground py-8">
-              Nenhum snapshot registrado para este alerta
+            <div className="text-center py-8">
+              <AlertCircle className="mx-auto h-8 w-8 mb-3 text-muted-foreground" />
+              <p className="text-muted-foreground font-medium mb-2">Nenhum snapshot registrado para este alerta</p>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                Este alerta foi criado antes da implementação do sistema de timeline.
+                Novos alertas terão histórico completo de monitoramento com detalhes de cada verificação de preço.
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -199,19 +218,19 @@ export function WebhookMonitorTimeline({ alertId }: WebhookMonitorTimelineProps)
                       </div>
 
                       <div className="text-sm text-muted-foreground space-y-1">
-                        {snapshot.current_price && (
-                          <div>Preço: <span className="font-mono">${snapshot.current_price.toFixed(8)}</span></div>
+                        {snapshot.current_price && snapshot.current_price > 0 && (
+                          <div>Preço: <span className="font-mono">${Number(snapshot.current_price).toFixed(8)}</span></div>
                         )}
                         
-                        {alert.side === 'BUY' && snapshot.cycles_without_new_low !== null && (
+                        {alert.side === 'BUY' && snapshot.cycles_without_new_low !== null && snapshot.cycles_without_new_low !== undefined && (
                           <div>Ciclos sem novo fundo: {snapshot.cycles_without_new_low}</div>
                         )}
                         
-                        {alert.side === 'SELL' && snapshot.cycles_without_new_high !== null && (
+                        {alert.side === 'SELL' && snapshot.cycles_without_new_high !== null && snapshot.cycles_without_new_high !== undefined && (
                           <div>Ciclos sem novo topo: {snapshot.cycles_without_new_high}</div>
                         )}
 
-                        {snapshot.details && Object.keys(snapshot.details).length > 0 && (
+                        {snapshot.details && typeof snapshot.details === 'object' && Object.keys(snapshot.details).length > 0 && (
                           <details className="mt-2">
                             <summary className="cursor-pointer text-xs text-blue-600 hover:text-blue-800">
                               Ver detalhes técnicos
