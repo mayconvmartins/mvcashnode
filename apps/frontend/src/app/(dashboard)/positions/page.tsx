@@ -1728,8 +1728,8 @@ export default function PositionsPage() {
                             disabled={
                                 bulkUpdateSLTPMutation.isPending || 
                                 (!bulkSLEnabled && !bulkTPEnabled && !bulkSGEnabled) ||
-                                (bulkSGEnabled && bulkSGPct && bulkTPPct && parseFloat(bulkSGPct) >= parseFloat(bulkTPPct)) ||
-                                (bulkSGEnabled && bulkSGDropPct && bulkSGPct && 
+                                Boolean(bulkSGEnabled && bulkSGPct && bulkTPPct && parseFloat(bulkSGPct) >= parseFloat(bulkTPPct)) ||
+                                Boolean(bulkSGEnabled && bulkSGDropPct && bulkSGPct && 
                                     (parseFloat(bulkSGDropPct) <= 0 || parseFloat(bulkSGDropPct) >= parseFloat(bulkSGPct)))
                             }
                         >
