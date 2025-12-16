@@ -24,6 +24,9 @@ type WizardData = {
     orderSizeValue: number
     stopLossPercent?: number
     takeProfitPercent?: number
+    stopGain?: boolean
+    stopGainPercent?: number
+    stopGainDropPercent?: number
     minProfitPct?: number
     trailingStop?: boolean
     maxDailyTrades?: number
@@ -43,6 +46,9 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
         orderSizeValue: parameter?.orderSizeValue || 100,
         stopLossPercent: parameter?.stopLossPercent,
         takeProfitPercent: parameter?.takeProfitPercent,
+        stopGain: parameter?.stopGain,
+        stopGainPercent: parameter?.stopGainPercent,
+        stopGainDropPercent: parameter?.stopGainDropPercent,
         minProfitPct: parameter?.min_profit_pct || parameter?.minProfitPct,
         trailingStop: parameter?.trailingStop || false,
         maxDailyTrades: parameter?.maxDailyTrades,
@@ -64,6 +70,9 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
                 orderSizeValue: data.orderSizeValue,
                 stopLossPercent: data.stopLossPercent,
                 takeProfitPercent: data.takeProfitPercent,
+                stopGain: data.stopGain,
+                stopGainPercent: data.stopGainPercent,
+                stopGainDropPercent: data.stopGainDropPercent,
                 minProfitPct: data.minProfitPct,
                 trailingStop: data.trailingStop,
                 maxDailyTrades: data.maxDailyTrades,

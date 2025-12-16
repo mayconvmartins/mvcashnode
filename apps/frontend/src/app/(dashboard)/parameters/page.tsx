@@ -167,9 +167,18 @@ export default function ParametersPage() {
             key: 'default_sl_enabled',
             label: 'SL/TP',
             render: (param) => (
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
                     {param.default_sl_enabled && <Badge variant="outline">SL</Badge>}
                     {param.default_tp_enabled && <Badge variant="outline">TP</Badge>}
+                    {param.default_sg_enabled ? (
+                        <Badge variant="outline" className="text-xs">
+                            SG: {param.default_sg_pct}%{param.default_sg_drop_pct && ` (-${param.default_sg_drop_pct}%)`}
+                        </Badge>
+                    ) : (
+                        <Badge variant="outline" className="text-xs opacity-50 text-muted-foreground">
+                            SG: -
+                        </Badge>
+                    )}
                     {param.trailing_stop_enabled && <Badge variant="outline">Trail</Badge>}
                 </div>
             ),

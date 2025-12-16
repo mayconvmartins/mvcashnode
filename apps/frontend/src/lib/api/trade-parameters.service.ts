@@ -15,6 +15,9 @@ export interface CreateTradeParameterDto {
     default_sl_pct?: number
     default_tp_enabled: boolean
     default_tp_pct?: number
+    default_sg_enabled?: boolean
+    default_sg_pct?: number
+    default_sg_drop_pct?: number
     trailing_stop_enabled: boolean
     trailing_distance_pct?: number
     min_profit_pct?: number

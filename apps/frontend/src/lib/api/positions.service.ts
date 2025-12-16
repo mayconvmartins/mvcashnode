@@ -71,6 +71,9 @@ export const positionsService = {
         slPct?: number
         tpEnabled?: boolean
         tpPct?: number
+        sgEnabled?: boolean
+        sgPct?: number
+        sgDropPct?: number
     }): Promise<{
         updated: number
         errors: Array<{ positionId: number; error: string }>

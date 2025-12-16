@@ -41,15 +41,26 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
       : null
 
     const updateMutation = useMutation({
-        mutationFn: () => positionsService.updateSLTP(position.id, {
-            slEnabled: slEnabled,
-            slPct: slEnabled && slPct ? parseFloat(slPct) : undefined,
-            tpEnabled: tpEnabled,
-            tpPct: tpEnabled && tpPct ? parseFloat(tpPct) : undefined,
-            sgEnabled: sgEnabled,
-            sgPct: sgEnabled && sgPct ? parseFloat(sgPct) : undefined,
-            sgDropPct: sgEnabled && sgDropPct ? parseFloat(sgDropPct) : undefined,
-        }),
+        mutationFn: () => {
+            const payload: any = {
+                slEnabled: slEnabled,
+                slPct: slEnabled && slPct ? parseFloat(slPct) : undefined,
+                tpEnabled: tpEnabled,
+                tpPct: tpEnabled && tpPct ? parseFloat(tpPct) : undefined,
+                sgEnabled: sgEnabled,
+            }
+            
+            // Quando sgEnabled é false, enviar explicitamente undefined para limpar valores no backend
+            if (sgEnabled === false) {
+                payload.sgPct = undefined
+                payload.sgDropPct = undefined
+            } else if (sgEnabled && sgPct && sgDropPct) {
+                payload.sgPct = parseFloat(sgPct)
+                payload.sgDropPct = parseFloat(sgDropPct)
+            }
+            
+            return positionsService.updateSLTP(position.id, payload)
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['position', position.id] })
             queryClient.invalidateQueries({ queryKey: ['positions'] })

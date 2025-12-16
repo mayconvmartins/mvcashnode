@@ -767,7 +767,7 @@ export default function PositionDetailPage() {
                             {/* SL/TP Configuration */}
                             <div>
                                 <h3 className="text-lg font-semibold mb-3">Configuração SL/TP</h3>
-                                <div className="grid gap-4 md:grid-cols-3">
+                                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                                     <div>
                                         <p className="text-sm text-muted-foreground">Stop Loss</p>
                                         {position.sl_enabled ? (
@@ -799,6 +799,37 @@ export default function PositionDetailPage() {
                                                     {position.tp_pct ? formatPercentage(position.tp_pct) : ''}
                                                 </p>
                                                 {position.tp_triggered && (
+                                                    <Badge variant="default" className="mt-1 bg-green-500">
+                                                        Triggered
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <p className="text-muted-foreground">Desabilitado</p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Stop Gain</p>
+                                        {position.sg_enabled ? (
+                                            <div>
+                                                <p className="font-medium">
+                                                    {sgPrice ? formatCurrency(sgPrice) : 'N/A'}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {position.sg_pct ? formatPercentage(position.sg_pct) : ''}
+                                                    {position.sg_drop_pct && ` (-${formatPercentage(position.sg_drop_pct)})`}
+                                                </p>
+                                                {sgSellPrice && (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Venda: {formatCurrency(sgSellPrice)}
+                                                    </p>
+                                                )}
+                                                {position.sg_activated && (
+                                                    <Badge variant="default" className="mt-1 bg-amber-500">
+                                                        Ativado
+                                                    </Badge>
+                                                )}
+                                                {position.sg_triggered && (
                                                     <Badge variant="default" className="mt-1 bg-green-500">
                                                         Triggered
                                                     </Badge>

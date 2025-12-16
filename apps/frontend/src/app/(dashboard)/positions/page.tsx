@@ -354,9 +354,24 @@ export default function PositionsPage() {
         }
 
         if (bulkSGEnabled && bulkSGPct && bulkSGDropPct) {
+            // Validações
+            const sgPctNum = parseFloat(bulkSGPct)
+            const sgDropPctNum = parseFloat(bulkSGDropPct)
+            const tpPctNum = bulkTPPct ? parseFloat(bulkTPPct) : undefined
+            
+            if (tpPctNum && sgPctNum >= tpPctNum) {
+                toast.error('Stop Gain deve ser menor que Take Profit')
+                return
+            }
+            
+            if (sgDropPctNum <= 0 || sgDropPctNum >= sgPctNum) {
+                toast.error('Queda do Stop Gain deve ser > 0 e < Stop Gain')
+                return
+            }
+            
             updateData.sgEnabled = true
-            updateData.sgPct = parseFloat(bulkSGPct)
-            updateData.sgDropPct = parseFloat(bulkSGDropPct)
+            updateData.sgPct = sgPctNum
+            updateData.sgDropPct = sgDropPctNum
         } else if (bulkSGEnabled === false) {
             updateData.sgEnabled = false
         }
@@ -685,13 +700,20 @@ export default function PositionsPage() {
             key: 'sl_tp',
             label: 'SL/TP',
             render: (position: Position) => (
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
                     {position.sl_enabled && <Badge variant="outline">SL</Badge>}
                     {position.tp_enabled && <Badge variant="outline">TP</Badge>}
-                    {position.sg_enabled && (
-                        <Badge variant="outline" className="text-xs">
+                    {position.sg_enabled ? (
+                        <Badge 
+                            variant="outline" 
+                            className={`text-xs ${position.sg_activated ? 'bg-green-500/10 text-green-600 border-green-500/50' : ''}`}
+                        >
                             SG: {position.sg_pct}% (-{position.sg_drop_pct}%)
                             {position.sg_activated && ' ✓'}
+                        </Badge>
+                    ) : (
+                        <Badge variant="outline" className="text-xs opacity-50 text-muted-foreground">
+                            SG: -
                         </Badge>
                     )}
                 </div>
@@ -946,13 +968,20 @@ export default function PositionsPage() {
             key: 'sl_tp',
             label: 'SL/TP',
             render: (position) => (
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
                     {position.sl_enabled && <Badge variant="outline">SL</Badge>}
                     {position.tp_enabled && <Badge variant="outline">TP</Badge>}
-                    {position.sg_enabled && (
-                        <Badge variant="outline" className="text-xs">
+                    {position.sg_enabled ? (
+                        <Badge 
+                            variant="outline" 
+                            className={`text-xs ${position.sg_activated ? 'bg-green-500/10 text-green-600 border-green-500/50' : ''}`}
+                        >
                             SG: {position.sg_pct}% (-{position.sg_drop_pct}%)
                             {position.sg_activated && ' ✓'}
+                        </Badge>
+                    ) : (
+                        <Badge variant="outline" className="text-xs opacity-50 text-muted-foreground">
+                            SG: -
                         </Badge>
                     )}
                 </div>
@@ -1612,6 +1641,71 @@ export default function PositionsPage() {
                                 </div>
                             )}
                         </div>
+
+                        {/* Stop Gain */}
+                        {bulkTPEnabled && (
+                            <div className="space-y-4 p-4 bg-muted/50 rounded-lg border border-dashed">
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="bulk-sg-enabled"
+                                        checked={bulkSGEnabled}
+                                        onCheckedChange={(checked) => setBulkSGEnabled(checked === true)}
+                                    />
+                                    <Label htmlFor="bulk-sg-enabled" className="font-medium">
+                                        Ativar Stop Gain (Saída Antecipada)
+                                    </Label>
+                                </div>
+                                {bulkSGEnabled && (
+                                    <div className="space-y-2 pl-6">
+                                        <Label htmlFor="bulk-sg-pct">Stop Gain (%) - Vende antes do TP</Label>
+                                        <Input
+                                            id="bulk-sg-pct"
+                                            type="number"
+                                            step="0.1"
+                                            min="0"
+                                            max={bulkTPPct ? parseFloat(bulkTPPct) : undefined}
+                                            placeholder="Ex: 2.0"
+                                            value={bulkSGPct}
+                                            onChange={(e) => setBulkSGPct(e.target.value)}
+                                        />
+                                        {bulkSGPct && bulkTPPct && parseFloat(bulkSGPct) >= parseFloat(bulkTPPct) && (
+                                            <p className="text-sm text-destructive">Stop Gain deve ser menor que Take Profit</p>
+                                        )}
+                                        {bulkSGPct && bulkTPPct && parseFloat(bulkSGPct) < parseFloat(bulkTPPct) && (
+                                            <p className="text-sm text-muted-foreground">
+                                                Ativa quando atingir {bulkSGPct}%
+                                            </p>
+                                        )}
+                                        
+                                        {bulkSGPct && bulkTPPct && parseFloat(bulkSGPct) < parseFloat(bulkTPPct) && (
+                                            <div className="mt-3">
+                                                <Label htmlFor="bulk-sg-drop-pct">Queda do Stop Gain (%) *</Label>
+                                                <Input
+                                                    id="bulk-sg-drop-pct"
+                                                    type="number"
+                                                    step="0.1"
+                                                    min="0.1"
+                                                    max={bulkSGPct ? parseFloat(bulkSGPct) : undefined}
+                                                    placeholder="Ex: 0.5"
+                                                    value={bulkSGDropPct}
+                                                    onChange={(e) => setBulkSGDropPct(e.target.value)}
+                                                />
+                                                {bulkSGDropPct && bulkSGPct && 
+                                                    (parseFloat(bulkSGDropPct) <= 0 || parseFloat(bulkSGDropPct) >= parseFloat(bulkSGPct)) ? (
+                                                    <p className="text-sm text-destructive">Queda deve ser > 0 e < Stop Gain</p>
+                                                ) : null}
+                                                {bulkSGDropPct && bulkSGPct && 
+                                                    parseFloat(bulkSGDropPct) > 0 && parseFloat(bulkSGDropPct) < parseFloat(bulkSGPct) ? (
+                                                    <p className="text-sm text-muted-foreground">
+                                                        Vende se cair {bulkSGDropPct}% após ativar (venda em {parseFloat(bulkSGPct) - parseFloat(bulkSGDropPct)}%)
+                                                    </p>
+                                                ) : null}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button
@@ -1631,7 +1725,13 @@ export default function PositionsPage() {
                         </Button>
                         <Button
                             onClick={handleBulkUpdateSLTP}
-                            disabled={bulkUpdateSLTPMutation.isPending || (!bulkSLEnabled && !bulkTPEnabled && !bulkSGEnabled)}
+                            disabled={
+                                bulkUpdateSLTPMutation.isPending || 
+                                (!bulkSLEnabled && !bulkTPEnabled && !bulkSGEnabled) ||
+                                (bulkSGEnabled && bulkSGPct && bulkTPPct && parseFloat(bulkSGPct) >= parseFloat(bulkTPPct)) ||
+                                (bulkSGEnabled && bulkSGDropPct && bulkSGPct && 
+                                    (parseFloat(bulkSGDropPct) <= 0 || parseFloat(bulkSGDropPct) >= parseFloat(bulkSGPct)))
+                            }
                         >
                             {bulkUpdateSLTPMutation.isPending ? 'Atualizando...' : 'Aplicar'}
                         </Button>

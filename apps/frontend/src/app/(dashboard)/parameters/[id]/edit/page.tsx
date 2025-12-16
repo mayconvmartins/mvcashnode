@@ -60,6 +60,13 @@ export default function EditParameterPage() {
         takeProfitPercent: parameter.default_tp_pct 
             ? (typeof parameter.default_tp_pct === 'number' ? parameter.default_tp_pct : parseFloat(parameter.default_tp_pct))
             : undefined,
+        stopGain: parameter.default_sg_enabled || false,
+        stopGainPercent: parameter.default_sg_pct 
+            ? (typeof parameter.default_sg_pct === 'number' ? parameter.default_sg_pct : parseFloat(parameter.default_sg_pct))
+            : undefined,
+        stopGainDropPercent: parameter.default_sg_drop_pct 
+            ? (typeof parameter.default_sg_drop_pct === 'number' ? parameter.default_sg_drop_pct : parseFloat(parameter.default_sg_drop_pct))
+            : undefined,
         minProfitPct: parameter.min_profit_pct 
             ? (typeof parameter.min_profit_pct === 'number' ? parameter.min_profit_pct : parseFloat(parameter.min_profit_pct))
             : undefined,

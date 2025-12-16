@@ -1463,9 +1463,20 @@ export class PositionService {
       }
     }
     if (tpPct !== undefined) updateData.tp_pct = tpPct;
-    if (sgEnabled !== undefined) updateData.sg_enabled = sgEnabled;
-    if (sgPct !== undefined) updateData.sg_pct = sgPct;
-    if (sgDropPct !== undefined) updateData.sg_drop_pct = sgDropPct;
+    if (sgEnabled !== undefined) {
+      updateData.sg_enabled = sgEnabled;
+      // Se SG está sendo desabilitado, limpar todos os valores relacionados
+      if (sgEnabled === false) {
+        updateData.sg_pct = null;
+        updateData.sg_drop_pct = null;
+        updateData.sg_activated = false;
+      }
+    }
+    // Só atualizar sgPct e sgDropPct se SG estiver habilitado
+    if (sgEnabled !== false) {
+      if (sgPct !== undefined) updateData.sg_pct = sgPct;
+      if (sgDropPct !== undefined) updateData.sg_drop_pct = sgDropPct;
+    }
 
     return this.prisma.tradePosition.update({
       where: { id: positionId },
