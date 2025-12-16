@@ -492,6 +492,22 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             }
             
             try {
+              // REVALIDAÇÃO: Verificar novamente se o preço ainda está na condição de venda
+              // (preço pode ter mudado entre o lock e agora)
+              const currentPnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+              
+              if (currentPnlPct > sellThreshold) {
+                this.logger.debug(
+                  `[SL-TP-MONITOR-SIM] Stop Gain cancelado - preço recuperou: ${currentPnlPct.toFixed(2)}% > ${sellThreshold.toFixed(2)}%`
+                );
+                // Reverter flag pois preço voltou a subir
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { sg_triggered: false },
+                });
+                continue;
+              }
+              
               // Calcular preço LIMIT (preço atual ou ligeiramente abaixo para garantir execução)
               const limitPrice = currentPrice * 0.999; // 0.1% abaixo
               
