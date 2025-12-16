@@ -91,6 +91,7 @@ export class PositionService {
     let tpPct: number | null = null;
     let sgEnabled: boolean = false;
     let sgPct: number | null = null;
+    let sgDropPct: number | null = null;
     let groupPositionsEnabled: boolean = false;
     let groupPositionsIntervalMinutes: number | null = null;
 
@@ -203,6 +204,11 @@ export class PositionService {
           sgPct = bothParameter.default_sg_pct.toNumber();
           console.log(`[POSITION-SERVICE] ✓ sg_pct=${sgPct}% copiado do parâmetro BOTH`);
         }
+        
+        if (bothParameter.default_sg_drop_pct !== null && bothParameter.default_sg_drop_pct !== undefined) {
+          sgDropPct = bothParameter.default_sg_drop_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ sg_drop_pct=${sgDropPct}% copiado do parâmetro BOTH`);
+        }
       } else {
         // Não encontrou BOTH, usar BUY e SELL separadamente
         console.log(`[POSITION-SERVICE] Parâmetro BOTH não encontrado, buscando BUY e SELL separadamente`);
@@ -249,6 +255,11 @@ export class PositionService {
             sgPct = buyParameter.default_sg_pct.toNumber();
             console.log(`[POSITION-SERVICE] ✓ sg_pct=${sgPct}% copiado do parâmetro BUY`);
           }
+          
+          if (buyParameter.default_sg_drop_pct !== null && buyParameter.default_sg_drop_pct !== undefined) {
+            sgDropPct = buyParameter.default_sg_drop_pct.toNumber();
+            console.log(`[POSITION-SERVICE] ✓ sg_drop_pct=${sgDropPct}% copiado do parâmetro BUY`);
+          }
         }
       }
 
@@ -257,7 +268,7 @@ export class PositionService {
       console.log(`[POSITION-SERVICE]   - min_profit_pct: ${minProfitPct !== null ? `${minProfitPct}%` : 'null'}`);
       console.log(`[POSITION-SERVICE]   - sl_enabled: ${slEnabled}, sl_pct: ${slPct !== null ? `${slPct}%` : 'null'}`);
       console.log(`[POSITION-SERVICE]   - tp_enabled: ${tpEnabled}, tp_pct: ${tpPct !== null ? `${tpPct}%` : 'null'}`);
-      console.log(`[POSITION-SERVICE]   - sg_enabled: ${sgEnabled}, sg_pct: ${sgPct !== null ? `${sgPct}%` : 'null'}`);
+      console.log(`[POSITION-SERVICE]   - sg_enabled: ${sgEnabled}, sg_pct: ${sgPct !== null ? `${sgPct}%` : 'null'}, sg_drop_pct: ${sgDropPct !== null ? `${sgDropPct}%` : 'null'}`);
 
       if (!parameter) {
         console.warn(`[POSITION-SERVICE] ⚠️ Nenhum parâmetro encontrado para account=${job.exchange_account_id}, symbol=${job.symbol}. Usando valores padrão.`);
@@ -471,7 +482,7 @@ export class PositionService {
         if (!positionToUpdate || positionToUpdate.status !== PositionStatus.OPEN) {
           // Posição não existe mais ou foi fechada, criar nova
           console.log(`[POSITION-SERVICE] ⚠️ Posição elegível não está mais disponível, criando nova posição`);
-          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, sgEnabled, sgPct, false, null, feeUsd);
+          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, sgEnabled, sgPct, sgDropPct, false, null, feeUsd);
         }
 
         // Calcular novo custo médio ponderado
@@ -644,6 +655,7 @@ export class PositionService {
         tpPct,
         sgEnabled,
         sgPct,
+        sgDropPct,
         false,
         null,
         feeUsd
@@ -671,6 +683,7 @@ export class PositionService {
     tpPct: number | null,
     sgEnabled: boolean,
     sgPct: number | null,
+    sgDropPct: number | null,
     isGrouped: boolean,
     groupStartedAt: Date | null,
     feesOnBuyUsd: number = 0
@@ -694,6 +707,8 @@ export class PositionService {
         tp_pct: tpPct,
         sg_enabled: sgEnabled,
         sg_pct: sgPct,
+        sg_drop_pct: sgDropPct,
+        sg_activated: false,
         is_grouped: isGrouped,
         group_started_at: groupStartedAt,
         fees_on_buy_usd: feesOnBuyUsd,
@@ -1408,7 +1423,8 @@ export class PositionService {
     tpEnabled?: boolean, 
     tpPct?: number,
     sgEnabled?: boolean,
-    sgPct?: number
+    sgPct?: number,
+    sgDropPct?: number
   ): Promise<any> {
     // Validação: Stop Gain só pode ser habilitado se TP estiver habilitado
     if (sgEnabled && !tpEnabled) {
@@ -1420,21 +1436,36 @@ export class PositionService {
       throw new Error('Stop Gain % deve ser menor que Take Profit %');
     }
 
+    // Validação: sgDropPct deve ser > 0 e < sgPct
+    if (sgEnabled && sgDropPct !== undefined && sgPct !== undefined) {
+      if (sgDropPct <= 0 || sgDropPct >= sgPct) {
+        throw new Error('% de queda do Stop Gain deve ser > 0 e < % do Stop Gain');
+      }
+    }
+
+    // Validação: se sgEnabled, sgDropPct é obrigatório
+    if (sgEnabled && sgPct !== undefined && sgDropPct === undefined) {
+      throw new Error('% de queda do Stop Gain é obrigatória quando Stop Gain está habilitado');
+    }
+
     // Se tpEnabled for definido como false, desabilitar também o Stop Gain
     const updateData: any = {};
     if (slEnabled !== undefined) updateData.sl_enabled = slEnabled;
     if (slPct !== undefined) updateData.sl_pct = slPct;
     if (tpEnabled !== undefined) {
       updateData.tp_enabled = tpEnabled;
-      // Se TP for desabilitado, desabilitar também SG
+      // Se TP for desabilitado, desabilitar também SG e resetar sg_activated
       if (!tpEnabled) {
         updateData.sg_enabled = false;
         updateData.sg_pct = null;
+        updateData.sg_drop_pct = null;
+        updateData.sg_activated = false;
       }
     }
     if (tpPct !== undefined) updateData.tp_pct = tpPct;
     if (sgEnabled !== undefined) updateData.sg_enabled = sgEnabled;
     if (sgPct !== undefined) updateData.sg_pct = sgPct;
+    if (sgDropPct !== undefined) updateData.sg_drop_pct = sgDropPct;
 
     return this.prisma.tradePosition.update({
       where: { id: positionId },

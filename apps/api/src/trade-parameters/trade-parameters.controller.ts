@@ -382,6 +382,7 @@ export class TradeParametersController {
           ? (createDto.stopGain !== undefined || createDto.stopGainPercent !== undefined)
           : (subscriberParams?.default_sg_pct !== null && subscriberParams?.default_sg_pct !== undefined),
         defaultSgPct: createDto.stopGainPercent || createDto.stopGain || subscriberParams?.default_sg_pct,
+        defaultSgDropPct: createDto.stopGainDropPercent || subscriberParams?.default_sg_drop_pct,
         trailingStopEnabled: createDto.trailingStop || false,
         trailingDistancePct: createDto.trailingDistancePct,
         minProfitPct: createDto.minProfitPct ?? createDto.min_profit_pct,
@@ -541,6 +542,8 @@ export class TradeParametersController {
         updateData.default_sg_enabled = true;
         updateData.default_sg_pct = updateDto.stopGainPercent || updateDto.stopGain;
       }
+      if (updateDto.default_sg_drop_pct !== undefined) updateData.default_sg_drop_pct = updateDto.default_sg_drop_pct;
+      if (updateDto.stopGainDropPercent !== undefined) updateData.default_sg_drop_pct = updateDto.stopGainDropPercent;
       if (updateDto.trailing_stop_enabled !== undefined) updateData.trailing_stop_enabled = updateDto.trailing_stop_enabled;
       if (updateDto.trailing_distance_pct !== undefined) updateData.trailing_distance_pct = updateDto.trailing_distance_pct;
       if (updateDto.min_profit_pct !== undefined || updateDto.minProfitPct !== undefined) {

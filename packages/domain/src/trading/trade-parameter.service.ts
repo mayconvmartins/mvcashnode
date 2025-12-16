@@ -18,6 +18,7 @@ export interface CreateTradeParameterDto {
   defaultTpPct?: number;
   defaultSgEnabled?: boolean;
   defaultSgPct?: number;
+  defaultSgDropPct?: number;
   trailingStopEnabled?: boolean;
   trailingDistancePct?: number;
   minProfitPct?: number;
@@ -43,6 +44,13 @@ export class TradeParameterService {
     // Validação: Stop Gain % deve ser menor que Take Profit %
     if (dto.defaultSgEnabled && dto.defaultSgPct !== undefined && dto.defaultTpPct !== undefined && dto.defaultSgPct >= dto.defaultTpPct) {
       throw new Error('Stop Gain % deve ser menor que Take Profit %');
+    }
+
+    // Validação: sgDropPct deve ser > 0 e < sgPct
+    if (dto.defaultSgEnabled && dto.defaultSgDropPct !== undefined && dto.defaultSgPct !== undefined) {
+      if (dto.defaultSgDropPct <= 0 || dto.defaultSgDropPct >= dto.defaultSgPct) {
+        throw new Error('% de queda do Stop Gain deve ser > 0 e < % do Stop Gain');
+      }
     }
 
     // ✅ BUG-MED-006 FIX: Validar se já existe parâmetro ativo para mesmo símbolo/lado/exchange_account
@@ -79,6 +87,7 @@ export class TradeParameterService {
         default_tp_pct: dto.defaultTpPct || null,
         default_sg_enabled: dto.defaultSgEnabled || false,
         default_sg_pct: dto.defaultSgPct || null,
+        default_sg_drop_pct: dto.defaultSgDropPct || null,
         trailing_stop_enabled: dto.trailingStopEnabled || false,
         trailing_distance_pct: dto.trailingDistancePct || null,
         min_profit_pct: dto.minProfitPct || null,
@@ -107,7 +116,8 @@ export class TradeParameterService {
         default_tp_enabled: true,
         default_tp_pct: true,
         default_sg_enabled: true,
-        default_sg_pct: true
+        default_sg_pct: true,
+        default_sg_drop_pct: true
       },
     });
 
@@ -124,15 +134,24 @@ export class TradeParameterService {
     // Validação: Stop Gain % deve ser menor que Take Profit %
     const tpPct = dto.defaultTpPct !== undefined ? dto.defaultTpPct : currentParameter?.default_tp_pct?.toNumber();
     const sgPct = dto.defaultSgPct !== undefined ? dto.defaultSgPct : currentParameter?.default_sg_pct?.toNumber();
+    const sgDropPct = dto.defaultSgDropPct !== undefined ? dto.defaultSgDropPct : currentParameter?.default_sg_drop_pct?.toNumber();
     
     if (dto.defaultSgEnabled && sgPct !== undefined && sgPct !== null && tpPct !== undefined && tpPct !== null && sgPct >= tpPct) {
       throw new Error('Stop Gain % deve ser menor que Take Profit %');
+    }
+
+    // Validação: sgDropPct deve ser > 0 e < sgPct
+    if (dto.defaultSgEnabled && sgDropPct !== undefined && sgDropPct !== null && sgPct !== undefined && sgPct !== null) {
+      if (sgDropPct <= 0 || sgDropPct >= sgPct) {
+        throw new Error('% de queda do Stop Gain deve ser > 0 e < % do Stop Gain');
+      }
     }
 
     // Se TP for desabilitado, desabilitar também SG
     if (dto.defaultTpEnabled === false && currentParameter?.default_sg_enabled) {
       dto.defaultSgEnabled = false;
       dto.defaultSgPct = undefined;
+      dto.defaultSgDropPct = undefined;
     }
 
     return this.prisma.tradeParameter.update({
@@ -152,6 +171,7 @@ export class TradeParameterService {
         ...(dto.defaultTpPct !== undefined && { default_tp_pct: dto.defaultTpPct || null }),
         ...(dto.defaultSgEnabled !== undefined && { default_sg_enabled: dto.defaultSgEnabled }),
         ...(dto.defaultSgPct !== undefined && { default_sg_pct: dto.defaultSgPct || null }),
+        ...(dto.defaultSgDropPct !== undefined && { default_sg_drop_pct: dto.defaultSgDropPct || null }),
         ...(dto.trailingStopEnabled !== undefined && { trailing_stop_enabled: dto.trailingStopEnabled }),
         ...(dto.trailingDistancePct !== undefined && { trailing_distance_pct: dto.trailingDistancePct || null }),
         ...(dto.minProfitPct !== undefined && { min_profit_pct: dto.minProfitPct }),

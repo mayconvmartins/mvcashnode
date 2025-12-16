@@ -465,14 +465,35 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           }
         }
 
-        // Check Stop Gain (executado ANTES do Take Profit)
-        if (position.tp_enabled && position.sg_enabled && position.sg_pct && position.tp_pct &&
+        // === STOP GAIN - Lógica Corrigida ===
+        // Funciona como trailing stop: ativa em sg_pct, vende se cair para (sg_pct - sg_drop_pct)
+        if (position.tp_enabled && position.sg_enabled && 
+            position.sg_pct && position.sg_drop_pct && position.tp_pct &&
             !position.tp_triggered && !position.sg_triggered) {
-          const sgPct = position.sg_pct.toNumber();
-          const tpPct = position.tp_pct.toNumber();
           
-          // Se atingiu Stop Gain mas não atingiu TP ainda
-          if (pnlPct >= sgPct && pnlPct < tpPct) {
+          const sgPct = position.sg_pct.toNumber();
+          const sgDropPct = position.sg_drop_pct.toNumber();
+          const tpPct = position.tp_pct.toNumber();
+          const sellThreshold = sgPct - sgDropPct; // Ex: 2% - 0.5% = 1.5%
+          
+          // Etapa 1: Ativar Stop Gain quando atingir threshold
+          if (!position.sg_activated && pnlPct >= sgPct) {
+            await this.prisma.tradePosition.updateMany({
+              where: {
+                id: position.id,
+                sg_activated: false,
+              },
+              data: { sg_activated: true },
+            });
+            
+            this.logger.log(
+              `[SL-TP-MONITOR-REAL] 🎯 Stop Gain ATIVADO para posição ${position.id} (${position.symbol}) - ` +
+              `Atingiu ${pnlPct.toFixed(2)}% (threshold: ${sgPct}%)`
+            );
+          }
+          
+          // Etapa 2: Verificar se deve vender (já ativado + caiu abaixo do threshold)
+          if (position.sg_activated && pnlPct <= sellThreshold && pnlPct < tpPct) {
             // Lock otimista
             const lockResult = await this.prisma.tradePosition.updateMany({
               where: {
@@ -483,31 +504,26 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             });
             
             if (lockResult.count === 0) {
-              this.logger.debug(`[SL-TP-MONITOR-REAL] Posição ${position.id} já foi processada por outra execução (SG)`);
+              this.logger.debug(`[SL-TP-MONITOR-REAL] Posição ${position.id} já processada (SG)`);
               continue;
             }
             
-            // Verificar se já existe job
+            // Verificar job existente
             const existingJob = await this.prisma.tradeJob.findFirst({
               where: {
                 position_id_to_close: position.id,
-                status: {
-                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING'],
-                },
+                status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING'] },
               },
-              select: { id: true, status: true },
             });
             
             if (existingJob) {
-              this.logger.warn(
-                `[SL-TP-MONITOR-REAL] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}, flag SG já está marcada`
-              );
+              this.logger.warn(`[SL-TP-MONITOR-REAL] Job ${existingJob.id} já existe para posição ${position.id}`);
               continue;
             }
             
             try {
-              // Calcular preço LIMIT para Stop Gain
-              const limitPrice = priceOpen * (1 + sgPct / 100);
+              // Calcular preço LIMIT (preço atual ou ligeiramente abaixo para garantir execução)
+              const limitPrice = currentPrice * 0.999; // 0.1% abaixo
               
               // Validar lucro mínimo
               const validationResult = await positionService.validateMinProfit(
@@ -516,7 +532,10 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               );
               
               if (!validationResult.valid) {
-                this.logger.warn(`[SL-TP-MONITOR-REAL] ⚠️ Stop Gain SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+                this.logger.warn(
+                  `[SL-TP-MONITOR-REAL] Stop Gain NÃO acionado - lucro mínimo não atingido: ${validationResult.reason}`
+                );
+                
                 // Reverter flag
                 await this.prisma.tradePosition.update({
                   where: { id: position.id },
@@ -525,6 +544,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 continue;
               }
               
+              // Criar job de venda
               const tradeJob = await tradeJobService.createJob({
                 exchangeAccountId: position.exchange_account_id,
                 tradeMode: TradeMode.REAL,
@@ -538,24 +558,29 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 createdBy: 'STOP_GAIN',
               });
               
-              this.logger.log(`[SL-TP-MONITOR-REAL] Stop Gain - Job criado: ID=${tradeJob.id}, symbol=${position.symbol}, sgPct=${sgPct}%, limitPrice=${limitPrice}`);
+              // Enfileirar
+              await this.tradeExecutionQueue.add(
+                'execute-trade',
+                { tradeJobId: tradeJob.id },
+                { jobId: `trade-job-${tradeJob.id}`, attempts: 1 }
+              );
               
-              // Enfileirar job para execução
-              await this.tradeExecutionQueue.add('execute-trade', { tradeJobId: tradeJob.id }, {
-                jobId: `trade-job-${tradeJob.id}`,
-                attempts: 1,
-              });
+              this.logger.log(
+                `[SL-TP-MONITOR-REAL] 🎯 Stop Gain VENDIDO - Posição ${position.id} (${position.symbol}), ` +
+                `PnL atual: ${pnlPct.toFixed(2)}%, Threshold venda: ${sellThreshold.toFixed(2)}%, Job: ${tradeJob.id}`
+              );
               
-              this.logger.log(`[SL-TP-MONITOR-REAL] Stop Gain - Job ${tradeJob.id} enfileirado`);
               triggered++;
             } catch (error: any) {
-              this.logger.error(`[SL-TP-MONITOR-REAL] Erro ao criar job de Stop Gain para posição ${position.id}: ${error.message}`);
-              // Reverter flag se falhou
+              this.logger.error(
+                `[SL-TP-MONITOR-REAL] Erro ao criar job Stop Gain: ${error.message}`
+              );
+              
+              // Reverter flag
               await this.prisma.tradePosition.update({
                 where: { id: position.id },
                 data: { sg_triggered: false },
               });
-              this.logger.warn(`[SL-TP-MONITOR-REAL] Flag sg_triggered revertida para posição ${position.id}`);
             }
           }
         }

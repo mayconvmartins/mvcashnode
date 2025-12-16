@@ -10,12 +10,18 @@ interface WizardStepSLTPProps {
 }
 
 export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
-    const hasCurrentValues = data.stopLossPercent || data.takeProfitPercent || data.stopGainPercent || data.minProfitPct || data.trailingStop
+    const hasCurrentValues = data.stopLossPercent || data.takeProfitPercent || data.stopGainPercent || data.stopGainDropPercent || data.minProfitPct || data.trailingStop
     
     // Validação: Stop Gain deve ser menor que Take Profit
     const sgError = data.stopGain && data.takeProfitPercent && data.stopGainPercent && 
       data.stopGainPercent >= data.takeProfitPercent 
       ? 'Stop Gain deve ser menor que Take Profit' 
+      : null
+
+    // Validação: sgDropPercent deve ser > 0 e < sgPercent
+    const sgDropError = data.stopGain && data.stopGainDropPercent && data.stopGainPercent &&
+      (data.stopGainDropPercent <= 0 || data.stopGainDropPercent >= data.stopGainPercent)
+      ? 'Queda deve ser > 0 e < Stop Gain'
       : null
     
     return (
@@ -118,8 +124,29 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                                 {sgError && <p className="text-xs text-destructive mt-2">{sgError}</p>}
                                 {!sgError && data.stopGainPercent && (
                                     <p className="text-xs text-muted-foreground mt-2">
-                                        Vende se atingir {data.stopGainPercent}% antes do TP de {data.takeProfitPercent}%
+                                        Ativa quando atingir {data.stopGainPercent}%
                                     </p>
+                                )}
+                                
+                                {data.stopGainPercent && !sgError && (
+                                    <div className="mt-3">
+                                        <Label>Queda do Stop Gain (%) *</Label>
+                                        <Input
+                                            type="number"
+                                            step="0.1"
+                                            min="0.1"
+                                            max={data.stopGainPercent}
+                                            value={data.stopGainDropPercent || ''}
+                                            onChange={(e) => updateData({ stopGainDropPercent: e.target.value ? parseFloat(e.target.value) : undefined })}
+                                            placeholder="Ex: 0.5"
+                                        />
+                                        {sgDropError && <p className="text-xs text-destructive mt-2">{sgDropError}</p>}
+                                        {!sgDropError && data.stopGainDropPercent && data.stopGainPercent && (
+                                            <p className="text-xs text-muted-foreground mt-2">
+                                                Vende se cair {data.stopGainDropPercent}% após ativar (venda em {data.stopGainPercent - data.stopGainDropPercent}%)
+                                            </p>
+                                        )}
+                                    </div>
                                 )}
                             </>
                         )}

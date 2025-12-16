@@ -1637,6 +1637,13 @@ export class PositionsController {
             qty_total: qtyTotal,
             sl_triggered: position.sl_triggered,
             tp_triggered: position.tp_triggered,
+            sg_enabled: position.sg_enabled,
+            sg_pct: position.sg_pct?.toNumber() || null,
+            sg_drop_pct: position.sg_drop_pct?.toNumber() || null,
+            sg_activated: position.sg_activated,
+            sg_triggered: position.sg_triggered,
+            sg_proximity_pct: null,
+            distance_to_sg_pct: null,
             total_value_usd: totalInvestedUsd,
             current_value_usd: null,
             unrealized_pnl_usd: null,
@@ -1718,6 +1725,8 @@ export class PositionsController {
           tp_pct: position.tp_pct?.toNumber() || null,
           sg_enabled: position.sg_enabled,
           sg_pct: position.sg_pct?.toNumber() || null,
+          sg_drop_pct: position.sg_drop_pct?.toNumber() || null,
+          sg_activated: position.sg_activated,
           sl_enabled: position.sl_enabled,
           sl_pct: position.sl_pct?.toNumber() || null,
           tp_proximity_pct: tpProximityPct,
@@ -2158,7 +2167,8 @@ export class PositionsController {
         updateDto.tpEnabled,
         updateDto.tpPct,
         updateDto.sgEnabled,
-        updateDto.sgPct
+        updateDto.sgPct,
+        updateDto.sgDropPct
       );
 
       // Emitir evento WebSocket
@@ -2171,6 +2181,8 @@ export class PositionsController {
         tp_pct: updatedPosition.tp_pct,
         sg_enabled: updatedPosition.sg_enabled,
         sg_pct: updatedPosition.sg_pct,
+        sg_drop_pct: updatedPosition.sg_drop_pct,
+        sg_activated: updatedPosition.sg_activated,
       });
 
       return updatedPosition;
@@ -2497,7 +2509,7 @@ export class PositionsController {
   })
   async bulkUpdateSLTP(
     @CurrentUser() user: any,
-    @Body() bulkUpdateDto: { positionIds: number[]; slEnabled?: boolean; slPct?: number; tpEnabled?: boolean; tpPct?: number }
+    @Body() bulkUpdateDto: { positionIds: number[]; slEnabled?: boolean; slPct?: number; tpEnabled?: boolean; tpPct?: number; sgEnabled?: boolean; sgPct?: number; sgDropPct?: number }
   ): Promise<{ updated: number; errors: Array<{ positionId: number; error: string }> }> {
     const errors: Array<{ positionId: number; error: string }> = [];
     let updated = 0;
@@ -2530,7 +2542,10 @@ export class PositionsController {
           bulkUpdateDto.slEnabled,
           bulkUpdateDto.slPct,
           bulkUpdateDto.tpEnabled,
-          bulkUpdateDto.tpPct
+          bulkUpdateDto.tpPct,
+          bulkUpdateDto.sgEnabled,
+          bulkUpdateDto.sgPct,
+          bulkUpdateDto.sgDropPct
         );
 
         // Emitir evento WebSocket

@@ -38,6 +38,13 @@ export class UpdateSLTPDto {
   @Max(100)
   sgPct?: number;
 
+  @ApiProperty({ required: false, example: 0.5, description: 'Porcentagem de queda permitida após ativar Stop Gain' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.1)
+  @Max(100)
+  sgDropPct?: number;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()

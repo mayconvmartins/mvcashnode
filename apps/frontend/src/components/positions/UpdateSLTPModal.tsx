@@ -26,11 +26,18 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
     const [tpEnabled, setTpEnabled] = useState(position.tp_enabled)
     const [sgEnabled, setSgEnabled] = useState(position.sg_enabled)
     const [sgPct, setSgPct] = useState(position.sg_pct?.toString() || '')
+    const [sgDropPct, setSgDropPct] = useState(position.sg_drop_pct?.toString() || '')
 
     // Validação: Stop Gain deve ser menor que Take Profit
     const sgError = sgEnabled && tpEnabled && sgPct && tpPct && 
       parseFloat(sgPct) >= parseFloat(tpPct) 
       ? 'Stop Gain deve ser menor que Take Profit' 
+      : null
+
+    // Validação: sgDropPct deve ser > 0 e < sgPct
+    const sgDropError = sgEnabled && sgDropPct && sgPct && 
+      (parseFloat(sgDropPct) <= 0 || parseFloat(sgDropPct) >= parseFloat(sgPct))
+      ? 'Queda deve ser > 0 e < Stop Gain'
       : null
 
     const updateMutation = useMutation({
@@ -41,6 +48,7 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
             tpPct: tpEnabled && tpPct ? parseFloat(tpPct) : undefined,
             sgEnabled: sgEnabled,
             sgPct: sgEnabled && sgPct ? parseFloat(sgPct) : undefined,
+            sgDropPct: sgEnabled && sgDropPct ? parseFloat(sgDropPct) : undefined,
         }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['position', position.id] })
@@ -162,8 +170,30 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                             {sgError && <p className="text-sm text-destructive mt-1">{sgError}</p>}
                             {sgPct && tpPct && !sgError && (
                                 <p className="text-sm text-muted-foreground mt-1">
-                                    Vende se atingir {sgPct}% antes do TP de {tpPct}%
+                                    Ativa quando atingir {sgPct}%
                                 </p>
+                            )}
+                            
+                            {sgPct && !sgError && (
+                                <div className="mt-3">
+                                    <Label htmlFor="sgDropPct">Queda do Stop Gain (%) - Threshold de Venda</Label>
+                                    <Input
+                                        id="sgDropPct"
+                                        type="number"
+                                        step="0.1"
+                                        min="0.1"
+                                        max={sgPct ? parseFloat(sgPct) : undefined}
+                                        value={sgDropPct}
+                                        onChange={(e) => setSgDropPct(e.target.value)}
+                                        placeholder="Ex: 0.5"
+                                    />
+                                    {sgDropError && <p className="text-sm text-destructive mt-1">{sgDropError}</p>}
+                                    {sgDropPct && sgPct && !sgDropError && (
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                            Vende se cair {sgDropPct}% após ativar o SG (venda em {parseFloat(sgPct) - parseFloat(sgDropPct)}%)
+                                        </p>
+                                    )}
+                                </div>
                             )}
                         </div>
                     )}
@@ -173,7 +203,7 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                 <Button type="button" variant="outline" onClick={onClose}>
                     Cancelar
                 </Button>
-                <Button type="submit" disabled={updateMutation.isPending || !!sgError}>
+                <Button type="submit" disabled={updateMutation.isPending || !!sgError || !!sgDropError}>
                     {updateMutation.isPending ? 'Atualizando...' : 'Atualizar'}
                 </Button>
             </DialogFooter>

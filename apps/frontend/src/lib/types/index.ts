@@ -213,6 +213,7 @@ export interface TradeParameter {
     default_tp_pct?: number
     default_sg_enabled: boolean
     default_sg_pct?: number
+    default_sg_drop_pct?: number | null
     trailing_stop_enabled: boolean
     trailing_distance_pct?: number
     min_profit_pct?: number
@@ -375,7 +376,9 @@ export interface Position {
     tp_enabled: boolean
     tp_pct?: number
     sg_enabled: boolean
-    sg_pct?: number
+    sg_pct?: number | null
+    sg_drop_pct?: number | null
+    sg_activated: boolean
     trailing_enabled: boolean
     trailing_distance_pct?: number
     trailing_max_price?: number
@@ -483,6 +486,7 @@ export interface UpdateSLTPDto {
     tpPct?: number
     sgEnabled?: boolean
     sgPct?: number
+    sgDropPct?: number
     trailingEnabled?: boolean
     trailingDistancePct?: number
 }
@@ -500,6 +504,8 @@ export interface PositionTPSLMonitoring {
     tp_pct: number | null
     sg_enabled: boolean
     sg_pct: number | null
+    sg_drop_pct: number | null
+    sg_activated: boolean
     sl_enabled: boolean
     sl_pct: number | null
     tp_proximity_pct: number | null
