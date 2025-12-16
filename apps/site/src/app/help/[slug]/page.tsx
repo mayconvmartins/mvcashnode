@@ -1,7 +1,4 @@
-'use client';
-
 import Link from 'next/link';
-import { use } from 'react';
 import { ArrowLeft, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -225,8 +222,8 @@ export function generateStaticParams() {
   ];
 }
 
-export default function ManualPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
+export default async function ManualPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
   const manual = manuals[slug];
 
   // Esta página só deve ser servida na porta 6010 (site público)
