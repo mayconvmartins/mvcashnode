@@ -86,11 +86,14 @@ export async function getCryptoLogo(symbol: string): Promise<string | null> {
       return null;
     }
 
-    const data = await response.json();
+    const result = await response.json();
+    // Backend retorna { data: { symbol, logoUrl } }
+    const data = result?.data || result;
     const logoUrl = data?.logoUrl;
 
     // Cachear resultado (incluindo null)
     logoCache.set(symbol, logoUrl || null);
+    console.log(`[CryptoLogos] Logo for ${symbol}:`, logoUrl || 'NOT FOUND');
     return logoUrl || null;
   } catch (error) {
     console.error(`[CryptoLogos] Error fetching logo for ${symbol}:`, error);
@@ -154,8 +157,12 @@ export async function getCryptoLogos(symbols: string[]): Promise<Map<string, str
       return results;
     }
 
-    const data = await response.json();
+    const result = await response.json();
+    // Backend retorna { data: { logos: {...} } }
+    const data = result?.data || result;
     const logos = data?.logos || {};
+
+    console.log('[CryptoLogos] Batch response:', { total: Object.keys(logos).length, logos });
 
     // Processar resultados e cachear
     for (const symbol of uncachedSymbols) {
