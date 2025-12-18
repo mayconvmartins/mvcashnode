@@ -235,9 +235,26 @@ export class WebhookMonitorService {
    * Usa transação com lock para evitar race conditions
    */
   async createOrUpdateAlert(dto: CreateOrUpdateAlertDto): Promise<any> {
+    // Interface para armazenar snapshots pendentes (criados APÓS a transação)
+    interface PendingSnapshot {
+      alertId: number;
+      eventType: 'CREATED' | 'REPLACED';
+      data: {
+        monitoringStatus?: string;
+        currentPrice?: number;
+        priceMinimum?: number;
+        priceMaximum?: number;
+        cyclesWithoutNewLow?: number;
+        cyclesWithoutNewHigh?: number;
+        details?: any;
+      };
+    }
+
     // Usar transação para garantir atomicidade e evitar race conditions
-    return await this.prisma.$transaction(
+    const result = await this.prisma.$transaction(
       async (tx) => {
+        const pendingSnapshots: PendingSnapshot[] = [];
+
         // Buscar alerta ativo existente (MONITORING) para o mesmo webhook + símbolo + trade_mode
         // Dentro da transação, isso garante que apenas um processo pode modificar por vez
         const existingAlert = await tx.webhookMonitorAlert.findFirst({
@@ -260,7 +277,7 @@ export class WebhookMonitorService {
           // Verificar se o side corresponde
           if (existingSide !== dto.side) {
             console.log(`[WEBHOOK-MONITOR] Side diferente (existente: ${existingSide}, novo: ${dto.side}), ignorando`);
-            return existingAlert;
+            return { alert: existingAlert, pendingSnapshots };
           }
 
           if (dto.side === 'BUY') {
@@ -279,15 +296,19 @@ export class WebhookMonitorService {
                 },
               });
 
-              // Criar snapshot REPLACED
-              await this.createSnapshot(existingAlert.id, 'REPLACED', {
-                monitoringStatus: existingAlert.monitoring_status || undefined,
-                currentPrice: existingAlert.current_price?.toNumber(),
-                priceMinimum: existingAlert.price_minimum?.toNumber(),
-                cyclesWithoutNewLow: existingAlert.cycles_without_new_low,
-                details: {
-                  replaced_by_price: dto.priceAlert,
-                  new_webhook_event_id: dto.webhookEventId,
+              // Agendar snapshot REPLACED para criar APÓS commit
+              pendingSnapshots.push({
+                alertId: existingAlert.id,
+                eventType: 'REPLACED',
+                data: {
+                  monitoringStatus: existingAlert.monitoring_status || undefined,
+                  currentPrice: existingAlert.current_price?.toNumber(),
+                  priceMinimum: existingAlert.price_minimum?.toNumber(),
+                  cyclesWithoutNewLow: existingAlert.cycles_without_new_low,
+                  details: {
+                    replaced_by_price: dto.priceAlert,
+                    new_webhook_event_id: dto.webhookEventId,
+                  },
                 },
               });
 
@@ -299,10 +320,12 @@ export class WebhookMonitorService {
                 });
               }
 
-              return await this.createNewAlertInTransaction(tx, dto);
+              const newAlertResult = await this.createNewAlertInTransaction(tx, dto);
+              pendingSnapshots.push(...newAlertResult.pendingSnapshots);
+              return { alert: newAlertResult.alert, pendingSnapshots };
             } else {
               console.log(`[WEBHOOK-MONITOR] Ignorando alerta BUY mais caro (existente: ${existingMinPrice}, novo: ${dto.priceAlert})`);
-              return existingAlert;
+              return { alert: existingAlert, pendingSnapshots };
             }
           } else {
             // SELL: substituir se novo preço é maior ou igual
@@ -320,15 +343,19 @@ export class WebhookMonitorService {
                 },
               });
 
-              // Criar snapshot REPLACED
-              await this.createSnapshot(existingAlert.id, 'REPLACED', {
-                monitoringStatus: existingAlert.monitoring_status || undefined,
-                currentPrice: existingAlert.current_price?.toNumber(),
-                priceMaximum: existingAlert.price_maximum?.toNumber(),
-                cyclesWithoutNewHigh: existingAlert.cycles_without_new_high,
-                details: {
-                  replaced_by_price: dto.priceAlert,
-                  new_webhook_event_id: dto.webhookEventId,
+              // Agendar snapshot REPLACED para criar APÓS commit
+              pendingSnapshots.push({
+                alertId: existingAlert.id,
+                eventType: 'REPLACED',
+                data: {
+                  monitoringStatus: existingAlert.monitoring_status || undefined,
+                  currentPrice: existingAlert.current_price?.toNumber(),
+                  priceMaximum: existingAlert.price_maximum?.toNumber(),
+                  cyclesWithoutNewHigh: existingAlert.cycles_without_new_high,
+                  details: {
+                    replaced_by_price: dto.priceAlert,
+                    new_webhook_event_id: dto.webhookEventId,
+                  },
                 },
               });
 
@@ -340,10 +367,12 @@ export class WebhookMonitorService {
                 });
               }
 
-              return await this.createNewAlertInTransaction(tx, dto);
+              const newAlertResult = await this.createNewAlertInTransaction(tx, dto);
+              pendingSnapshots.push(...newAlertResult.pendingSnapshots);
+              return { alert: newAlertResult.alert, pendingSnapshots };
             } else {
               console.log(`[WEBHOOK-MONITOR] Ignorando alerta SELL mais baixo (existente: ${existingMaxPrice}, novo: ${dto.priceAlert})`);
-              return existingAlert;
+              return { alert: existingAlert, pendingSnapshots };
             }
           }
         }
@@ -376,19 +405,44 @@ export class WebhookMonitorService {
         }
 
         // Criar novo alerta dentro da transação
-        return await this.createNewAlertInTransaction(tx, dto);
+        const newAlertResult = await this.createNewAlertInTransaction(tx, dto);
+        pendingSnapshots.push(...newAlertResult.pendingSnapshots);
+        return { alert: newAlertResult.alert, pendingSnapshots };
       },
       {
-        isolationLevel: 'Serializable', // Nível mais alto de isolamento para evitar race conditions
-        timeout: 30000, // 30 segundos de timeout (aumentado de 10s para evitar erros de transação expirada)
+        isolationLevel: 'ReadCommitted', // Reduzido de Serializable para evitar deadlocks
+        timeout: 15000, // 15 segundos (reduzido pois agora a transação é mais rápida)
       }
     );
+
+    // APÓS o commit da transação, criar os snapshots (não crítico)
+    for (const snapshot of result.pendingSnapshots) {
+      // Usar setImmediate para não bloquear o retorno
+      setImmediate(async () => {
+        try {
+          await this.createSnapshot(snapshot.alertId, snapshot.eventType, snapshot.data);
+        } catch (error: any) {
+          console.error(`[WEBHOOK-MONITOR] Erro ao criar snapshot pendente: ${error.message}`);
+          // Não propagar erro - snapshots são apenas histórico
+        }
+      });
+    }
+
+    return result.alert;
   }
 
   /**
    * Criar novo alerta (versão para uso dentro de transação)
+   * Retorna o alerta e os snapshots pendentes para criar após o commit
    */
-  private async createNewAlertInTransaction(tx: any, dto: CreateOrUpdateAlertDto): Promise<any> {
+  private async createNewAlertInTransaction(tx: any, dto: CreateOrUpdateAlertDto): Promise<{
+    alert: any;
+    pendingSnapshots: Array<{
+      alertId: number;
+      eventType: 'CREATED' | 'REPLACED';
+      data: any;
+    }>;
+  }> {
     const isBuy = dto.side === 'BUY';
     
     const alert = await tx.webhookMonitorAlert.create({
@@ -421,21 +475,25 @@ export class WebhookMonitorService {
 
     console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${dto.side} criado: ID=${alert.id}, símbolo=${dto.symbol}, preço=${dto.priceAlert}`);
     
-    // Criar snapshot CREATED
-    await this.createSnapshot(alert.id, 'CREATED', {
-      monitoringStatus: isBuy ? PriceTrend.FALLING : PriceTrend.RISING,
-      currentPrice: dto.priceAlert,
-      priceMinimum: isBuy ? dto.priceAlert : undefined,
-      priceMaximum: !isBuy ? dto.priceAlert : undefined,
-      cyclesWithoutNewLow: 0,
-      cyclesWithoutNewHigh: 0,
-      details: {
-        webhook_event_id: dto.webhookEventId,
-        webhook_source_id: dto.webhookSourceId,
+    // Retornar snapshot CREATED para criar APÓS o commit da transação
+    const pendingSnapshots = [{
+      alertId: alert.id,
+      eventType: 'CREATED' as const,
+      data: {
+        monitoringStatus: isBuy ? PriceTrend.FALLING : PriceTrend.RISING,
+        currentPrice: dto.priceAlert,
+        priceMinimum: isBuy ? dto.priceAlert : undefined,
+        priceMaximum: !isBuy ? dto.priceAlert : undefined,
+        cyclesWithoutNewLow: 0,
+        cyclesWithoutNewHigh: 0,
+        details: {
+          webhook_event_id: dto.webhookEventId,
+          webhook_source_id: dto.webhookSourceId,
+        },
       },
-    });
+    }];
     
-    return alert;
+    return { alert, pendingSnapshots };
   }
 
   /**

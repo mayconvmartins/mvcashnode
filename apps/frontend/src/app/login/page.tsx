@@ -51,20 +51,26 @@ function LoginPageContent() {
     useEffect(() => {
         const checkSupport = async () => {
             if (typeof window === 'undefined' || !window.PublicKeyCredential) {
+                console.log('[Passkey Support] WebAuthn não disponível')
                 return
             }
 
             try {
                 // Verificar suporte básico a Passkeys
                 const platformAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+                console.log('[Passkey Support] Platform authenticator:', platformAvailable)
                 setIsPasskeySupported(platformAvailable)
 
                 // Verificar suporte a Conditional UI (autofill)
                 if (typeof PublicKeyCredential.isConditionalMediationAvailable === 'function') {
                     const conditionalAvailable = await PublicKeyCredential.isConditionalMediationAvailable()
+                    console.log('[Passkey Support] Conditional UI:', conditionalAvailable)
                     setIsConditionalUISupported(conditionalAvailable)
+                } else {
+                    console.log('[Passkey Support] Conditional UI não suportado pelo browser')
                 }
-            } catch {
+            } catch (err) {
+                console.error('[Passkey Support] Erro ao verificar suporte:', err)
                 setIsPasskeySupported(false)
                 setIsConditionalUISupported(false)
             }
@@ -75,17 +81,26 @@ function LoginPageContent() {
 
     // Iniciar Conditional UI (Passkey Autofill) quando suportado
     const startConditionalUI = useCallback(async () => {
-        // Não iniciar se já foi iniciado, está ativo, ou login foi bem-sucedido
-        if (conditionalUIStartedRef.current || isConditionalUIActive || loginSuccessfulRef.current) {
+        // Não iniciar se está ativo ou login foi bem-sucedido
+        if (isConditionalUIActive || loginSuccessfulRef.current) {
+            console.log('[ConditionalUI] Pulando - já ativo ou login bem-sucedido')
             return
         }
 
         if (!isConditionalUISupported) {
+            console.log('[ConditionalUI] Pulando - não suportado')
+            return
+        }
+
+        // Verificar se já foi iniciado nesta sessão (evita loop)
+        if (conditionalUIStartedRef.current) {
+            console.log('[ConditionalUI] Pulando - já foi iniciado nesta sessão')
             return
         }
 
         // Marcar como iniciado para não reiniciar em loop
         conditionalUIStartedRef.current = true
+        console.log('[ConditionalUI] Iniciando autofill de Passkey...')
 
         try {
             // Cancelar qualquer autenticação condicional anterior
@@ -99,6 +114,7 @@ function LoginPageContent() {
 
             // Obter opções de autenticação do servidor (sem email específico)
             const options = await authService.passkeyAuthenticateStart()
+            console.log('[ConditionalUI] Opções recebidas, aguardando seleção do usuário...')
 
             // Iniciar autenticação condicional (aparece no autofill)
             const authResponse = await startAuthentication({
@@ -107,7 +123,7 @@ function LoginPageContent() {
             })
 
             // Se chegou aqui, o usuário selecionou uma passkey do autofill
-            // Completar autenticação
+            console.log('[ConditionalUI] Passkey selecionada, autenticando...')
             loginSuccessfulRef.current = true
             const loginResult = await authService.passkeyAuthenticateFinish(authResponse, undefined, rememberMe)
             handleLoginSuccess(loginResult)
@@ -116,7 +132,6 @@ function LoginPageContent() {
             // Ignorar erros de cancelamento e NotAllowedError (usuário fechou)
             if (err.name === 'AbortError' || err.name === 'NotAllowedError') {
                 // NÃO reiniciar o Conditional UI após o usuário fechar
-                // Isso evita o loop infinito de prompts
                 console.log('[ConditionalUI] Usuário cancelou ou fechou o prompt')
                 return
             }
@@ -126,10 +141,13 @@ function LoginPageContent() {
         }
     }, [isConditionalUISupported, isConditionalUIActive, rememberMe])
 
-    // Ativar Conditional UI UMA VEZ quando o componente montar
+    // Ativar Conditional UI UMA VEZ quando o componente montar e suporte for detectado
     useEffect(() => {
+        console.log('[ConditionalUI Effect] isSupported:', isConditionalUISupported, 'requires2FA:', requires2FA, 'started:', conditionalUIStartedRef.current)
+        
         // Só iniciar se suportado, não estiver em 2FA, e não tiver sido iniciado ainda
         if (isConditionalUISupported && !requires2FA && !conditionalUIStartedRef.current) {
+            console.log('[ConditionalUI Effect] Chamando startConditionalUI...')
             startConditionalUI()
         }
 
@@ -139,7 +157,7 @@ function LoginPageContent() {
                 conditionalUIAbortController.current.abort()
             }
         }
-    }, [isConditionalUISupported, requires2FA]) // Remover startConditionalUI das deps para evitar loop
+    }, [isConditionalUISupported, requires2FA, startConditionalUI])
 
     // Verificar se o email tem passkeys (para mostrar botão manual)
     useEffect(() => {
@@ -224,11 +242,31 @@ function LoginPageContent() {
             handleLoginSuccess(data)
         },
         onError: (error: any) => {
-            const errorMessage = error.message || 'Falha na autenticação com Passkey'
-            if (errorMessage.includes('cancelled') || errorMessage.includes('AbortError')) {
-                // Usuário cancelou - NÃO reiniciar Conditional UI para evitar loop
+            // Tratar erros específicos do WebAuthn
+            if (error.name === 'NotAllowedError') {
+                // Este erro pode significar várias coisas
+                const msg = error.message?.toLowerCase() || ''
+                if (msg.includes('timed out')) {
+                    toast.error('Tempo esgotado. Tente novamente.')
+                    setError('A operação expirou. Clique no botão novamente para tentar.')
+                } else if (msg.includes('not allowed')) {
+                    toast.error('Operação bloqueada pelo navegador')
+                    setError('Nenhuma Passkey encontrada ou a operação foi bloqueada. Use email e senha.')
+                } else {
+                    // Usuário apenas cancelou - não mostrar erro
+                    console.log('[Passkey] Usuário cancelou a operação')
+                }
                 return
             }
+            
+            if (error.name === 'AbortError' || error.message?.includes('cancelled')) {
+                // Usuário cancelou - não mostrar erro
+                console.log('[Passkey] Operação cancelada')
+                return
+            }
+            
+            // Outros erros
+            const errorMessage = error.message || 'Falha na autenticação com Passkey'
             setError(errorMessage)
             toast.error(errorMessage)
         },
