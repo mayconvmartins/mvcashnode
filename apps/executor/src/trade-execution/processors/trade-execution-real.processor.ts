@@ -1911,8 +1911,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       return {
         success: true,
         executionId: execution.id,
-        executedQty,
-        avgPrice,
+        executedQty: finalExecutedQty,
+        avgPrice: finalAvgPrice,
         isPartiallyFilled,
       };
     } catch (error: any) {
