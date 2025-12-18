@@ -314,6 +314,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         }
 
         this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} validada`);
+      }
 
       // ============================================
       // VALIDAÇÃO E BUSCA DE QUANTIDADE
@@ -1187,12 +1188,6 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         // Continuar normalmente, o código abaixo processará a ordem
       }
 
-      // Verificar se order foi definido (pode não estar definido se houve erro no catch interno)
-      if (!order) {
-        // Se order não foi criado e não foi retornado no catch interno, lançar erro
-        throw new Error('Ordem não foi criada e não foi tratada no catch interno');
-      }
-
       // Para ordens LIMIT, verificar se foi preenchida imediatamente
       const isLimitOrder = tradeJob.order_type === 'LIMIT';
       const orderStatus = order.status?.toUpperCase() || '';
@@ -1272,7 +1267,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // mas a execution será criada com exchange_order_id para o limit-orders-monitor processar depois
 
       // Verificar se ordem foi parcialmente preenchida
-      const isPartiallyFilled = isOrderPartiallyFilled || (order.filled && order.filled < order.amount);
+      let isPartiallyFilled = isOrderPartiallyFilled || (order.filled && order.filled < order.amount);
 
       // Extrair taxas - PRIORIDADE: usar fetchMyTrades (fonte confiável)
       let feeAmount: number | null = null;
