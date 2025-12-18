@@ -248,7 +248,7 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                 </div>
             )}
             {/* TSG - Independente de TP */}
-            <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+            <div className="mt-4 p-4 bg-amber-50/50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
                 <div className="flex items-center space-x-2 mb-3">
                     <input
                         type="checkbox"
@@ -266,7 +266,7 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                         className="rounded"
                         disabled={sgEnabled}
                     />
-                    <Label htmlFor="tsgEnabled">
+                    <Label htmlFor="tsgEnabled" className="text-foreground">
                         Ativar Trailing Stop Gain (Rastreamento Dinâmico de Lucro)
                     </Label>
                 </div>
@@ -316,7 +316,7 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                         </div>
                         
                         {tsgActivationPct && tsgDropPct && !tsgActivationError && !tsgDropError && (
-                            <div className="bg-amber-100 dark:bg-amber-900/30 p-3 rounded border border-amber-300 dark:border-amber-700">
+                            <div className="bg-amber-100/50 dark:bg-amber-900/40 p-3 rounded border border-amber-300 dark:border-amber-700">
                                 <p className="text-xs font-medium mb-1">Exemplo de funcionamento:</p>
                                 <ul className="text-xs space-y-1 text-muted-foreground">
                                     <li>• Ativa em {tsgActivationPct}% de lucro</li>

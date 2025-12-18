@@ -1743,7 +1743,7 @@ export default function PositionsPage() {
                         )}
 
                         {/* Trailing Stop Gain */}
-                        <div className="space-y-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                        <div className="space-y-4 p-4 bg-amber-50/50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
                             <div className="flex items-center space-x-2">
                                 <Checkbox
                                     id="bulk-tsg-enabled"
@@ -1759,7 +1759,7 @@ export default function PositionsPage() {
                                     }}
                                     disabled={bulkSGEnabled}
                                 />
-                                <Label htmlFor="bulk-tsg-enabled" className="font-medium">
+                                <Label htmlFor="bulk-tsg-enabled" className="font-medium text-foreground">
                                     Ativar Trailing Stop Gain (Rastreamento Dinâmico)
                                 </Label>
                             </div>

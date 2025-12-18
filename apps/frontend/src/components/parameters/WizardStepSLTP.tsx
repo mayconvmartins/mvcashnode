@@ -160,7 +160,7 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                 )}
 
                 {/* TSG - Independente de TP */}
-                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <div className="mt-4 p-4 bg-amber-50/50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
                     <div className="flex items-center justify-between mb-3">
                         <Label>Trailing Stop Gain (Rastreamento Dinâmico)</Label>
                         <Switch
@@ -215,7 +215,7 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                             </div>
                             
                             {data.trailingStopGainActivationPct && data.trailingStopGainDropPct && (
-                                <div className="bg-amber-100 dark:bg-amber-900/30 p-3 rounded border border-amber-300 dark:border-amber-700">
+                                <div className="bg-amber-100/50 dark:bg-amber-900/40 p-3 rounded border border-amber-300 dark:border-amber-700">
                                     <p className="text-xs font-medium mb-1">Exemplo:</p>
                                     <ul className="text-xs space-y-1 text-muted-foreground">
                                         <li>• Ativa em {data.trailingStopGainActivationPct}%</li>

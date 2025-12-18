@@ -297,7 +297,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           // Não tem job válido, validar condições antes de tentar criar novamente
           let shouldRetry = false;
           let limitPrice = 0;
-          let triggerType: 'SL' | 'TP' | 'TRAILING' | null = null;
+          let triggerType: 'SL' | 'TP' | 'TRAILING' | 'SG' | 'TSG' | null = null;
 
           // 1.3 Validar Condição de Stop Loss
           if (position.sl_triggered && position.sl_enabled && position.sl_pct) {
@@ -383,7 +383,6 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           else if (position.sg_triggered && position.sg_enabled && position.sg_pct && position.sg_drop_pct && position.tp_pct) {
             const sgPct = position.sg_pct.toNumber();
             const sgDropPct = position.sg_drop_pct.toNumber();
-            const tpPct = position.tp_pct.toNumber();
             const sellThreshold = sgPct - sgDropPct;
             
             // Verificar se SG ainda é válido (deve estar ativado e abaixo do threshold)

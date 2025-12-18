@@ -298,7 +298,6 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           else if (position.sg_triggered && position.sg_enabled && position.sg_pct && position.sg_drop_pct && position.tp_pct) {
             const sgPct = position.sg_pct.toNumber();
             const sgDropPct = position.sg_drop_pct.toNumber();
-            const tpPct = position.tp_pct.toNumber();
             const sellThreshold = sgPct - sgDropPct;
             
             // Verificar se SG ainda é válido (deve estar ativado e abaixo do threshold)
