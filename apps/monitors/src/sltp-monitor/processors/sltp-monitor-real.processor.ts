@@ -168,6 +168,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           { sl_triggered: true },
           { tp_triggered: true },
           { trailing_triggered: true },
+          { sg_triggered: true },
+          { tsg_triggered: true },
         ],
       },
       select: {
@@ -186,6 +188,17 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         trailing_distance_pct: true,
         trailing_max_price: true,
         trailing_triggered: true,
+        sg_enabled: true,
+        sg_pct: true,
+        sg_drop_pct: true,
+        sg_activated: true,
+        sg_triggered: true,
+        tsg_enabled: true,
+        tsg_activation_pct: true,
+        tsg_drop_pct: true,
+        tsg_activated: true,
+        tsg_max_pnl_pct: true,
+        tsg_triggered: true,
         exchange_account: {
           select: {
             exchange: true,
@@ -242,6 +255,12 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             }
             if (position.trailing_triggered) {
               updateData.trailing_triggered = false;
+            }
+            if (position.sg_triggered) {
+              updateData.sg_triggered = false;
+            }
+            if (position.tsg_triggered) {
+              updateData.tsg_triggered = false;
             }
             
             if (Object.keys(updateData).length > 0) {
@@ -359,6 +378,112 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             shouldRetry = true;
             triggerType = 'TRAILING';
             limitPrice = trailingTriggerPrice;
+          }
+          // 1.5 Validar Condição de Stop Gain
+          else if (position.sg_triggered && position.sg_enabled && position.sg_pct && position.sg_drop_pct && position.tp_pct) {
+            const sgPct = position.sg_pct.toNumber();
+            const sgDropPct = position.sg_drop_pct.toNumber();
+            const tpPct = position.tp_pct.toNumber();
+            const sellThreshold = sgPct - sgDropPct;
+            
+            // Verificar se SG ainda é válido (deve estar ativado e abaixo do threshold)
+            if (!position.sg_activated) {
+              // SG não foi ativado ainda, resetar flag
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { sg_triggered: false },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag sg_triggered resetada para posição ${position.id}: ` +
+                `SG não foi ativado ainda (requer PnL >= ${sgPct}%, atual: ${pnlPct.toFixed(2)}%)`
+              );
+              continue;
+            }
+            
+            // Se preço voltou acima do threshold, resetar flag
+            if (pnlPct > sellThreshold) {
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { sg_triggered: false },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag sg_triggered resetada para posição ${position.id}: ` +
+                `preço voltou acima do threshold (${sellThreshold.toFixed(2)}%, atual: ${pnlPct.toFixed(2)}%)`
+              );
+              continue;
+            }
+            
+            // Se preço caiu muito abaixo (mais de 2x o threshold), resetar flag pois não é mais viável
+            const minViableThreshold = sellThreshold - (sgDropPct * 2);
+            if (pnlPct < minViableThreshold) {
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { sg_triggered: false, sg_activated: false },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag sg_triggered resetada para posição ${position.id}: ` +
+                `preço caiu muito abaixo do threshold viável (${minViableThreshold.toFixed(2)}%, atual: ${pnlPct.toFixed(2)}%)`
+              );
+              continue;
+            }
+            
+            shouldRetry = true;
+            triggerType = 'SG';
+            limitPrice = currentPrice * 0.999; // 0.1% abaixo do preço atual
+          }
+          // 1.6 Validar Condição de Trailing Stop Gain
+          else if (position.tsg_triggered && position.tsg_enabled && position.tsg_activation_pct && position.tsg_drop_pct) {
+            const tsgActivationPct = position.tsg_activation_pct.toNumber();
+            const tsgDropPct = position.tsg_drop_pct.toNumber();
+            
+            // Verificar se TSG ainda é válido
+            if (!position.tsg_activated) {
+              // TSG não foi ativado ainda, resetar flag
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { tsg_triggered: false },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag tsg_triggered resetada para posição ${position.id}: ` +
+                `TSG não foi ativado ainda (requer PnL >= ${tsgActivationPct}%, atual: ${pnlPct.toFixed(2)}%)`
+              );
+              continue;
+            }
+            
+            // Verificar se ainda está na condição de venda (abaixo do pico - drop)
+            const currentMax = position.tsg_max_pnl_pct?.toNumber() || tsgActivationPct;
+            const sellThreshold = currentMax - tsgDropPct;
+            
+            // Se preço voltou acima do threshold, resetar flag
+            if (pnlPct > sellThreshold) {
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { tsg_triggered: false },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag tsg_triggered resetada para posição ${position.id}: ` +
+                `preço voltou acima do threshold (${sellThreshold.toFixed(2)}%, atual: ${pnlPct.toFixed(2)}%)`
+              );
+              continue;
+            }
+            
+            // Se preço caiu muito abaixo (mais de 2x o drop), resetar flag pois não é mais viável
+            const minViableThreshold = sellThreshold - (tsgDropPct * 2);
+            if (pnlPct < minViableThreshold) {
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { tsg_triggered: false, tsg_activated: false, tsg_max_pnl_pct: null },
+              });
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] Flag tsg_triggered resetada para posição ${position.id}: ` +
+                `preço caiu muito abaixo do threshold viável (${minViableThreshold.toFixed(2)}%, atual: ${pnlPct.toFixed(2)}%)`
+              );
+              continue;
+            }
+            
+            shouldRetry = true;
+            triggerType = 'TSG';
+            limitPrice = currentPrice * 0.999; // 0.1% abaixo do preço atual
           }
 
           if (shouldRetry && limitPrice > 0) {
@@ -552,7 +677,42 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         // Funciona como trailing stop: ativa em sg_pct, vende se cair para (sg_pct - sg_drop_pct)
         if (position.tp_enabled && position.sg_enabled && 
             position.sg_pct && position.sg_drop_pct && position.tp_pct &&
-            !position.tp_triggered && !position.sg_triggered) {
+            !position.tp_triggered) {
+          
+          // Se sg_triggered está true mas não há job válido, verificar se ainda é viável
+          if (position.sg_triggered) {
+            const existingJob = await this.prisma.tradeJob.findFirst({
+              where: {
+                position_id_to_close: position.id,
+                status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] },
+              },
+            });
+            
+            if (!existingJob) {
+              // Não há job válido, verificar se ainda é viável vender
+              const sgPct = position.sg_pct.toNumber();
+              const sgDropPct = position.sg_drop_pct.toNumber();
+              const sellThreshold = sgPct - sgDropPct;
+              const minViableThreshold = sellThreshold - (sgDropPct * 2);
+              
+              // Se preço caiu muito abaixo ou voltou acima, resetar flags
+              if (pnlPct > sellThreshold || pnlPct < minViableThreshold) {
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { 
+                    sg_triggered: false,
+                    ...(pnlPct < minViableThreshold ? { sg_activated: false } : {})
+                  },
+                });
+                this.logger.warn(
+                  `[SL-TP-MONITOR-REAL] Flag sg_triggered resetada para posição ${position.id}: ` +
+                  `preço não está mais viável (${pnlPct.toFixed(2)}%, threshold: ${sellThreshold.toFixed(2)}%)`
+                );
+                continue;
+              }
+            }
+            continue; // Já está triggered, não processar novamente
+          }
           
           const sgPct = position.sg_pct.toNumber();
           const sgDropPct = position.sg_drop_pct.toNumber();
@@ -676,8 +836,43 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         // TSG é independente de TP - funciona sozinho
         if (position.tsg_enabled && 
             position.tsg_activation_pct && 
-            position.tsg_drop_pct &&
-            !position.tsg_triggered) {
+            position.tsg_drop_pct) {
+          
+          // Se tsg_triggered está true mas não há job válido, verificar se ainda é viável
+          if (position.tsg_triggered) {
+            const existingJob = await this.prisma.tradeJob.findFirst({
+              where: {
+                position_id_to_close: position.id,
+                status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] },
+              },
+            });
+            
+            if (!existingJob) {
+              // Não há job válido, verificar se ainda é viável vender
+              const tsgActivationPct = position.tsg_activation_pct.toNumber();
+              const tsgDropPct = position.tsg_drop_pct.toNumber();
+              const currentMax = position.tsg_max_pnl_pct?.toNumber() || tsgActivationPct;
+              const sellThreshold = currentMax - tsgDropPct;
+              const minViableThreshold = sellThreshold - (tsgDropPct * 2);
+              
+              // Se preço caiu muito abaixo ou voltou acima, resetar flags
+              if (pnlPct > sellThreshold || pnlPct < minViableThreshold) {
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { 
+                    tsg_triggered: false,
+                    ...(pnlPct < minViableThreshold ? { tsg_activated: false, tsg_max_pnl_pct: null } : {})
+                  },
+                });
+                this.logger.warn(
+                  `[SL-TP-MONITOR-REAL] Flag tsg_triggered resetada para posição ${position.id}: ` +
+                  `preço não está mais viável (${pnlPct.toFixed(2)}%, threshold: ${sellThreshold.toFixed(2)}%)`
+                );
+                continue;
+              }
+            }
+            continue; // Já está triggered, não processar novamente
+          }
           
           const tsgActivationPct = position.tsg_activation_pct.toNumber();
           const tsgDropPct = position.tsg_drop_pct.toNumber();
