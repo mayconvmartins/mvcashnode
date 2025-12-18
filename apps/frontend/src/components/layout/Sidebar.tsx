@@ -29,7 +29,8 @@ import {
     Receipt,
     Package,
     Wrench,
-    Flame
+    Flame,
+    UserCheck
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -57,14 +58,21 @@ const menuItems = [
     { icon: Activity, label: 'Monitoramento', href: '/monitoring', adminOnly: true },
 ]
 
+// Menu de gerenciamento de assinantes (separado do Admin)
+const subscriberAdminMenuItems = [
+    { icon: CreditCard, label: 'Lista Assinantes', href: '/subscribers-admin/subscribers' },
+    { icon: Settings2, label: 'Parâmetros', href: '/subscribers-admin/parameters' },
+    { icon: Webhook, label: 'Webhooks Padrão', href: '/subscribers-admin/webhooks' },
+    { icon: Receipt, label: 'Assinaturas', href: '/subscribers-admin/subscriptions' },
+    { icon: LineChart, label: 'Posições', href: '/subscribers-admin/positions' },
+    { icon: History, label: 'Operações', href: '/subscribers-admin/operations' },
+]
+
+// Menu Admin (sem itens de assinantes)
 const adminMenuItems = [
     { icon: LayoutDashboard, label: 'Painel Admin', href: '/admin' },
     { icon: Users, label: 'Usuários', href: '/admin/users' },
-    { icon: Receipt, label: 'Assinaturas', href: '/admin/subscriptions' },
     { icon: Package, label: 'Planos', href: '/admin/subscription-plans' },
-    { icon: CreditCard, label: 'Assinantes', href: '/admin/subscribers' },
-    { icon: Settings2, label: 'Parâmetros Assinantes', href: '/admin/subscriber-parameters' },
-    { icon: Webhook, label: 'Webhooks Padrão', href: '/admin/subscriber-webhooks' },
     { icon: FileText, label: 'Audit Logs', href: '/admin/audit' },
     { icon: MessageSquare, label: 'Notificações', href: '/admin/notifications' },
     { icon: CreditCard, label: 'Mercado Pago', href: '/admin/mercadopago' },
@@ -72,6 +80,56 @@ const adminMenuItems = [
     { icon: Wrench, label: 'Debug Tools', href: '/admin/debug-tools' },
     { icon: BookOpen, label: 'API Docs', href: '/api-docs', external: true },
 ]
+
+function SubscriberAdminDropdown({ pathname, onNavigate }: { pathname: string; onNavigate: () => void }) {
+    const [isOpen, setIsOpen] = useState(pathname.startsWith('/subscribers-admin'))
+    const isActive = pathname.startsWith('/subscribers-admin')
+
+    return (
+        <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+            <CollapsibleTrigger
+                className={cn(
+                    "w-full flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+            >
+                <div className="flex items-center gap-3">
+                    <UserCheck className={cn("h-5 w-5", isActive ? "text-primary" : "text-muted-foreground")} />
+                    <span>Assinantes</span>
+                </div>
+                {isOpen ? (
+                    <ChevronDown className="h-4 w-4 transition-transform duration-200 rotate-180" />
+                ) : (
+                    <ChevronRight className="h-4 w-4 transition-transform duration-200" />
+                )}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-1 mt-1 ml-4 pl-4 border-l border-border">
+                {subscriberAdminMenuItems.map((item) => {
+                    const isItemActive = pathname === item.href || pathname.startsWith(item.href + '/')
+
+                    return (
+                        <Link
+                            key={item.href}
+                            href={item.href}
+                            className={cn(
+                                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                                isItemActive
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                            )}
+                            onClick={onNavigate}
+                        >
+                            <item.icon className={cn("h-4 w-4", isItemActive ? "text-primary" : "text-muted-foreground")} />
+                            {item.label}
+                        </Link>
+                    )
+                })}
+            </CollapsibleContent>
+        </Collapsible>
+    )
+}
 
 function AdminDropdown({ pathname, onNavigate }: { pathname: string; onNavigate: () => void }) {
     const [isOpen, setIsOpen] = useState(pathname.startsWith('/admin'))
@@ -232,6 +290,14 @@ export function Sidebar() {
                                 <CreditCard className={cn("h-5 w-5", pathname === '/my-plan' ? "text-primary" : "text-muted-foreground")} />
                                 Meu Plano
                             </Link>
+                        )}
+
+                        {/* Subscriber Admin Dropdown - apenas para admin */}
+                        {isAdmin && (
+                            <SubscriberAdminDropdown 
+                                pathname={pathname} 
+                                onNavigate={() => setIsOpen(false)} 
+                            />
                         )}
 
                         {/* Admin Dropdown */}

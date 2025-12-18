@@ -1,0 +1,106 @@
+'use client';
+
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { adminService } from '@/lib/api/admin.service';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DataTable } from '@/components/shared/DataTable';
+import { Button } from '@/components/ui/button';
+import { Loader2, Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { SubscriberParametersForm } from './components/SubscriberParametersForm';
+
+export default function SubscriberParametersPage() {
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  const { data: parameters, isLoading } = useQuery({
+    queryKey: ['admin', 'subscriber-parameters'],
+    queryFn: () => adminService.listSubscriberParameters(),
+  });
+
+  const columns = [
+    {
+      key: 'user',
+      label: 'Usuário',
+      render: (row: any) => row.user?.email || 'N/A',
+    },
+    {
+      key: 'default_trade_mode',
+      label: 'Modo Padrão',
+    },
+    {
+      key: 'default_order_type',
+      label: 'Tipo de Ordem Padrão',
+    },
+    {
+      key: 'default_sl_pct',
+      label: 'SL Padrão (%)',
+      render: (row: any) => row.default_sl_pct || 'N/A',
+    },
+    {
+      key: 'default_tp_pct',
+      label: 'TP Padrão (%)',
+      render: (row: any) => row.default_tp_pct || 'N/A',
+    },
+    {
+      key: 'actions',
+      label: 'Ações',
+      render: (row: any) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            toast.info('Funcionalidade de edição em desenvolvimento');
+          }}
+        >
+          Editar
+        </Button>
+      ),
+    },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Parâmetros de Assinantes</h1>
+        <p className="text-muted-foreground">
+          Configurar parâmetros padrão aplicados automaticamente aos assinantes
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Lista de Parâmetros</CardTitle>
+              <CardDescription>
+                {parameters?.length || 0} configuração(ões) encontrada(s)
+              </CardDescription>
+            </div>
+            <Button onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Criar Parâmetros
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            data={parameters || []}
+            columns={columns}
+          />
+        </CardContent>
+      </Card>
+
+      <SubscriberParametersForm open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
+    </div>
+  );
+}
+

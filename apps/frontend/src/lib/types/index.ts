@@ -832,3 +832,92 @@ export interface TestConnectionResponse {
     message: string
     error?: string
 }
+
+// ============================================
+// SUBSCRIBER MANAGEMENT TYPES
+// ============================================
+
+export interface SubscriberInfo {
+    id: number
+    email: string
+    full_name?: string | null
+    is_active: boolean
+}
+
+export interface SubscriberPosition extends Position {
+    subscriber: SubscriberInfo
+    current_price?: number
+    unrealized_pnl_usd?: number
+    unrealized_pnl_pct?: number
+    invested_value_usd?: number
+}
+
+export interface SubscriberOperation {
+    id: number
+    symbol: string
+    side: 'BUY' | 'SELL'
+    status: string
+    order_type: 'MARKET' | 'LIMIT'
+    trade_mode: TradeMode
+    base_quantity: number
+    limit_price?: number | null
+    executed_qty: number
+    total_value_usd: number
+    executions_count: number
+    position_to_close?: {
+        id: number
+        symbol: string
+        status: string
+    } | null
+    reason_code?: string | null
+    reason_message?: string | null
+    created_by?: string | null
+    created_at: string
+    updated_at: string
+    exchange_account: {
+        id: number
+        label: string
+        exchange: string
+    }
+    subscriber: SubscriberInfo
+}
+
+export interface SubscriberPositionFilters {
+    subscriber_id?: number
+    symbol?: string
+    status?: 'OPEN' | 'CLOSED'
+    trade_mode?: TradeMode
+    date_from?: string
+    date_to?: string
+    sort_by?: 'created_at' | 'pnl_pct' | 'invested_value_usd'
+    sort_order?: 'asc' | 'desc'
+    page?: number
+    limit?: number
+}
+
+export interface SubscriberOperationFilters {
+    subscriber_id?: number
+    symbol?: string
+    status?: string
+    side?: 'BUY' | 'SELL'
+    trade_mode?: TradeMode
+    date_from?: string
+    date_to?: string
+    page?: number
+    limit?: number
+}
+
+export interface BulkUpdateSubscriberPositionsDto {
+    positionIds: number[]
+    lock_sell_by_webhook?: boolean
+    sl_enabled?: boolean
+    sl_pct?: number
+    tp_enabled?: boolean
+    tp_pct?: number
+    sg_enabled?: boolean
+    sg_pct?: number
+    sg_drop_pct?: number
+    tsg_enabled?: boolean
+    tsg_activation_pct?: number
+    tsg_drop_pct?: number
+}

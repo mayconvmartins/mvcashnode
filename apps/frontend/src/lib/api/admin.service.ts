@@ -1123,5 +1123,102 @@ export const adminService = {
         })
         return response.data
     },
+
+    // ============================================
+    // SUBSCRIBER POSITIONS MANAGEMENT
+    // ============================================
+
+    listSubscriberPositions: async (filters?: {
+        subscriber_id?: number;
+        symbol?: string;
+        status?: 'OPEN' | 'CLOSED';
+        trade_mode?: 'REAL' | 'SIMULATION';
+        date_from?: string;
+        date_to?: string;
+        sort_by?: 'created_at' | 'pnl_pct' | 'invested_value_usd';
+        sort_order?: 'asc' | 'desc';
+        page?: number;
+        limit?: number;
+    }): Promise<{
+        data: any[];
+        pagination: {
+            page: number;
+            limit: number;
+            total: number;
+            pages: number;
+        };
+        summary: {
+            total_positions: number;
+            total_invested_usd: number;
+            total_unrealized_pnl_usd: number;
+            total_realized_pnl_usd: number;
+        };
+    }> => {
+        const response = await apiClient.get('/admin/subscribers/positions', { params: filters })
+        return response.data
+    },
+
+    getSubscriberPosition: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/subscribers/positions/${id}`)
+        return response.data
+    },
+
+    bulkUpdateSubscriberPositions: async (data: {
+        positionIds: number[];
+        lock_sell_by_webhook?: boolean;
+        sl_enabled?: boolean;
+        sl_pct?: number;
+        tp_enabled?: boolean;
+        tp_pct?: number;
+        sg_enabled?: boolean;
+        sg_pct?: number;
+        sg_drop_pct?: number;
+        tsg_enabled?: boolean;
+        tsg_activation_pct?: number;
+        tsg_drop_pct?: number;
+    }): Promise<{
+        updated: number;
+        requested: number;
+        invalid_ids: number[];
+    }> => {
+        const response = await apiClient.put('/admin/subscribers/positions/bulk-update', data)
+        return response.data
+    },
+
+    // ============================================
+    // SUBSCRIBER OPERATIONS MANAGEMENT
+    // ============================================
+
+    listSubscriberOperations: async (filters?: {
+        subscriber_id?: number;
+        symbol?: string;
+        status?: string;
+        side?: 'BUY' | 'SELL';
+        trade_mode?: 'REAL' | 'SIMULATION';
+        date_from?: string;
+        date_to?: string;
+        page?: number;
+        limit?: number;
+    }): Promise<{
+        data: any[];
+        pagination: {
+            page: number;
+            limit: number;
+            total: number;
+            pages: number;
+        };
+        summary: {
+            total_operations: number;
+            by_status: Array<{ status: string; _count: { id: number } }>;
+        };
+    }> => {
+        const response = await apiClient.get('/admin/subscribers/operations', { params: filters })
+        return response.data
+    },
+
+    getSubscriberOperation: async (id: number): Promise<any> => {
+        const response = await apiClient.get(`/admin/subscribers/operations/${id}`)
+        return response.data
+    },
 }
 

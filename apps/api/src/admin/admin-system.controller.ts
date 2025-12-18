@@ -7074,5 +7074,761 @@ export class AdminSystemController {
 
     return { imported, failed, results };
   }
+
+  // ============================================
+  // SUBSCRIBER POSITIONS MANAGEMENT
+  // ============================================
+
+  @Get('subscribers/positions')
+  @ApiOperation({ 
+    summary: 'Listar posições de todos os assinantes',
+    description: 'Retorna todas as posições de usuários com role SUBSCRIBER, com filtros e paginação.'
+  })
+  async listSubscriberPositions(
+    @Query('subscriber_id') subscriberId?: string,
+    @Query('symbol') symbol?: string,
+    @Query('status') status?: string,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('date_from') dateFrom?: string,
+    @Query('date_to') dateTo?: string,
+    @Query('sort_by') sortBy?: string,
+    @Query('sort_order') sortOrder?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ): Promise<any> {
+    const pageNum = this.safeParseInt(page, 1, 1, 10000);
+    const limitNum = this.safeParseInt(limit, 50, 1, 500);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Buscar IDs de usuários com role SUBSCRIBER
+    const subscriberUsers = await this.prisma.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: 'SUBSCRIBER'
+          }
+        }
+      },
+      select: { id: true }
+    });
+
+    const subscriberUserIds = subscriberUsers.map(u => u.id);
+
+    if (subscriberUserIds.length === 0) {
+      return {
+        data: [],
+        pagination: { page: pageNum, limit: limitNum, total: 0, pages: 0 },
+        summary: { total_positions: 0, total_invested_usd: 0, total_pnl_usd: 0 }
+      };
+    }
+
+    // Buscar exchange accounts desses usuários
+    const subscriberAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: { in: subscriberUserIds } },
+      select: { id: true, user_id: true }
+    });
+
+    const accountIds = subscriberAccounts.map(a => a.id);
+
+    // Construir where clause para posições
+    const whereClause: any = {
+      exchange_account_id: { in: accountIds }
+    };
+
+    if (subscriberId) {
+      const subId = this.safeParseInt(subscriberId, 0, 1, 999999999);
+      const subAccounts = subscriberAccounts.filter(a => a.user_id === subId);
+      if (subAccounts.length > 0) {
+        whereClause.exchange_account_id = { in: subAccounts.map(a => a.id) };
+      } else {
+        whereClause.exchange_account_id = { in: [] };
+      }
+    }
+
+    if (symbol) {
+      whereClause.symbol = { contains: symbol.toUpperCase() };
+    }
+
+    if (status && ['OPEN', 'CLOSED'].includes(status.toUpperCase())) {
+      whereClause.status = status.toUpperCase();
+    }
+
+    if (tradeMode && ['REAL', 'SIMULATION'].includes(tradeMode.toUpperCase())) {
+      whereClause.trade_mode = tradeMode.toUpperCase();
+    }
+
+    if (dateFrom || dateTo) {
+      whereClause.created_at = {};
+      if (dateFrom) whereClause.created_at.gte = new Date(dateFrom);
+      if (dateTo) whereClause.created_at.lte = new Date(dateTo);
+    }
+
+    // Ordenação
+    const orderByField = sortBy || 'created_at';
+    const orderByDir = sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc';
+    const orderBy: any = {};
+    
+    if (['created_at', 'qty_remaining', 'price_open'].includes(orderByField)) {
+      orderBy[orderByField] = orderByDir;
+    } else {
+      orderBy.created_at = orderByDir;
+    }
+
+    // Buscar posições com dados da conta e usuário
+    const [positions, total] = await Promise.all([
+      this.prisma.tradePosition.findMany({
+        where: whereClause,
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  is_active: true,
+                  profile: {
+                    select: { full_name: true }
+                  }
+                }
+              }
+            }
+          }
+        },
+        orderBy,
+        skip,
+        take: limitNum
+      }),
+      this.prisma.tradePosition.count({ where: whereClause })
+    ]);
+
+    // Buscar preços atuais do cache
+    const symbols = [...new Set(positions.map(p => p.symbol))];
+    const priceMap: Record<string, number> = {};
+    for (const sym of symbols) {
+      const price = await this.cacheService.get(`price:${sym}`);
+      if (price) priceMap[sym] = parseFloat(price);
+    }
+
+    // Transformar dados
+    const data = positions.map(pos => {
+      const currentPrice = priceMap[pos.symbol] || pos.price_open.toNumber();
+      const qtyRemaining = pos.qty_remaining.toNumber();
+      const priceOpen = pos.price_open.toNumber();
+      const unrealizedPnl = (currentPrice - priceOpen) * qtyRemaining;
+      const unrealizedPnlPct = priceOpen > 0 ? ((currentPrice - priceOpen) / priceOpen) * 100 : 0;
+
+      return {
+        ...pos,
+        qty_total: pos.qty_total?.toNumber?.() || pos.qty_total,
+        qty_remaining: qtyRemaining,
+        price_open: priceOpen,
+        realized_profit_usd: pos.realized_profit_usd?.toNumber?.() || 0,
+        current_price: currentPrice,
+        unrealized_pnl_usd: unrealizedPnl,
+        unrealized_pnl_pct: unrealizedPnlPct,
+        invested_value_usd: priceOpen * pos.qty_total.toNumber(),
+        subscriber: {
+          id: pos.exchange_account.user.id,
+          email: pos.exchange_account.user.email,
+          full_name: pos.exchange_account.user.profile?.full_name || null,
+          is_active: pos.exchange_account.user.is_active
+        }
+      };
+    });
+
+    // Calcular sumário
+    const summary = {
+      total_positions: total,
+      total_invested_usd: data.reduce((sum, p) => sum + (p.invested_value_usd || 0), 0),
+      total_unrealized_pnl_usd: data.reduce((sum, p) => sum + (p.unrealized_pnl_usd || 0), 0),
+      total_realized_pnl_usd: data.reduce((sum, p) => sum + (p.realized_profit_usd || 0), 0)
+    };
+
+    return {
+      data,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      },
+      summary
+    };
+  }
+
+  @Get('subscribers/positions/:id')
+  @ApiOperation({ 
+    summary: 'Obter detalhe de uma posição de assinante',
+    description: 'Retorna informações completas de uma posição específica, incluindo dados do assinante.'
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da posição' })
+  async getSubscriberPosition(@Param('id', ParseIntPipe) id: number): Promise<any> {
+    const position = await this.prisma.tradePosition.findUnique({
+      where: { id },
+      include: {
+        exchange_account: {
+          select: {
+            id: true,
+            label: true,
+            exchange: true,
+            user: {
+              select: {
+                id: true,
+                email: true,
+                is_active: true,
+                profile: {
+                  select: { full_name: true }
+                },
+                roles: {
+                  select: { role: true }
+                }
+              }
+            }
+          }
+        },
+        fills: {
+          include: {
+            execution: {
+              select: {
+                id: true,
+                exchange_order_id: true,
+                status_exchange: true,
+                executed_qty: true,
+                avg_price: true,
+                fee_amount: true,
+                fee_currency: true,
+                created_at: true
+              }
+            }
+          },
+          orderBy: { created_at: 'desc' }
+        },
+        open_job: {
+          select: {
+            id: true,
+            status: true,
+            side: true,
+            order_type: true,
+            base_quantity: true,
+            created_at: true
+          }
+        },
+        close_jobs: {
+          select: {
+            id: true,
+            status: true,
+            side: true,
+            order_type: true,
+            base_quantity: true,
+            created_at: true,
+            reason_code: true,
+            reason_message: true
+          },
+          orderBy: { created_at: 'desc' }
+        }
+      }
+    });
+
+    if (!position) {
+      throw new NotFoundException(`Posição ${id} não encontrada`);
+    }
+
+    // Verificar se pertence a um subscriber
+    const isSubscriber = position.exchange_account.user.roles?.some(r => r.role === 'SUBSCRIBER');
+    if (!isSubscriber) {
+      throw new BadRequestException(`Posição ${id} não pertence a um assinante`);
+    }
+
+    // Buscar preço atual
+    const currentPrice = await this.cacheService.get(`price:${position.symbol}`);
+    const priceNow = currentPrice ? parseFloat(currentPrice) : position.price_open.toNumber();
+
+    const qtyRemaining = position.qty_remaining.toNumber();
+    const priceOpen = position.price_open.toNumber();
+    const unrealizedPnl = (priceNow - priceOpen) * qtyRemaining;
+    const unrealizedPnlPct = priceOpen > 0 ? ((priceNow - priceOpen) / priceOpen) * 100 : 0;
+
+    return {
+      ...position,
+      qty_total: position.qty_total?.toNumber?.() || position.qty_total,
+      qty_remaining: qtyRemaining,
+      price_open: priceOpen,
+      realized_profit_usd: position.realized_profit_usd?.toNumber?.() || 0,
+      current_price: priceNow,
+      unrealized_pnl_usd: unrealizedPnl,
+      unrealized_pnl_pct: unrealizedPnlPct,
+      invested_value_usd: priceOpen * position.qty_total.toNumber(),
+      sl_pct: position.sl_pct?.toNumber?.() || null,
+      tp_pct: position.tp_pct?.toNumber?.() || null,
+      sg_pct: position.sg_pct?.toNumber?.() || null,
+      sg_drop_pct: position.sg_drop_pct?.toNumber?.() || null,
+      tsg_activation_pct: position.tsg_activation_pct?.toNumber?.() || null,
+      tsg_drop_pct: position.tsg_drop_pct?.toNumber?.() || null,
+      tsg_max_pnl_pct: position.tsg_max_pnl_pct?.toNumber?.() || null,
+      min_profit_pct: position.min_profit_pct?.toNumber?.() || null,
+      trailing_distance_pct: position.trailing_distance_pct?.toNumber?.() || null,
+      trailing_max_price: position.trailing_max_price?.toNumber?.() || null,
+      subscriber: {
+        id: position.exchange_account.user.id,
+        email: position.exchange_account.user.email,
+        full_name: position.exchange_account.user.profile?.full_name || null,
+        is_active: position.exchange_account.user.is_active
+      },
+      fills: position.fills.map(f => ({
+        ...f,
+        qty: f.qty?.toNumber?.() || f.qty,
+        price: f.price?.toNumber?.() || f.price,
+        execution: f.execution ? {
+          ...f.execution,
+          executed_qty: f.execution.executed_qty?.toNumber?.() || f.execution.executed_qty,
+          avg_price: f.execution.avg_price?.toNumber?.() || f.execution.avg_price,
+          fee_amount: f.execution.fee_amount?.toNumber?.() || f.execution.fee_amount
+        } : null
+      }))
+    };
+  }
+
+  @Put('subscribers/positions/bulk-update')
+  @ApiOperation({ 
+    summary: 'Atualização em massa de posições de assinantes',
+    description: 'Permite atualizar SL/TP/SG/TSG e lock de webhook em várias posições de assinantes.'
+  })
+  async bulkUpdateSubscriberPositions(
+    @Body() dto: {
+      positionIds: number[];
+      lock_sell_by_webhook?: boolean;
+      sl_enabled?: boolean;
+      sl_pct?: number;
+      tp_enabled?: boolean;
+      tp_pct?: number;
+      sg_enabled?: boolean;
+      sg_pct?: number;
+      sg_drop_pct?: number;
+      tsg_enabled?: boolean;
+      tsg_activation_pct?: number;
+      tsg_drop_pct?: number;
+    }
+  ): Promise<any> {
+    if (!dto.positionIds || dto.positionIds.length === 0) {
+      throw new BadRequestException('positionIds é obrigatório');
+    }
+
+    // Buscar IDs de usuários com role SUBSCRIBER
+    const subscriberUsers = await this.prisma.user.findMany({
+      where: {
+        roles: { some: { role: 'SUBSCRIBER' } }
+      },
+      select: { id: true }
+    });
+    const subscriberUserIds = subscriberUsers.map(u => u.id);
+
+    // Buscar exchange accounts desses usuários
+    const subscriberAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: { in: subscriberUserIds } },
+      select: { id: true }
+    });
+    const accountIds = subscriberAccounts.map(a => a.id);
+
+    // Verificar se todas as posições pertencem a assinantes
+    const positions = await this.prisma.tradePosition.findMany({
+      where: {
+        id: { in: dto.positionIds },
+        exchange_account_id: { in: accountIds }
+      },
+      select: { id: true }
+    });
+
+    const validPositionIds = positions.map(p => p.id);
+    const invalidIds = dto.positionIds.filter(id => !validPositionIds.includes(id));
+
+    if (invalidIds.length > 0) {
+      console.warn(`[ADMIN] Posições ignoradas (não pertencem a assinantes): ${invalidIds.join(', ')}`);
+    }
+
+    if (validPositionIds.length === 0) {
+      return { updated: 0, errors: [{ message: 'Nenhuma posição válida de assinante encontrada' }] };
+    }
+
+    // Construir objeto de update
+    const updateData: any = {};
+
+    if (dto.lock_sell_by_webhook !== undefined) {
+      updateData.lock_sell_by_webhook = dto.lock_sell_by_webhook;
+    }
+
+    if (dto.sl_enabled !== undefined) {
+      updateData.sl_enabled = dto.sl_enabled;
+      if (!dto.sl_enabled) {
+        updateData.sl_pct = null;
+        updateData.sl_triggered = false;
+      }
+    }
+    if (dto.sl_pct !== undefined && dto.sl_enabled !== false) {
+      updateData.sl_pct = dto.sl_pct;
+    }
+
+    if (dto.tp_enabled !== undefined) {
+      updateData.tp_enabled = dto.tp_enabled;
+      if (!dto.tp_enabled) {
+        updateData.tp_pct = null;
+        updateData.tp_triggered = false;
+      }
+    }
+    if (dto.tp_pct !== undefined && dto.tp_enabled !== false) {
+      updateData.tp_pct = dto.tp_pct;
+    }
+
+    if (dto.sg_enabled !== undefined) {
+      updateData.sg_enabled = dto.sg_enabled;
+      if (!dto.sg_enabled) {
+        updateData.sg_pct = null;
+        updateData.sg_drop_pct = null;
+        updateData.sg_triggered = false;
+        updateData.sg_activated = false;
+      }
+    }
+    if (dto.sg_pct !== undefined && dto.sg_enabled !== false) {
+      updateData.sg_pct = dto.sg_pct;
+    }
+    if (dto.sg_drop_pct !== undefined && dto.sg_enabled !== false) {
+      updateData.sg_drop_pct = dto.sg_drop_pct;
+    }
+
+    if (dto.tsg_enabled !== undefined) {
+      updateData.tsg_enabled = dto.tsg_enabled;
+      if (dto.tsg_enabled) {
+        // Se TSG ativado, desativar TP e SG normais
+        updateData.tp_enabled = false;
+        updateData.tp_pct = null;
+        updateData.tp_triggered = false;
+        updateData.sg_enabled = false;
+        updateData.sg_pct = null;
+        updateData.sg_drop_pct = null;
+        updateData.sg_triggered = false;
+        updateData.sg_activated = false;
+        updateData.lock_sell_by_webhook = true;
+      } else {
+        updateData.tsg_activation_pct = null;
+        updateData.tsg_drop_pct = null;
+        updateData.tsg_activated = false;
+        updateData.tsg_max_pnl_pct = null;
+        updateData.tsg_triggered = false;
+        updateData.lock_sell_by_webhook = false;
+      }
+    }
+    if (dto.tsg_activation_pct !== undefined && dto.tsg_enabled !== false) {
+      updateData.tsg_activation_pct = dto.tsg_activation_pct;
+    }
+    if (dto.tsg_drop_pct !== undefined && dto.tsg_enabled !== false) {
+      updateData.tsg_drop_pct = dto.tsg_drop_pct;
+    }
+
+    // Executar update
+    const result = await this.prisma.tradePosition.updateMany({
+      where: { id: { in: validPositionIds } },
+      data: updateData
+    });
+
+    console.log(`[ADMIN] Bulk update de ${result.count} posições de assinantes`);
+
+    return {
+      updated: result.count,
+      requested: dto.positionIds.length,
+      invalid_ids: invalidIds
+    };
+  }
+
+  // ============================================
+  // SUBSCRIBER OPERATIONS MANAGEMENT
+  // ============================================
+
+  @Get('subscribers/operations')
+  @ApiOperation({ 
+    summary: 'Listar operações de todos os assinantes',
+    description: 'Retorna todas as operações (trade_jobs) de usuários com role SUBSCRIBER.'
+  })
+  async listSubscriberOperations(
+    @Query('subscriber_id') subscriberId?: string,
+    @Query('symbol') symbol?: string,
+    @Query('status') status?: string,
+    @Query('side') side?: string,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('date_from') dateFrom?: string,
+    @Query('date_to') dateTo?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ): Promise<any> {
+    const pageNum = this.safeParseInt(page, 1, 1, 10000);
+    const limitNum = this.safeParseInt(limit, 50, 1, 500);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Buscar IDs de usuários com role SUBSCRIBER
+    const subscriberUsers = await this.prisma.user.findMany({
+      where: {
+        roles: { some: { role: 'SUBSCRIBER' } }
+      },
+      select: { id: true }
+    });
+    const subscriberUserIds = subscriberUsers.map(u => u.id);
+
+    if (subscriberUserIds.length === 0) {
+      return {
+        data: [],
+        pagination: { page: pageNum, limit: limitNum, total: 0, pages: 0 },
+        summary: { total_operations: 0 }
+      };
+    }
+
+    // Buscar exchange accounts desses usuários
+    const subscriberAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: { in: subscriberUserIds } },
+      select: { id: true, user_id: true }
+    });
+    const accountIds = subscriberAccounts.map(a => a.id);
+
+    // Construir where clause
+    const whereClause: any = {
+      exchange_account_id: { in: accountIds }
+    };
+
+    if (subscriberId) {
+      const subId = this.safeParseInt(subscriberId, 0, 1, 999999999);
+      const subAccounts = subscriberAccounts.filter(a => a.user_id === subId);
+      if (subAccounts.length > 0) {
+        whereClause.exchange_account_id = { in: subAccounts.map(a => a.id) };
+      } else {
+        whereClause.exchange_account_id = { in: [] };
+      }
+    }
+
+    if (symbol) {
+      whereClause.symbol = { contains: symbol.toUpperCase() };
+    }
+
+    if (status) {
+      whereClause.status = status.toUpperCase();
+    }
+
+    if (side && ['BUY', 'SELL'].includes(side.toUpperCase())) {
+      whereClause.side = side.toUpperCase();
+    }
+
+    if (tradeMode && ['REAL', 'SIMULATION'].includes(tradeMode.toUpperCase())) {
+      whereClause.trade_mode = tradeMode.toUpperCase();
+    }
+
+    if (dateFrom || dateTo) {
+      whereClause.created_at = {};
+      if (dateFrom) whereClause.created_at.gte = new Date(dateFrom);
+      if (dateTo) whereClause.created_at.lte = new Date(dateTo);
+    }
+
+    // Buscar operações
+    const [operations, total] = await Promise.all([
+      this.prisma.tradeJob.findMany({
+        where: whereClause,
+        include: {
+          exchange_account: {
+            select: {
+              id: true,
+              label: true,
+              exchange: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  is_active: true,
+                  profile: {
+                    select: { full_name: true }
+                  }
+                }
+              }
+            }
+          },
+          executions: {
+            select: {
+              id: true,
+              executed_qty: true,
+              avg_price: true,
+              cumm_quote_qty: true
+            }
+          },
+          position_to_close: {
+            select: {
+              id: true,
+              symbol: true,
+              status: true
+            }
+          }
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limitNum
+      }),
+      this.prisma.tradeJob.count({ where: whereClause })
+    ]);
+
+    // Transformar dados
+    const data = operations.map(op => {
+      const totalExecutedQty = op.executions.reduce((sum, e) => sum + (e.executed_qty?.toNumber?.() || 0), 0);
+      const totalValue = op.executions.reduce((sum, e) => sum + (e.cumm_quote_qty?.toNumber?.() || 0), 0);
+
+      return {
+        id: op.id,
+        symbol: op.symbol,
+        side: op.side,
+        status: op.status,
+        order_type: op.order_type,
+        trade_mode: op.trade_mode,
+        base_quantity: op.base_quantity?.toNumber?.() || op.base_quantity,
+        limit_price: op.limit_price?.toNumber?.() || null,
+        executed_qty: totalExecutedQty,
+        total_value_usd: totalValue,
+        executions_count: op.executions.length,
+        position_to_close: op.position_to_close,
+        reason_code: op.reason_code,
+        reason_message: op.reason_message,
+        created_by: op.created_by,
+        created_at: op.created_at,
+        updated_at: op.updated_at,
+        exchange_account: {
+          id: op.exchange_account.id,
+          label: op.exchange_account.label,
+          exchange: op.exchange_account.exchange
+        },
+        subscriber: {
+          id: op.exchange_account.user.id,
+          email: op.exchange_account.user.email,
+          full_name: op.exchange_account.user.profile?.full_name || null,
+          is_active: op.exchange_account.user.is_active
+        }
+      };
+    });
+
+    return {
+      data,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      },
+      summary: {
+        total_operations: total,
+        by_status: await this.prisma.tradeJob.groupBy({
+          by: ['status'],
+          where: whereClause,
+          _count: { id: true }
+        })
+      }
+    };
+  }
+
+  @Get('subscribers/operations/:id')
+  @ApiOperation({ 
+    summary: 'Obter detalhe de uma operação de assinante',
+    description: 'Retorna informações completas de uma operação específica, incluindo dados do assinante.'
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da operação' })
+  async getSubscriberOperation(@Param('id', ParseIntPipe) id: number): Promise<any> {
+    const operationRaw = await this.prisma.tradeJob.findUnique({
+      where: { id },
+      include: {
+        exchange_account: {
+          include: {
+            user: {
+              include: {
+                profile: true,
+                roles: true
+              }
+            }
+          }
+        },
+        executions: {
+          orderBy: { created_at: 'desc' }
+        },
+        position_to_close: true,
+        position_open: true
+      }
+    });
+
+    if (!operationRaw) {
+      throw new NotFoundException(`Operação ${id} não encontrada`);
+    }
+
+    // Cast para any para evitar erros de tipo do Prisma
+    const operation = operationRaw as any;
+
+    // Verificar se pertence a um subscriber
+    const isSubscriber = operation.exchange_account?.user?.roles?.some((r: any) => r.role === 'SUBSCRIBER');
+    if (!isSubscriber) {
+      throw new BadRequestException(`Operação ${id} não pertence a um assinante`);
+    }
+
+    const totalExecutedQty = operation.executions?.reduce((sum: number, e: any) => sum + (e.executed_qty?.toNumber?.() || 0), 0) || 0;
+    const totalValue = operation.executions?.reduce((sum: number, e: any) => sum + (e.cumm_quote_qty?.toNumber?.() || 0), 0) || 0;
+    const avgPrice = totalExecutedQty > 0 ? totalValue / totalExecutedQty : 0;
+
+    return {
+      id: operation.id,
+      symbol: operation.symbol,
+      side: operation.side,
+      status: operation.status,
+      order_type: operation.order_type,
+      trade_mode: operation.trade_mode,
+      base_quantity: operation.base_quantity?.toNumber?.() || operation.base_quantity,
+      limit_price: operation.limit_price?.toNumber?.() || null,
+      executed_qty: totalExecutedQty,
+      avg_price: avgPrice,
+      total_value_usd: totalValue,
+      reason_code: operation.reason_code,
+      reason_message: operation.reason_message,
+      created_by: operation.created_by,
+      created_at: operation.created_at,
+      updated_at: operation.updated_at,
+      exchange_account: operation.exchange_account ? {
+        id: operation.exchange_account.id,
+        label: operation.exchange_account.label,
+        exchange: operation.exchange_account.exchange
+      } : null,
+      subscriber: operation.exchange_account?.user ? {
+        id: operation.exchange_account.user.id,
+        email: operation.exchange_account.user.email,
+        full_name: operation.exchange_account.user.profile?.full_name || null,
+        is_active: operation.exchange_account.user.is_active
+      } : null,
+      executions: operation.executions?.map((e: any) => ({
+        id: e.id,
+        exchange_order_id: e.exchange_order_id,
+        client_order_id: e.client_order_id,
+        status_exchange: e.status_exchange,
+        executed_qty: e.executed_qty?.toNumber?.() || e.executed_qty,
+        avg_price: e.avg_price?.toNumber?.() || e.avg_price,
+        cumm_quote_qty: e.cumm_quote_qty?.toNumber?.() || e.cumm_quote_qty,
+        fee_amount: e.fee_amount?.toNumber?.() || e.fee_amount,
+        fee_currency: e.fee_currency,
+        created_at: e.created_at
+      })) || [],
+      position_to_close: operation.position_to_close ? {
+        id: operation.position_to_close.id,
+        symbol: operation.position_to_close.symbol,
+        status: operation.position_to_close.status,
+        qty_total: operation.position_to_close.qty_total?.toNumber?.() || operation.position_to_close.qty_total,
+        qty_remaining: operation.position_to_close.qty_remaining?.toNumber?.() || operation.position_to_close.qty_remaining,
+        price_open: operation.position_to_close.price_open?.toNumber?.() || operation.position_to_close.price_open
+      } : null,
+      position_open: operation.position_open ? {
+        id: operation.position_open.id,
+        symbol: operation.position_open.symbol,
+        status: operation.position_open.status,
+        qty_total: operation.position_open.qty_total?.toNumber?.() || operation.position_open.qty_total,
+        qty_remaining: operation.position_open.qty_remaining?.toNumber?.() || operation.position_open.qty_remaining,
+        price_open: operation.position_open.price_open?.toNumber?.() || operation.position_open.price_open
+      } : null
+    };
+  }
 }
 
