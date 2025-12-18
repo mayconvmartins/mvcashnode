@@ -1183,6 +1183,19 @@ model Passkey {
   @@map("passkeys")
 }
 
+// Tabela para armazenar challenges temporários de passkey (necessário em ambientes multi-processo)
+model PasskeyChallenge {
+  id            Int       @id @default(autoincrement())
+  challenge_key String    @unique @db.VarChar(255) // Chave única (ex: "reg_123" ou "auth_email@example.com")
+  challenge     String    @db.Text // O challenge em si
+  expires_at    DateTime  // Quando o challenge expira
+  created_at    DateTime  @default(now())
+
+  @@index([challenge_key])
+  @@index([expires_at])
+  @@map("passkey_challenges")
+}
+
 // ============================================
 // USER SESSIONS (MULTIPLE DEVICES)
 // ============================================

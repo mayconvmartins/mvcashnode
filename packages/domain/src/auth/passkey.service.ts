@@ -60,19 +60,8 @@ export interface PasskeyInfo {
   transports: string | null;
 }
 
-// In-memory challenge store (em produção, usar Redis ou banco)
-const challengeStore = new Map<string, { challenge: string; timestamp: number }>();
-
-// Limpar challenges expirados a cada 5 minutos
-setInterval(() => {
-  const now = Date.now();
-  const fiveMinutes = 5 * 60 * 1000;
-  for (const [key, value] of challengeStore.entries()) {
-    if (now - value.timestamp > fiveMinutes) {
-      challengeStore.delete(key);
-    }
-  }
-}, 5 * 60 * 1000);
+// Tempo de expiração do challenge: 5 minutos
+const CHALLENGE_EXPIRY_MS = 5 * 60 * 1000;
 
 export class PasskeyService {
   private prisma: PrismaService;
@@ -86,6 +75,80 @@ export class PasskeyService {
     this.rpName = process.env.PASSKEY_RP_NAME || 'MVCash Trading';
     this.rpID = process.env.PASSKEY_RP_ID || 'app.mvcash.com.br';
     this.origin = process.env.PASSKEY_ORIGIN || 'https://app.mvcash.com.br';
+  }
+
+  /**
+   * Armazena um challenge no banco de dados
+   */
+  private async storeChallenge(key: string, challenge: string): Promise<void> {
+    const expiresAt = new Date(Date.now() + CHALLENGE_EXPIRY_MS);
+    
+    // Usar upsert para atualizar se já existir
+    await this.prisma.passkeyChallenge.upsert({
+      where: { challenge_key: key },
+      update: {
+        challenge,
+        expires_at: expiresAt,
+      },
+      create: {
+        challenge_key: key,
+        challenge,
+        expires_at: expiresAt,
+      },
+    });
+
+    console.log(`[PASSKEY] Challenge armazenado: ${key}`);
+  }
+
+  /**
+   * Recupera e remove um challenge do banco de dados
+   */
+  private async getAndDeleteChallenge(key: string): Promise<string | null> {
+    const record = await this.prisma.passkeyChallenge.findUnique({
+      where: { challenge_key: key },
+    });
+
+    if (!record) {
+      console.log(`[PASSKEY] Challenge não encontrado: ${key}`);
+      return null;
+    }
+
+    // Verificar expiração
+    if (new Date() > record.expires_at) {
+      console.log(`[PASSKEY] Challenge expirado: ${key}`);
+      // Limpar o challenge expirado
+      await this.prisma.passkeyChallenge.delete({
+        where: { challenge_key: key },
+      }).catch(() => {}); // Ignorar erro se já foi deletado
+      return null;
+    }
+
+    // Deletar o challenge usado
+    await this.prisma.passkeyChallenge.delete({
+      where: { challenge_key: key },
+    }).catch(() => {}); // Ignorar erro se já foi deletado
+
+    console.log(`[PASSKEY] Challenge recuperado e removido: ${key}`);
+    return record.challenge;
+  }
+
+  /**
+   * Limpa challenges expirados (pode ser chamado periodicamente)
+   */
+  async cleanupExpiredChallenges(): Promise<number> {
+    const result = await this.prisma.passkeyChallenge.deleteMany({
+      where: {
+        expires_at: {
+          lt: new Date(),
+        },
+      },
+    });
+    
+    if (result.count > 0) {
+      console.log(`[PASSKEY] ${result.count} challenges expirados removidos`);
+    }
+    
+    return result.count;
   }
 
   /**
@@ -131,11 +194,9 @@ export class PasskeyService {
       supportedAlgorithmIDs: [-7, -257], // ES256, RS256
     });
 
-    // Armazenar o challenge temporariamente
-    challengeStore.set(`reg_${userId}`, {
-      challenge: options.challenge,
-      timestamp: Date.now(),
-    });
+    // Armazenar o challenge no banco de dados
+    const challengeKey = `reg_${userId}`;
+    await this.storeChallenge(challengeKey, options.challenge);
 
     return options as unknown as PasskeyRegistrationOptions;
   }
@@ -157,9 +218,11 @@ export class PasskeyService {
       throw new Error('Usuário não encontrado');
     }
 
-    // Recuperar o challenge
-    const challengeData = challengeStore.get(`reg_${userId}`);
-    if (!challengeData) {
+    // Recuperar o challenge do banco de dados
+    const challengeKey = `reg_${userId}`;
+    const expectedChallenge = await this.getAndDeleteChallenge(challengeKey);
+    
+    if (!expectedChallenge) {
       throw new Error('Challenge não encontrado ou expirado. Tente novamente.');
     }
 
@@ -167,7 +230,7 @@ export class PasskeyService {
     try {
       verification = await verifyRegistrationResponse({
         response,
-        expectedChallenge: challengeData.challenge,
+        expectedChallenge,
         expectedOrigin: this.origin,
         expectedRPID: this.rpID,
         requireUserVerification: true,
@@ -182,9 +245,6 @@ export class PasskeyService {
     }
 
     const { credentialID, credentialPublicKey, counter } = verification.registrationInfo;
-
-    // Limpar o challenge usado
-    challengeStore.delete(`reg_${userId}`);
 
     // Gerar nome do dispositivo automaticamente se não fornecido
     const autoDeviceName = deviceName || this.parseDeviceName(userAgent);
@@ -250,12 +310,9 @@ export class PasskeyService {
       userVerification: 'preferred',
     });
 
-    // Armazenar challenge - usar email como chave se disponível, senão usar o challenge
+    // Armazenar challenge no banco - usar email como chave se disponível
     const challengeKey = email ? `auth_${email}` : `auth_${options.challenge}`;
-    challengeStore.set(challengeKey, {
-      challenge: options.challenge,
-      timestamp: Date.now(),
-    });
+    await this.storeChallenge(challengeKey, options.challenge);
 
     return {
       ...options,
@@ -293,21 +350,36 @@ export class PasskeyService {
       throw new Error('Usuário inativo');
     }
 
-    // Recuperar challenge
-    const challengeKey = email ? `auth_${email}` : `auth_${response.id}`;
-    let challengeData = challengeStore.get(challengeKey);
+    // Recuperar challenge - tentar com email primeiro, depois com challenge do response
+    let expectedChallenge: string | null = null;
+    
+    if (email) {
+      expectedChallenge = await this.getAndDeleteChallenge(`auth_${email}`);
+    }
+    
+    if (!expectedChallenge) {
+      // Tentar buscar qualquer challenge de autenticação recente
+      // Isso é necessário para Conditional UI onde não temos o email
+      const recentChallenges = await this.prisma.passkeyChallenge.findMany({
+        where: {
+          challenge_key: { startsWith: 'auth_' },
+          expires_at: { gt: new Date() },
+        },
+        orderBy: { created_at: 'desc' },
+        take: 5,
+      });
 
-    // Se não encontrar com email, tentar buscar qualquer challenge de auth recente
-    if (!challengeData) {
-      for (const [key, value] of challengeStore.entries()) {
-        if (key.startsWith('auth_') && Date.now() - value.timestamp < 60000) {
-          challengeData = value;
-          break;
-        }
+      for (const ch of recentChallenges) {
+        expectedChallenge = ch.challenge;
+        // Deletar o challenge usado
+        await this.prisma.passkeyChallenge.delete({
+          where: { id: ch.id },
+        }).catch(() => {});
+        break;
       }
     }
 
-    if (!challengeData) {
+    if (!expectedChallenge) {
       throw new Error('Challenge não encontrado ou expirado. Tente novamente.');
     }
 
@@ -315,7 +387,7 @@ export class PasskeyService {
     try {
       verification = await verifyAuthenticationResponse({
         response,
-        expectedChallenge: challengeData.challenge,
+        expectedChallenge,
         expectedOrigin: this.origin,
         expectedRPID: this.rpID,
         requireUserVerification: true,
@@ -333,9 +405,6 @@ export class PasskeyService {
     if (!verification.verified) {
       throw new Error('Verificação de passkey falhou');
     }
-
-    // Limpar o challenge usado
-    challengeStore.delete(challengeKey);
 
     // Atualizar counter e última utilização
     await this.prisma.passkey.update({
@@ -488,4 +557,3 @@ export class PasskeyService {
     return 'Dispositivo';
   }
 }
-

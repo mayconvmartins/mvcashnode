@@ -23,11 +23,26 @@ Passkeys são credenciais criptográficas armazenadas de forma segura no disposi
 3. Sistema solicita autenticação biométrica
 4. Passkey é registrada e associada à conta
 
-#### Fluxo de Login
-1. Usuário acessa página de login
-2. Clica em "Login com Passkey"
-3. Sistema solicita autenticação biométrica
+#### Fluxo de Login com Passkey
+**Método 1 - Conditional UI (Autofill)**:
+1. Usuário começa a digitar o email
+2. Navegador mostra passkeys disponíveis no autofill
+3. Usuário seleciona a passkey
 4. Login realizado automaticamente
+
+**Método 2 - Botão Manual**:
+1. Usuário digita email
+2. Se email tem passkeys, botão "Entrar com Passkey" aparece
+3. Clica no botão
+4. Sistema solicita autenticação biométrica
+5. Login realizado
+
+#### Passkey Upgrade (Pós-Login Enrollment)
+Após login com senha, o sistema oferece cadastrar uma Passkey:
+1. Usuário faz login com email/senha
+2. Dialog aparece oferecendo cadastrar Passkey
+3. Opções: "Configurar Passkey", "Mais Tarde", "Não perguntar novamente"
+4. Se aceitar, processo de registro é iniciado
 
 ### 2. Gerenciamento de Sessões
 
@@ -213,12 +228,44 @@ pnpm --filter @mvcashnode/db prisma migrate deploy
 - **Windows**: Windows Hello (Windows 10+)
 - **macOS**: Touch ID em MacBooks compatíveis
 
+## Prompts Pós-Login
+
+### Sequência de Prompts
+Após login com senha, o sistema exibe prompts na seguinte ordem:
+1. **Notificações Push**: Se permissão é 'default' (nunca perguntado)
+2. **Cadastro de Passkey**: Se usuário não tem nenhuma passkey
+
+### Componentes
+
+**PostLoginPrompts** (`apps/frontend/src/components/auth/PostLoginPrompts.tsx`)
+- Gerencia a sequência de prompts
+- Mostra um prompt de cada vez
+- Apenas após login recente (10 segundos)
+
+**NotificationPermissionPrompt** (`apps/frontend/src/components/notifications/NotificationPermissionPrompt.tsx`)
+- Solicita permissão para notificações push
+- Opção "Não perguntar novamente"
+
+**PasskeyEnrollmentPrompt** (`apps/frontend/src/components/auth/PasskeyEnrollmentPrompt.tsx`)
+- Oferece cadastrar Passkey
+- Explica benefícios de forma clara
+- Opção "Não perguntar novamente"
+
+### Flags de Preferência (localStorage)
+- `mvcash_skip_notification_prompt`: Não mostrar prompt de notificações
+- `mvcash_skip_passkey_prompt`: Não mostrar prompt de passkey
+
 ## Troubleshooting
 
 ### Passkey não funciona
 1. Verifique se o dispositivo suporta WebAuthn
 2. Confirme que está usando HTTPS
 3. Verifique as variáveis de ambiente PASSKEY_*
+
+### Conditional UI não aparece
+1. Verifique se o navegador suporta (Chrome 108+, Safari 16+)
+2. Confirme que o input tem `autoComplete="username webauthn"`
+3. Teste em modo anônimo (extensões podem interferir)
 
 ### Sessão expira muito rápido
 1. Verifique se "Lembre-me" está marcado no login
@@ -227,4 +274,9 @@ pnpm --filter @mvcashnode/db prisma migrate deploy
 ### Não consigo ver minhas sessões
 1. Faça logout e login novamente
 2. A sessão precisa ser criada com o novo sistema
+
+### Prompts não aparecem após login
+1. Verifique se `markLoginTime()` está sendo chamado no login
+2. Prompts só aparecem em logins recentes (10 segundos)
+3. Verifique se não há flag de "não perguntar" no localStorage
 

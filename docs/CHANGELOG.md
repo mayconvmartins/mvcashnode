@@ -14,6 +14,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - **Login com Biometria**: Suporte a Face ID, Touch ID, Windows Hello
 - **Multi-dispositivo**: Sincronização via iCloud Keychain, Google Password Manager
 - **Gerenciamento no Perfil**: Interface para adicionar, renomear e remover passkeys
+- **WebAuthn Conditional UI**: Passkeys aparecem no autofill do navegador automaticamente
+- **Passkey Upgrade**: Prompt pós-login oferecendo cadastrar passkey
 - **Endpoints da API**:
   - `POST /auth/passkeys/register/start` - Iniciar registro
   - `POST /auth/passkeys/register/finish` - Finalizar registro
@@ -39,11 +41,25 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - **Service Worker**: Recebimento e exibição de notificações em background
 - **WebPushProvider**: Context React para gerenciar subscriptions
 - **Integração com PWA**: Funciona como app instalado
+- **Prompt Automático**: Solicita permissão após login
 - **Endpoints da API**:
   - `GET /notifications/webpush/vapid-public-key` - Obter chave VAPID
   - `POST /notifications/webpush/subscribe` - Registrar subscription
   - `DELETE /notifications/webpush/unsubscribe` - Remover subscription
   - `POST /notifications/webpush/test` - Enviar teste
+
+#### Prompts Pós-Login
+- **PostLoginPrompts**: Componente que gerencia sequência de prompts
+- **NotificationPermissionPrompt**: Solicita permissão para notificações
+- **PasskeyEnrollmentPrompt**: Oferece cadastrar Passkey
+- **Opção "Não perguntar novamente"**: Salva preferência no localStorage
+- **Sequência inteligente**: Um prompt de cada vez, apenas em logins recentes
+
+#### Layout Mobile Corrigido
+- **Barra Superior Mobile**: Nova barra fixa com menu hambúrguer e perfil
+- **Perfil Acessível**: Dropdown de perfil agora visível no mobile
+- **Header Responsivo**: Elementos ajustados para diferentes tamanhos de tela
+- **Sidebar Melhorada**: Posicionamento correto abaixo da barra superior
 
 #### Sistema de Templates Unificados
 - **UnifiedTemplateService**: Gerenciamento centralizado de templates
