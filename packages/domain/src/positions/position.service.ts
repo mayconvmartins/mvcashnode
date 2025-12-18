@@ -1571,18 +1571,35 @@ export class PositionService {
     // ========== ATUALIZAR TRAILING STOP GAIN ==========
     if (tsgEnabled !== undefined) {
       updateData.tsg_enabled = tsgEnabled;
-      // Se TSG está sendo desabilitado, limpar todos os valores relacionados
+      // Se TSG está sendo desabilitado, limpar todos os valores relacionados e desbloquear webhook
       if (tsgEnabled === false) {
         updateData.tsg_activation_pct = null;
         updateData.tsg_drop_pct = null;
         updateData.tsg_activated = false;
         updateData.tsg_max_pnl_pct = null;
+        updateData.lock_sell_by_webhook = false; // Desbloquear webhook quando TSG é desativado
+      } else if (tsgEnabled === true) {
+        // Se TSG está sendo ativado, bloquear webhook
+        updateData.lock_sell_by_webhook = true;
       }
     }
     // Só atualizar tsgActivationPct e tsgDropPct se TSG estiver habilitado
     if (tsgEnabled !== false) {
       if (tsgActivationPct !== undefined) updateData.tsg_activation_pct = tsgActivationPct;
       if (tsgDropPct !== undefined) updateData.tsg_drop_pct = tsgDropPct;
+    }
+    
+    // IMPORTANTE: Sempre garantir que webhook está bloqueado se TSG está ativo
+    // Buscar estado atual da posição para verificar se TSG está ativo
+    const currentPosition = await this.prisma.tradePosition.findUnique({
+      where: { id: positionId },
+      select: { tsg_enabled: true },
+    });
+    
+    // Se TSG está ativo (seja por ter sido ativado agora ou já estava ativo), bloquear webhook
+    const finalTsgEnabled = tsgEnabled !== undefined ? tsgEnabled : currentPosition?.tsg_enabled;
+    if (finalTsgEnabled === true) {
+      updateData.lock_sell_by_webhook = true;
     }
 
     return this.prisma.tradePosition.update({
