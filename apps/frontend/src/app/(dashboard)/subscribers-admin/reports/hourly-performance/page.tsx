@@ -5,10 +5,11 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { reportsService } from '@/lib/api/reports.service'
+import { adminService } from '@/lib/api/admin.service'
 import { DateRangeFilter, type DatePreset } from '@/components/positions/DateRangeFilter'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Filter, ArrowLeft, Clock, TrendingUp, TrendingDown } from 'lucide-react'
+import { Filter, ArrowLeft, TrendingUp, TrendingDown } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { SubscriberSelect } from '@/components/shared/SubscriberSelect'
 import Link from 'next/link'
@@ -25,6 +26,12 @@ export default function SubscriberHourlyPerformanceReportPage() {
     const [datePreset, setDatePreset] = useState<DatePreset>('last30days')
     const [selectedSubscriber, setSelectedSubscriber] = useState<string>('ALL')
     const [filtersOpen, setFiltersOpen] = useState(true)
+
+    // Buscar lista de assinantes
+    const { data: subscribers } = useQuery({
+        queryKey: ['admin', 'subscribers'],
+        queryFn: () => adminService.listSubscribers(),
+    })
 
     // Inicializar datas para last30days
     useEffect(() => {
@@ -108,16 +115,18 @@ export default function SubscriberHourlyPerformanceReportPage() {
                                 <div className="space-y-2">
                                     <Label>Assinante</Label>
                                     <SubscriberSelect
+                                        subscribers={subscribers || []}
                                         value={selectedSubscriber}
                                         onValueChange={setSelectedSubscriber}
-                                        includeAllOption={true}
+                                        placeholder="Todos os Assinantes"
+                                        allLabel="Todos os Assinantes"
                                     />
                                 </div>
                                 <div className="space-y-2 md:col-span-2">
                                     <Label>Período</Label>
                                     <DateRangeFilter
                                         onDateChange={handleDateChange}
-                                        defaultPreset={datePreset}
+                                        preset={datePreset}
                                     />
                                 </div>
                             </div>
@@ -132,14 +141,14 @@ export default function SubscriberHourlyPerformanceReportPage() {
                     title="Melhor Horário"
                     value={bestHour ? `${bestHour.hour}:00 (${formatCurrency(bestHour.pnl)})` : '-'}
                     icon={TrendingUp}
-                    iconColor="text-green-500"
+                    trend="up"
                     loading={isLoading}
                 />
                 <StatsCard
                     title="Pior Horário"
                     value={worstHour ? `${worstHour.hour}:00 (${formatCurrency(worstHour.pnl)})` : '-'}
                     icon={TrendingDown}
-                    iconColor="text-red-500"
+                    trend="down"
                     loading={isLoading}
                 />
             </div>

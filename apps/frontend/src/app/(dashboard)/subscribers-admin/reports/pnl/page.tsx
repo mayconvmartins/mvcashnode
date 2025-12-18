@@ -10,9 +10,8 @@ import { reportsService } from '@/lib/api/reports.service'
 import { adminService } from '@/lib/api/admin.service'
 import { DateRangeFilter, type DatePreset } from '@/components/positions/DateRangeFilter'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Download, Filter, BarChart3, Table2, ArrowLeft } from 'lucide-react'
+import { Filter, BarChart3, Table2, ArrowLeft } from 'lucide-react'
 import { TrendingUp, TrendingDown, Target, Award } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'
 import { formatCurrency } from '@/lib/utils/format'
@@ -43,15 +42,10 @@ export default function SubscriberPnLReportPage() {
         }
     }, [])
 
-    // Buscar contas do assinante selecionado
-    const { data: subscriberAccounts } = useQuery({
-        queryKey: ['admin', 'subscriber-accounts', selectedSubscriber],
-        queryFn: async () => {
-            if (selectedSubscriber === 'ALL') return []
-            const subscriber = await adminService.getSubscriber(parseInt(selectedSubscriber))
-            return subscriber.exchange_accounts || []
-        },
-        enabled: selectedSubscriber !== 'ALL',
+    // Buscar lista de assinantes
+    const { data: subscribers } = useQuery({
+        queryKey: ['admin', 'subscribers'],
+        queryFn: () => adminService.listSubscribers(),
     })
 
     // Construir filtros
@@ -153,16 +147,18 @@ export default function SubscriberPnLReportPage() {
                                 <div className="space-y-2">
                                     <Label>Assinante</Label>
                                     <SubscriberSelect
+                                        subscribers={subscribers || []}
                                         value={selectedSubscriber}
                                         onValueChange={setSelectedSubscriber}
-                                        includeAllOption={true}
+                                        placeholder="Todos os Assinantes"
+                                        allLabel="Todos os Assinantes"
                                     />
                                 </div>
                                 <div className="space-y-2 md:col-span-2">
                                     <Label>Período</Label>
                                     <DateRangeFilter
                                         onDateChange={handleDateChange}
-                                        defaultPreset={datePreset}
+                                        preset={datePreset}
                                     />
                                 </div>
                             </div>
@@ -195,7 +191,7 @@ export default function SubscriberPnLReportPage() {
                     title="PnL Total"
                     value={formatCurrency(summary?.total_pnl || 0)}
                     icon={summary?.total_pnl >= 0 ? TrendingUp : TrendingDown}
-                    iconColor={summary?.total_pnl >= 0 ? 'text-green-500' : 'text-red-500'}
+                    trend={summary?.total_pnl >= 0 ? 'up' : 'down'}
                     loading={loadingSummary}
                 />
                 <StatsCard
@@ -208,14 +204,14 @@ export default function SubscriberPnLReportPage() {
                     title="Win Rate"
                     value={`${((summary?.win_rate || 0) * 100).toFixed(1)}%`}
                     icon={Award}
-                    iconColor={summary?.win_rate >= 0.5 ? 'text-green-500' : 'text-red-500'}
+                    trend={summary?.win_rate >= 0.5 ? 'up' : 'down'}
                     loading={loadingSummary}
                 />
                 <StatsCard
                     title="PnL Médio"
                     value={formatCurrency(summary?.avg_pnl || 0)}
                     icon={summary?.avg_pnl >= 0 ? TrendingUp : TrendingDown}
-                    iconColor={summary?.avg_pnl >= 0 ? 'text-green-500' : 'text-red-500'}
+                    trend={summary?.avg_pnl >= 0 ? 'up' : 'down'}
                     loading={loadingSummary}
                 />
             </div>

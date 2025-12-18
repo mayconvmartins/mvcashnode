@@ -7,6 +7,7 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { PnLBadge } from '@/components/shared/PnLBadge'
 import { reportsService } from '@/lib/api/reports.service'
+import { adminService } from '@/lib/api/admin.service'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Filter, ArrowLeft, LineChart, PieChart } from 'lucide-react'
@@ -25,6 +26,12 @@ const COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'
 export default function SubscriberOpenPositionsReportPage() {
     const [selectedSubscriber, setSelectedSubscriber] = useState<string>('ALL')
     const [filtersOpen, setFiltersOpen] = useState(true)
+
+    // Buscar lista de assinantes
+    const { data: subscribers } = useQuery({
+        queryKey: ['admin', 'subscribers'],
+        queryFn: () => adminService.listSubscribers(),
+    })
 
     // Construir filtros
     const filters = useMemo(() => {
@@ -128,9 +135,11 @@ export default function SubscriberOpenPositionsReportPage() {
                                 <div className="space-y-2">
                                     <Label>Assinante</Label>
                                     <SubscriberSelect
+                                        subscribers={subscribers || []}
                                         value={selectedSubscriber}
                                         onValueChange={setSelectedSubscriber}
-                                        includeAllOption={true}
+                                        placeholder="Todos os Assinantes"
+                                        allLabel="Todos os Assinantes"
                                     />
                                 </div>
                             </div>
@@ -156,8 +165,8 @@ export default function SubscriberOpenPositionsReportPage() {
                 <StatsCard
                     title="PnL Não Realizado"
                     value={formatCurrency(totals.totalPnl)}
-                    icon={totals.totalPnl >= 0 ? LineChart : LineChart}
-                    iconColor={totals.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}
+                    icon={LineChart}
+                    trend={totals.totalPnl >= 0 ? 'up' : 'down'}
                     loading={isLoading}
                 />
             </div>

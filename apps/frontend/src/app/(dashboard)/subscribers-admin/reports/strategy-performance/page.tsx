@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { PnLBadge } from '@/components/shared/PnLBadge'
 import { reportsService } from '@/lib/api/reports.service'
+import { adminService } from '@/lib/api/admin.service'
 import { DateRangeFilter, type DatePreset } from '@/components/positions/DateRangeFilter'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,12 @@ export default function SubscriberStrategyPerformanceReportPage() {
     const [datePreset, setDatePreset] = useState<DatePreset>('last30days')
     const [selectedSubscriber, setSelectedSubscriber] = useState<string>('ALL')
     const [filtersOpen, setFiltersOpen] = useState(true)
+
+    // Buscar lista de assinantes
+    const { data: subscribers } = useQuery({
+        queryKey: ['admin', 'subscribers'],
+        queryFn: () => adminService.listSubscribers(),
+    })
 
     // Inicializar datas para last30days
     useEffect(() => {
@@ -119,16 +126,18 @@ export default function SubscriberStrategyPerformanceReportPage() {
                                 <div className="space-y-2">
                                     <Label>Assinante</Label>
                                     <SubscriberSelect
+                                        subscribers={subscribers || []}
                                         value={selectedSubscriber}
                                         onValueChange={setSelectedSubscriber}
-                                        includeAllOption={true}
+                                        placeholder="Todos os Assinantes"
+                                        allLabel="Todos os Assinantes"
                                     />
                                 </div>
                                 <div className="space-y-2 md:col-span-2">
                                     <Label>Período</Label>
                                     <DateRangeFilter
                                         onDateChange={handleDateChange}
-                                        defaultPreset={datePreset}
+                                        preset={datePreset}
                                     />
                                 </div>
                             </div>

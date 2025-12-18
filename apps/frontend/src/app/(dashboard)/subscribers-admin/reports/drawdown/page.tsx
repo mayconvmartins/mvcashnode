@@ -5,11 +5,12 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { reportsService } from '@/lib/api/reports.service'
+import { adminService } from '@/lib/api/admin.service'
 import { DateRangeFilter, type DatePreset } from '@/components/positions/DateRangeFilter'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Filter, ArrowLeft, TrendingDown, AlertTriangle, Clock } from 'lucide-react'
-import { formatCurrency, formatPercentage } from '@/lib/utils/format'
+import { formatPercentage } from '@/lib/utils/format'
 import { SubscriberSelect } from '@/components/shared/SubscriberSelect'
 import Link from 'next/link'
 import {
@@ -25,6 +26,12 @@ export default function SubscriberDrawdownReportPage() {
     const [datePreset, setDatePreset] = useState<DatePreset>('last30days')
     const [selectedSubscriber, setSelectedSubscriber] = useState<string>('ALL')
     const [filtersOpen, setFiltersOpen] = useState(true)
+
+    // Buscar lista de assinantes
+    const { data: subscribers } = useQuery({
+        queryKey: ['admin', 'subscribers'],
+        queryFn: () => adminService.listSubscribers(),
+    })
 
     // Inicializar datas para last30days
     useEffect(() => {
@@ -97,16 +104,18 @@ export default function SubscriberDrawdownReportPage() {
                                 <div className="space-y-2">
                                     <Label>Assinante</Label>
                                     <SubscriberSelect
+                                        subscribers={subscribers || []}
                                         value={selectedSubscriber}
                                         onValueChange={setSelectedSubscriber}
-                                        includeAllOption={true}
+                                        placeholder="Todos os Assinantes"
+                                        allLabel="Todos os Assinantes"
                                     />
                                 </div>
                                 <div className="space-y-2 md:col-span-2">
                                     <Label>Período</Label>
                                     <DateRangeFilter
                                         onDateChange={handleDateChange}
-                                        defaultPreset={datePreset}
+                                        preset={datePreset}
                                     />
                                 </div>
                             </div>
@@ -121,14 +130,12 @@ export default function SubscriberDrawdownReportPage() {
                     title="Drawdown Máximo"
                     value={formatPercentage(maxDrawdown)}
                     icon={TrendingDown}
-                    iconColor="text-red-500"
                     loading={isLoading}
                 />
                 <StatsCard
                     title="Drawdown Atual"
                     value={formatPercentage(currentDrawdown)}
                     icon={AlertTriangle}
-                    iconColor={currentDrawdown > 10 ? 'text-red-500' : 'text-yellow-500'}
                     loading={isLoading}
                 />
                 <StatsCard
