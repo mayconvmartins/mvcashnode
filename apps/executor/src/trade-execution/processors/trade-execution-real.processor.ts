@@ -1187,6 +1187,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         // Continuar normalmente, o código abaixo processará a ordem
       }
 
+      // Verificar se order foi definido (pode não estar definido se houve erro no catch interno)
+      if (!order) {
+        // Se order não foi criado e não foi retornado no catch interno, lançar erro
+        throw new Error('Ordem não foi criada e não foi tratada no catch interno');
+      }
+
       // Para ordens LIMIT, verificar se foi preenchida imediatamente
       const isLimitOrder = tradeJob.order_type === 'LIMIT';
       const orderStatus = order.status?.toUpperCase() || '';
@@ -1846,14 +1852,14 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       }
 
       // Update vault if applicable
-      if (tradeJob.vault_id && executedQty > 0) {
+      if (tradeJob.vault_id && finalExecutedQty > 0) {
         const vaultService = new VaultService(this.prisma);
         try {
           if (tradeJob.side === 'BUY') {
             await vaultService.confirmBuy(
               tradeJob.vault_id,
               'USDT',
-              cummQuoteQty,
+              finalCummQuoteQty,
               tradeJobId
             );
             this.logger.log(`[EXECUTOR] Cofre atualizado (confirmBuy) para job ${tradeJobId}`);
@@ -1861,7 +1867,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             await vaultService.creditOnSell(
               tradeJob.vault_id,
               'USDT',
-              cummQuoteQty,
+              finalCummQuoteQty,
               tradeJobId
             );
             this.logger.log(`[EXECUTOR] Cofre atualizado (creditOnSell) para job ${tradeJobId}`);
@@ -1910,7 +1916,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       return {
         success: true,
-        executionId: execution.id,
+        executionId: execution?.id || null,
         executedQty: finalExecutedQty,
         avgPrice: finalAvgPrice,
         isPartiallyFilled,
