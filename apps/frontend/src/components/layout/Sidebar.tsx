@@ -41,6 +41,7 @@ import {
     HelpCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ThemeToggleCompact } from '@/components/shared/ThemeToggle'
 import { useAuthStore } from '@/lib/stores/authStore'
 import { useState, useEffect } from 'react'
 import {
@@ -368,8 +369,10 @@ function MobileTopBar({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (open
                 <span className="gradient-text">MVCash</span>
             </Link>
 
-            {/* Profile */}
-            <DropdownMenu>
+            {/* Theme Toggle + Profile */}
+            <div className="flex items-center gap-1">
+                <ThemeToggleCompact />
+                <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-9 w-9">
                         <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
@@ -403,7 +406,8 @@ function MobileTopBar({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (open
                         Sair
                     </DropdownMenuItem>
                 </DropdownMenuContent>
-            </DropdownMenu>
+                </DropdownMenu>
+            </div>
         </div>
     )
 }
