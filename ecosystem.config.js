@@ -1,5 +1,5 @@
 /**
- * PM2 Ecosystem Configuration - v1.9.0
+ * PM2 Ecosystem Configuration - v2.0.1
  * Otimizado para VPS com 20 núcleos e 64GB RAM
  * 
  * Distribuição de recursos (20 núcleos):
@@ -120,7 +120,7 @@ module.exports = {
       script: 'pnpm',
       args: 'exec next start -p 5010',
       cwd: './apps/frontend',
-      version: '1.9.0', // Versão manual pois PM2 não lê package.json quando script é 'pnpm'
+      version: '2.0.1', // Versão manual pois PM2 não lê package.json quando script é 'pnpm'
       // Fork mode - Next.js não suporta cluster mode nativamente
       instances: 1,
       exec_mode: 'fork',
