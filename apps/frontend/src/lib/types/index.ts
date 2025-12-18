@@ -387,7 +387,6 @@ export interface Position {
     tsg_drop_pct?: number | null
     tsg_activated: boolean
     tsg_max_pnl_pct?: number | null
-    tsg_triggered: boolean
     trailing_enabled: boolean
     trailing_distance_pct?: number
     trailing_max_price?: number

@@ -1777,7 +1777,6 @@ export class PositionsController {
           sg_pct: position.sg_pct?.toNumber() || null,
           sg_drop_pct: position.sg_drop_pct?.toNumber() || null,
           sg_activated: position.sg_activated,
-          sg_triggered: position.sg_triggered,
           tsg_enabled: position.tsg_enabled,
           tsg_activation_pct: position.tsg_activation_pct?.toNumber() || null,
           tsg_drop_pct: position.tsg_drop_pct?.toNumber() || null,

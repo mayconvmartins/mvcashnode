@@ -999,7 +999,7 @@ export class PositionService {
     executionId: number,
     executedQty: number,
     avgPrice: number,
-    origin: 'WEBHOOK' | 'STOP_LOSS' | 'STOP_GAIN' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING',
+    origin: 'WEBHOOK' | 'STOP_LOSS' | 'STOP_GAIN' | 'TRAILING_STOP_GAIN' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING',
     feeAmount?: number,
     feeCurrency?: string
   ): Promise<void> {

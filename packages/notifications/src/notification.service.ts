@@ -10,6 +10,7 @@ export type NotificationTemplateType =
   | 'POSITION_CLOSED'
   | 'STOP_LOSS_TRIGGERED'
   | 'STOP_GAIN_TRIGGERED'
+  | 'TRAILING_STOP_GAIN_TRIGGERED'
   | 'PARTIAL_TP_TRIGGERED';
 
 export class NotificationService {
@@ -214,7 +215,7 @@ export class NotificationService {
    */
   private async getPositionNotificationRecipients(
     accountUserId: number,
-    notificationType: 'POSITION_OPENED' | 'POSITION_CLOSED' | 'STOP_LOSS' | 'STOP_GAIN' | 'TAKE_PROFIT' | 'PARTIAL_TP' = 'POSITION_OPENED'
+    notificationType: 'POSITION_OPENED' | 'POSITION_CLOSED' | 'STOP_LOSS' | 'STOP_GAIN' | 'TRAILING_STOP_GAIN' | 'TAKE_PROFIT' | 'PARTIAL_TP' = 'POSITION_OPENED'
   ): Promise<string[]> {
     const recipients: string[] = [];
 
@@ -231,6 +232,7 @@ export class NotificationService {
         configFlag = 'stop_loss_enabled';
         break;
       case 'STOP_GAIN':
+      case 'TRAILING_STOP_GAIN':
       case 'TAKE_PROFIT':
       case 'PARTIAL_TP':
         configFlag = 'take_profit_enabled';
