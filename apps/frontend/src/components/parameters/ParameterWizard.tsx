@@ -4,11 +4,23 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { tradeParametersService } from '@/lib/api/trade-parameters.service'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { toast } from 'sonner'
 import { WizardStepAccount } from './WizardStepAccount'
 import { WizardStepOrderSize } from './WizardStepOrderSize'
 import { WizardStepSLTP } from './WizardStepSLTP'
 import { WizardStepLimits } from './WizardStepLimits'
+import { cn } from '@/lib/utils'
+import { 
+    Wallet, 
+    Layers, 
+    Target, 
+    Shield, 
+    Check,
+    ChevronLeft,
+    ChevronRight,
+    Loader2,
+} from 'lucide-react'
 
 interface ParameterWizardProps {
     parameter?: any
@@ -38,6 +50,13 @@ type WizardData = {
     groupPositionsIntervalMinutes?: number
     vaultId?: string
 }
+
+const steps = [
+    { number: 1, title: 'Conta & Símbolo', shortTitle: 'Conta', icon: Wallet },
+    { number: 2, title: 'Tamanho da Ordem', shortTitle: 'Ordem', icon: Layers },
+    { number: 3, title: 'SL/TP', shortTitle: 'SL/TP', icon: Target },
+    { number: 4, title: 'Limites & Vault', shortTitle: 'Limites', icon: Shield },
+]
 
 export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWizardProps) {
     const [currentStep, setCurrentStep] = useState(1)
@@ -70,8 +89,6 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
 
     const mutation = useMutation({
         mutationFn: () => {
-            // Converter accountId e vaultId para número antes de enviar
-            // Mapear campos do wizard para o formato da API
             const payload: any = {
                 exchange_account_id: data.accountId ? Number(data.accountId) : undefined,
                 symbol: data.symbol,
@@ -114,7 +131,7 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
     }
 
     const handleNext = () => {
-        // Validações por passo
+        // Validations per step
         if (currentStep === 1) {
             if (!data.accountId || !data.symbol || !data.side) {
                 toast.error('Preencha todos os campos obrigatórios')
@@ -135,7 +152,7 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
         }
         if (currentStep === 4) {
             if (data.groupPositionsEnabled && (!data.groupPositionsIntervalMinutes || data.groupPositionsIntervalMinutes <= 0)) {
-                toast.error('Intervalo de agrupamento é obrigatório e deve ser maior que zero quando agrupamento estiver habilitado')
+                toast.error('Intervalo de agrupamento é obrigatório quando habilitado')
                 return
             }
         }
@@ -153,70 +170,161 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
         }
     }
 
-    const steps = [
-        { number: 1, title: 'Conta & Símbolo', component: WizardStepAccount },
-        { number: 2, title: 'Tamanho da Ordem', component: WizardStepOrderSize },
-        { number: 3, title: 'SL/TP', component: WizardStepSLTP },
-        { number: 4, title: 'Limites & Vault', component: WizardStepLimits },
-    ]
+    const handleStepClick = (stepNumber: number) => {
+        // Only allow going back to completed steps
+        if (stepNumber < currentStep) {
+            setCurrentStep(stepNumber)
+        }
+    }
 
-    const CurrentStepComponent = steps[currentStep - 1].component
+    const CurrentStepComponent = currentStep === 1 
+        ? WizardStepAccount 
+        : currentStep === 2 
+        ? WizardStepOrderSize 
+        : currentStep === 3 
+        ? WizardStepSLTP 
+        : WizardStepLimits
+
     const isEditing = !!parameter
+    const currentStepInfo = steps[currentStep - 1]
 
     return (
         <div className="space-y-6">
-            {/* Progress */}
-            <div className="flex items-center justify-between">
-                {steps.map((step, index) => (
-                    <div key={step.number} className="flex items-center flex-1">
-                        <div className="flex flex-col items-center flex-1">
-                            <div
-                                className={`w-10 h-10 rounded-full flex items-center justify-center font-medium ${
-                                    currentStep >= step.number
-                                        ? 'bg-primary text-primary-foreground'
-                                        : 'bg-muted text-muted-foreground'
-                                }`}
+            {/* Progress Steps */}
+            <div className="relative">
+                {/* Progress Line */}
+                <div className="absolute top-5 left-0 right-0 h-0.5 bg-muted hidden sm:block">
+                    <div 
+                        className="h-full bg-primary transition-all duration-300"
+                        style={{ width: `${((currentStep - 1) / (steps.length - 1)) * 100}%` }}
+                    />
+                </div>
+
+                {/* Steps */}
+                <div className="flex items-start justify-between relative">
+                    {steps.map((step, index) => {
+                        const isCompleted = currentStep > step.number
+                        const isCurrent = currentStep === step.number
+                        const StepIcon = step.icon
+
+                        return (
+                            <button
+                                key={step.number}
+                                onClick={() => handleStepClick(step.number)}
+                                disabled={step.number > currentStep}
+                                className={cn(
+                                    'flex flex-col items-center flex-1 transition-all',
+                                    step.number > currentStep && 'opacity-50 cursor-not-allowed',
+                                    step.number < currentStep && 'cursor-pointer'
+                                )}
                             >
-                                {step.number}
-                            </div>
-                            <span className="text-sm mt-2 text-center">{step.title}</span>
-                        </div>
-                        {index < steps.length - 1 && (
-                            <div
-                                className={`h-1 flex-1 mx-2 ${
-                                    currentStep > step.number ? 'bg-primary' : 'bg-muted'
-                                }`}
-                            />
-                        )}
-                    </div>
-                ))}
+                                <div
+                                    className={cn(
+                                        'w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 relative z-10',
+                                        isCompleted && 'bg-primary text-primary-foreground',
+                                        isCurrent && 'bg-primary text-primary-foreground ring-4 ring-primary/20',
+                                        !isCompleted && !isCurrent && 'bg-muted text-muted-foreground'
+                                    )}
+                                >
+                                    {isCompleted ? (
+                                        <Check className="h-5 w-5" />
+                                    ) : (
+                                        <StepIcon className="h-5 w-5" />
+                                    )}
+                                </div>
+                                <span className={cn(
+                                    'text-xs sm:text-sm mt-2 text-center font-medium transition-colors',
+                                    isCurrent && 'text-primary',
+                                    !isCurrent && 'text-muted-foreground'
+                                )}>
+                                    <span className="hidden sm:inline">{step.title}</span>
+                                    <span className="sm:hidden">{step.shortTitle}</span>
+                                </span>
+                            </button>
+                        )
+                    })}
+                </div>
             </div>
 
             {/* Step Content */}
-            <div className="min-h-[300px]">
-                {currentStep === 1 ? (
-                    <WizardStepAccount data={data} updateData={updateData} isEditing={isEditing} />
-                ) : (
-                    <CurrentStepComponent data={data} updateData={updateData} />
-                )}
-            </div>
+            <Card className="border-0 shadow-none sm:border sm:shadow-sm">
+                <CardContent className="p-0 sm:p-6">
+                    <div className="mb-6">
+                        <h2 className="text-xl font-semibold flex items-center gap-2">
+                            <currentStepInfo.icon className="h-5 w-5 text-primary" />
+                            {currentStepInfo.title}
+                        </h2>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            Passo {currentStep} de {steps.length}
+                        </p>
+                    </div>
+
+                    <div className="min-h-[280px]">
+                        {currentStep === 1 ? (
+                            <WizardStepAccount data={data} updateData={updateData} isEditing={isEditing} />
+                        ) : (
+                            <CurrentStepComponent data={data} updateData={updateData} />
+                        )}
+                    </div>
+                </CardContent>
+            </Card>
 
             {/* Navigation */}
-            <div className="flex justify-between pt-6 border-t">
-                <Button type="button" variant="outline" onClick={currentStep === 1 ? onCancel : handleBack}>
-                    {currentStep === 1 ? 'Cancelar' : 'Voltar'}
+            <div className="flex items-center justify-between pt-4 border-t">
+                <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={currentStep === 1 ? onCancel : handleBack}
+                    className="gap-2"
+                >
+                    <ChevronLeft className="h-4 w-4" />
+                    <span className="hidden sm:inline">
+                        {currentStep === 1 ? 'Cancelar' : 'Voltar'}
+                    </span>
+                    <span className="sm:hidden">
+                        {currentStep === 1 ? 'Sair' : 'Voltar'}
+                    </span>
                 </Button>
-                <Button type="button" onClick={handleNext} disabled={mutation.isPending}>
-                    {currentStep === 4
-                        ? mutation.isPending
-                            ? 'Salvando...'
-                            : parameter
-                            ? 'Atualizar'
-                            : 'Criar'
-                        : 'Próximo'}
-                </Button>
+
+                <div className="flex items-center gap-2">
+                    {/* Step indicators for mobile */}
+                    <div className="flex items-center gap-1 sm:hidden">
+                        {steps.map((step) => (
+                            <div
+                                key={step.number}
+                                className={cn(
+                                    'w-2 h-2 rounded-full transition-colors',
+                                    currentStep >= step.number ? 'bg-primary' : 'bg-muted'
+                                )}
+                            />
+                        ))}
+                    </div>
+
+                    <Button 
+                        type="button" 
+                        onClick={handleNext} 
+                        disabled={mutation.isPending}
+                        className="gap-2 min-w-[120px]"
+                    >
+                        {mutation.isPending ? (
+                            <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Salvando...
+                            </>
+                        ) : currentStep === 4 ? (
+                            <>
+                                <Check className="h-4 w-4" />
+                                {parameter ? 'Atualizar' : 'Criar'}
+                            </>
+                        ) : (
+                            <>
+                                Próximo
+                                <ChevronRight className="h-4 w-4" />
+                            </>
+                        )}
+                    </Button>
+                </div>
             </div>
         </div>
     )
 }
-

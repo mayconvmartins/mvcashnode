@@ -54,12 +54,21 @@ export function Providers({ children }: { children: ReactNode }) {
             })
     )
 
-    // Verificar se é site público para usar tema claro
+    // Modo do site (app = dashboard, public = landing page)
     const siteMode = process.env.NEXT_PUBLIC_SITE_MODE || 'app';
-    const defaultTheme = siteMode === 'public' ? 'light' : 'dark';
+    
+    // Site público usa tema claro fixo, app usa sistema com toggle manual
+    const isPublicSite = siteMode === 'public';
 
     return (
-        <ThemeProvider attribute="class" defaultTheme={defaultTheme} enableSystem={false} forcedTheme={siteMode === 'public' ? 'light' : undefined}>
+        <ThemeProvider 
+            attribute="class" 
+            defaultTheme={isPublicSite ? 'light' : 'system'}
+            enableSystem={!isPublicSite}
+            forcedTheme={isPublicSite ? 'light' : undefined}
+            storageKey="mvcash-theme"
+            disableTransitionOnChange={false}
+        >
             <QueryClientProvider client={queryClient}>
                 <WebSocketProvider>
                     <WebPushProvider>
