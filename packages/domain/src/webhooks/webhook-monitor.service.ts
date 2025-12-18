@@ -380,7 +380,7 @@ export class WebhookMonitorService {
       },
       {
         isolationLevel: 'Serializable', // Nível mais alto de isolamento para evitar race conditions
-        timeout: 10000, // 10 segundos de timeout
+        timeout: 30000, // 30 segundos de timeout (aumentado de 10s para evitar erros de transação expirada)
       }
     );
   }

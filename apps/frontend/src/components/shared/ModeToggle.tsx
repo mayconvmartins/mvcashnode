@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
+import { useAuthStore } from '@/lib/stores/auth.store'
 import { cn } from '@/lib/utils'
 import { Play, PlayCircle } from 'lucide-react'
 
@@ -13,6 +14,15 @@ interface ModeToggleProps {
 
 export function ModeToggle({ className, showLabel = true }: ModeToggleProps) {
     const { tradeMode, toggle, isReal, isSimulation } = useTradeMode()
+    const { user } = useAuthStore()
+    
+    // Ocultar para assinantes (eles só operam em modo REAL)
+    const isSubscriber = user?.roles?.some(r => r.role === 'subscriber') 
+                         && !user?.roles?.some(r => r.role === 'admin')
+    
+    if (isSubscriber) {
+        return null
+    }
 
     return (
         <div className={cn('flex items-center gap-2', className)}>

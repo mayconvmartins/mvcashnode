@@ -45,8 +45,45 @@ export class TradeJobService {
     let quoteAmount = dto.quoteAmount;
     let baseQuantity = dto.baseQuantity;
 
-    // Se não forneceu quantidade e não pediu para pular validação, calcular usando TradeParameterService
-    if (!dto.skipParameterValidation && !quoteAmount && !baseQuantity && dto.side === 'BUY') {
+    // ✅ ASSINANTES: Verificar se usuário da conta é assinante e usar parâmetros globais
+    const account = await this.prisma.exchangeAccount.findUnique({
+      where: { id: dto.exchangeAccountId },
+      include: { user: { include: { roles: true } } }
+    });
+
+    const isSubscriber = account?.user?.roles?.some(r => r.role === 'subscriber') 
+                         && !account?.user?.roles?.some(r => r.role === 'admin');
+
+    if (isSubscriber && dto.side === 'BUY' && !quoteAmount && !baseQuantity) {
+      console.log(`[TRADE-JOB-SERVICE] 🔵 Assinante detectado (user_id: ${account?.user_id}), usando parâmetros globais`);
+      
+      // Buscar valor da posição do assinante
+      const subscriberParams = await this.prisma.subscriberParameters.findUnique({
+        where: { user_id: account!.user_id }
+      });
+      
+      // Buscar parâmetros globais
+      const globalDefaults = await this.prisma.subscriberDefaultParameters.findFirst();
+      
+      // Usar quote_amount do assinante OU default global
+      quoteAmount = subscriberParams?.quote_amount_fixed?.toNumber() 
+                    || globalDefaults?.default_quote_amount?.toNumber() 
+                    || 100;
+      
+      console.log(`[TRADE-JOB-SERVICE] 🔵 Quote amount para assinante: $${quoteAmount} (subscriber_params: ${subscriberParams?.quote_amount_fixed?.toNumber() || 'null'}, global_default: ${globalDefaults?.default_quote_amount?.toNumber() || 'null'})`);
+      
+      // Validar símbolo permitido (se configurado)
+      if (globalDefaults?.allowed_symbols) {
+        const allowed = globalDefaults.allowed_symbols.split(',')
+          .map(s => s.trim().toUpperCase()).filter(s => s);
+        if (allowed.length > 0 && !allowed.includes(dto.symbol.toUpperCase())) {
+          throw new Error(`Símbolo ${dto.symbol} não permitido para assinantes. Símbolos permitidos: ${allowed.join(', ')}`);
+        }
+      }
+    }
+
+    // Se não forneceu quantidade e não pediu para pular validação, calcular usando TradeParameterService (para não-assinantes)
+    if (!isSubscriber && !dto.skipParameterValidation && !quoteAmount && !baseQuantity && dto.side === 'BUY') {
       try {
         // Validar se pode abrir nova ordem
         const canOpen = await this.tradeParameterService.canOpenNewOrder(

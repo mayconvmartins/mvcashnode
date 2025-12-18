@@ -69,6 +69,7 @@ const subscriberAdminMenuItems = [
     { icon: History, label: 'Operações', href: '/subscribers-admin/operations' },
     { icon: Flame, label: 'Mapa de Calor', href: '/subscribers-admin/heatmap' },
     { icon: Target, label: 'Monitor SL/TP', href: '/subscribers-admin/monitoring-tp-sl' },
+    { icon: FileBarChart, label: 'Relatórios', href: '/subscribers-admin/reports' },
 ]
 
 // Menu específico para usuários assinantes (restrito)

@@ -281,15 +281,44 @@ export class AdminSubscribersController {
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Parâmetros do assinante' })
   async getParameters(@Param('id', ParseIntPipe) id: number): Promise<any> {
-    const parameters = await this.prisma.subscriberParameters.findUnique({
+    let parameters = await this.prisma.subscriberParameters.findUnique({
       where: { user_id: id },
     });
 
+    // Se não existir, criar com valores padrão
     if (!parameters) {
-      throw new NotFoundException('Parâmetros não encontrados para este assinante');
+      const defaults = await this.prisma.subscriberDefaultParameters.findFirst();
+      
+      parameters = await this.prisma.subscriberParameters.create({
+        data: {
+          user_id: id,
+          quote_amount_fixed: defaults?.default_quote_amount || 100,
+        }
+      });
+      
+      this.logger.log(`Parâmetros criados automaticamente para assinante ${id}`);
     }
 
-    return parameters;
+    // Incluir valores dos defaults globais na resposta
+    const globalDefaults = await this.prisma.subscriberDefaultParameters.findFirst();
+    
+    return {
+      ...parameters,
+      quote_amount_fixed: parameters.quote_amount_fixed?.toNumber?.() || parameters.quote_amount_fixed,
+      global_defaults: globalDefaults ? {
+        min_quote_amount: globalDefaults.min_quote_amount?.toNumber?.() || globalDefaults.min_quote_amount,
+        max_quote_amount: globalDefaults.max_quote_amount?.toNumber?.() || globalDefaults.max_quote_amount,
+        default_quote_amount: globalDefaults.default_quote_amount?.toNumber?.() || globalDefaults.default_quote_amount,
+        default_sl_enabled: globalDefaults.default_sl_enabled,
+        default_sl_pct: globalDefaults.default_sl_pct?.toNumber?.() || globalDefaults.default_sl_pct,
+        default_tp_enabled: globalDefaults.default_tp_enabled,
+        default_tp_pct: globalDefaults.default_tp_pct?.toNumber?.() || globalDefaults.default_tp_pct,
+        default_tsg_enabled: globalDefaults.default_tsg_enabled,
+        default_tsg_activation_pct: globalDefaults.default_tsg_activation_pct?.toNumber?.() || globalDefaults.default_tsg_activation_pct,
+        default_tsg_drop_pct: globalDefaults.default_tsg_drop_pct?.toNumber?.() || globalDefaults.default_tsg_drop_pct,
+        allowed_symbols: globalDefaults.allowed_symbols,
+      } : null
+    };
   }
 
   @Post('sync')

@@ -595,10 +595,9 @@ export class TradeParametersController {
       }
       if (updateDto.default_tsg_enabled !== undefined) {
         updateData.default_tsg_enabled = updateDto.default_tsg_enabled;
-        // Se ativar TSG, desativar TP e SG automaticamente
+        // Se ativar TSG, desativar apenas SG (Stop Gain fixo) - TSG e TP podem coexistir
+        // TP funciona como "lucro máximo garantido" quando usado junto com TSG
         if (updateDto.default_tsg_enabled === true) {
-          updateData.default_tp_enabled = false;
-          updateData.default_tp_pct = null;
           updateData.default_sg_enabled = false;
           updateData.default_sg_pct = null;
           updateData.default_sg_drop_pct = null;
@@ -606,10 +605,9 @@ export class TradeParametersController {
       }
       if (updateDto.trailingStopGain !== undefined) {
         updateData.default_tsg_enabled = updateDto.trailingStopGain;
-        // Se ativar TSG, desativar TP e SG automaticamente
+        // Se ativar TSG, desativar apenas SG (Stop Gain fixo) - TSG e TP podem coexistir
+        // TP funciona como "lucro máximo garantido" quando usado junto com TSG
         if (updateDto.trailingStopGain === true) {
-          updateData.default_tp_enabled = false;
-          updateData.default_tp_pct = null;
           updateData.default_sg_enabled = false;
           updateData.default_sg_pct = null;
           updateData.default_sg_drop_pct = null;

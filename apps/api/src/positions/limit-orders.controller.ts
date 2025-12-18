@@ -332,7 +332,7 @@ export class LimitOrdersController {
               side: { type: 'string', enum: ['BUY', 'SELL'], example: 'SELL' },
               limit_price: { type: 'number', example: 220.50 },
               base_quantity: { type: 'number', example: 5.0 },
-              status: { type: 'string', enum: ['FILLED', 'CANCELED', 'EXPIRED'], example: 'FILLED' },
+              status: { type: 'string', enum: ['FILLED', 'CANCELED', 'EXPIRED', 'FAILED'], example: 'FILLED' },
               reason_code: { type: 'string', nullable: true, example: null, description: 'Código do motivo (se cancelada ou expirada)' },
               position_id_to_close: { type: 'number', nullable: true, example: 1542, description: 'ID da posição vinculada (para ordens SELL)' },
               exchange_order_id: { type: 'string', nullable: true, example: '12345678' },
@@ -396,7 +396,7 @@ export class LimitOrdersController {
       const where: any = {
         exchange_account_id: { in: accountIds },
         order_type: 'LIMIT',
-        status: { in: ['FILLED', 'CANCELED', 'EXPIRED'] },
+        status: { in: ['FILLED', 'CANCELED', 'EXPIRED', 'FAILED'] }, // Incluir FAILED no histórico
       };
 
       if (status) {
