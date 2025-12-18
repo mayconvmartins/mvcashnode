@@ -1,6 +1,6 @@
 {
   "name": "@mvcashnode/backup",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "private": true,
   "description": "MySQL Backup Service with FTP upload",
   "main": "dist/main.js",
