@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import { authService } from '@/lib/api/auth.service'
@@ -16,6 +16,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Checkbox } from '@/components/ui/checkbox'
 import Link from 'next/link'
 import { startAuthentication } from '@simplewebauthn/browser'
+import { markLoginTime } from '@/components/auth/PostLoginPrompts'
 
 function LoginPageContent() {
     const router = useRouter()
@@ -35,21 +36,94 @@ function LoginPageContent() {
     const [hasPasskeys, setHasPasskeys] = useState(false)
     const [isPasskeySupported, setIsPasskeySupported] = useState(false)
     const [isCheckingPasskeys, setIsCheckingPasskeys] = useState(false)
+    const [isConditionalUISupported, setIsConditionalUISupported] = useState(false)
+    const [isConditionalUIActive, setIsConditionalUIActive] = useState(false)
+    
+    // AbortController para cancelar conditional UI quando necessário
+    const conditionalUIAbortController = useRef<AbortController | null>(null)
 
-    // Verificar suporte a Passkeys
+    // Verificar suporte a Passkeys e Conditional UI
     useEffect(() => {
-        if (typeof window !== 'undefined' && window.PublicKeyCredential) {
-            PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-                .then((available) => {
-                    setIsPasskeySupported(available)
-                })
-                .catch(() => {
-                    setIsPasskeySupported(false)
-                })
+        const checkSupport = async () => {
+            if (typeof window === 'undefined' || !window.PublicKeyCredential) {
+                return
+            }
+
+            try {
+                // Verificar suporte básico a Passkeys
+                const platformAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+                setIsPasskeySupported(platformAvailable)
+
+                // Verificar suporte a Conditional UI (autofill)
+                if (typeof PublicKeyCredential.isConditionalMediationAvailable === 'function') {
+                    const conditionalAvailable = await PublicKeyCredential.isConditionalMediationAvailable()
+                    setIsConditionalUISupported(conditionalAvailable)
+                }
+            } catch {
+                setIsPasskeySupported(false)
+                setIsConditionalUISupported(false)
+            }
         }
+
+        checkSupport()
     }, [])
 
-    // Verificar se o email tem passkeys
+    // Iniciar Conditional UI (Passkey Autofill) quando suportado
+    const startConditionalUI = useCallback(async () => {
+        if (!isConditionalUISupported || isConditionalUIActive) {
+            return
+        }
+
+        try {
+            // Cancelar qualquer autenticação condicional anterior
+            if (conditionalUIAbortController.current) {
+                conditionalUIAbortController.current.abort()
+            }
+
+            // Criar novo AbortController
+            conditionalUIAbortController.current = new AbortController()
+            setIsConditionalUIActive(true)
+
+            // Obter opções de autenticação do servidor (sem email específico)
+            const options = await authService.passkeyAuthenticateStart()
+
+            // Iniciar autenticação condicional (aparece no autofill)
+            const authResponse = await startAuthentication({
+                ...options,
+                useBrowserAutofill: true,
+            })
+
+            // Se chegou aqui, o usuário selecionou uma passkey do autofill
+            // Completar autenticação
+            const loginResult = await authService.passkeyAuthenticateFinish(authResponse, undefined, rememberMe)
+            handleLoginSuccess(loginResult)
+
+        } catch (err: any) {
+            // Ignorar erros de cancelamento e NotAllowedError (usuário fechou)
+            if (err.name === 'AbortError' || err.name === 'NotAllowedError') {
+                return
+            }
+            console.error('[ConditionalUI] Erro:', err)
+        } finally {
+            setIsConditionalUIActive(false)
+        }
+    }, [isConditionalUISupported, isConditionalUIActive, rememberMe])
+
+    // Ativar Conditional UI quando o componente montar
+    useEffect(() => {
+        if (isConditionalUISupported && !requires2FA) {
+            startConditionalUI()
+        }
+
+        // Cleanup: cancelar ao desmontar
+        return () => {
+            if (conditionalUIAbortController.current) {
+                conditionalUIAbortController.current.abort()
+            }
+        }
+    }, [isConditionalUISupported, requires2FA, startConditionalUI])
+
+    // Verificar se o email tem passkeys (para mostrar botão manual)
     useEffect(() => {
         if (email && email.includes('@') && isPasskeySupported) {
             const timer = setTimeout(async () => {
@@ -114,10 +188,15 @@ function LoginPageContent() {
 
     const passkeyMutation = useMutation({
         mutationFn: async () => {
+            // Cancelar Conditional UI se estiver ativo
+            if (conditionalUIAbortController.current) {
+                conditionalUIAbortController.current.abort()
+            }
+
             // Obter opções de autenticação
             const options = await authService.passkeyAuthenticateStart(email || undefined)
             
-            // Usar WebAuthn API para autenticar
+            // Usar WebAuthn API para autenticar (modo modal, não autofill)
             const authResponse = await startAuthentication(options)
             
             // Enviar resposta para o servidor
@@ -129,7 +208,10 @@ function LoginPageContent() {
         onError: (error: any) => {
             const errorMessage = error.message || 'Falha na autenticação com Passkey'
             if (errorMessage.includes('cancelled') || errorMessage.includes('AbortError')) {
-                // Usuário cancelou, não mostrar erro
+                // Usuário cancelou, reiniciar Conditional UI
+                if (isConditionalUISupported) {
+                    setTimeout(() => startConditionalUI(), 100)
+                }
                 return
             }
             setError(errorMessage)
@@ -138,6 +220,11 @@ function LoginPageContent() {
     })
 
     const handleLoginSuccess = (data: any) => {
+        // Cancelar Conditional UI
+        if (conditionalUIAbortController.current) {
+            conditionalUIAbortController.current.abort()
+        }
+
         if (data.requires2FA && data.sessionToken) {
             setRequires2FA(true)
             setSessionToken(data.sessionToken)
@@ -153,6 +240,10 @@ function LoginPageContent() {
         if (data.accessToken && data.refreshToken && data.user) {
             setTokens(data.accessToken, data.refreshToken, rememberMe, data.expiresIn)
             setUser(data.user)
+            
+            // Marcar momento do login para exibir prompts pós-login
+            markLoginTime()
+            
             toast.success('Login realizado com sucesso!')
             
             setTimeout(() => {
@@ -168,6 +259,11 @@ function LoginPageContent() {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         setError('')
+
+        // Cancelar Conditional UI ao fazer login manual
+        if (conditionalUIAbortController.current) {
+            conditionalUIAbortController.current.abort()
+        }
 
         if (requires2FA && sessionToken) {
             loginMutation.mutate({ 
@@ -194,6 +290,10 @@ function LoginPageContent() {
         setSessionToken(null)
         setTwoFactorCode('')
         setError('')
+        // Reiniciar Conditional UI
+        if (isConditionalUISupported) {
+            setTimeout(() => startConditionalUI(), 100)
+        }
     }
 
     const changePasswordMutation = useMutation({
@@ -279,7 +379,7 @@ function LoginPageContent() {
 
                         {!requires2FA ? (
                             <>
-                                {/* Email */}
+                                {/* Email - com suporte a WebAuthn Conditional UI */}
                                 <div className="space-y-2">
                                     <Label htmlFor="email" className="text-slate-300 flex items-center gap-2">
                                         <Mail className="h-4 w-4" />
@@ -287,6 +387,7 @@ function LoginPageContent() {
                                     </Label>
                                     <Input
                                         id="email"
+                                        name="username"
                                         type="email"
                                         placeholder="seu@email.com"
                                         value={email}
@@ -294,6 +395,7 @@ function LoginPageContent() {
                                         disabled={isPending}
                                         required
                                         autoFocus
+                                        autoComplete="username webauthn"
                                         className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500"
                                     />
                                     {isCheckingPasskeys && (
@@ -302,9 +404,15 @@ function LoginPageContent() {
                                             Verificando Passkeys...
                                         </p>
                                     )}
+                                    {isConditionalUISupported && !hasPasskeys && !isCheckingPasskeys && (
+                                        <p className="text-xs text-slate-500 flex items-center gap-1">
+                                            <Fingerprint className="h-3 w-3" />
+                                            Passkeys disponíveis aparecerão no autofill
+                                        </p>
+                                    )}
                                 </div>
 
-                                {/* Passkey Button - mostrar se disponível */}
+                                {/* Passkey Button - mostrar se email tem passkeys */}
                                 {hasPasskeys && isPasskeySupported && (
                                     <Button
                                         type="button"
@@ -343,12 +451,14 @@ function LoginPageContent() {
                                     <div className="relative">
                                         <Input
                                             id="password"
+                                            name="password"
                                             type={showPassword ? 'text' : 'password'}
                                             placeholder="••••••••"
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
                                             disabled={isPending}
                                             required
+                                            autoComplete="current-password"
                                             className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 pr-10"
                                         />
                                         <button
@@ -403,7 +513,7 @@ function LoginPageContent() {
                                 </Button>
 
                                 {/* Passkey hint */}
-                                {isPasskeySupported && !hasPasskeys && email && (
+                                {isPasskeySupported && !hasPasskeys && email && !isConditionalUISupported && (
                                     <p className="text-xs text-center text-slate-500">
                                         Dica: Configure Passkeys no seu perfil para login mais rápido e seguro
                                     </p>

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
     LayoutDashboard,
@@ -30,7 +30,10 @@ import {
     Package,
     Wrench,
     Flame,
-    UserCheck
+    UserCheck,
+    User,
+    Settings,
+    Key
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -40,6 +43,14 @@ import {
     CollapsibleContent,
     CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
@@ -215,6 +226,60 @@ function AdminDropdown({ pathname, onNavigate }: { pathname: string; onNavigate:
     )
 }
 
+// Mobile Top Bar com Menu e Perfil
+function MobileTopBar({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (open: boolean) => void }) {
+    const { logout, user } = useAuthStore()
+    const router = useRouter()
+
+    return (
+        <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-card/95 backdrop-blur-sm border-b border-border flex items-center justify-between px-4">
+            {/* Menu Button (esquerda) */}
+            <Button variant="ghost" size="icon" onClick={() => setIsOpen(!isOpen)}>
+                {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
+
+            {/* Logo (centro) */}
+            <div className="flex items-center gap-2 font-bold text-lg">
+                <LayoutDashboard className="h-5 w-5 text-primary" />
+                <span className="gradient-text">MvCash</span>
+            </div>
+
+            {/* Profile Dropdown (direita) */}
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="relative">
+                        <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
+                            {user?.email?.charAt(0).toUpperCase() || 'U'}
+                        </div>
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>
+                        <div className="flex flex-col space-y-1">
+                            <p className="text-sm font-medium">{user?.profile?.full_name || 'Usuário'}</p>
+                            <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                        </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => router.push('/profile')}>
+                        <User className="mr-2 h-4 w-4" />
+                        Perfil
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/setup-2fa')}>
+                        <Key className="mr-2 h-4 w-4" />
+                        Configurar 2FA
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={logout} className="text-destructive">
+                        <LogOut className="mr-2 h-4 w-4" />
+                        Sair
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
+    )
+}
+
 export function Sidebar() {
     const pathname = usePathname()
     const { logout, user } = useAuthStore()
@@ -236,23 +301,23 @@ export function Sidebar() {
 
     return (
         <>
-            {/* Mobile Menu Button */}
-            <div className="lg:hidden fixed top-4 left-4 z-50">
-                <Button variant="outline" size="icon" onClick={() => setIsOpen(!isOpen)}>
-                    {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-                </Button>
-            </div>
+            {/* Mobile Top Bar - Nova barra superior para mobile */}
+            <MobileTopBar isOpen={isOpen} setIsOpen={setIsOpen} />
+
+            {/* Spacer para compensar a barra fixa no mobile */}
+            <div className="lg:hidden h-14" />
 
             {/* Sidebar Container */}
             <aside
                 className={cn(
                     "fixed inset-y-0 left-0 z-40 w-64 transform bg-card border-r border-border transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-auto",
+                    "lg:top-0 top-14", // No mobile, começar abaixo da barra superior
                     isOpen ? "translate-x-0" : "-translate-x-full"
                 )}
             >
                 <div className="flex h-full flex-col">
-                    {/* Logo */}
-                    <div className="flex h-16 items-center justify-center border-b border-border px-6">
+                    {/* Logo - apenas desktop */}
+                    <div className="hidden lg:flex h-16 items-center justify-center border-b border-border px-6">
                         <div className="flex items-center gap-2 font-bold text-xl gradient-text">
                             <LayoutDashboard className="h-6 w-6 text-primary" />
                             <span>MvCash</span>
@@ -345,8 +410,8 @@ export function Sidebar() {
                         )}
                     </nav>
 
-                    {/* User & Logout */}
-                    <div className="border-t border-border p-4">
+                    {/* User & Logout - apenas desktop */}
+                    <div className="hidden lg:block border-t border-border p-4">
                         <div className="mb-4 flex items-center gap-3 px-2">
                             <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
                                 {user?.email?.charAt(0).toUpperCase()}
@@ -371,7 +436,7 @@ export function Sidebar() {
             {/* Overlay for mobile */}
             {isOpen && (
                 <div
-                    className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+                    className="fixed inset-0 z-30 bg-black/50 lg:hidden top-14"
                     onClick={() => setIsOpen(false)}
                 />
             )}

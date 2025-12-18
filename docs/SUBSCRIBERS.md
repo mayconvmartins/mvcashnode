@@ -84,12 +84,17 @@ Assinantes têm acesso restrito às seguintes páginas:
 
 | Página | Descrição |
 |--------|-----------|
-| Contas | Gerenciar contas de exchange próprias |
+| Dashboard | Visão geral de posições e performance |
+| Contas | Gerenciar contas de exchange (apenas modo REAL) |
 | Mapa de Calor | Visualizar posições abertas com cores PnL |
-| Monitor SL/TP | Acompanhar proximidade de SL/TP/SG/TSG |
 | Relatórios | Gerar relatórios de performance |
 | Valor da Posição | Configurar valor padrão de ordens |
 | Meu Plano | Ver detalhes da assinatura |
+
+**Páginas não disponíveis para assinantes:**
+- Monitor SL/TP (gerenciado pelo admin)
+- Webhooks (configurados pelo admin)
+- Parâmetros de trading (definidos pelo admin)
 
 ### 3. Configuração de Valor da Posição
 
@@ -228,6 +233,43 @@ sequenceDiagram
     API-->>Frontend: { success: true }
     Frontend-->>Subscriber: Toast de sucesso
 ```
+
+## Restrições de Assinantes (v1.10.0)
+
+### Modo de Operação
+
+Assinantes operam **exclusivamente em modo REAL**:
+- Toggle de modo (Real/Simulation) é oculto para assinantes
+- Cadastro de contas permite apenas modo REAL
+- Todas as operações são executadas em ambiente real
+
+### Limite de Contas
+
+O plano de assinatura define o número máximo de contas:
+- Validação no frontend ao adicionar conta
+- Validação no backend ao criar conta
+- Botão "Adicionar Conta" desabilitado quando limite atingido
+
+### Símbolos Permitidos
+
+O admin pode restringir quais pares de trading o assinante pode operar:
+- Configurado em `/subscribers-admin/default-parameters`
+- Campo `symbols` com lista separada por vírgula (ex: `BTCUSDT,SOLUSDT,BNBUSDT`)
+- Webhooks são filtrados pelo símbolo antes de criar ordens
+
+### Sincronização de Webhooks
+
+Botão "Sincronizar Assinantes" em `/subscribers-admin/webhooks`:
+- Vincula webhooks padrão a novos assinantes
+- Cria parâmetros padrão se não existirem
+- **Não sobrescreve** `quote_amount_fixed` já configurado pelo assinante
+
+### Filtro de Assinantes com Busca
+
+Nas páginas de admin de assinantes:
+- Select de assinante com busca por email
+- Filtragem em tempo real enquanto digita
+- Páginas: posições, operações, heatmap, parâmetros
 
 ## Segurança
 

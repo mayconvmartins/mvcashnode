@@ -5,6 +5,117 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.10.0] - 2025-12-18
+
+### Adicionado
+
+#### Sistema de Passkeys (WebAuthn)
+- **PasskeyService**: Serviço completo para registro e autenticação via WebAuthn
+- **Login com Biometria**: Suporte a Face ID, Touch ID, Windows Hello
+- **Multi-dispositivo**: Sincronização via iCloud Keychain, Google Password Manager
+- **Gerenciamento no Perfil**: Interface para adicionar, renomear e remover passkeys
+- **Endpoints da API**:
+  - `POST /auth/passkeys/register/start` - Iniciar registro
+  - `POST /auth/passkeys/register/finish` - Finalizar registro
+  - `POST /auth/passkeys/authenticate/start` - Iniciar autenticação
+  - `POST /auth/passkeys/authenticate/finish` - Finalizar autenticação
+  - `GET /auth/passkeys` - Listar passkeys
+  - `PUT /auth/passkeys/:id` - Atualizar nome
+  - `DELETE /auth/passkeys/:id` - Remover passkey
+
+#### Gerenciamento de Sessões
+- **SessionService**: Gerenciamento completo de sessões de usuário
+- **Multi-dispositivo**: Login simultâneo em vários dispositivos
+- **Visualização de Sessões**: Ver todos os dispositivos conectados
+- **Encerramento Remoto**: Desconectar dispositivos específicos ou todos
+- **Detecção de Dispositivo**: Identificação automática de browser, SO e tipo
+- **Endpoints da API**:
+  - `GET /auth/sessions` - Listar sessões ativas
+  - `DELETE /auth/sessions/:id` - Encerrar sessão
+  - `POST /auth/sessions/terminate-others` - Encerrar outras sessões
+
+#### Web Push Notifications
+- **WebPushService**: Envio de notificações push via navegador
+- **Service Worker**: Recebimento e exibição de notificações em background
+- **WebPushProvider**: Context React para gerenciar subscriptions
+- **Integração com PWA**: Funciona como app instalado
+- **Endpoints da API**:
+  - `GET /notifications/webpush/vapid-public-key` - Obter chave VAPID
+  - `POST /notifications/webpush/subscribe` - Registrar subscription
+  - `DELETE /notifications/webpush/unsubscribe` - Remover subscription
+  - `POST /notifications/webpush/test` - Enviar teste
+
+#### Sistema de Templates Unificados
+- **UnifiedTemplateService**: Gerenciamento centralizado de templates
+- **Editor Visual**: Interface para editar templates com preview
+- **Suporte Multi-canal**: WhatsApp, Email e Web Push
+- **Templates Padrão**: 15+ tipos de templates pré-definidos
+- **Preview em Tempo Real**: Visualização com dados de exemplo
+- **Variáveis Dinâmicas**: Sistema de substituição `{variavel}`
+- **Reset para Padrão**: Restaurar templates originais
+- **Endpoints da API**:
+  - `GET /admin/notifications/unified-templates` - Listar templates
+  - `GET /admin/notifications/unified-templates/:type/:channel` - Obter template
+  - `POST /admin/notifications/unified-templates` - Salvar template
+  - `DELETE /admin/notifications/unified-templates/:type/:channel` - Resetar
+  - `POST /admin/notifications/unified-templates/:type/:channel/preview` - Preview
+
+### Corrigido
+
+#### Sistema de Autenticação
+- **"Lembre-me" Corrigido**: Agora funciona corretamente por 7 dias (ou 30 com rememberMe)
+- **Renovação de Tokens**: Tokens são renovados automaticamente mantendo a sessão
+
+#### Assinantes (Subscribers)
+- **Modo Real Forçado**: Assinantes só podem usar modo REAL
+- **Limite de Contas**: Bloqueio de cadastro quando limite do plano é atingido
+- **Vínculo de Assinatura**: Corrigida exibição do plano na lista de assinantes
+- **Filtro com Busca**: Filtro de assinantes agora permite digitar email
+- **Sincronização de Webhooks**: Botão para re-sincronizar webhooks padrão
+- **Símbolos Permitidos**: Campo para definir pares permitidos nos parâmetros padrão
+
+#### Interface do Admin
+- **Menu de Assinantes**: Removido link "Monitor SL/TP" para assinantes
+- **Toggle Real/Simulation**: Oculto para usuários tipo assinante
+
+### Alterado
+
+#### Página de Login
+- Layout modernizado com suporte a Passkeys
+- Botão "Login com Passkey" para usuários com passkeys cadastradas
+- Melhor feedback visual para erros
+
+#### Página de Perfil
+- Nova seção "Passkeys" para gerenciar chaves
+- Nova seção "Sessões Ativas" para gerenciar dispositivos
+
+#### Admin de Notificações
+- Nova aba "Templates Unificados" como padrão
+- Reorganização das abas existentes
+- Preview visual por canal (WhatsApp, Email, Web Push)
+
+### Migrations
+
+- **20251219000000_add_passkeys_sessions_webpush**: Adiciona tabelas `passkeys`, `user_sessions`, `web_push_subscriptions` e `notification_templates`
+
+### Documentação
+
+- **PASSKEYS_AND_AUTH.md**: Documentação completa do sistema de Passkeys e sessões
+- **WEB_PUSH_NOTIFICATIONS.md**: Guia de Web Push Notifications
+- **UNIFIED_TEMPLATES.md**: Documentação do sistema de templates unificados
+- **CHANGELOG.md**: Este arquivo atualizado
+
+### Dependências
+
+#### Backend
+- `@simplewebauthn/server@^9.0.0`: WebAuthn para servidor
+- `web-push@^3.6.6`: Envio de Web Push
+
+#### Frontend
+- `@simplewebauthn/browser@^10.0.0`: WebAuthn para cliente
+
+---
+
 ## [1.9.0] - 2025-12-18
 
 ### Adicionado

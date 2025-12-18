@@ -27,6 +27,12 @@ Bem-vindo à documentação completa do sistema de automação de trading. Este 
 - **[SECURITY_VALIDATIONS.md](./SECURITY_VALIDATIONS.md)** - Validações de segurança financeira
 - **[CHANGELOG.md](./CHANGELOG.md)** - Histórico de mudanças e versões
 
+### Autenticação e Notificações
+
+- **[PASSKEYS_AND_AUTH.md](./PASSKEYS_AND_AUTH.md)** - Sistema de Passkeys (WebAuthn) e gerenciamento de sessões
+- **[WEB_PUSH_NOTIFICATIONS.md](./WEB_PUSH_NOTIFICATIONS.md)** - Notificações Web Push via PWA
+- **[UNIFIED_TEMPLATES.md](./UNIFIED_TEMPLATES.md)** - Sistema de templates unificados (WhatsApp/Email/WebPush)
+
 ## 🚀 Início Rápido
 
 1. **Primeira vez?** Comece pelo [SETUP.md](./SETUP.md) para configurar o ambiente
@@ -60,16 +66,21 @@ mvcashnode/
 
 ## 🎯 Principais Funcionalidades
 
-- **Autenticação**: JWT + 2FA (TOTP)
+- **Autenticação**: JWT + 2FA (TOTP) + Passkeys (WebAuthn)
+- **Passkeys**: Login biométrico (Face ID, Touch ID, Windows Hello)
+- **Sessões Multi-dispositivo**: Login simultâneo em vários dispositivos
 - **Contas de Exchange**: Suporte a múltiplas exchanges (Binance, Bybit, etc.)
 - **Cofres Virtuais**: Gerenciamento de capital
 - **Posições**: Rastreamento de posições abertas e fechadas
 - **Webhooks**: Recebimento de sinais de trading
 - **Monitor Webhook**: Rastreamento de preços antes de executar compras
 - **Stop Loss / Take Profit**: Monitoramento automático
-- **Notificações**: WhatsApp via Evolution API
+- **Trailing Stop Gain (TSG)**: Stop móvel baseado em lucro máximo
+- **Notificações Multi-canal**: WhatsApp, Email e Web Push
+- **Templates Unificados**: Editor visual para templates de notificação
 - **Relatórios**: PnL, performance e métricas
 - **Assinaturas**: Sistema de planos e pagamentos (TransFi)
+- **PWA**: App instalável com notificações push
 
 ## 📝 Convenções
 
@@ -97,5 +108,5 @@ Para dúvidas ou problemas:
 
 ---
 
-**Última atualização**: 2025-12-18
+**Última atualização**: 2025-12-18 (v1.10.0)
 
