@@ -10,6 +10,7 @@ import { CancelAllPendingOrders } from '@/components/monitoring/CancelAllPending
 import { EnqueueOrphanOrders } from '@/components/monitoring/EnqueueOrphanOrders'
 import { OrphanedExecutions } from '@/components/monitoring/OrphanedExecutions'
 import { MissingOrders } from '@/components/monitoring/MissingOrders'
+import { MigrateToSubscriber } from '@/components/monitoring/MigrateToSubscriber'
 import { Wrench } from 'lucide-react'
 
 export default function DebugToolsPage() {
@@ -26,10 +27,13 @@ export default function DebugToolsPage() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {/* Executions Órfãs (NOVO) */}
+                {/* Migrar Usuário para Assinante */}
+                <MigrateToSubscriber />
+
+                {/* Executions Órfãs */}
                 <OrphanedExecutions />
 
-                {/* Ordens Faltantes da Exchange (NOVO) */}
+                {/* Ordens Faltantes da Exchange */}
                 <MissingOrders />
 
                 {/* Limpeza de Posições Órfãs */}

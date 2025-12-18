@@ -8286,5 +8286,239 @@ export class AdminSystemController {
       }
     };
   }
+
+  // ============================================
+  // DEBUG TOOLS - MIGRATE USER TO SUBSCRIBER
+  // ============================================
+
+  @Get('debug/users-for-migration')
+  @ApiOperation({
+    summary: 'Listar usuários disponíveis para migração',
+    description: 'Retorna usuários que NÃO são assinantes e podem ser migrados.'
+  })
+  async getUsersForMigration(): Promise<any> {
+    // Buscar todos os usuários
+    const allUsers = await this.prisma.user.findMany({
+      where: {
+        is_active: true
+      },
+      include: {
+        profile: { select: { full_name: true } },
+        roles: { select: { role: true } },
+        exchange_accounts: { select: { id: true } },
+        subscriptions: { select: { id: true, status: true } }
+      },
+      orderBy: { email: 'asc' }
+    });
+
+    // Filtrar usuários que NÃO são assinantes
+    const nonSubscribers = allUsers.filter(user => {
+      const isSubscriber = user.roles.some(r => r.role === 'subscriber');
+      return !isSubscriber;
+    });
+
+    return {
+      data: nonSubscribers.map(user => ({
+        id: user.id,
+        email: user.email,
+        full_name: user.profile?.full_name || null,
+        roles: user.roles.map(r => r.role),
+        accounts_count: user.exchange_accounts.length,
+        has_subscription: user.subscriptions.length > 0
+      })),
+      total: nonSubscribers.length
+    };
+  }
+
+  @Get('debug/subscription-plans')
+  @ApiOperation({
+    summary: 'Listar planos de assinatura disponíveis',
+    description: 'Retorna planos ativos para seleção na migração.'
+  })
+  async getSubscriptionPlansForMigration(): Promise<any> {
+    const plans = await this.prisma.subscriptionPlan.findMany({
+      where: { is_active: true },
+      orderBy: { price_monthly: 'asc' }
+    });
+
+    return {
+      data: plans.map(plan => ({
+        id: plan.id,
+        name: plan.name,
+        description: plan.description,
+        price_monthly: plan.price_monthly?.toNumber?.() || plan.price_monthly,
+        price_quarterly: plan.price_quarterly?.toNumber?.() || plan.price_quarterly,
+        duration_days: plan.duration_days,
+        max_exchange_accounts: plan.max_exchange_accounts
+      }))
+    };
+  }
+
+  @Post('debug/migrate-to-subscriber')
+  @ApiOperation({
+    summary: 'Migrar usuário para assinante',
+    description: 'Converte um usuário normal em assinante, criando subscription, parâmetros e vinculando webhooks padrão.'
+  })
+  async migrateUserToSubscriber(@Body() dto: {
+    user_id: number;
+    plan_id: number;
+    duration_months?: number;
+  }): Promise<any> {
+    const { user_id, plan_id, duration_months = 1 } = dto;
+
+    // 1. Verificar se usuário existe
+    const user = await this.prisma.user.findUnique({
+      where: { id: user_id },
+      include: {
+        profile: { select: { full_name: true } },
+        roles: { select: { id: true, role: true } },
+        exchange_accounts: { select: { id: true, label: true } },
+        subscriptions: true,
+        subscriber_parameters: true
+      }
+    });
+
+    if (!user) {
+      throw new NotFoundException(`Usuário ${user_id} não encontrado`);
+    }
+
+    // 2. Verificar se já é assinante
+    const isAlreadySubscriber = user.roles.some(r => r.role === 'subscriber');
+    if (isAlreadySubscriber) {
+      throw new BadRequestException(`Usuário ${user.email} já é assinante`);
+    }
+
+    // 3. Verificar se plano existe
+    const plan = await this.prisma.subscriptionPlan.findUnique({
+      where: { id: plan_id }
+    });
+
+    if (!plan) {
+      throw new NotFoundException(`Plano ${plan_id} não encontrado`);
+    }
+
+    // Calcular datas
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setMonth(endDate.getMonth() + duration_months);
+
+    const result = {
+      user: { id: user.id, email: user.email, full_name: user.profile?.full_name },
+      plan: { id: plan.id, name: plan.name },
+      actions: [] as string[],
+      webhooks_linked: 0,
+      accounts_count: user.exchange_accounts.length
+    };
+
+    // 4. Adicionar role 'subscriber' usando transação
+    await this.prisma.$transaction(async (tx) => {
+      // Adicionar role
+      await tx.userRole.create({
+        data: {
+          user_id: user.id,
+          role: 'subscriber'
+        }
+      });
+      result.actions.push('Role "subscriber" adicionada');
+
+      // 5. Criar ou atualizar subscription
+      const existingSubscription = user.subscriptions.find(s => s.status === 'ACTIVE');
+      
+      if (existingSubscription) {
+        await tx.subscription.update({
+          where: { id: existingSubscription.id },
+          data: {
+            plan_id: plan.id,
+            end_date: endDate,
+            auto_renew: false
+          }
+        });
+        result.actions.push(`Subscription existente atualizada (ID: ${existingSubscription.id})`);
+      } else {
+        const newSub = await tx.subscription.create({
+          data: {
+            user_id: user.id,
+            plan_id: plan.id,
+            status: 'ACTIVE',
+            start_date: startDate,
+            end_date: endDate,
+            auto_renew: false,
+            payment_method: 'MANUAL'
+          }
+        });
+        result.actions.push(`Subscription criada (ID: ${newSub.id})`);
+      }
+
+      // 6. Criar subscriber_parameters se não existir
+      if (!user.subscriber_parameters) {
+        // Buscar parâmetros padrão globais
+        const defaults = await tx.subscriberDefaultParameters.findFirst();
+        
+        await tx.subscriberParameters.create({
+          data: {
+            user_id: user.id,
+            quote_amount_fixed: defaults?.default_quote_amount || 100,
+            default_sl_enabled: defaults?.default_sl_enabled || false,
+            default_sl_pct: defaults?.default_sl_pct,
+            default_tp_enabled: defaults?.default_tp_enabled || false,
+            default_tp_pct: defaults?.default_tp_pct,
+            min_profit_pct: defaults?.min_profit_pct
+          }
+        });
+        result.actions.push('SubscriberParameters criado');
+      } else {
+        result.actions.push('SubscriberParameters já existia');
+      }
+
+      // 7. Vincular webhooks padrão às contas do usuário
+      const defaultWebhooks = await tx.webhookSource.findMany({
+        where: {
+          is_subscriber_webhook: true,
+          is_shared: true,
+          is_active: true
+        }
+      });
+
+      for (const account of user.exchange_accounts) {
+        for (const webhook of defaultWebhooks) {
+          // Verificar se binding já existe
+          const existingBinding = await tx.accountWebhookBinding.findUnique({
+            where: {
+              webhook_source_id_exchange_account_id: {
+                webhook_source_id: webhook.id,
+                exchange_account_id: account.id
+              }
+            }
+          });
+
+          if (!existingBinding) {
+            await tx.accountWebhookBinding.create({
+              data: {
+                webhook_source_id: webhook.id,
+                exchange_account_id: account.id,
+                is_active: true,
+                weight: 1
+              }
+            });
+            result.webhooks_linked++;
+          }
+        }
+      }
+
+      if (result.webhooks_linked > 0) {
+        result.actions.push(`${result.webhooks_linked} webhook(s) padrão vinculado(s)`);
+      } else if (defaultWebhooks.length > 0) {
+        result.actions.push('Webhooks padrão já vinculados ou nenhuma conta');
+      } else {
+        result.actions.push('Nenhum webhook padrão configurado');
+      }
+    });
+
+    return {
+      success: true,
+      message: `Usuário ${user.email} migrado para assinante com sucesso!`,
+      ...result
+    };
+  }
 }
 

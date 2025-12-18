@@ -1377,5 +1377,56 @@ export const adminService = {
         const response = await apiClient.get('/admin/subscribers/monitoring-tp-sl', { params: filters })
         return response.data
     },
+
+    // ============================================
+    // DEBUG TOOLS - MIGRATE TO SUBSCRIBER
+    // ============================================
+
+    getUsersForMigration: async (): Promise<{
+        data: Array<{
+            id: number;
+            email: string;
+            full_name: string | null;
+            roles: string[];
+            accounts_count: number;
+            has_subscription: boolean;
+        }>;
+        total: number;
+    }> => {
+        const response = await apiClient.get('/admin/debug/users-for-migration')
+        return response.data
+    },
+
+    getSubscriptionPlansForMigration: async (): Promise<{
+        data: Array<{
+            id: number;
+            name: string;
+            description: string | null;
+            price_monthly: number;
+            price_quarterly: number;
+            duration_days: number;
+            max_exchange_accounts: number | null;
+        }>;
+    }> => {
+        const response = await apiClient.get('/admin/debug/subscription-plans')
+        return response.data
+    },
+
+    migrateUserToSubscriber: async (data: {
+        user_id: number;
+        plan_id: number;
+        duration_months?: number;
+    }): Promise<{
+        success: boolean;
+        message: string;
+        user: { id: number; email: string; full_name: string | null };
+        plan: { id: number; name: string };
+        actions: string[];
+        webhooks_linked: number;
+        accounts_count: number;
+    }> => {
+        const response = await apiClient.post('/admin/debug/migrate-to-subscriber', data)
+        return response.data
+    },
 }
 
