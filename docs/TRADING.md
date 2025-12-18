@@ -212,11 +212,12 @@ Cenário 3 - TSG + TP Coexistindo:
 1. **TSG Independente**: TSG NÃO requer TP habilitado - funciona de forma autônoma
 2. **Activation > 0**: A % de ativação deve ser > 0 (ex: 2.0)
 3. **Drop > 0**: A % de queda deve ser > 0 (ex: 0.5, 1.0, 2.0)
-4. **Mutual Exclusion**: TSG e Stop Gain fixo são mutuamente exclusivos (só um pode estar ativo)
-5. **Compatível com TP**: TSG e TP podem coexistir - se TP disparar primeiro, executa TP
-6. **Sem Min Profit**: TSG NÃO valida min_profit_pct (protege lucros já obtidos)
-7. **Ordem LIMIT**: SEMPRE criar ordens LIMIT com spread de 0.1% para garantir execução
-8. **Rastreamento Contínuo**: O pico máximo é atualizado sempre que o lucro sobe, sem limite
+4. **Mutual Exclusion**: TSG, Stop Gain fixo e Take Profit normal são mutuamente exclusivos quando TSG está ativo - ao ativar TSG, o sistema automaticamente desativa TP normal e SG fixo para evitar inconsistências
+5. **Bloqueio Automático de Webhook**: Quando TSG está ativo, o webhook é automaticamente bloqueado, independentemente de como foi habilitado (via parâmetros, edição na posição ou atualização em massa)
+6. **Compatível com TP**: TSG e TP podem coexistir teoricamente, mas na prática o sistema desativa TP normal quando TSG é ativado
+7. **Sem Min Profit**: TSG NÃO valida min_profit_pct (protege lucros já obtidos)
+8. **Ordem LIMIT**: SEMPRE criar ordens LIMIT com spread de 0.1% para garantir execução
+9. **Rastreamento Contínuo**: O pico máximo é atualizado sempre que o lucro sobe, sem limite
 
 #### Exemplo Prático
 
@@ -418,5 +419,5 @@ O sistema envia notificações WhatsApp para:
 
 ---
 
-**Última atualização**: 2025-02-20
+**Última atualização**: 2025-12-18
 

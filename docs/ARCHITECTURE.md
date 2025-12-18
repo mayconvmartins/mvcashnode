@@ -128,6 +128,7 @@ mvcashnode/
   - `ExchangeAccountService` - Contas de exchange
   - `VaultService` - Cofres virtuais
   - `PositionService` - Posições
+  - `ResidueService` - Gerenciamento de resíduos (quantidades muito pequenas)
   - `WebhookParserService` - Parsing de sinais de webhook
   - `WebhookSourceService` - Gerenciamento de fontes de webhook
   - `WebhookEventService` - Processamento de eventos de webhook
@@ -348,5 +349,5 @@ Ver [SETUP.md](./SETUP.md) para lista completa de variáveis.
 
 ---
 
-**Última atualização**: 2025-02-20
+**Última atualização**: 2025-12-18
 

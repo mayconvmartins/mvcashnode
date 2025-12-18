@@ -1,5 +1,5 @@
 /**
- * PM2 Ecosystem Configuration
+ * PM2 Ecosystem Configuration - v1.9.0
  * Otimizado para VPS com 20 núcleos e 64GB RAM
  * 
  * Distribuição de recursos (20 núcleos):

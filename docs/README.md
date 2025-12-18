@@ -23,6 +23,9 @@ Bem-vindo à documentação completa do sistema de automação de trading. Este 
 - **[MONITORING_API.md](./MONITORING_API.md)** - API de monitoramento do sistema
 - **[SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md)** - Módulo de assinaturas e pagamentos
 - **[TRANSFI.md](./TRANSFI.md)** - Integração TransFi Gateway de Pagamento
+- **[RESIDUE_HANDLING.md](./RESIDUE_HANDLING.md)** - Sistema de gerenciamento de resíduos
+- **[SECURITY_VALIDATIONS.md](./SECURITY_VALIDATIONS.md)** - Validações de segurança financeira
+- **[CHANGELOG.md](./CHANGELOG.md)** - Histórico de mudanças e versões
 
 ## 🚀 Início Rápido
 
@@ -94,5 +97,5 @@ Para dúvidas ou problemas:
 
 ---
 
-**Última atualização**: 2025-02-20
+**Última atualização**: 2025-12-18
 
