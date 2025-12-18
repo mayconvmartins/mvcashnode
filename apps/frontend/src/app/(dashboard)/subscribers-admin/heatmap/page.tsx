@@ -14,6 +14,7 @@ import { adminService } from '@/lib/api/admin.service'
 import { formatCurrency } from '@/lib/utils/format'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
+import { SubscriberSelect } from '@/components/shared/SubscriberSelect'
 
 type SortOption = 'pnl_desc' | 'pnl_asc' | 'symbol' | 'value_desc' | 'value_asc' | 'subscriber'
 
@@ -68,14 +69,15 @@ export default function SubscribersHeatmapPage() {
         return () => clearInterval(interval)
     }, [realtimeEnabled, data])
 
-    // Extrair lista única de assinantes
+    // Extrair lista única de assinantes (formato compatível com SubscriberSelect)
     const subscribers = useMemo(() => {
-        const uniqueSubscribers = new Map<number, { id: number; name: string }>()
+        const uniqueSubscribers = new Map<number, { id: number; email: string; profile?: { full_name?: string } }>()
         allPositions.forEach((pos: any) => {
-            if (pos.subscriber?.user_id && !uniqueSubscribers.has(pos.subscriber.user_id)) {
-                uniqueSubscribers.set(pos.subscriber.user_id, {
-                    id: pos.subscriber.user_id,
-                    name: pos.subscriber.full_name || pos.subscriber.email?.split('@')[0] || `ID ${pos.subscriber.user_id}`
+            if (pos.subscriber?.id && !uniqueSubscribers.has(pos.subscriber.id)) {
+                uniqueSubscribers.set(pos.subscriber.id, {
+                    id: pos.subscriber.id,
+                    email: pos.subscriber.email || `user-${pos.subscriber.id}`,
+                    profile: pos.subscriber.full_name ? { full_name: pos.subscriber.full_name } : undefined
                 })
             }
         })
@@ -85,7 +87,7 @@ export default function SubscribersHeatmapPage() {
     // Filtrar posições por assinante
     const positions = useMemo(() => {
         if (subscriberFilter === 'all') return allPositions
-        return allPositions.filter((pos: any) => pos.subscriber?.user_id?.toString() === subscriberFilter)
+        return allPositions.filter((pos: any) => pos.subscriber?.id?.toString() === subscriberFilter)
     }, [allPositions, subscriberFilter])
 
     // Ordenar posições
@@ -266,19 +268,14 @@ export default function SubscribersHeatmapPage() {
                                 {/* Filtro de Assinante */}
                                 <div className="space-y-2">
                                     <Label htmlFor="subscriber-filter">Assinante</Label>
-                                    <Select value={subscriberFilter} onValueChange={setSubscriberFilter}>
-                                        <SelectTrigger id="subscriber-filter">
-                                            <SelectValue placeholder="Todos os assinantes" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="all">Todos os assinantes</SelectItem>
-                                            {subscribers.map((sub) => (
-                                                <SelectItem key={sub.id} value={sub.id.toString()}>
-                                                    {sub.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <SubscriberSelect
+                                        subscribers={subscribers}
+                                        value={subscriberFilter}
+                                        onValueChange={setSubscriberFilter}
+                                        placeholder="Todos os assinantes"
+                                        allLabel="Todos os assinantes"
+                                        className="w-full"
+                                    />
                                 </div>
 
                                 {/* Ordenação */}
@@ -312,7 +309,7 @@ export default function SubscribersHeatmapPage() {
                         Posições Abertas - {tradeMode}
                         {subscriberFilter !== 'all' && subscribers && (
                             <span className="text-sm font-normal text-muted-foreground">
-                                • {subscribers.find(s => s.id.toString() === subscriberFilter)?.name}
+                                • {subscribers.find(s => s.id.toString() === subscriberFilter)?.email}
                             </span>
                         )}
                     </CardTitle>

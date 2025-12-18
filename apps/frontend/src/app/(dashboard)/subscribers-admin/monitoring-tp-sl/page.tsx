@@ -16,6 +16,7 @@ import { adminService } from '@/lib/api/admin.service'
 import { formatCurrency } from '@/lib/utils/format'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { SubscriberSelect } from '@/components/shared/SubscriberSelect'
 
 export default function SubscribersMonitoringTPSLPage() {
     const [tradeMode, setTradeMode] = useState<'REAL' | 'SIMULATION'>('REAL')
@@ -38,14 +39,15 @@ export default function SubscribersMonitoringTPSLPage() {
     const allPositions = data?.data || []
     const summary = data?.summary
 
-    // Extrair lista única de assinantes
+    // Extrair lista única de assinantes (formato compatível com SubscriberSelect)
     const subscribers = useMemo(() => {
-        const uniqueSubscribers = new Map<number, { id: number; name: string }>()
+        const uniqueSubscribers = new Map<number, { id: number; email: string; profile?: { full_name?: string } }>()
         allPositions.forEach((pos: any) => {
-            if (pos.subscriber?.user_id && !uniqueSubscribers.has(pos.subscriber.user_id)) {
-                uniqueSubscribers.set(pos.subscriber.user_id, {
-                    id: pos.subscriber.user_id,
-                    name: pos.subscriber.full_name || pos.subscriber.email?.split('@')[0] || `ID ${pos.subscriber.user_id}`
+            if (pos.subscriber?.id && !uniqueSubscribers.has(pos.subscriber.id)) {
+                uniqueSubscribers.set(pos.subscriber.id, {
+                    id: pos.subscriber.id,
+                    email: pos.subscriber.email || `user-${pos.subscriber.id}`,
+                    profile: pos.subscriber.full_name ? { full_name: pos.subscriber.full_name } : undefined
                 })
             }
         })
@@ -55,7 +57,7 @@ export default function SubscribersMonitoringTPSLPage() {
     // Filtrar posições por assinante
     const positions = useMemo(() => {
         if (subscriberFilter === 'all') return allPositions
-        return allPositions.filter((pos: any) => pos.subscriber?.user_id?.toString() === subscriberFilter)
+        return allPositions.filter((pos: any) => pos.subscriber?.id?.toString() === subscriberFilter)
     }, [allPositions, subscriberFilter])
 
     const handleRefresh = () => {
@@ -167,19 +169,14 @@ export default function SubscribersMonitoringTPSLPage() {
                             <div className="grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">
                                     <Label>Assinante</Label>
-                                    <Select value={subscriberFilter} onValueChange={setSubscriberFilter}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Todos os assinantes" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="all">Todos os assinantes</SelectItem>
-                                            {subscribers.map((sub) => (
-                                                <SelectItem key={sub.id} value={sub.id.toString()}>
-                                                    {sub.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <SubscriberSelect
+                                        subscribers={subscribers}
+                                        value={subscriberFilter}
+                                        onValueChange={setSubscriberFilter}
+                                        placeholder="Todos os assinantes"
+                                        allLabel="Todos os assinantes"
+                                        className="w-full"
+                                    />
                                 </div>
                             </div>
                         </CardContent>

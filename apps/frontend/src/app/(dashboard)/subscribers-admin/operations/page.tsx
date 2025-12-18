@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, Filter, RefreshCw, User, TrendingUp, TrendingDown } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/lib/utils/format';
 import { SymbolDisplay } from '@/components/shared/SymbolDisplay';
+import { SubscriberSelect } from '@/components/shared/SubscriberSelect';
 import { SubscriberOperation } from '@/lib/types';
 
 const statusColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -206,22 +207,14 @@ export default function SubscriberOperationsPage() {
                     <div className="grid gap-4 md:grid-cols-5">
                         <div className="space-y-2">
                             <Label>Assinante</Label>
-                            <Select
+                            <SubscriberSelect
+                                subscribers={subscribers || []}
                                 value={filters.subscriber_id}
                                 onValueChange={(value) => setFilters({ ...filters, subscriber_id: value, page: 1 })}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Todos" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="ALL">Todos</SelectItem>
-                                    {subscribers?.map((sub: any) => (
-                                        <SelectItem key={sub.id} value={sub.id.toString()}>
-                                            {sub.profile?.full_name || sub.email}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                placeholder="Todos"
+                                allLabel="Todos"
+                                className="w-full"
+                            />
                         </div>
                         <div className="space-y-2">
                             <Label>Símbolo</Label>

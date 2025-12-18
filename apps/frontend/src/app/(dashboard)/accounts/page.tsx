@@ -2,30 +2,52 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit, TestTube, Wallet, RefreshCw, TrendingUp, MoreVertical } from 'lucide-react'
+import { Plus, Trash2, Edit, TestTube, Wallet, RefreshCw, TrendingUp, MoreVertical, AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AccountForm } from '@/components/accounts/AccountForm'
 import { TestConnectionButton } from '@/components/accounts/TestConnectionButton'
 import { accountsService } from '@/lib/api/accounts.service'
+import { subscriptionsService } from '@/lib/api/subscriptions.service'
 import type { ExchangeAccount } from '@/lib/types'
 import { toast } from 'sonner'
 import { formatDateTime } from '@/lib/utils/format'
+import { useAuthStore } from '@/lib/stores/authStore'
 
 export default function AccountsPage() {
     const queryClient = useQueryClient()
+    const { user } = useAuthStore()
     const [isDialogOpen, setIsDialogOpen] = useState(false)
     const [editingAccount, setEditingAccount] = useState<ExchangeAccount | null>(null)
     const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+    
+    // Verificar se é assinante
+    const isSubscriber = user?.roles?.some((r: any) => r.role === 'subscriber')
+    const isAdmin = user?.roles?.some((r: any) => r.role === 'admin')
+    const isSubscriberOnly = isSubscriber && !isAdmin
 
     const { data: accounts, isLoading } = useQuery({
         queryKey: ['accounts'],
         queryFn: accountsService.list,
     })
+    
+    // Buscar plano do assinante para verificar limite de contas
+    const { data: myPlan } = useQuery({
+        queryKey: ['my-plan'],
+        queryFn: subscriptionsService.getMyPlan,
+        enabled: isSubscriberOnly, // Só buscar se for assinante
+    })
+    
+    // Calcular se atingiu limite de contas
+    const maxAccounts = myPlan?.plan?.max_exchange_accounts
+    const currentAccountsCount = accounts?.length || 0
+    const hasReachedLimit = maxAccounts !== null && maxAccounts !== undefined && currentAccountsCount >= maxAccounts
+    const canAddAccount = !isSubscriberOnly || !hasReachedLimit
 
     const deleteMutation = useMutation({
         mutationFn: accountsService.delete,
@@ -187,11 +209,21 @@ export default function AccountsPage() {
                     <h1 className="text-3xl font-bold gradient-text">Contas de Exchange</h1>
                     <p className="text-muted-foreground mt-1">
                         Gerencie suas contas de exchange para trading
+                        {isSubscriberOnly && maxAccounts && (
+                            <span className="ml-2 text-sm">
+                                ({currentAccountsCount}/{maxAccounts} contas)
+                            </span>
+                        )}
                     </p>
                 </div>
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                     <DialogTrigger asChild>
-                        <Button variant="gradient" onClick={() => setEditingAccount(null)}>
+                        <Button 
+                            variant="gradient" 
+                            onClick={() => setEditingAccount(null)}
+                            disabled={!canAddAccount}
+                            title={hasReachedLimit ? `Limite de ${maxAccounts} conta(s) atingido` : undefined}
+                        >
                             <Plus className="h-4 w-4 mr-2" />
                             Nova Conta
                         </Button>
@@ -212,6 +244,17 @@ export default function AccountsPage() {
                 </Dialog>
             </div>
 
+            {/* Alerta de limite de contas */}
+            {isSubscriberOnly && hasReachedLimit && (
+                <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                        Você atingiu o limite de {maxAccounts} conta(s) exchange permitidas pelo seu plano. 
+                        Para adicionar mais contas, faça upgrade do seu plano.
+                    </AlertDescription>
+                </Alert>
+            )}
+
             <Card className="glass">
                 <CardHeader>
                     <CardTitle>Todas as Contas</CardTitle>
@@ -228,7 +271,11 @@ export default function AccountsPage() {
                                 <p className="text-muted-foreground mb-4">
                                     Comece adicionando sua primeira conta de exchange
                                 </p>
-                                <Button onClick={() => setIsDialogOpen(true)} variant="gradient">
+                                <Button 
+                                    onClick={() => setIsDialogOpen(true)} 
+                                    variant="gradient"
+                                    disabled={!canAddAccount}
+                                >
                                     <Plus className="h-4 w-4 mr-2" />
                                     Adicionar Conta
                                 </Button>

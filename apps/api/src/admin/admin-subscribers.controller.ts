@@ -49,7 +49,7 @@ export class AdminSubscribersController {
   async list(
     @Query('email') email?: string,
     @Query('is_active') isActive?: string
-  ) {
+  ): Promise<any[]> {
     const where: any = {
       roles: {
         some: {
@@ -70,11 +70,25 @@ export class AdminSubscribersController {
       where,
       include: {
         roles: true,
+        profile: true,
+        subscriptions: {
+          where: { status: 'ACTIVE' },
+          include: {
+            plan: true,
+          },
+          take: 1,
+          orderBy: { created_at: 'desc' },
+        },
       },
       orderBy: { created_at: 'desc' },
     });
 
-    return users;
+    // Formatar resposta com a assinatura ativa
+    return users.map(user => ({
+      ...user,
+      subscription: user.subscriptions?.[0] || null,
+      subscriptions: undefined, // Remover array para limpar resposta
+    }));
   }
 
   @Get(':id')
@@ -276,6 +290,96 @@ export class AdminSubscribersController {
     }
 
     return parameters;
+  }
+
+  @Post('sync')
+  @ApiOperation({ 
+    summary: 'Sincronizar assinantes',
+    description: 'Vincula webhooks padrão e cria parâmetros padrão para assinantes que ainda não têm'
+  })
+  @ApiResponse({ status: 200, description: 'Sincronização concluída' })
+  async syncSubscribers(): Promise<any> {
+    this.logger.log('Iniciando sincronização de assinantes...');
+    
+    // Buscar todos os assinantes
+    const subscribers = await this.prisma.user.findMany({
+      where: {
+        roles: { some: { role: 'subscriber' } },
+      },
+      include: {
+        exchange_accounts: true,
+      },
+    });
+
+    // Buscar parâmetros padrão
+    const defaultParams = await this.prisma.subscriberDefaultParameters.findFirst();
+
+    // Buscar webhooks padrão de assinantes
+    const defaultWebhooks = await this.prisma.webhookSource.findMany({
+      where: { is_shared: true },
+    });
+
+    let syncedWebhooks = 0;
+    let syncedParams = 0;
+    let skippedParams = 0;
+
+    for (const subscriber of subscribers) {
+      // Sincronizar webhooks para cada conta de exchange
+      for (const account of subscriber.exchange_accounts) {
+        for (const webhook of defaultWebhooks) {
+          // Verificar se já existe o binding
+          const existingBinding = await this.prisma.accountWebhookBinding.findFirst({
+            where: {
+              webhook_source_id: webhook.id,
+              exchange_account_id: account.id,
+            },
+          });
+
+          if (!existingBinding) {
+            await this.prisma.accountWebhookBinding.create({
+              data: {
+                webhook_source_id: webhook.id,
+                exchange_account_id: account.id,
+              },
+            });
+            syncedWebhooks++;
+          }
+        }
+      }
+
+      // Verificar se já tem parâmetros
+      const existingParams = await this.prisma.subscriberParameters.findUnique({
+        where: { user_id: subscriber.id },
+      });
+
+      if (!existingParams && defaultParams) {
+        // Criar parâmetros padrão (apenas campos que existem em SubscriberParameters)
+        await this.prisma.subscriberParameters.create({
+          data: {
+            user_id: subscriber.id,
+            default_sl_enabled: defaultParams.default_sl_enabled,
+            default_sl_pct: defaultParams.default_sl_pct,
+            default_tp_enabled: defaultParams.default_tp_enabled,
+            default_tp_pct: defaultParams.default_tp_pct,
+            min_profit_pct: defaultParams.min_profit_pct,
+            // NÃO copiar quote_amount_fixed - deixar null para o usuário definir
+          },
+        });
+        syncedParams++;
+      } else if (existingParams) {
+        skippedParams++;
+      }
+    }
+
+    this.logger.log(`Sincronização concluída: ${syncedWebhooks} webhooks, ${syncedParams} parâmetros criados, ${skippedParams} parâmetros já existentes`);
+
+    return {
+      success: true,
+      synced_webhooks: syncedWebhooks,
+      synced_parameters: syncedParams,
+      skipped_parameters: skippedParams,
+      total_subscribers: subscribers.length,
+    };
   }
 }
 

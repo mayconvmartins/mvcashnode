@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Settings2, Save, DollarSign, TrendingUp, TrendingDown, AlertTriangle, Zap } from 'lucide-react'
+import { Settings2, Save, DollarSign, TrendingUp, TrendingDown, AlertTriangle, Zap, RefreshCw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +21,7 @@ export default function SubscriberDefaultParametersPage() {
         min_quote_amount: 20,
         max_quote_amount: null as number | null,
         default_quote_amount: 100,
+        allowed_symbols: '' as string,
         default_sl_enabled: false,
         default_sl_pct: null as number | null,
         default_tp_enabled: false,
@@ -48,6 +49,7 @@ export default function SubscriberDefaultParametersPage() {
                 min_quote_amount: data.min_quote_amount ?? 20,
                 max_quote_amount: data.max_quote_amount,
                 default_quote_amount: data.default_quote_amount ?? 100,
+                allowed_symbols: data.allowed_symbols || '',
                 default_sl_enabled: data.default_sl_enabled ?? false,
                 default_sl_pct: data.default_sl_pct,
                 default_tp_enabled: data.default_tp_enabled ?? false,
@@ -73,6 +75,18 @@ export default function SubscriberDefaultParametersPage() {
         },
         onError: (error: any) => {
             toast.error(error?.response?.data?.message || 'Erro ao atualizar parâmetros')
+        },
+    })
+    
+    // Mutation para sincronizar assinantes
+    const syncMutation = useMutation({
+        mutationFn: adminService.syncSubscribers,
+        onSuccess: (result) => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'subscribers'] })
+            toast.success(`Sincronização concluída! ${result.synced_webhooks} webhooks e ${result.synced_parameters} parâmetros criados.`)
+        },
+        onError: (error: any) => {
+            toast.error(error?.response?.data?.message || 'Erro ao sincronizar assinantes')
         },
     })
 
@@ -106,10 +120,20 @@ export default function SubscriberDefaultParametersPage() {
                         Configure os valores padrão e limites aplicados a todos os assinantes
                     </p>
                 </div>
-                <Button onClick={handleSubmit} disabled={updateMutation.isPending}>
-                    <Save className="h-4 w-4 mr-2" />
-                    {updateMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button 
+                        variant="outline" 
+                        onClick={() => syncMutation.mutate()} 
+                        disabled={syncMutation.isPending}
+                    >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                        {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar Assinantes'}
+                    </Button>
+                    <Button onClick={handleSubmit} disabled={updateMutation.isPending}>
+                        <Save className="h-4 w-4 mr-2" />
+                        {updateMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
+                    </Button>
+                </div>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -163,6 +187,21 @@ export default function SubscriberDefaultParametersPage() {
                                     onChange={(e) => setFormData({ ...formData, default_quote_amount: parseFloat(e.target.value) || 100 })}
                                 />
                                 <p className="text-xs text-muted-foreground">Valor usado quando o assinante não configurar</p>
+                            </div>
+                            <Separator className="my-4" />
+                            <div className="space-y-2">
+                                <Label htmlFor="allowed_symbols">Símbolos Permitidos</Label>
+                                <Input
+                                    id="allowed_symbols"
+                                    type="text"
+                                    placeholder="BTCUSDT,SOLUSDT,BNBUSDT,ETHUSDT"
+                                    value={formData.allowed_symbols}
+                                    onChange={(e) => setFormData({ ...formData, allowed_symbols: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Lista de pares de trading permitidos para assinantes (separados por vírgula). 
+                                    Deixe vazio para permitir todos os símbolos.
+                                </p>
                             </div>
                         </CardContent>
                     </Card>

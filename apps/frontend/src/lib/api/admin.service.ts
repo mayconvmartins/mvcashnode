@@ -604,6 +604,17 @@ export const adminService = {
         return response.data
     },
 
+    syncSubscribers: async (): Promise<{
+        success: boolean
+        synced_webhooks: number
+        synced_parameters: number
+        skipped_parameters: number
+        total_subscribers: number
+    }> => {
+        const response = await apiClient.post('/admin/subscribers/sync')
+        return response.data
+    },
+
     // Subscription Plans
     listSubscriptionPlans: async (): Promise<any[]> => {
         const response = await apiClient.get('/admin/subscription-plans')
@@ -1230,6 +1241,7 @@ export const adminService = {
         min_quote_amount: number;
         max_quote_amount: number | null;
         default_quote_amount: number;
+        allowed_symbols: string | null;
         default_sl_enabled: boolean;
         default_sl_pct: number | null;
         default_tp_enabled: boolean;
@@ -1251,6 +1263,7 @@ export const adminService = {
         min_quote_amount?: number;
         max_quote_amount?: number | null;
         default_quote_amount?: number;
+        allowed_symbols?: string | null;
         default_sl_enabled?: boolean;
         default_sl_pct?: number | null;
         default_tp_enabled?: boolean;

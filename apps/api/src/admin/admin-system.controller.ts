@@ -7871,6 +7871,7 @@ export class AdminSystemController {
       min_quote_amount: defaults.min_quote_amount?.toNumber?.() || defaults.min_quote_amount,
       max_quote_amount: defaults.max_quote_amount?.toNumber?.() || null,
       default_quote_amount: defaults.default_quote_amount?.toNumber?.() || defaults.default_quote_amount,
+      allowed_symbols: defaults.allowed_symbols || null,
       default_sl_enabled: defaults.default_sl_enabled,
       default_sl_pct: defaults.default_sl_pct?.toNumber?.() || null,
       default_tp_enabled: defaults.default_tp_enabled,
@@ -7897,6 +7898,7 @@ export class AdminSystemController {
     min_quote_amount?: number;
     max_quote_amount?: number | null;
     default_quote_amount?: number;
+    allowed_symbols?: string | null;
     default_sl_enabled?: boolean;
     default_sl_pct?: number | null;
     default_tp_enabled?: boolean;
@@ -7918,6 +7920,7 @@ export class AdminSystemController {
     if (dto.min_quote_amount !== undefined) updateData.min_quote_amount = dto.min_quote_amount;
     if (dto.max_quote_amount !== undefined) updateData.max_quote_amount = dto.max_quote_amount;
     if (dto.default_quote_amount !== undefined) updateData.default_quote_amount = dto.default_quote_amount;
+    if (dto.allowed_symbols !== undefined) updateData.allowed_symbols = dto.allowed_symbols;
     if (dto.default_sl_enabled !== undefined) updateData.default_sl_enabled = dto.default_sl_enabled;
     if (dto.default_sl_pct !== undefined) updateData.default_sl_pct = dto.default_sl_pct;
     if (dto.default_tp_enabled !== undefined) updateData.default_tp_enabled = dto.default_tp_enabled;

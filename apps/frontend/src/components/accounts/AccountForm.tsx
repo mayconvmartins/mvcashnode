@@ -13,6 +13,7 @@ import { accountsService } from '@/lib/api/accounts.service'
 import type { ExchangeAccount } from '@/lib/types'
 import { Exchange, TradeMode } from '@/lib/types'
 import { toast } from 'sonner'
+import { useAuthStore } from '@/lib/stores/authStore'
 
 const createAccountSchema = z.object({
     label: z.string().min(1, 'Nome é obrigatório'),
@@ -43,7 +44,13 @@ interface AccountFormProps {
 
 export function AccountForm({ account, onSuccess }: AccountFormProps) {
     const queryClient = useQueryClient()
+    const { user } = useAuthStore()
     const isEditing = !!account
+    
+    // Verificar se é assinante (não admin) - só pode usar modo REAL
+    const isSubscriber = user?.roles?.some((r: any) => r.role === 'subscriber')
+    const isAdmin = user?.roles?.some((r: any) => r.role === 'admin')
+    const isSubscriberOnly = isSubscriber && !isAdmin
 
     const accountSchema = isEditing ? editAccountSchema : createAccountSchema
 
@@ -67,7 +74,8 @@ export function AccountForm({ account, onSuccess }: AccountFormProps) {
               }
             : {
                   exchange: Exchange.BINANCE_SPOT,
-                  trade_mode: TradeMode.SIMULATION,
+                  // Assinantes só podem usar modo REAL
+                  trade_mode: isSubscriberOnly ? TradeMode.REAL : TradeMode.SIMULATION,
                   is_testnet: false,
                   is_active: true,
               },
@@ -176,16 +184,22 @@ export function AccountForm({ account, onSuccess }: AccountFormProps) {
                         <Select
                             value={trade_mode}
                             onValueChange={(value) => setValue('trade_mode', value as TradeMode)}
-                            disabled={createMutation.isPending || updateMutation.isPending}
+                            disabled={isSubscriberOnly || createMutation.isPending || updateMutation.isPending}
                         >
                             <SelectTrigger>
                                 <SelectValue placeholder="Selecione" />
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value={TradeMode.REAL}>REAL</SelectItem>
-                                <SelectItem value={TradeMode.SIMULATION}>SIMULATION</SelectItem>
+                                {/* Assinantes só podem usar modo REAL */}
+                                {!isSubscriberOnly && (
+                                    <SelectItem value={TradeMode.SIMULATION}>SIMULATION</SelectItem>
+                                )}
                             </SelectContent>
                         </Select>
+                        {isSubscriberOnly && (
+                            <p className="text-xs text-muted-foreground">Assinantes só podem operar em modo REAL</p>
+                        )}
                         {errors.trade_mode && <p className="text-sm text-destructive">{errors.trade_mode.message}</p>}
                     </div>
                 </div>

@@ -76,7 +76,6 @@ const subscriberOnlyMenuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/subscriber-dashboard' },
     { icon: Wallet, label: 'Contas', href: '/accounts' },
     { icon: Flame, label: 'Mapa de Calor', href: '/heatmap' },
-    { icon: Target, label: 'Monitor SL/TP', href: '/monitoring-positionstp-sl' },
     { icon: FileBarChart, label: 'Relatórios', href: '/reports' },
     { icon: Settings2, label: 'Valor da Posição', href: '/settings/position-value' },
 ]

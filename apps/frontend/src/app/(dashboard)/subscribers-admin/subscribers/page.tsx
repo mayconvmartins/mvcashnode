@@ -47,17 +47,24 @@ export default function SubscribersListPage() {
         const sub = row.subscription;
         if (!sub) return <Badge variant="outline">Sem assinatura</Badge>;
         return (
-          <Badge
-            variant={
-              sub.status === 'ACTIVE'
-                ? 'default'
-                : sub.status === 'EXPIRED'
-                ? 'destructive'
-                : 'secondary'
-            }
-          >
-            {sub.status}
-          </Badge>
+          <div className="flex flex-col gap-1">
+            <Badge
+              variant={
+                sub.status === 'ACTIVE'
+                  ? 'default'
+                  : sub.status === 'EXPIRED'
+                  ? 'destructive'
+                  : 'secondary'
+              }
+            >
+              {sub.plan?.name || sub.status}
+            </Badge>
+            {sub.plan && (
+              <span className="text-xs text-muted-foreground">
+                {sub.status === 'ACTIVE' ? 'Ativo' : sub.status}
+              </span>
+            )}
+          </div>
         );
       },
     },

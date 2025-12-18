@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/shared/DataTable';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Edit, Trash2, Copy } from 'lucide-react';
+import { Loader2, Plus, Edit, Trash2, Copy, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -79,6 +79,18 @@ export default function SubscriberWebhooksPage() {
     },
     onError: (error: any) => {
       toast.error(error?.response?.data?.message || 'Erro ao desativar webhook padrão');
+    },
+  });
+  
+  // Mutation para sincronizar assinantes
+  const syncMutation = useMutation({
+    mutationFn: adminService.syncSubscribers,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'subscribers'] });
+      toast.success(`Sincronização concluída! ${result.synced_webhooks} webhooks e ${result.synced_parameters} parâmetros criados.`);
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.message || 'Erro ao sincronizar assinantes');
     },
   });
 
@@ -208,10 +220,20 @@ export default function SubscriberWebhooksPage() {
             Gerencie webhooks que são automaticamente vinculados às contas de assinantes
           </p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Criar Webhook Padrão
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => syncMutation.mutate()} 
+            disabled={syncMutation.isPending}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+            {syncMutation.isPending ? 'Sincronizando...' : 'Sincronizar Assinantes'}
+          </Button>
+          <Button onClick={() => setIsCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Criar Webhook Padrão
+          </Button>
+        </div>
       </div>
 
       <Card>
