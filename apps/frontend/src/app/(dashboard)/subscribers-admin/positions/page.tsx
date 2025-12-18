@@ -34,10 +34,10 @@ export default function SubscriberPositionsPage() {
 
   // Filtros
   const [filters, setFilters] = useState({
-    subscriber_id: searchParams.get('subscriber_id') || '',
+    subscriber_id: searchParams.get('subscriber_id') || 'ALL',
     symbol: '',
-    status: 'OPEN' as 'OPEN' | 'CLOSED' | '',
-    trade_mode: 'REAL' as 'REAL' | 'SIMULATION' | '',
+    status: 'OPEN' as 'OPEN' | 'CLOSED' | 'ALL',
+    trade_mode: 'REAL' as 'REAL' | 'SIMULATION' | 'ALL',
     sort_by: 'created_at' as 'created_at' | 'pnl_pct' | 'invested_value_usd',
     sort_order: 'desc' as 'asc' | 'desc',
     page: 1,
@@ -71,10 +71,10 @@ export default function SubscriberPositionsPage() {
   const { data: positionsData, isLoading, refetch } = useQuery({
     queryKey: ['admin', 'subscriber-positions', filters],
     queryFn: () => adminService.listSubscriberPositions({
-      subscriber_id: filters.subscriber_id ? parseInt(filters.subscriber_id) : undefined,
+      subscriber_id: filters.subscriber_id && filters.subscriber_id !== 'ALL' ? parseInt(filters.subscriber_id) : undefined,
       symbol: filters.symbol || undefined,
-      status: filters.status || undefined,
-      trade_mode: filters.trade_mode || undefined,
+      status: filters.status && filters.status !== 'ALL' ? filters.status : undefined,
+      trade_mode: filters.trade_mode && filters.trade_mode !== 'ALL' ? filters.trade_mode : undefined,
       sort_by: filters.sort_by,
       sort_order: filters.sort_order,
       page: filters.page,
@@ -379,7 +379,7 @@ export default function SubscriberPositionsPage() {
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos</SelectItem>
+                  <SelectItem value="ALL">Todos</SelectItem>
                   {subscribers?.map((sub: any) => (
                     <SelectItem key={sub.id} value={sub.id.toString()}>
                       {sub.profile?.full_name || sub.email}
@@ -406,7 +406,7 @@ export default function SubscriberPositionsPage() {
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos</SelectItem>
+                  <SelectItem value="ALL">Todos</SelectItem>
                   <SelectItem value="OPEN">Abertas</SelectItem>
                   <SelectItem value="CLOSED">Fechadas</SelectItem>
                 </SelectContent>
@@ -422,7 +422,7 @@ export default function SubscriberPositionsPage() {
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos</SelectItem>
+                  <SelectItem value="ALL">Todos</SelectItem>
                   <SelectItem value="REAL">REAL</SelectItem>
                   <SelectItem value="SIMULATION">SIMULATION</SelectItem>
                 </SelectContent>

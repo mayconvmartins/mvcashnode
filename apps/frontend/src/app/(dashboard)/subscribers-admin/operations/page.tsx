@@ -32,11 +32,11 @@ export default function SubscriberOperationsPage() {
     const searchParams = useSearchParams();
 
     const [filters, setFilters] = useState({
-        subscriber_id: searchParams.get('subscriber_id') || '',
+        subscriber_id: searchParams.get('subscriber_id') || 'ALL',
         symbol: '',
-        status: '',
-        side: '',
-        trade_mode: 'REAL' as 'REAL' | 'SIMULATION' | '',
+        status: 'ALL',
+        side: 'ALL',
+        trade_mode: 'REAL' as 'REAL' | 'SIMULATION' | 'ALL',
         page: 1,
         limit: 50,
     });
@@ -49,11 +49,11 @@ export default function SubscriberOperationsPage() {
     const { data: operationsData, isLoading, refetch } = useQuery({
         queryKey: ['admin', 'subscriber-operations', filters],
         queryFn: () => adminService.listSubscriberOperations({
-            subscriber_id: filters.subscriber_id ? parseInt(filters.subscriber_id) : undefined,
+            subscriber_id: filters.subscriber_id && filters.subscriber_id !== 'ALL' ? parseInt(filters.subscriber_id) : undefined,
             symbol: filters.symbol || undefined,
-            status: filters.status || undefined,
-            side: filters.side as any || undefined,
-            trade_mode: filters.trade_mode || undefined,
+            status: filters.status && filters.status !== 'ALL' ? filters.status : undefined,
+            side: filters.side && filters.side !== 'ALL' ? filters.side as any : undefined,
+            trade_mode: filters.trade_mode && filters.trade_mode !== 'ALL' ? filters.trade_mode : undefined,
             page: filters.page,
             limit: filters.limit,
         }),
@@ -214,7 +214,7 @@ export default function SubscriberOperationsPage() {
                                     <SelectValue placeholder="Todos" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Todos</SelectItem>
+                                    <SelectItem value="ALL">Todos</SelectItem>
                                     {subscribers?.map((sub: any) => (
                                         <SelectItem key={sub.id} value={sub.id.toString()}>
                                             {sub.profile?.full_name || sub.email}
@@ -241,7 +241,7 @@ export default function SubscriberOperationsPage() {
                                     <SelectValue placeholder="Todos" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Todos</SelectItem>
+                                    <SelectItem value="ALL">Todos</SelectItem>
                                     <SelectItem value="BUY">Compra</SelectItem>
                                     <SelectItem value="SELL">Venda</SelectItem>
                                 </SelectContent>
@@ -257,7 +257,7 @@ export default function SubscriberOperationsPage() {
                                     <SelectValue placeholder="Todos" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Todos</SelectItem>
+                                    <SelectItem value="ALL">Todos</SelectItem>
                                     <SelectItem value="PENDING">Pending</SelectItem>
                                     <SelectItem value="PENDING_EXECUTION">Pending Execution</SelectItem>
                                     <SelectItem value="EXECUTING">Executing</SelectItem>
@@ -279,7 +279,7 @@ export default function SubscriberOperationsPage() {
                                     <SelectValue placeholder="Todos" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Todos</SelectItem>
+                                    <SelectItem value="ALL">Todos</SelectItem>
                                     <SelectItem value="REAL">REAL</SelectItem>
                                     <SelectItem value="SIMULATION">SIMULATION</SelectItem>
                                 </SelectContent>
