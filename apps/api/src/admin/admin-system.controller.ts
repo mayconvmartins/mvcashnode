@@ -7100,12 +7100,12 @@ export class AdminSystemController {
     const limitNum = this.safeParseInt(limit, 50, 1, 500);
     const skip = (pageNum - 1) * limitNum;
 
-    // Buscar IDs de usuários com role SUBSCRIBER
+    // Buscar IDs de usuários com role subscriber
     const subscriberUsers = await this.prisma.user.findMany({
       where: {
         roles: {
           some: {
-            role: 'SUBSCRIBER'
+            role: 'subscriber'
           }
         }
       },
@@ -7337,7 +7337,7 @@ export class AdminSystemController {
     }
 
     // Verificar se pertence a um subscriber
-    const isSubscriber = position.exchange_account.user.roles?.some(r => r.role === 'SUBSCRIBER');
+    const isSubscriber = position.exchange_account.user.roles?.some(r => r.role === 'subscriber');
     if (!isSubscriber) {
       throw new BadRequestException(`Posição ${id} não pertence a um assinante`);
     }
@@ -7419,7 +7419,7 @@ export class AdminSystemController {
     // Buscar IDs de usuários com role SUBSCRIBER
     const subscriberUsers = await this.prisma.user.findMany({
       where: {
-        roles: { some: { role: 'SUBSCRIBER' } }
+        roles: { some: { role: 'subscriber' } }
       },
       select: { id: true }
     });
@@ -7568,7 +7568,7 @@ export class AdminSystemController {
     // Buscar IDs de usuários com role SUBSCRIBER
     const subscriberUsers = await this.prisma.user.findMany({
       where: {
-        roles: { some: { role: 'SUBSCRIBER' } }
+        roles: { some: { role: 'subscriber' } }
       },
       select: { id: true }
     });
@@ -7763,7 +7763,7 @@ export class AdminSystemController {
     const operation = operationRaw as any;
 
     // Verificar se pertence a um subscriber
-    const isSubscriber = operation.exchange_account?.user?.roles?.some((r: any) => r.role === 'SUBSCRIBER');
+    const isSubscriber = operation.exchange_account?.user?.roles?.some((r: any) => r.role === 'subscriber');
     if (!isSubscriber) {
       throw new BadRequestException(`Operação ${id} não pertence a um assinante`);
     }
