@@ -63,6 +63,24 @@ export interface PasskeyInfo {
 // Tempo de expiração do challenge: 5 minutos
 const CHALLENGE_EXPIRY_MS = 5 * 60 * 1000;
 
+/**
+ * Extrai o challenge do clientDataJSON de um response WebAuthn
+ * O clientDataJSON é base64url encoded e contém {challenge, origin, type}
+ */
+function extractChallengeFromClientDataJSON(clientDataJSON: string): string | null {
+  try {
+    // Decodificar base64url para string
+    const base64 = clientDataJSON.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const decoded = Buffer.from(padded, 'base64').toString('utf-8');
+    const clientData = JSON.parse(decoded);
+    return clientData.challenge || null;
+  } catch (error) {
+    console.error('[PASSKEY] Erro ao decodificar clientDataJSON:', error);
+    return null;
+  }
+}
+
 export class PasskeyService {
   private prisma: PrismaService;
   private rpName: string;
@@ -310,8 +328,9 @@ export class PasskeyService {
       userVerification: 'preferred',
     });
 
-    // Armazenar challenge no banco - usar email como chave se disponível
-    const challengeKey = email ? `auth_${email}` : `auth_${options.challenge}`;
+    // SEMPRE armazenar challenge usando o próprio challenge como chave
+    // Isso garante que podemos recuperar na verificação extraindo o challenge do response
+    const challengeKey = `auth_${options.challenge}`;
     await this.storeChallenge(challengeKey, options.challenge);
 
     return {
@@ -325,7 +344,7 @@ export class PasskeyService {
    */
   async verifyAuthentication(
     response: AuthenticationResponseJSON,
-    email?: string
+    _email?: string
   ): Promise<{
     userId: number;
     email: string;
@@ -350,36 +369,23 @@ export class PasskeyService {
       throw new Error('Usuário inativo');
     }
 
-    // Recuperar challenge - tentar com email primeiro, depois com challenge do response
-    let expectedChallenge: string | null = null;
+    // Extrair o challenge do clientDataJSON do response
+    // Isso garante que sempre encontramos o challenge correto, independente de como foi gerado
+    const challengeFromResponse = extractChallengeFromClientDataJSON(response.response.clientDataJSON);
     
-    if (email) {
-      expectedChallenge = await this.getAndDeleteChallenge(`auth_${email}`);
-    }
-    
-    if (!expectedChallenge) {
-      // Tentar buscar qualquer challenge de autenticação recente
-      // Isso é necessário para Conditional UI onde não temos o email
-      const recentChallenges = await this.prisma.passkeyChallenge.findMany({
-        where: {
-          challenge_key: { startsWith: 'auth_' },
-          expires_at: { gt: new Date() },
-        },
-        orderBy: { created_at: 'desc' },
-        take: 5,
-      });
-
-      for (const ch of recentChallenges) {
-        expectedChallenge = ch.challenge;
-        // Deletar o challenge usado
-        await this.prisma.passkeyChallenge.delete({
-          where: { id: ch.id },
-        }).catch(() => {});
-        break;
-      }
+    if (!challengeFromResponse) {
+      console.error('[PASSKEY] Não foi possível extrair o challenge do response');
+      throw new Error('Resposta de autenticação inválida');
     }
 
+    console.log(`[PASSKEY] Challenge extraído do response: ${challengeFromResponse.substring(0, 20)}...`);
+
+    // Buscar o challenge no banco usando a chave correta
+    const challengeKey = `auth_${challengeFromResponse}`;
+    const expectedChallenge = await this.getAndDeleteChallenge(challengeKey);
+    
     if (!expectedChallenge) {
+      console.error(`[PASSKEY] Challenge não encontrado no banco: ${challengeKey}`);
       throw new Error('Challenge não encontrado ou expirado. Tente novamente.');
     }
 

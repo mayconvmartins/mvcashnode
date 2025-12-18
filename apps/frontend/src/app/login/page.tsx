@@ -41,6 +41,11 @@ function LoginPageContent() {
     
     // AbortController para cancelar conditional UI quando necessário
     const conditionalUIAbortController = useRef<AbortController | null>(null)
+    
+    // Flag para evitar reiniciar o Conditional UI após erro ou cancelamento
+    const conditionalUIStartedRef = useRef(false)
+    // Flag para indicar que login foi bem-sucedido e não deve mais iniciar Conditional UI
+    const loginSuccessfulRef = useRef(false)
 
     // Verificar suporte a Passkeys e Conditional UI
     useEffect(() => {
@@ -70,9 +75,17 @@ function LoginPageContent() {
 
     // Iniciar Conditional UI (Passkey Autofill) quando suportado
     const startConditionalUI = useCallback(async () => {
-        if (!isConditionalUISupported || isConditionalUIActive) {
+        // Não iniciar se já foi iniciado, está ativo, ou login foi bem-sucedido
+        if (conditionalUIStartedRef.current || isConditionalUIActive || loginSuccessfulRef.current) {
             return
         }
+
+        if (!isConditionalUISupported) {
+            return
+        }
+
+        // Marcar como iniciado para não reiniciar em loop
+        conditionalUIStartedRef.current = true
 
         try {
             // Cancelar qualquer autenticação condicional anterior
@@ -95,12 +108,16 @@ function LoginPageContent() {
 
             // Se chegou aqui, o usuário selecionou uma passkey do autofill
             // Completar autenticação
+            loginSuccessfulRef.current = true
             const loginResult = await authService.passkeyAuthenticateFinish(authResponse, undefined, rememberMe)
             handleLoginSuccess(loginResult)
 
         } catch (err: any) {
             // Ignorar erros de cancelamento e NotAllowedError (usuário fechou)
             if (err.name === 'AbortError' || err.name === 'NotAllowedError') {
+                // NÃO reiniciar o Conditional UI após o usuário fechar
+                // Isso evita o loop infinito de prompts
+                console.log('[ConditionalUI] Usuário cancelou ou fechou o prompt')
                 return
             }
             console.error('[ConditionalUI] Erro:', err)
@@ -109,9 +126,10 @@ function LoginPageContent() {
         }
     }, [isConditionalUISupported, isConditionalUIActive, rememberMe])
 
-    // Ativar Conditional UI quando o componente montar
+    // Ativar Conditional UI UMA VEZ quando o componente montar
     useEffect(() => {
-        if (isConditionalUISupported && !requires2FA) {
+        // Só iniciar se suportado, não estiver em 2FA, e não tiver sido iniciado ainda
+        if (isConditionalUISupported && !requires2FA && !conditionalUIStartedRef.current) {
             startConditionalUI()
         }
 
@@ -121,7 +139,7 @@ function LoginPageContent() {
                 conditionalUIAbortController.current.abort()
             }
         }
-    }, [isConditionalUISupported, requires2FA, startConditionalUI])
+    }, [isConditionalUISupported, requires2FA]) // Remover startConditionalUI das deps para evitar loop
 
     // Verificar se o email tem passkeys (para mostrar botão manual)
     useEffect(() => {
@@ -208,10 +226,7 @@ function LoginPageContent() {
         onError: (error: any) => {
             const errorMessage = error.message || 'Falha na autenticação com Passkey'
             if (errorMessage.includes('cancelled') || errorMessage.includes('AbortError')) {
-                // Usuário cancelou, reiniciar Conditional UI
-                if (isConditionalUISupported) {
-                    setTimeout(() => startConditionalUI(), 100)
-                }
+                // Usuário cancelou - NÃO reiniciar Conditional UI para evitar loop
                 return
             }
             setError(errorMessage)
@@ -220,6 +235,9 @@ function LoginPageContent() {
     })
 
     const handleLoginSuccess = (data: any) => {
+        // Marcar login como bem-sucedido para parar Conditional UI
+        loginSuccessfulRef.current = true
+        
         // Cancelar Conditional UI
         if (conditionalUIAbortController.current) {
             conditionalUIAbortController.current.abort()
@@ -290,10 +308,8 @@ function LoginPageContent() {
         setSessionToken(null)
         setTwoFactorCode('')
         setError('')
-        // Reiniciar Conditional UI
-        if (isConditionalUISupported) {
-            setTimeout(() => startConditionalUI(), 100)
-        }
+        // NÃO reiniciar Conditional UI ao voltar
+        // O usuário pode usar email/senha ou clicar no botão de Passkey manualmente
     }
 
     const changePasswordMutation = useMutation({
