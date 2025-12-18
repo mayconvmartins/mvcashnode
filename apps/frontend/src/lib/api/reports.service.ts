@@ -180,4 +180,61 @@ export const reportsService = {
         })
         return response.data
     },
+
+    // Métodos adicionais para relatórios de admin
+    getOpenPositions: async (filters?: ReportFilters): Promise<any[]> => {
+        const response = await apiClient.get('/positions', {
+            params: { ...filters, status: 'OPEN' },
+        })
+        return response.data?.data || response.data || []
+    },
+
+    getDrawdown: async (filters?: ReportFilters): Promise<{
+        max_drawdown: number
+        current_drawdown: number
+        recovery_days: number
+        history: Array<{ date: string; drawdown: number }>
+    }> => {
+        // Endpoint de drawdown - calcular a partir do PnL por dia
+        const byDay = await reportsService.getPnLByDay(filters)
+        
+        let peak = 0
+        let maxDrawdown = 0
+        let currentDrawdown = 0
+        const history: Array<{ date: string; drawdown: number }> = []
+        
+        byDay.forEach((day: any) => {
+            const cumPnl = day.cumulative_pnl || 0
+            if (cumPnl > peak) peak = cumPnl
+            const drawdown = peak > 0 ? ((peak - cumPnl) / peak) * 100 : 0
+            if (drawdown > maxDrawdown) maxDrawdown = drawdown
+            currentDrawdown = drawdown
+            history.push({ date: day.date, drawdown: -drawdown })
+        })
+        
+        return {
+            max_drawdown: maxDrawdown,
+            current_drawdown: currentDrawdown,
+            recovery_days: 0,
+            history,
+        }
+    },
+
+    getHourlyPerformance: async (filters?: ReportFilters): Promise<Array<{ hour: number; pnl: number; trades: number }>> => {
+        const response = await apiClient.get('/reports/hourly-performance', {
+            params: filters,
+        }).catch(() => ({ data: [] }))
+        return response.data || []
+    },
+
+    getFees: async (filters?: ReportFilters): Promise<{
+        total_fees: number
+        avg_fee_percent: number
+        by_type: Array<{ type: string; amount: number; percent: number; count: number }>
+    }> => {
+        const response = await apiClient.get('/reports/fees', {
+            params: filters,
+        }).catch(() => ({ data: { total_fees: 0, avg_fee_percent: 0, by_type: [] } }))
+        return response.data
+    },
 }
