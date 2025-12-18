@@ -38,6 +38,9 @@ model User {
   subscriber_profile SubscriberProfile?
   subscriber_parameters SubscriberParameters?
   monitor_config WebhookMonitorConfig?
+  passkeys Passkey[]
+  sessions UserSession[]
+  web_push_subscriptions WebPushSubscription[]
 
   @@index([email])
   @@index([is_active])
@@ -1155,4 +1158,130 @@ model TransFiWebhookEvent {
   @@index([processed])
   @@index([created_at])
   @@map("transfi_webhook_events")
+}
+
+// ============================================
+// PASSKEYS (WEBAUTHN)
+// ============================================
+
+model Passkey {
+  id            Int       @id @default(autoincrement())
+  user_id       Int
+  credential_id String    @unique @db.VarChar(500) // Base64URL do credential ID
+  public_key    String    @db.Text // Public key em formato COSE
+  counter       BigInt    @default(0) // Counter para prevenir replay attacks
+  device_name   String?   @db.VarChar(255) // Nome do dispositivo (ex: "iPhone 15 Pro")
+  transports    String?   @db.VarChar(255) // Transports suportados (usb, nfc, ble, internal)
+  user_agent    String?   @db.Text
+  last_used_at  DateTime?
+  created_at    DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([credential_id])
+  @@map("passkeys")
+}
+
+// ============================================
+// USER SESSIONS (MULTIPLE DEVICES)
+// ============================================
+
+model UserSession {
+  id               Int      @id @default(autoincrement())
+  user_id          Int
+  session_token    String   @unique @db.VarChar(500) // Token único da sessão
+  refresh_token    String   @unique @db.VarChar(500) // Refresh token específico desta sessão
+  device_name      String?  @db.VarChar(255)
+  device_type      String?  @db.VarChar(50) // 'desktop' | 'mobile' | 'tablet'
+  browser          String?  @db.VarChar(100) // Nome do browser
+  os               String?  @db.VarChar(100) // Sistema operacional
+  user_agent       String?  @db.Text
+  ip_address       String?  @db.VarChar(45)
+  remember_me      Boolean  @default(false)
+  is_passkey_auth  Boolean  @default(false) // Se foi autenticado via passkey
+  expires_at       DateTime
+  last_activity_at DateTime @default(now())
+  created_at       DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([session_token])
+  @@index([refresh_token])
+  @@index([expires_at])
+  @@map("user_sessions")
+}
+
+// ============================================
+// WEB PUSH NOTIFICATIONS
+// ============================================
+
+model WebPushSubscription {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  endpoint    String   @db.Text // URL do serviço de push
+  p256dh      String   @db.Text // Chave pública
+  auth        String   @db.Text // Chave de autenticação
+  user_agent  String?  @db.Text
+  device_name String?  @db.VarChar(255)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, endpoint(length: 500)])
+  @@index([user_id])
+  @@index([is_active])
+  @@map("web_push_subscriptions")
+}
+
+// ============================================
+// UNIFIED NOTIFICATION TEMPLATES
+// ============================================
+
+model NotificationTemplate {
+  id             Int      @id @default(autoincrement())
+  template_type  String   @db.VarChar(50) // 'WEBHOOK_RECEIVED', 'POSITION_OPENED', etc.
+  name           String   @db.VarChar(255)
+  channel        String   @db.VarChar(20) // 'whatsapp' | 'email' | 'webpush'
+  subject        String?  @db.VarChar(255) // Para email/webpush (título)
+  body           String   @db.Text // Corpo da mensagem (texto simples ou template)
+  body_html      String?  @db.Text // Para email (HTML)
+  icon_url       String?  @db.VarChar(500) // Para webpush (ícone)
+  action_url     String?  @db.VarChar(500) // Para webpush (URL ao clicar)
+  variables_json Json?    @db.Json // Variáveis disponíveis para este template
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@unique([template_type, channel])
+  @@index([template_type, channel])
+  @@index([is_active])
+  @@map("notification_templates")
+}
+
+// ============================================
+// WEB PUSH NOTIFICATION LOG
+// ============================================
+
+model WebPushNotificationLog {
+  id               Int      @id @default(autoincrement())
+  template_type    String   @db.VarChar(50)
+  user_id          Int
+  subscription_id  Int?
+  title            String?  @db.VarChar(255)
+  body             String?  @db.Text
+  status           String   @db.VarChar(20) // 'sent' | 'failed' | 'clicked'
+  error_message    String?  @db.Text
+  webhook_event_id Int?
+  position_id      Int?
+  sent_at          DateTime @default(now())
+
+  @@index([template_type])
+  @@index([user_id])
+  @@index([status])
+  @@index([sent_at])
+  @@map("web_push_notification_logs")
 }

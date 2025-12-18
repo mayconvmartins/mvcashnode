@@ -3,10 +3,13 @@ import {
   Get,
   Put,
   Post,
+  Delete,
   Body,
   Query,
   UseGuards,
   Request,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,16 +24,23 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@mvcashnode/shared';
+import { WebPushService } from '@mvcashnode/notifications';
+import { PrismaService } from '@mvcashnode/db';
 
 @ApiTags('Notifications')
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class NotificationsController {
+  private webPushService: WebPushService;
+
   constructor(
     private notificationsService: NotificationsService,
-    private notificationWrapper: NotificationWrapperService
-  ) {}
+    private notificationWrapper: NotificationWrapperService,
+    private prisma: PrismaService
+  ) {
+    this.webPushService = new WebPushService(prisma);
+  }
 
   // ==================== User Config (qualquer usuário autenticado) ====================
 
@@ -493,6 +503,120 @@ export class NotificationsController {
       success: false,
       message: `Não foi possível enviar a mensagem. Verifique se a instância "${config.instance_name}" está conectada e a URL da API está correta.`,
     };
+  }
+
+  // ==================== Web Push Notifications ====================
+
+  @Get('webpush/vapid-public-key')
+  @ApiOperation({
+    summary: 'Obter chave pública VAPID',
+    description: 'Retorna a chave pública VAPID para configurar Web Push no frontend',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Chave pública retornada',
+    schema: {
+      type: 'object',
+      properties: {
+        publicKey: { type: 'string', nullable: true },
+        enabled: { type: 'boolean' },
+      },
+    },
+  })
+  async getVapidPublicKey() {
+    return {
+      publicKey: this.webPushService.getVapidPublicKey(),
+      enabled: this.webPushService.isEnabled(),
+    };
+  }
+
+  @Post('webpush/subscribe')
+  @ApiOperation({
+    summary: 'Registrar subscription de Web Push',
+    description: 'Registra uma nova subscription para receber notificações push',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Subscription registrada com sucesso',
+  })
+  async subscribeWebPush(
+    @Request() req: any,
+    @Body() body: { 
+      subscription: { 
+        endpoint: string; 
+        keys: { p256dh: string; auth: string } 
+      };
+      deviceName?: string;
+    }
+  ) {
+    await this.webPushService.subscribe(
+      req.user.userId,
+      {
+        endpoint: body.subscription.endpoint,
+        p256dh: body.subscription.keys.p256dh,
+        auth: body.subscription.keys.auth,
+      },
+      req.get('user-agent'),
+      body.deviceName
+    );
+    return { success: true, message: 'Subscription registrada com sucesso' };
+  }
+
+  @Delete('webpush/unsubscribe')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Remover subscription de Web Push',
+    description: 'Remove uma subscription de notificações push',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Subscription removida com sucesso',
+  })
+  async unsubscribeWebPush(
+    @Request() req: any,
+    @Body() body: { endpoint: string }
+  ) {
+    await this.webPushService.unsubscribe(req.user.userId, body.endpoint);
+    return { success: true, message: 'Subscription removida com sucesso' };
+  }
+
+  @Get('webpush/subscriptions')
+  @ApiOperation({
+    summary: 'Listar subscriptions de Web Push',
+    description: 'Lista todas as subscriptions ativas do usuário',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de subscriptions',
+  })
+  async listWebPushSubscriptions(@Request() req: any) {
+    return this.webPushService.listSubscriptions(req.user.userId);
+  }
+
+  @Post('webpush/test')
+  @ApiOperation({
+    summary: 'Enviar notificação de teste',
+    description: 'Envia uma notificação push de teste para o usuário',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Notificação enviada',
+  })
+  async sendTestWebPush(@Request() req: any) {
+    const result = await this.webPushService.sendToUser(
+      req.user.userId,
+      {
+        title: 'MVCash Trading',
+        body: 'Esta é uma notificação de teste. As notificações push estão funcionando!',
+        icon: '/icons/icon-192x192.png',
+        badge: '/icons/icon-72x72.png',
+        data: {
+          url: '/',
+        },
+      },
+      'TEST_MESSAGE'
+    );
+    return result;
   }
 }
 

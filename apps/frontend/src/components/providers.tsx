@@ -6,6 +6,7 @@ import { ReactNode, useState } from 'react'
 import { Toaster } from '@/components/ui/toaster'
 import { WebSocketProvider } from '@/components/websocket/WebSocketProvider'
 import { MercadoPagoProvider } from './providers/MercadoPagoProvider'
+import { WebPushProvider } from './providers/WebPushProvider'
 
 /**
  * Configurações de cache do React Query otimizadas para performance
@@ -61,10 +62,12 @@ export function Providers({ children }: { children: ReactNode }) {
         <ThemeProvider attribute="class" defaultTheme={defaultTheme} enableSystem={false} forcedTheme={siteMode === 'public' ? 'light' : undefined}>
             <QueryClientProvider client={queryClient}>
                 <WebSocketProvider>
-                    <MercadoPagoProvider>
-                        {children}
-                        <Toaster />
-                    </MercadoPagoProvider>
+                    <WebPushProvider>
+                        <MercadoPagoProvider>
+                            {children}
+                            <Toaster />
+                        </MercadoPagoProvider>
+                    </WebPushProvider>
                 </WebSocketProvider>
             </QueryClientProvider>
         </ThemeProvider>

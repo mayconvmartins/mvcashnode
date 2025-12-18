@@ -9,8 +9,13 @@ import {
   UnauthorizedException,
   BadRequestException,
   NotFoundException,
+  Get,
+  Delete,
+  Param,
+  Put,
+  ParseIntPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -21,6 +26,14 @@ import { ChangePasswordRequiredDto } from './dto/change-password-required.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import {
+  PasskeyRegisterStartDto,
+  PasskeyRegisterFinishDto,
+  PasskeyAuthenticateStartDto,
+  PasskeyAuthenticateFinishDto,
+  PasskeyCheckEmailDto,
+  UpdatePasskeyNameDto,
+} from './dto/passkey.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -398,6 +411,378 @@ export class AuthController {
       }
       
       throw new BadRequestException('Erro ao redefinir senha');
+    }
+  }
+
+  // ============================================
+  // PASSKEYS (WEBAUTHN)
+  // ============================================
+
+  @Post('passkeys/check-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Verificar se email tem passkeys cadastradas',
+    description: 'Verifica se o email informado possui passkeys cadastradas para login sem senha',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Retorna se o email tem passkeys',
+    schema: {
+      example: { hasPasskeys: true },
+    },
+  })
+  async checkEmailHasPasskeys(@Body() dto: PasskeyCheckEmailDto) {
+    try {
+      const hasPasskeys = await this.authService.getPasskeyService().emailHasPasskeys(dto.email);
+      return { hasPasskeys };
+    } catch (error: any) {
+      return { hasPasskeys: false };
+    }
+  }
+
+  @Post('passkeys/register/start')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Iniciar registro de passkey',
+    description: 'Gera as opções necessárias para o navegador iniciar o registro de uma nova passkey',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Opções de registro geradas',
+  })
+  async passkeyRegisterStart(@Request() req: any, @Body() dto: PasskeyRegisterStartDto) {
+    try {
+      const options = await this.authService.getPasskeyService().generateRegistrationOptions(
+        req.user.userId,
+        req.get('user-agent')
+      );
+      return options;
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao iniciar registro de passkey');
+    }
+  }
+
+  @Post('passkeys/register/finish')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Finalizar registro de passkey',
+    description: 'Verifica e salva a nova passkey no banco de dados',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Passkey registrada com sucesso',
+    schema: {
+      example: {
+        id: 1,
+        deviceName: 'iPhone 15 Pro',
+        createdAt: '2024-01-01T00:00:00Z',
+      },
+    },
+  })
+  async passkeyRegisterFinish(@Request() req: any, @Body() dto: PasskeyRegisterFinishDto) {
+    try {
+      const passkey = await this.authService.getPasskeyService().verifyRegistration(
+        req.user.userId,
+        dto.response as any,
+        dto.deviceName,
+        req.get('user-agent')
+      );
+      return passkey;
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao finalizar registro de passkey');
+    }
+  }
+
+  @Post('passkeys/authenticate/start')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Iniciar autenticação com passkey',
+    description: 'Gera as opções necessárias para o navegador iniciar a autenticação com passkey',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Opções de autenticação geradas',
+  })
+  async passkeyAuthenticateStart(@Body() dto: PasskeyAuthenticateStartDto) {
+    try {
+      const options = await this.authService.getPasskeyService().generateAuthenticationOptions(dto.email);
+      return options;
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao iniciar autenticação com passkey');
+    }
+  }
+
+  @Post('passkeys/authenticate/finish')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Finalizar autenticação com passkey',
+    description: 'Verifica a passkey e retorna tokens de acesso',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Autenticação bem-sucedida',
+    schema: {
+      example: {
+        accessToken: 'eyJ...',
+        refreshToken: 'eyJ...',
+        user: { id: 1, email: 'user@example.com', roles: ['user'] },
+      },
+    },
+  })
+  async passkeyAuthenticateFinish(@Request() req: any, @Body() dto: PasskeyAuthenticateFinishDto) {
+    try {
+      const ip = req.ip || req.connection?.remoteAddress;
+      const userAgent = req.get('user-agent');
+
+      // Verificar a passkey
+      const authResult = await this.authService.getPasskeyService().verifyAuthentication(
+        dto.response as any,
+        dto.email
+      );
+
+      // Gerar tokens
+      const payload = {
+        userId: authResult.userId,
+        email: authResult.email,
+        roles: authResult.roles,
+      };
+
+      const accessToken = this.authService.getDomainAuthService().generateJWT(
+        payload,
+        dto.rememberMe || false
+      );
+      const refreshToken = this.authService.getDomainAuthService().generateRefreshToken(payload);
+
+      // Registrar login no histórico
+      await this.authService.getDomainAuditService().logAction({
+        userId: authResult.userId,
+        entityType: 'user',
+        entityId: authResult.userId,
+        action: 'LOGIN_PASSKEY',
+        ip,
+        userAgent,
+      });
+
+      return {
+        accessToken,
+        refreshToken,
+        expiresIn: dto.rememberMe ? 7 * 24 * 60 * 60 : 3600,
+        user: {
+          id: authResult.userId,
+          email: authResult.email,
+          roles: authResult.roles,
+        },
+      };
+    } catch (error: any) {
+      throw new UnauthorizedException(error.message || 'Falha na autenticação com passkey');
+    }
+  }
+
+  @Get('passkeys')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listar passkeys do usuário',
+    description: 'Retorna todas as passkeys cadastradas do usuário autenticado',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de passkeys',
+    schema: {
+      example: [
+        {
+          id: 1,
+          deviceName: 'iPhone 15 Pro',
+          createdAt: '2024-01-01T00:00:00Z',
+          lastUsedAt: '2024-01-02T00:00:00Z',
+        },
+      ],
+    },
+  })
+  async listPasskeys(@Request() req: any) {
+    try {
+      const passkeys = await this.authService.getPasskeyService().listPasskeys(req.user.userId);
+      return passkeys;
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao listar passkeys');
+    }
+  }
+
+  @Put('passkeys/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Atualizar nome da passkey',
+    description: 'Atualiza o nome do dispositivo de uma passkey',
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da passkey' })
+  @ApiResponse({
+    status: 200,
+    description: 'Passkey atualizada',
+  })
+  async updatePasskeyName(
+    @Request() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePasskeyNameDto
+  ) {
+    try {
+      const passkey = await this.authService.getPasskeyService().updatePasskeyName(
+        req.user.userId,
+        id,
+        dto.deviceName
+      );
+      return passkey;
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao atualizar passkey');
+    }
+  }
+
+  @Delete('passkeys/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Remover passkey',
+    description: 'Remove uma passkey do usuário',
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da passkey' })
+  @ApiResponse({
+    status: 204,
+    description: 'Passkey removida',
+  })
+  async deletePasskey(@Request() req: any, @Param('id', ParseIntPipe) id: number) {
+    try {
+      await this.authService.getPasskeyService().deletePasskey(req.user.userId, id);
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao remover passkey');
+    }
+  }
+
+  // ============================================
+  // SESSIONS (MULTIPLE DEVICES)
+  // ============================================
+
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listar sessões ativas',
+    description: 'Retorna todas as sessões ativas do usuário em diferentes dispositivos',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de sessões ativas',
+    schema: {
+      example: [
+        {
+          id: 1,
+          deviceName: 'Chrome em Windows 10/11',
+          deviceType: 'desktop',
+          browser: 'Chrome 120',
+          os: 'Windows 10/11',
+          ipAddress: '192.168.1.1',
+          isPasskeyAuth: false,
+          lastActivityAt: '2024-01-02T00:00:00Z',
+          createdAt: '2024-01-01T00:00:00Z',
+          isCurrent: true,
+        },
+      ],
+    },
+  })
+  async listSessions(@Request() req: any) {
+    try {
+      // Extrair session token do header Authorization
+      const authHeader = req.headers.authorization;
+      const sessionToken = authHeader?.replace('Bearer ', '') || undefined;
+      
+      const sessions = await this.authService.getSessionService().listSessions(
+        req.user.userId,
+        sessionToken
+      );
+      return sessions;
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao listar sessões');
+    }
+  }
+
+  @Delete('sessions/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Encerrar sessão específica',
+    description: 'Encerra uma sessão específica em outro dispositivo',
+  })
+  @ApiParam({ name: 'id', type: 'number', description: 'ID da sessão' })
+  @ApiResponse({
+    status: 204,
+    description: 'Sessão encerrada',
+  })
+  async terminateSession(@Request() req: any, @Param('id', ParseIntPipe) id: number) {
+    try {
+      await this.authService.getSessionService().terminateSession(req.user.userId, id);
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao encerrar sessão');
+    }
+  }
+
+  @Delete('sessions/others')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Encerrar outras sessões',
+    description: 'Encerra todas as sessões exceto a atual',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Outras sessões encerradas',
+    schema: {
+      example: { terminatedCount: 3 },
+    },
+  })
+  async terminateOtherSessions(@Request() req: any) {
+    try {
+      const authHeader = req.headers.authorization;
+      const sessionToken = authHeader?.replace('Bearer ', '') || '';
+      
+      const count = await this.authService.getSessionService().terminateOtherSessions(
+        req.user.userId,
+        sessionToken
+      );
+      return { terminatedCount: count };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao encerrar outras sessões');
+    }
+  }
+
+  @Delete('sessions/all')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Encerrar todas as sessões',
+    description: 'Encerra todas as sessões do usuário (logout de todos os dispositivos)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Todas as sessões encerradas',
+    schema: {
+      example: { terminatedCount: 5 },
+    },
+  })
+  async terminateAllSessions(@Request() req: any) {
+    try {
+      const count = await this.authService.getSessionService().terminateAllSessions(req.user.userId);
+      return { terminatedCount: count };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Erro ao encerrar sessões');
     }
   }
 }

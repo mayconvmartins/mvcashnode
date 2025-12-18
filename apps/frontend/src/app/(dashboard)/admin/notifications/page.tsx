@@ -37,6 +37,7 @@ import {
 import { formatDateTime } from '@/lib/utils/format'
 import { TemplatesTab } from '@/components/admin/TemplatesTab'
 import { EmailTemplatesTab } from '@/components/admin/EmailTemplatesTab'
+import { UnifiedTemplatesTab } from '@/components/admin/UnifiedTemplatesTab'
 
 export default function NotificationsConfigPage() {
     const queryClient = useQueryClient()
@@ -221,19 +222,23 @@ export default function NotificationsConfigPage() {
             </div>
 
             {/* Tabs */}
-            <Tabs defaultValue="config" className="space-y-4">
-                <TabsList>
+            <Tabs defaultValue="unified-templates" className="space-y-4">
+                <TabsList className="flex-wrap h-auto gap-1">
+                    <TabsTrigger value="unified-templates" className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Templates Unificados
+                    </TabsTrigger>
                     <TabsTrigger value="config" className="flex items-center gap-2">
                         <Settings className="h-4 w-4" />
-                        Configuração Global
+                        Configuração WhatsApp
                     </TabsTrigger>
                     <TabsTrigger value="templates" className="flex items-center gap-2">
-                        <FileText className="h-4 w-4" />
-                        Templates WhatsApp
+                        <MessageSquare className="h-4 w-4" />
+                        Templates WhatsApp (Legado)
                     </TabsTrigger>
                     <TabsTrigger value="email-templates" className="flex items-center gap-2">
                         <FileText className="h-4 w-4" />
-                        Templates Email
+                        Templates Email (Arquivos)
                     </TabsTrigger>
                     <TabsTrigger value="test" className="flex items-center gap-2">
                         <Send className="h-4 w-4" />
@@ -245,9 +250,14 @@ export default function NotificationsConfigPage() {
                     </TabsTrigger>
                     <TabsTrigger value="email" className="flex items-center gap-2">
                         <MessageSquare className="h-4 w-4" />
-                        Email
+                        Email Config
                     </TabsTrigger>
                 </TabsList>
+
+                {/* Unified Templates Tab */}
+                <TabsContent value="unified-templates">
+                    <UnifiedTemplatesTab />
+                </TabsContent>
 
                 {/* Config Tab */}
                 <TabsContent value="config">

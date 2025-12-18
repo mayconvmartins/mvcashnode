@@ -10,11 +10,12 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Shield, Lock } from 'lucide-react'
+import { Shield, Lock, Fingerprint, Eye, EyeOff, Mail, KeyRound, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Spinner } from '@/components/ui/spinner'
 import { Checkbox } from '@/components/ui/checkbox'
 import Link from 'next/link'
+import { startAuthentication } from '@simplewebauthn/browser'
 
 function LoginPageContent() {
     const router = useRouter()
@@ -22,6 +23,7 @@ function LoginPageContent() {
     const { setTokens, setUser, logout } = useAuthStore()
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [showPassword, setShowPassword] = useState(false)
     const [twoFactorCode, setTwoFactorCode] = useState('')
     const [error, setError] = useState('')
     const [requires2FA, setRequires2FA] = useState(false)
@@ -30,11 +32,46 @@ function LoginPageContent() {
     const [newPassword, setNewPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
     const [rememberMe, setRememberMe] = useState(false)
+    const [hasPasskeys, setHasPasskeys] = useState(false)
+    const [isPasskeySupported, setIsPasskeySupported] = useState(false)
+    const [isCheckingPasskeys, setIsCheckingPasskeys] = useState(false)
+
+    // Verificar suporte a Passkeys
+    useEffect(() => {
+        if (typeof window !== 'undefined' && window.PublicKeyCredential) {
+            PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+                .then((available) => {
+                    setIsPasskeySupported(available)
+                })
+                .catch(() => {
+                    setIsPasskeySupported(false)
+                })
+        }
+    }, [])
+
+    // Verificar se o email tem passkeys
+    useEffect(() => {
+        if (email && email.includes('@') && isPasskeySupported) {
+            const timer = setTimeout(async () => {
+                setIsCheckingPasskeys(true)
+                try {
+                    const result = await authService.checkEmailHasPasskeys(email)
+                    setHasPasskeys(result.hasPasskeys)
+                } catch {
+                    setHasPasskeys(false)
+                } finally {
+                    setIsCheckingPasskeys(false)
+                }
+            }, 500)
+            return () => clearTimeout(timer)
+        } else {
+            setHasPasskeys(false)
+        }
+    }, [email, isPasskeySupported])
 
     // Limpar qualquer token de impersonation ao carregar a página de login
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            // Verificar se há token de impersonation
             const accessToken = localStorage.getItem('accessToken')
             if (accessToken) {
                 try {
@@ -42,17 +79,14 @@ function LoginPageContent() {
                     if (parts.length === 3) {
                         const payload = JSON.parse(atob(parts[1]))
                         if (payload.isImpersonation === true) {
-                            // Limpar tokens de impersonation
                             logout()
                         }
                     }
                 } catch (e) {
-                    // Se não conseguir decodificar, limpar flags de qualquer forma
                     localStorage.removeItem('isImpersonating')
                     localStorage.removeItem('originalAdminToken')
                 }
             } else {
-                // Limpar flags mesmo sem token
                 localStorage.removeItem('isImpersonating')
                 localStorage.removeItem('originalAdminToken')
             }
@@ -62,41 +96,11 @@ function LoginPageContent() {
     const loginMutation = useMutation({
         mutationFn: authService.login,
         onSuccess: (data) => {
-            // Verificar se requer 2FA
-            if (data.requires2FA && data.sessionToken) {
-                setRequires2FA(true)
-                setSessionToken(data.sessionToken)
-                toast.info('Por favor, informe o código 2FA')
-                return
-            }
-
-            // Limpar qualquer flag de impersonation antes de salvar novos tokens
-            if (typeof window !== 'undefined') {
-                localStorage.removeItem('isImpersonating')
-                localStorage.removeItem('originalAdminToken')
-            }
-            
-            // Salvar tokens e usuário
-            if (data.accessToken && data.refreshToken && data.user) {
-                setTokens(data.accessToken, data.refreshToken, rememberMe)
-                setUser(data.user)
-                toast.success('Login realizado com sucesso!')
-                
-                // Aguardar para garantir que os cookies foram salvos
-                setTimeout(() => {
-                    const redirect = searchParams.get('redirect')
-                    // Usar window.location.replace para forçar reload completo
-                    window.location.replace(redirect || '/')
-                }, 200)
-            } else {
-                setError('Resposta inválida do servidor')
-                toast.error('Erro ao realizar login')
-            }
+            handleLoginSuccess(data)
         },
         onError: (error: any) => {
             const errorMessage = error.message || error.response?.data?.message || 'Falha no login'
             
-            // Verificar se é erro de senha obrigatória
             if (errorMessage.includes('É necessário alterar a senha') || errorMessage.includes('alterar a senha antes')) {
                 setRequiresPasswordChange(true)
                 setError('')
@@ -108,25 +112,81 @@ function LoginPageContent() {
         },
     })
 
+    const passkeyMutation = useMutation({
+        mutationFn: async () => {
+            // Obter opções de autenticação
+            const options = await authService.passkeyAuthenticateStart(email || undefined)
+            
+            // Usar WebAuthn API para autenticar
+            const authResponse = await startAuthentication(options)
+            
+            // Enviar resposta para o servidor
+            return authService.passkeyAuthenticateFinish(authResponse, email || undefined, rememberMe)
+        },
+        onSuccess: (data) => {
+            handleLoginSuccess(data)
+        },
+        onError: (error: any) => {
+            const errorMessage = error.message || 'Falha na autenticação com Passkey'
+            if (errorMessage.includes('cancelled') || errorMessage.includes('AbortError')) {
+                // Usuário cancelou, não mostrar erro
+                return
+            }
+            setError(errorMessage)
+            toast.error(errorMessage)
+        },
+    })
+
+    const handleLoginSuccess = (data: any) => {
+        if (data.requires2FA && data.sessionToken) {
+            setRequires2FA(true)
+            setSessionToken(data.sessionToken)
+            toast.info('Por favor, informe o código 2FA')
+            return
+        }
+
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('isImpersonating')
+            localStorage.removeItem('originalAdminToken')
+        }
+        
+        if (data.accessToken && data.refreshToken && data.user) {
+            setTokens(data.accessToken, data.refreshToken, rememberMe, data.expiresIn)
+            setUser(data.user)
+            toast.success('Login realizado com sucesso!')
+            
+            setTimeout(() => {
+                const redirect = searchParams.get('redirect')
+                window.location.replace(redirect || '/')
+            }, 200)
+        } else {
+            setError('Resposta inválida do servidor')
+            toast.error('Erro ao realizar login')
+        }
+    }
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         setError('')
 
         if (requires2FA && sessionToken) {
-            // Segunda etapa: validar 2FA
             loginMutation.mutate({ 
                 email, 
                 password,
                 twoFactorCode
             })
         } else {
-            // Primeira etapa: validar email e senha
             loginMutation.mutate({ 
                 email, 
                 password,
                 rememberMe
             })
         }
+    }
+
+    const handlePasskeyLogin = () => {
+        setError('')
+        passkeyMutation.mutate()
     }
 
     const handleBack = () => {
@@ -141,7 +201,7 @@ function LoginPageContent() {
         onSuccess: () => {
             toast.success('Senha alterada com sucesso! Faça login com sua nova senha.')
             setRequiresPasswordChange(false)
-            setPassword('') // Limpar senha antiga
+            setPassword('')
             setNewPassword('')
             setConfirmPassword('')
             setError('')
@@ -172,12 +232,17 @@ function LoginPageContent() {
         })
     }
 
+    const isPending = loginMutation.isPending || passkeyMutation.isPending
+
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
-            <Card className="w-full max-w-md glass">
-                <CardHeader className="space-y-4">
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-4">
+            {/* Background pattern */}
+            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjAzKSIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2dyaWQpIi8+PC9zdmc+')] opacity-50" />
+
+            <Card className="w-full max-w-md relative backdrop-blur-xl bg-slate-900/80 border-slate-800 shadow-2xl">
+                <CardHeader className="space-y-4 pb-2">
                     <div className="flex justify-center">
-                        <div className="h-16 w-16 rounded-full gradient-primary flex items-center justify-center">
+                        <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
                             <svg
                                 className="h-8 w-8 text-white"
                                 fill="none"
@@ -193,98 +258,171 @@ function LoginPageContent() {
                             </svg>
                         </div>
                     </div>
-                    <CardTitle className="text-2xl text-center gradient-text">
-                        Trading Automation
-                    </CardTitle>
-                    <CardDescription className="text-center">
-                        {requires2FA ? 'Informe o código 2FA para continuar' : 'Entre com suas credenciais para acessar o dashboard'}
-                    </CardDescription>
+                    <div className="space-y-1">
+                        <CardTitle className="text-2xl text-center text-white">
+                            MVCash Trading
+                        </CardTitle>
+                        <CardDescription className="text-center text-slate-400">
+                            {requires2FA 
+                                ? 'Informe o código 2FA para continuar' 
+                                : 'Entre com suas credenciais'}
+                        </CardDescription>
+                    </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-4">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {error && (
-                            <div className="bg-destructive/10 border border-destructive/50 text-destructive text-sm p-3 rounded-md animate-in fade-in">
+                            <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm p-3 rounded-lg animate-in fade-in">
                                 {error}
                             </div>
                         )}
 
                         {!requires2FA ? (
                             <>
-                                <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                                    <label htmlFor="email" className="text-sm font-medium">
+                                {/* Email */}
+                                <div className="space-y-2">
+                                    <Label htmlFor="email" className="text-slate-300 flex items-center gap-2">
+                                        <Mail className="h-4 w-4" />
                                         Email
-                                    </label>
+                                    </Label>
                                     <Input
                                         id="email"
                                         type="email"
                                         placeholder="seu@email.com"
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
-                                        disabled={loginMutation.isPending}
+                                        disabled={isPending}
                                         required
                                         autoFocus
+                                        className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500"
                                     />
+                                    {isCheckingPasskeys && (
+                                        <p className="text-xs text-slate-500 flex items-center gap-1">
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                            Verificando Passkeys...
+                                        </p>
+                                    )}
                                 </div>
 
-                                <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                                    <Label htmlFor="password">Senha</Label>
-                                    <Input
-                                        id="password"
-                                        type="password"
-                                        placeholder="••••••••"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        disabled={loginMutation.isPending}
-                                        required
-                                    />
-                                </div>
-
-                                <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-2">
-                                    <Checkbox
-                                        id="rememberMe"
-                                        checked={rememberMe}
-                                        onCheckedChange={(checked) => setRememberMe(checked === true)}
-                                        disabled={loginMutation.isPending}
-                                    />
-                                    <Label
-                                        htmlFor="rememberMe"
-                                        className="text-sm font-normal cursor-pointer"
+                                {/* Passkey Button - mostrar se disponível */}
+                                {hasPasskeys && isPasskeySupported && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="w-full bg-gradient-to-r from-purple-500/10 to-blue-500/10 border-purple-500/30 hover:border-purple-500/50 text-white hover:bg-purple-500/20 transition-all"
+                                        onClick={handlePasskeyLogin}
+                                        disabled={isPending}
                                     >
-                                        Lembrar de mim
+                                        {passkeyMutation.isPending ? (
+                                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                        ) : (
+                                            <Fingerprint className="h-5 w-5 mr-2" />
+                                        )}
+                                        Entrar com Passkey
+                                    </Button>
+                                )}
+
+                                {/* Divider quando tem passkeys */}
+                                {hasPasskeys && isPasskeySupported && (
+                                    <div className="relative">
+                                        <div className="absolute inset-0 flex items-center">
+                                            <span className="w-full border-t border-slate-700" />
+                                        </div>
+                                        <div className="relative flex justify-center text-xs uppercase">
+                                            <span className="bg-slate-900 px-2 text-slate-500">ou com senha</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Password */}
+                                <div className="space-y-2">
+                                    <Label htmlFor="password" className="text-slate-300 flex items-center gap-2">
+                                        <KeyRound className="h-4 w-4" />
+                                        Senha
                                     </Label>
+                                    <div className="relative">
+                                        <Input
+                                            id="password"
+                                            type={showPassword ? 'text' : 'password'}
+                                            placeholder="••••••••"
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            disabled={isPending}
+                                            required
+                                            className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 pr-10"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
                                 </div>
 
-                                <Button
-                                    type="submit"
-                                    className="w-full animate-in fade-in slide-in-from-bottom-2"
-                                    variant="gradient"
-                                    disabled={loginMutation.isPending || !email || !password}
-                                >
-                                    {loginMutation.isPending ? 'Verificando...' : 'Entrar'}
-                                </Button>
-
-                                <div className="text-center">
+                                {/* Remember Me */}
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id="rememberMe"
+                                            checked={rememberMe}
+                                            onCheckedChange={(checked) => setRememberMe(checked === true)}
+                                            disabled={isPending}
+                                            className="border-slate-600 data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                                        />
+                                        <Label
+                                            htmlFor="rememberMe"
+                                            className="text-sm text-slate-400 cursor-pointer"
+                                        >
+                                            Lembrar de mim
+                                        </Label>
+                                    </div>
                                     <Link
                                         href="/forgot-password"
-                                        className="text-sm text-muted-foreground hover:text-primary"
+                                        className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
                                     >
-                                        Esqueci minha senha
+                                        Esqueci a senha
                                     </Link>
                                 </div>
+
+                                {/* Submit Button */}
+                                <Button
+                                    type="submit"
+                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg shadow-blue-500/25 transition-all"
+                                    disabled={isPending || !email || !password}
+                                >
+                                    {loginMutation.isPending ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Verificando...
+                                        </>
+                                    ) : (
+                                        'Entrar'
+                                    )}
+                                </Button>
+
+                                {/* Passkey hint */}
+                                {isPasskeySupported && !hasPasskeys && email && (
+                                    <p className="text-xs text-center text-slate-500">
+                                        Dica: Configure Passkeys no seu perfil para login mais rápido e seguro
+                                    </p>
+                                )}
                             </>
                         ) : (
+                            /* 2FA Section */
                             <>
-                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                                    <div className="flex items-center justify-center p-4 bg-primary/10 rounded-lg">
-                                        <Shield className="h-8 w-8 text-primary mr-3" />
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-center p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                                        <Shield className="h-8 w-8 text-blue-400 mr-3" />
                                         <div>
-                                            <p className="font-medium">Autenticação em duas etapas</p>
-                                            <p className="text-sm text-muted-foreground">Digite o código do seu aplicativo autenticador</p>
+                                            <p className="font-medium text-white">Verificação em duas etapas</p>
+                                            <p className="text-sm text-slate-400">Digite o código do seu autenticador</p>
                                         </div>
                                     </div>
 
                                     <div className="space-y-2">
-                                        <Label htmlFor="twoFactorCode" className="flex items-center gap-2">
+                                        <Label htmlFor="twoFactorCode" className="text-slate-300 flex items-center gap-2">
                                             <Shield className="h-4 w-4" />
                                             Código 2FA
                                         </Label>
@@ -295,31 +433,27 @@ function LoginPageContent() {
                                             value={twoFactorCode}
                                             onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                                             maxLength={6}
-                                            className="text-center text-2xl font-mono tracking-widest"
-                                            disabled={loginMutation.isPending}
+                                            className="text-center text-2xl font-mono tracking-widest bg-slate-800/50 border-slate-700 text-white"
+                                            disabled={isPending}
                                             autoFocus
                                         />
-                                        <p className="text-xs text-muted-foreground text-center">
-                                            Código de 6 dígitos do seu aplicativo autenticador
-                                        </p>
                                     </div>
                                 </div>
 
-                                <div className="flex gap-2 animate-in fade-in slide-in-from-bottom-2">
+                                <div className="flex gap-2">
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        className="flex-1"
+                                        className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800"
                                         onClick={handleBack}
-                                        disabled={loginMutation.isPending}
+                                        disabled={isPending}
                                     >
                                         Voltar
                                     </Button>
                                     <Button
                                         type="submit"
-                                        className="flex-1"
-                                        variant="gradient"
-                                        disabled={loginMutation.isPending || !twoFactorCode || twoFactorCode.length !== 6}
+                                        className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+                                        disabled={isPending || !twoFactorCode || twoFactorCode.length !== 6}
                                     >
                                         {loginMutation.isPending ? 'Verificando...' : 'Verificar'}
                                     </Button>
@@ -338,25 +472,25 @@ function LoginPageContent() {
                     setConfirmPassword('')
                 }
             }}>
-                <DialogContent>
+                <DialogContent className="bg-slate-900 border-slate-800">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
+                        <DialogTitle className="flex items-center gap-2 text-white">
                             <Lock className="h-5 w-5" />
                             Alteração de Senha Obrigatória
                         </DialogTitle>
-                        <DialogDescription>
-                            Você precisa alterar sua senha antes de fazer login. Por favor, defina uma nova senha.
+                        <DialogDescription className="text-slate-400">
+                            Você precisa alterar sua senha antes de fazer login.
                         </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleChangePassword} className="space-y-4">
-                        <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-3">
-                            <p className="text-sm text-yellow-600 dark:text-yellow-500">
+                        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                            <p className="text-sm text-yellow-500">
                                 ⚠️ Esta alteração é obrigatória para continuar usando o sistema
                             </p>
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="newPassword">Nova Senha</Label>
+                            <Label htmlFor="newPassword" className="text-slate-300">Nova Senha</Label>
                             <Input
                                 id="newPassword"
                                 type="password"
@@ -367,11 +501,12 @@ function LoginPageContent() {
                                 required
                                 minLength={8}
                                 autoFocus
+                                className="bg-slate-800/50 border-slate-700 text-white"
                             />
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="confirmPassword">Confirmar Nova Senha</Label>
+                            <Label htmlFor="confirmPassword" className="text-slate-300">Confirmar Nova Senha</Label>
                             <Input
                                 id="confirmPassword"
                                 type="password"
@@ -381,13 +516,14 @@ function LoginPageContent() {
                                 disabled={changePasswordMutation.isPending}
                                 required
                                 minLength={8}
+                                className="bg-slate-800/50 border-slate-700 text-white"
                             />
                         </div>
 
                         <DialogFooter>
                             <Button
                                 type="submit"
-                                variant="gradient"
+                                className="w-full bg-gradient-to-r from-blue-500 to-purple-600"
                                 disabled={changePasswordMutation.isPending || !newPassword || !confirmPassword || newPassword !== confirmPassword}
                             >
                                 {changePasswordMutation.isPending ? 'Alterando...' : 'Alterar Senha'}
@@ -403,7 +539,7 @@ function LoginPageContent() {
 export default function LoginPage() {
     return (
         <Suspense fallback={
-            <div className="min-h-screen flex items-center justify-center">
+            <div className="min-h-screen flex items-center justify-center bg-slate-950">
                 <Spinner size="lg" />
             </div>
         }>

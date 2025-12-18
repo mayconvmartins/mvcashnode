@@ -55,7 +55,8 @@
     "tailwind-merge": "^3.4.0",
     "zod": "^4.1.13",
     "zustand": "^5.0.9",
-    "@mercadopago/sdk-react": "^1.0.6"
+    "@mercadopago/sdk-react": "^1.0.6",
+    "@simplewebauthn/browser": "^10.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",

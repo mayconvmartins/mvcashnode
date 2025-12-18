@@ -184,6 +184,86 @@ export const notificationsService = {
         const response = await apiClient.post(`/admin/notifications/templates/${id}/set-active`)
         return response.data
     },
+
+    // Unified Templates API
+    unified: {
+        listTemplates: async (channel?: NotificationChannel): Promise<UnifiedTemplateListItem[]> => {
+            const params = channel ? { channel } : {}
+            const response = await apiClient.get('/admin/notifications/unified-templates', { params })
+            return response.data
+        },
+
+        getTemplate: async (templateType: NotificationTemplateType, channel: NotificationChannel): Promise<UnifiedTemplate | null> => {
+            const response = await apiClient.get(`/admin/notifications/unified-templates/${templateType}/${channel}`)
+            return response.data
+        },
+
+        saveTemplate: async (data: SaveUnifiedTemplateDto): Promise<UnifiedTemplate> => {
+            const response = await apiClient.post('/admin/notifications/unified-templates', data)
+            return response.data
+        },
+
+        resetTemplate: async (templateType: NotificationTemplateType, channel: NotificationChannel): Promise<{ success: boolean }> => {
+            const response = await apiClient.delete(`/admin/notifications/unified-templates/${templateType}/${channel}`)
+            return response.data
+        },
+
+        previewTemplate: async (
+            templateType: NotificationTemplateType, 
+            channel: NotificationChannel,
+            customBody?: string,
+            customSubject?: string
+        ): Promise<{
+            subject?: string
+            body: string
+            bodyHtml?: string
+            variables: Record<string, any>
+        }> => {
+            const response = await apiClient.post(`/admin/notifications/unified-templates/${templateType}/${channel}/preview`, {
+                customBody,
+                customSubject,
+            })
+            return response.data
+        },
+    },
+
+    // Web Push
+    webpush: {
+        getVapidPublicKey: async (): Promise<{ publicKey: string | null; enabled: boolean }> => {
+            const response = await apiClient.get('/notifications/webpush/vapid-public-key')
+            return response.data
+        },
+
+        subscribe: async (subscription: PushSubscription, deviceName?: string): Promise<{ success: boolean }> => {
+            const response = await apiClient.post('/notifications/webpush/subscribe', {
+                subscription: subscription.toJSON(),
+                deviceName,
+            })
+            return response.data
+        },
+
+        unsubscribe: async (endpoint: string): Promise<{ success: boolean }> => {
+            const response = await apiClient.delete('/notifications/webpush/unsubscribe', {
+                data: { endpoint },
+            })
+            return response.data
+        },
+
+        listSubscriptions: async (): Promise<Array<{
+            id: number
+            endpoint: string
+            deviceName: string | null
+            createdAt: string
+        }>> => {
+            const response = await apiClient.get('/notifications/webpush/subscriptions')
+            return response.data
+        },
+
+        sendTest: async (): Promise<{ success: boolean; sent: number; failed: number }> => {
+            const response = await apiClient.post('/notifications/webpush/test')
+            return response.data
+        },
+    },
 }
 
 export type NotificationTemplateType = 
@@ -193,6 +273,19 @@ export type NotificationTemplateType =
     | 'POSITION_CLOSED'
     | 'STOP_LOSS_TRIGGERED'
     | 'PARTIAL_TP_TRIGGERED'
+    | 'POSITION_ERROR'
+    | 'SL_HIT'
+    | 'TP_HIT'
+    | 'SG_HIT'
+    | 'TSG_HIT'
+    | 'TRADE_ERROR'
+    | 'PASSWORD_RESET'
+    | 'WELCOME'
+    | 'SUBSCRIPTION_ACTIVATED'
+    | 'SUBSCRIPTION_EXPIRING'
+    | 'SUBSCRIPTION_EXPIRED'
+
+export type NotificationChannel = 'whatsapp' | 'email' | 'webpush'
 
 export interface WhatsAppNotificationTemplate {
     id: number
@@ -204,6 +297,42 @@ export interface WhatsAppNotificationTemplate {
     is_active: boolean
     created_at: string
     updated_at: string
+}
+
+export interface UnifiedTemplate {
+    templateType: NotificationTemplateType
+    channel: NotificationChannel
+    name: string
+    subject?: string
+    body: string
+    bodyHtml?: string
+    iconUrl?: string
+    actionUrl?: string
+    variables: string[]
+    isCustom: boolean
+    isActive: boolean
+    id?: number
+}
+
+export interface UnifiedTemplateListItem {
+    templateType: NotificationTemplateType
+    channel: NotificationChannel
+    name: string
+    isCustom: boolean
+    isActive: boolean
+    id?: number
+}
+
+export interface SaveUnifiedTemplateDto {
+    templateType: NotificationTemplateType
+    channel: NotificationChannel
+    name: string
+    subject?: string
+    body: string
+    bodyHtml?: string
+    iconUrl?: string
+    actionUrl?: string
+    isActive?: boolean
 }
 
 export interface CreateTemplateDto {

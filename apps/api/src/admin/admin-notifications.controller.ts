@@ -9,6 +9,8 @@ import {
   ParseIntPipe,
   UseGuards,
   Query,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,7 +25,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@mvcashnode/shared';
 import { PrismaService } from '@mvcashnode/db';
-import { TemplateService, NotificationTemplateType } from '@mvcashnode/notifications';
+import { TemplateService, NotificationTemplateType, UnifiedTemplateService, NotificationChannel, TemplateType } from '@mvcashnode/notifications';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -56,9 +58,11 @@ export interface PreviewTemplateDto {
 @ApiBearerAuth()
 export class AdminNotificationsController {
   private templateService: TemplateService;
+  private unifiedTemplateService: UnifiedTemplateService;
 
   constructor(private prisma: PrismaService) {
     this.templateService = new TemplateService();
+    this.unifiedTemplateService = new UnifiedTemplateService(prisma);
   }
 
   @Get('templates')
@@ -280,6 +284,253 @@ export class AdminNotificationsController {
     });
 
     return updated;
+  }
+
+  // ==================== Unified Templates API ====================
+
+  @Get('unified-templates')
+  @ApiOperation({
+    summary: 'Listar todos os templates unificados (WhatsApp, Email, WebPush)',
+    description: 'Retorna templates de todos os canais, incluindo defaults e customizados',
+  })
+  @ApiQuery({ name: 'channel', required: false, enum: ['whatsapp', 'email', 'webpush'] })
+  @ApiResponse({ status: 200, description: 'Lista de templates unificados' })
+  async listUnifiedTemplates(
+    @Query('channel') channel?: NotificationChannel
+  ): Promise<any[]> {
+    return this.unifiedTemplateService.listTemplates(channel);
+  }
+
+  @Get('unified-templates/:templateType/:channel')
+  @ApiOperation({
+    summary: 'Obter template específico por tipo e canal',
+    description: 'Retorna detalhes de um template específico',
+  })
+  @ApiParam({ name: 'templateType', type: 'string', description: 'Tipo do template (ex: POSITION_OPENED)' })
+  @ApiParam({ name: 'channel', type: 'string', enum: ['whatsapp', 'email', 'webpush'], description: 'Canal de notificação' })
+  @ApiResponse({ status: 200, description: 'Template encontrado' })
+  async getUnifiedTemplate(
+    @Param('templateType') templateType: TemplateType,
+    @Param('channel') channel: NotificationChannel
+  ): Promise<any> {
+    const template = await this.unifiedTemplateService.getTemplate(templateType, channel);
+    if (!template) {
+      throw new Error(`Template ${templateType} para canal ${channel} não encontrado`);
+    }
+    return template;
+  }
+
+  @Post('unified-templates')
+  @ApiOperation({
+    summary: 'Salvar ou atualizar template unificado',
+    description: 'Cria ou atualiza um template customizado para um tipo e canal específico',
+  })
+  @ApiResponse({ status: 201, description: 'Template salvo com sucesso' })
+  async saveUnifiedTemplate(
+    @Body() data: {
+      templateType: TemplateType;
+      channel: NotificationChannel;
+      name: string;
+      subject?: string;
+      body: string;
+      bodyHtml?: string;
+      iconUrl?: string;
+      actionUrl?: string;
+      isActive?: boolean;
+    }
+  ): Promise<any> {
+    return this.unifiedTemplateService.saveTemplate(data);
+  }
+
+  @Delete('unified-templates/:templateType/:channel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resetar template para o padrão',
+    description: 'Remove a customização do template, restaurando para o valor padrão',
+  })
+  @ApiParam({ name: 'templateType', type: 'string', description: 'Tipo do template' })
+  @ApiParam({ name: 'channel', type: 'string', enum: ['whatsapp', 'email', 'webpush'], description: 'Canal de notificação' })
+  @ApiResponse({ status: 200, description: 'Template resetado' })
+  async resetUnifiedTemplate(
+    @Param('templateType') templateType: TemplateType,
+    @Param('channel') channel: NotificationChannel
+  ): Promise<{ success: boolean }> {
+    const result = await this.unifiedTemplateService.resetTemplate(templateType, channel);
+    return { success: result };
+  }
+
+  @Post('unified-templates/:templateType/:channel/preview')
+  @ApiOperation({
+    summary: 'Preview do template com dados de exemplo',
+    description: 'Renderiza o template com variáveis de exemplo ou customizadas',
+  })
+  @ApiParam({ name: 'templateType', type: 'string', description: 'Tipo do template' })
+  @ApiParam({ name: 'channel', type: 'string', enum: ['whatsapp', 'email', 'webpush'], description: 'Canal de notificação' })
+  @ApiResponse({ status: 200, description: 'Preview renderizado' })
+  async previewUnifiedTemplate(
+    @Param('templateType') templateType: TemplateType,
+    @Param('channel') channel: NotificationChannel,
+    @Body() data?: { customBody?: string; customSubject?: string; variables?: Record<string, any> }
+  ): Promise<any> {
+    const exampleVars = this.generateUnifiedExampleVariables(templateType);
+    const variables = data?.variables || exampleVars;
+
+    // Se customBody fornecido, renderizar o custom, senão usar o template do banco/default
+    if (data?.customBody) {
+      const rendered = this.templateService.renderTemplate(data.customBody, variables);
+      const renderedSubject = data.customSubject 
+        ? this.templateService.renderTemplate(data.customSubject, variables)
+        : undefined;
+      
+      return {
+        subject: renderedSubject,
+        body: rendered,
+        variables: exampleVars,
+      };
+    }
+
+    // Renderizar template existente
+    const result = await this.unifiedTemplateService.renderTemplate(templateType, channel, variables);
+    return {
+      subject: result?.subject,
+      body: result?.body || '',
+      bodyHtml: result?.bodyHtml,
+      variables: exampleVars,
+    };
+  }
+
+  /**
+   * Gera variáveis de exemplo para templates unificados
+   */
+  private generateUnifiedExampleVariables(type: TemplateType): Record<string, any> {
+    const now = new Date();
+    const timestamp = now.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+    switch (type) {
+      case 'WEBHOOK_RECEIVED':
+        return {
+          symbol: 'SOLUSDT',
+          action: 'BUY',
+          quantity: '0.5',
+          price: '215.81',
+          timeframe: 'H1',
+          timestamp,
+        };
+      
+      case 'POSITION_OPENED':
+        return {
+          symbol: 'SOLUSDT',
+          side: 'LONG',
+          quantity: '0.45',
+          entry_price: '215.81',
+          account: 'Conta Principal',
+          timestamp,
+        };
+      
+      case 'POSITION_CLOSED':
+        return {
+          symbol: 'SOLUSDT',
+          pnl: '12.50',
+          pnl_pct: '2.18',
+          entry_price: '215.81',
+          exit_price: '220.50',
+          timestamp,
+        };
+
+      case 'POSITION_ERROR':
+        return {
+          symbol: 'SOLUSDT',
+          error: 'Insufficient balance',
+          account: 'Conta Principal',
+          timestamp,
+        };
+      
+      case 'SL_HIT':
+        return {
+          symbol: 'SOLUSDT',
+          pnl: '-10.50',
+          pnl_pct: '-3.5',
+          sl_price: '208.25',
+          timestamp,
+        };
+      
+      case 'TP_HIT':
+        return {
+          symbol: 'SOLUSDT',
+          pnl: '25.00',
+          pnl_pct: '5.25',
+          tp_price: '227.14',
+          timestamp,
+        };
+      
+      case 'SG_HIT':
+        return {
+          symbol: 'SOLUSDT',
+          pnl: '15.00',
+          pnl_pct: '3.5',
+          sg_price: '222.50',
+          timestamp,
+        };
+      
+      case 'TSG_HIT':
+        return {
+          symbol: 'SOLUSDT',
+          pnl: '20.00',
+          pnl_pct: '4.5',
+          max_price: '230.00',
+          exit_price: '225.50',
+          timestamp,
+        };
+      
+      case 'TRADE_ERROR':
+        return {
+          symbol: 'SOLUSDT',
+          trade_type: 'MARKET_BUY',
+          error: 'Order would immediately trigger',
+          timestamp,
+        };
+      
+      case 'PASSWORD_RESET':
+        return {
+          reset_link: 'https://app.mvcash.com.br/reset-password?token=abc123',
+          email: 'usuario@exemplo.com',
+          timestamp,
+        };
+      
+      case 'WELCOME':
+        return {
+          email: 'usuario@exemplo.com',
+          timestamp,
+        };
+      
+      case 'SUBSCRIPTION_ACTIVATED':
+        return {
+          plan_name: 'TraderPRO',
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+          timestamp,
+        };
+      
+      case 'SUBSCRIPTION_EXPIRING':
+        return {
+          plan_name: 'TraderPRO',
+          days_remaining: '7',
+          timestamp,
+        };
+      
+      case 'SUBSCRIPTION_EXPIRED':
+        return {
+          plan_name: 'TraderPRO',
+          timestamp,
+        };
+      
+      case 'TEST_MESSAGE':
+        return {
+          timestamp,
+        };
+      
+      default:
+        return { timestamp };
+    }
   }
 
   /**
