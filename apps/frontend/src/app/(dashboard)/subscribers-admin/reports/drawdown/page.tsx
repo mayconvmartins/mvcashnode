@@ -9,7 +9,7 @@ import { DateRangeFilter, type DatePreset } from '@/components/positions/DateRan
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Filter, ArrowLeft, TrendingDown, AlertTriangle, Clock } from 'lucide-react'
-import { formatCurrency, formatPercent } from '@/lib/utils/format'
+import { formatCurrency, formatPercentage } from '@/lib/utils/format'
 import { SubscriberSelect } from '@/components/shared/SubscriberSelect'
 import Link from 'next/link'
 import {
@@ -119,14 +119,14 @@ export default function SubscriberDrawdownReportPage() {
             <div className="grid gap-4 md:grid-cols-3">
                 <StatsCard
                     title="Drawdown Máximo"
-                    value={formatPercent(maxDrawdown)}
+                    value={formatPercentage(maxDrawdown)}
                     icon={TrendingDown}
                     iconColor="text-red-500"
                     loading={isLoading}
                 />
                 <StatsCard
                     title="Drawdown Atual"
-                    value={formatPercent(currentDrawdown)}
+                    value={formatPercentage(currentDrawdown)}
                     icon={AlertTriangle}
                     iconColor={currentDrawdown > 10 ? 'text-red-500' : 'text-yellow-500'}
                     loading={isLoading}

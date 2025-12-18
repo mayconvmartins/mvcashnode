@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
-import { useAuthStore } from '@/lib/stores/auth.store'
+import { useAuthStore } from '@/lib/stores/authStore'
 import { cn } from '@/lib/utils'
 import { Play, PlayCircle } from 'lucide-react'
 
