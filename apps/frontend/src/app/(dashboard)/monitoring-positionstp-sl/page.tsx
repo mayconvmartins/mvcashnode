@@ -447,41 +447,41 @@ export default function MonitoringPositionstpSlPage() {
 
                                 {/* Trailing Stop Gain */}
                                 {position.tsg_enabled && position.tsg_activation_pct !== null && (
-                                    <div className="space-y-1 p-2 bg-amber-50 dark:bg-amber-950/20 rounded border border-amber-200 dark:border-amber-800">
+                                    <div className="space-y-1 p-2 bg-muted/50 rounded border border-dashed">
                                         <div className="flex items-center justify-between text-xs">
                                             <div className="flex items-center gap-1">
-                                                <TrendingUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-                                                <span className="text-amber-700 dark:text-amber-300 font-medium">Trailing Stop Gain</span>
+                                                <TrendingUp className="h-3 w-3 text-muted-foreground" />
+                                                <span className="text-muted-foreground font-medium">Trailing Stop Gain</span>
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 {position.tsg_proximity_pct !== null ? (
                                                     <>
-                                                        <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                                                        <span className="text-xs font-medium">
                                                             {position.tsg_proximity_pct.toFixed(1)}%
                                                         </span>
                                                         {position.distance_to_tsg_pct !== null && position.distance_to_tsg_pct > 0 && (
-                                                            <span className="text-xs text-amber-600 dark:text-amber-400">
+                                                            <span className="text-xs text-muted-foreground">
                                                                 ({position.distance_to_tsg_pct.toFixed(2)}% restante)
                                                             </span>
                                                         )}
                                                     </>
                                                 ) : (
-                                                    <span className="text-xs text-amber-600 dark:text-amber-400">N/A</span>
+                                                    <span className="text-xs text-muted-foreground">N/A</span>
                                                 )}
                                             </div>
                                         </div>
                                         {position.tsg_proximity_pct !== null && (
                                             <Progress
                                                 value={Math.min(position.tsg_proximity_pct, 100)}
-                                                className="h-2 bg-amber-100 dark:bg-amber-900/30"
+                                                className="h-2"
                                             />
                                         )}
-                                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                                        <p className="text-xs text-muted-foreground">
                                             {position.tsg_activated ? (
                                                 <>
-                                                    📈 Pico: <span className="font-bold text-amber-800 dark:text-amber-200">{position.tsg_max_pnl_pct?.toFixed(2) || 'N/A'}%</span> • 
-                                                    💰 Vende: <span className="font-bold text-amber-800 dark:text-amber-200">{position.tsg_max_pnl_pct && position.tsg_drop_pct ? (position.tsg_max_pnl_pct - position.tsg_drop_pct).toFixed(2) : 'N/A'}%</span>
-                                                    <Badge variant="outline" className="ml-1 text-xs bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/50">🎯 Rastreando</Badge>
+                                                    📈 Pico: <span className="font-bold">{position.tsg_max_pnl_pct?.toFixed(2) || 'N/A'}%</span> • 
+                                                    💰 Vende: <span className="font-bold">{position.tsg_max_pnl_pct && position.tsg_drop_pct ? (position.tsg_max_pnl_pct - position.tsg_drop_pct).toFixed(2) : 'N/A'}%</span>
+                                                    <Badge variant="outline" className="ml-1 text-xs">🎯 Rastreando</Badge>
                                                 </>
                                             ) : (
                                                 <>
