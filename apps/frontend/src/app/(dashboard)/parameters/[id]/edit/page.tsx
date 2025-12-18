@@ -67,6 +67,13 @@ export default function EditParameterPage() {
         stopGainDropPercent: parameter.default_sg_drop_pct 
             ? (typeof parameter.default_sg_drop_pct === 'number' ? parameter.default_sg_drop_pct : parseFloat(parameter.default_sg_drop_pct))
             : undefined,
+        trailingStopGain: parameter.default_tsg_enabled || false,
+        trailingStopGainActivationPct: parameter.default_tsg_activation_pct 
+            ? (typeof parameter.default_tsg_activation_pct === 'number' ? parameter.default_tsg_activation_pct : parseFloat(parameter.default_tsg_activation_pct))
+            : undefined,
+        trailingStopGainDropPct: parameter.default_tsg_drop_pct 
+            ? (typeof parameter.default_tsg_drop_pct === 'number' ? parameter.default_tsg_drop_pct : parseFloat(parameter.default_tsg_drop_pct))
+            : undefined,
         minProfitPct: parameter.min_profit_pct 
             ? (typeof parameter.min_profit_pct === 'number' ? parameter.min_profit_pct : parseFloat(parameter.min_profit_pct))
             : undefined,

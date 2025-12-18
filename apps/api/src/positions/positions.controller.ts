@@ -336,6 +336,12 @@ export class PositionsController {
             sg_pct: true,
             sg_drop_pct: true,
             sg_activated: true,
+            tsg_enabled: true,
+            tsg_activation_pct: true,
+            tsg_drop_pct: true,
+            tsg_activated: true,
+            tsg_max_pnl_pct: true,
+            tsg_triggered: true,
             min_profit_pct: true,
             is_grouped: true,
             group_started_at: true,
@@ -605,6 +611,13 @@ export class PositionsController {
           sold_value_usd: soldValueUsd,
           unrealized_pnl: unrealizedPnl,
           unrealized_pnl_pct: unrealizedPnlPct,
+          // Serializar campos TSG (Decimal do Prisma)
+          tsg_enabled: position.tsg_enabled || false,
+          tsg_activation_pct: position.tsg_activation_pct?.toNumber() || null,
+          tsg_drop_pct: position.tsg_drop_pct?.toNumber() || null,
+          tsg_activated: position.tsg_activated || false,
+          tsg_max_pnl_pct: position.tsg_max_pnl_pct?.toNumber() || null,
+          tsg_triggered: position.tsg_triggered || false,
           ...(shouldIncludeFills ? { sell_jobs: sellJobs } : {}),
         };
       });

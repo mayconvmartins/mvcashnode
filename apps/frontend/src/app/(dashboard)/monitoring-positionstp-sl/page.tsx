@@ -24,7 +24,7 @@ export default function MonitoringPositionstpSlPage() {
     const [selectedAccount, setSelectedAccount] = useState<string>('all')
     const [filtersOpen, setFiltersOpen] = useState(false)
     const [autoRefresh, setAutoRefresh] = useState(true)
-    const [sortBy, setSortBy] = useState<string>('tp-closest') // Padrão: Mais próximo do TP
+    const [sortBy, setSortBy] = useState<string>('profit-highest') // Padrão: Mais próximo do lucro (maior lucro primeiro)
 
     // Buscar contas
     const { data: accounts } = useQuery({

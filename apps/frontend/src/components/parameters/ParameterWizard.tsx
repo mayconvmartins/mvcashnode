@@ -27,6 +27,9 @@ type WizardData = {
     stopGain?: boolean
     stopGainPercent?: number
     stopGainDropPercent?: number
+    trailingStopGain?: boolean
+    trailingStopGainActivationPct?: number
+    trailingStopGainDropPct?: number
     minProfitPct?: number
     trailingStop?: boolean
     maxDailyTrades?: number
@@ -49,6 +52,13 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
         stopGain: parameter?.stopGain,
         stopGainPercent: parameter?.stopGainPercent,
         stopGainDropPercent: parameter?.stopGainDropPercent,
+        trailingStopGain: parameter?.default_tsg_enabled || parameter?.trailingStopGain || false,
+        trailingStopGainActivationPct: parameter?.default_tsg_activation_pct 
+            ? (typeof parameter.default_tsg_activation_pct === 'number' ? parameter.default_tsg_activation_pct : parseFloat(parameter.default_tsg_activation_pct))
+            : (parameter?.trailingStopGainActivationPct),
+        trailingStopGainDropPct: parameter?.default_tsg_drop_pct 
+            ? (typeof parameter.default_tsg_drop_pct === 'number' ? parameter.default_tsg_drop_pct : parseFloat(parameter.default_tsg_drop_pct))
+            : (parameter?.trailingStopGainDropPct),
         minProfitPct: parameter?.min_profit_pct || parameter?.minProfitPct,
         trailingStop: parameter?.trailingStop || false,
         maxDailyTrades: parameter?.maxDailyTrades,
@@ -73,6 +83,9 @@ export function ParameterWizard({ parameter, onSuccess, onCancel }: ParameterWiz
                 stopGain: data.stopGain,
                 stopGainPercent: data.stopGainPercent,
                 stopGainDropPercent: data.stopGainDropPercent,
+                trailingStopGain: data.trailingStopGain,
+                trailingStopGainActivationPct: data.trailingStopGainActivationPct,
+                trailingStopGainDropPct: data.trailingStopGainDropPct,
                 minProfitPct: data.minProfitPct,
                 trailingStop: data.trailingStop,
                 maxDailyTrades: data.maxDailyTrades,

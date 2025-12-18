@@ -740,7 +740,7 @@ export default function PositionsPage() {
                     {position.tsg_enabled && (
                         <Badge 
                             variant="outline" 
-                            className={`text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800 ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/50 dark:border-amber-500/50' : 'text-amber-700 dark:text-amber-300'}`}
+                            className={`text-xs ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/50 dark:border-amber-500/50' : ''}`}
                         >
                             TSG {position.tsg_activated ? '🎯' : '⏳'}
                             {position.tsg_triggered && ' ✓'}
@@ -1013,7 +1013,7 @@ export default function PositionsPage() {
                     {position.tsg_enabled && (
                         <Badge 
                             variant="outline" 
-                            className={`text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800 ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/50 dark:border-amber-500/50' : 'text-amber-700 dark:text-amber-300'}`}
+                            className={`text-xs ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/50 dark:border-amber-500/50' : ''}`}
                         >
                             TSG {position.tsg_activated ? '🎯' : '⏳'}
                             {position.tsg_triggered && ' ✓'}
@@ -1743,7 +1743,7 @@ export default function PositionsPage() {
                         )}
 
                         {/* Trailing Stop Gain */}
-                        <div className="space-y-4 p-4 bg-amber-50/50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+                        <div className="space-y-4 p-4 bg-muted/50 rounded-lg border border-dashed">
                             <div className="flex items-center space-x-2">
                                 <Checkbox
                                     id="bulk-tsg-enabled"
