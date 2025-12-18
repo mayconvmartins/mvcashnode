@@ -7204,17 +7204,28 @@ export class AdminSystemController {
       this.prisma.tradePosition.count({ where: whereClause })
     ]);
 
-    // Buscar preços atuais do cache
-    const symbols = [...new Set(positions.map(p => p.symbol))];
+    // Buscar preços atuais do cache (chave: price:${exchange}:${symbol})
+    // Criar mapa de preços por exchange:symbol
     const priceMap: Record<string, number> = {};
-    for (const sym of symbols) {
-      const price = await this.cacheService.get(`price:${sym}`);
-      if (price) priceMap[sym] = parseFloat(price);
+    const uniqueKeys = new Set<string>();
+    
+    for (const pos of positions) {
+      const exchange = pos.exchange_account?.exchange;
+      if (exchange) {
+        uniqueKeys.add(`${exchange}:${pos.symbol}`);
+      }
+    }
+    
+    for (const key of uniqueKeys) {
+      const price = await this.cacheService.get(`price:${key}`);
+      if (price) priceMap[key] = parseFloat(price);
     }
 
     // Transformar dados
     const data = positions.map(pos => {
-      const currentPrice = priceMap[pos.symbol] || pos.price_open.toNumber();
+      const exchange = pos.exchange_account?.exchange;
+      const priceKey = exchange ? `${exchange}:${pos.symbol}` : pos.symbol;
+      const currentPrice = priceMap[priceKey] || pos.price_open.toNumber();
       const qtyRemaining = pos.qty_remaining.toNumber();
       const priceOpen = pos.price_open.toNumber();
       const unrealizedPnl = (currentPrice - priceOpen) * qtyRemaining;
@@ -7342,8 +7353,9 @@ export class AdminSystemController {
       throw new BadRequestException(`Posição ${id} não pertence a um assinante`);
     }
 
-    // Buscar preço atual
-    const currentPrice = await this.cacheService.get(`price:${position.symbol}`);
+    // Buscar preço atual do cache (chave: price:${exchange}:${symbol})
+    const cacheKey = `price:${position.exchange_account.exchange}:${position.symbol}`;
+    const currentPrice = await this.cacheService.get(cacheKey);
     const priceNow = currentPrice ? parseFloat(currentPrice) : position.price_open.toNumber();
 
     const qtyRemaining = position.qty_remaining.toNumber();
@@ -8026,7 +8038,9 @@ export class AdminSystemController {
 
     // Calcular PnL para cada posição
     const positionsWithPnl = await Promise.all(positions.map(async (pos) => {
-      const currentPrice = await this.cacheService.get(`price:${pos.symbol}`);
+      // Buscar preço do cache usando chave correta: price:${exchange}:${symbol}
+      const cacheKey = `price:${pos.exchange_account.exchange}:${pos.symbol}`;
+      const currentPrice = await this.cacheService.get(cacheKey);
       const priceNow = currentPrice ? parseFloat(currentPrice) : pos.price_open.toNumber();
       
       const qtyRemaining = pos.qty_remaining.toNumber();
@@ -8152,7 +8166,9 @@ export class AdminSystemController {
 
     // Calcular métricas para cada posição
     const positionsWithMetrics = await Promise.all(positions.map(async (pos) => {
-      const currentPrice = await this.cacheService.get(`price:${pos.symbol}`);
+      // Buscar preço do cache usando chave correta: price:${exchange}:${symbol}
+      const cacheKey = `price:${pos.exchange_account.exchange}:${pos.symbol}`;
+      const currentPrice = await this.cacheService.get(cacheKey);
       const priceNow = currentPrice ? parseFloat(currentPrice) : pos.price_open.toNumber();
       
       const priceOpen = pos.price_open.toNumber();
