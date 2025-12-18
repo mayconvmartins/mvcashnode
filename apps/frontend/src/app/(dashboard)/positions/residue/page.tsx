@@ -275,7 +275,7 @@ export default function ResiduePositionsPage() {
                                 </div>
                             ) : (transfersData?.data?.length ?? 0) > 0 ? (
                                 <DataTable
-                                    data={transfersData.data}
+                                    data={transfersData?.data ?? []}
                                     columns={transferColumns}
                                 />
                             ) : (
