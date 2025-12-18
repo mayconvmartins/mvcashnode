@@ -1788,6 +1788,14 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                   if (posBefore.sl_triggered || posAfter.close_reason === 'STOP_LOSS') {
                     await this.notificationService.sendStopLoss(posAfter.id, execution.id);
                     this.logger.log(`[EXECUTOR] Notificação de Stop Loss enviada para positionId: ${posAfter.id}`);
+                  } else if (posBefore.tsg_triggered || posAfter.close_reason === 'TRAILING_STOP_GAIN') {
+                    // Trailing Stop Gain acionado
+                    await this.notificationService.sendTrailingStopGain(posAfter.id, execution.id);
+                    this.logger.log(`[EXECUTOR] Notificação de Trailing Stop Gain enviada para positionId: ${posAfter.id}`);
+                  } else if (posBefore.sg_triggered || posAfter.close_reason === 'STOP_GAIN') {
+                    // Stop Gain fixo acionado
+                    await this.notificationService.sendStopGain(posAfter.id, execution.id);
+                    this.logger.log(`[EXECUTOR] Notificação de Stop Gain enviada para positionId: ${posAfter.id}`);
                   } else {
                     // Outros motivos (TP, webhook, manual)
                     await this.notificationService.sendPositionClosed(posAfter.id);

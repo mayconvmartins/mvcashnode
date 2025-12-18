@@ -27,6 +27,9 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
     const [sgEnabled, setSgEnabled] = useState(position.sg_enabled)
     const [sgPct, setSgPct] = useState(position.sg_pct?.toString() || '')
     const [sgDropPct, setSgDropPct] = useState(position.sg_drop_pct?.toString() || '')
+    const [tsgEnabled, setTsgEnabled] = useState(position.tsg_enabled)
+    const [tsgActivationPct, setTsgActivationPct] = useState(position.tsg_activation_pct?.toString() || '')
+    const [tsgDropPct, setTsgDropPct] = useState(position.tsg_drop_pct?.toString() || '')
 
     // Validação: Stop Gain deve ser menor que Take Profit
     const sgError = sgEnabled && tpEnabled && sgPct && tpPct && 
@@ -38,6 +41,21 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
     const sgDropError = sgEnabled && sgDropPct && sgPct && 
       (parseFloat(sgDropPct) <= 0 || parseFloat(sgDropPct) >= parseFloat(sgPct))
       ? 'Queda deve ser maior que 0 e menor que Stop Gain'
+      : null
+
+    // Validação: TSG e SG fixo são mutuamente exclusivos
+    const tsgSgConflict = tsgEnabled && sgEnabled
+      ? 'Trailing Stop Gain e Stop Gain fixo não podem estar habilitados ao mesmo tempo'
+      : null
+
+    // Validação: tsgActivationPct deve ser > 0
+    const tsgActivationError = tsgEnabled && tsgActivationPct && parseFloat(tsgActivationPct) <= 0
+      ? '% de ativação deve ser maior que 0'
+      : null
+
+    // Validação: tsgDropPct deve ser > 0
+    const tsgDropError = tsgEnabled && tsgDropPct && parseFloat(tsgDropPct) <= 0
+      ? '% de queda deve ser maior que 0'
       : null
 
     const updateMutation = useMutation({
@@ -57,6 +75,17 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
             } else if (sgEnabled && sgPct && sgDropPct) {
                 payload.sgPct = parseFloat(sgPct)
                 payload.sgDropPct = parseFloat(sgDropPct)
+            }
+
+            // TSG - Independente de TP
+            payload.tsgEnabled = tsgEnabled
+            
+            if (tsgEnabled === false) {
+                payload.tsgActivationPct = undefined
+                payload.tsgDropPct = undefined
+            } else if (tsgEnabled && tsgActivationPct && tsgDropPct) {
+                payload.tsgActivationPct = parseFloat(tsgActivationPct)
+                payload.tsgDropPct = parseFloat(tsgDropPct)
             }
             
             return positionsService.updateSLTP(position.id, payload)
@@ -210,11 +239,88 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                     )}
                 </div>
             )}
+            {/* TSG - Independente de TP */}
+            <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200">
+                <div className="flex items-center space-x-2 mb-3">
+                    <input
+                        type="checkbox"
+                        id="tsgEnabled"
+                        checked={tsgEnabled}
+                        onChange={(e) => setTsgEnabled(e.target.checked)}
+                        className="rounded"
+                        disabled={sgEnabled}
+                    />
+                    <Label htmlFor="tsgEnabled">
+                        Ativar Trailing Stop Gain (Rastreamento Dinâmico de Lucro)
+                    </Label>
+                </div>
+                {sgEnabled && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+                        Desabilite o Stop Gain fixo para usar Trailing Stop Gain
+                    </p>
+                )}
+                {tsgEnabled && (
+                    <div className="space-y-3">
+                        <div>
+                            <Label htmlFor="tsgActivationPct">% Inicial de Ativação</Label>
+                            <Input
+                                id="tsgActivationPct"
+                                type="number"
+                                step="0.1"
+                                min="0.1"
+                                value={tsgActivationPct}
+                                onChange={(e) => setTsgActivationPct(e.target.value)}
+                                placeholder="Ex: 2.0"
+                            />
+                            {tsgActivationError && <p className="text-sm text-destructive mt-1">{tsgActivationError}</p>}
+                            {!tsgActivationError && tsgActivationPct && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Ativa o rastreamento quando atingir este lucro
+                                </p>
+                            )}
+                        </div>
+                        
+                        <div>
+                            <Label htmlFor="tsgDropPct">% de Queda do Pico para Vender</Label>
+                            <Input
+                                id="tsgDropPct"
+                                type="number"
+                                step="0.1"
+                                min="0.1"
+                                value={tsgDropPct}
+                                onChange={(e) => setTsgDropPct(e.target.value)}
+                                placeholder="Ex: 0.5 ou 1.0"
+                            />
+                            {tsgDropError && <p className="text-sm text-destructive mt-1">{tsgDropError}</p>}
+                            {!tsgDropError && tsgDropPct && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Vende se cair esta % a partir do pico máximo atingido
+                                </p>
+                            )}
+                        </div>
+                        
+                        {tsgActivationPct && tsgDropPct && !tsgActivationError && !tsgDropError && (
+                            <div className="bg-amber-100 dark:bg-amber-900/30 p-3 rounded border border-amber-300 dark:border-amber-700">
+                                <p className="text-xs font-medium mb-1">Exemplo de funcionamento:</p>
+                                <ul className="text-xs space-y-1 text-muted-foreground">
+                                    <li>• Ativa em {tsgActivationPct}% de lucro</li>
+                                    <li>• Se atingir {(parseFloat(tsgActivationPct) + 5).toFixed(1)}%, vende se cair para {(parseFloat(tsgActivationPct) + 5 - parseFloat(tsgDropPct)).toFixed(1)}%</li>
+                                    <li>• Se atingir 20%, vende se cair para {(20 - parseFloat(tsgDropPct)).toFixed(1)}%</li>
+                                    <li>• Sem limite máximo de lucro rastreado</li>
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+            {tsgSgConflict && (
+                <p className="text-sm text-destructive mt-2">{tsgSgConflict}</p>
+            )}
             <DialogFooter>
                 <Button type="button" variant="outline" onClick={onClose}>
                     Cancelar
                 </Button>
-                <Button type="submit" disabled={updateMutation.isPending || !!sgError || !!sgDropError}>
+                <Button type="submit" disabled={updateMutation.isPending || !!sgError || !!sgDropError || !!tsgSgConflict || !!tsgActivationError || !!tsgDropError}>
                     {updateMutation.isPending ? 'Atualizando...' : 'Atualizar'}
                 </Button>
             </DialogFooter>

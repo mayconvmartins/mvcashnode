@@ -66,6 +66,17 @@ export class InternalNotificationsController {
     return { success: true };
   }
 
+  @Post('trailing-stop-gain')
+  @ApiOperation({
+    summary: 'Notificar Trailing Stop Gain acionado (interno)',
+    description: 'Endpoint interno chamado pelo monitor quando TSG é acionado',
+  })
+  @ApiResponse({ status: 200, description: 'Notificação processada' })
+  async trailingStopGain(@Body() data: { positionId: number; executionId: number }) {
+    await this.notificationWrapper.sendTrailingStopGainAlert(data.positionId, data.executionId);
+    return { success: true };
+  }
+
   @Post('partial-tp')
   @ApiOperation({
     summary: 'Notificar Take Profit parcial (interno)',

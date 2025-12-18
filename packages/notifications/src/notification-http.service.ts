@@ -52,6 +52,34 @@ export class NotificationHttpService {
   }
 
   /**
+   * Envia notificação de Stop Gain acionado
+   */
+  async sendStopGain(positionId: number, executionId: number): Promise<void> {
+    try {
+      await this.client.post('/internal/notifications/stop-gain', {
+        positionId,
+        executionId,
+      });
+    } catch (error: any) {
+      console.error(`[NOTIFICATION-HTTP] Erro ao enviar notificação de Stop Gain: ${error.message}`);
+    }
+  }
+
+  /**
+   * Envia notificação de Trailing Stop Gain acionado
+   */
+  async sendTrailingStopGain(positionId: number, executionId: number): Promise<void> {
+    try {
+      await this.client.post('/internal/notifications/trailing-stop-gain', {
+        positionId,
+        executionId,
+      });
+    } catch (error: any) {
+      console.error(`[NOTIFICATION-HTTP] Erro ao enviar notificação de Trailing Stop Gain: ${error.message}`);
+    }
+  }
+
+  /**
    * Envia notificação de Take Profit parcial
    */
   async sendPartialTP(positionId: number, executionId: number): Promise<void> {

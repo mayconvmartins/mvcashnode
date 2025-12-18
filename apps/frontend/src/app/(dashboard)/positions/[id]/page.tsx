@@ -35,6 +35,7 @@ import { useState } from 'react'
 import { UpdateSLTPModal } from '@/components/positions/UpdateSLTPModal'
 import { ClosePositionModal } from '@/components/positions/ClosePositionModal'
 import { SellLimitModal } from '@/components/positions/SellLimitModal'
+import { TSGMonitorCard } from '@/components/positions/TSGMonitorCard'
 import type { Position, PositionFill, TradeJob, TradeExecution } from '@/lib/types'
 
 // Lazy load do PriceChart (componente pesado com recharts)
@@ -869,8 +870,48 @@ export default function PositionDetailPage() {
                                             <p className="text-muted-foreground">Desabilitado</p>
                                         )}
                                     </div>
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Trailing Stop Gain</p>
+                                        {position.tsg_enabled ? (
+                                            <div>
+                                                <p className="font-medium">
+                                                    Ativa: {position.tsg_activation_pct ? formatPercentage(position.tsg_activation_pct) : 'N/A'}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Queda: {position.tsg_drop_pct ? formatPercentage(position.tsg_drop_pct) : 'N/A'}
+                                                </p>
+                                                {position.tsg_max_pnl_pct && (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Pico: {formatPercentage(position.tsg_max_pnl_pct)}
+                                                    </p>
+                                                )}
+                                                {position.tsg_activated && (
+                                                    <Badge variant="default" className="mt-1 bg-amber-500">
+                                                        Rastreando
+                                                    </Badge>
+                                                )}
+                                                {position.tsg_triggered && (
+                                                    <Badge variant="default" className="mt-1 bg-green-500">
+                                                        Triggered
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <p className="text-muted-foreground">Desabilitado</p>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
+
+                            {/* TSG Monitor Card */}
+                            {position.tsg_enabled && position.unrealized_pnl_pct !== null && position.unrealized_pnl_pct !== undefined && (
+                                <div className="mt-4">
+                                    <TSGMonitorCard 
+                                        position={position} 
+                                        currentPnlPct={position.unrealized_pnl_pct} 
+                                    />
+                                </div>
+                            )}
 
                             <Separator />
 

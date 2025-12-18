@@ -445,6 +445,59 @@ export default function MonitoringPositionstpSlPage() {
                                     </div>
                                 )}
 
+                                {/* Trailing Stop Gain */}
+                                {position.tsg_enabled && position.tsg_activation_pct !== null && (
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between text-xs">
+                                            <div className="flex items-center gap-1">
+                                                <TrendingUp className="h-3 w-3 text-amber-600" />
+                                                <span className="text-muted-foreground">Trailing Stop Gain</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {position.tsg_proximity_pct !== null ? (
+                                                    <>
+                                                        <span className="text-xs font-medium">
+                                                            {position.tsg_proximity_pct.toFixed(1)}%
+                                                        </span>
+                                                        {position.distance_to_tsg_pct !== null && position.distance_to_tsg_pct > 0 && (
+                                                            <span className="text-xs text-muted-foreground">
+                                                                ({position.distance_to_tsg_pct.toFixed(2)}% restante)
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground">N/A</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {position.tsg_proximity_pct !== null && (
+                                            <Progress
+                                                value={Math.min(position.tsg_proximity_pct, 100)}
+                                                className="h-1.5 bg-amber-50"
+                                            />
+                                        )}
+                                        <p className="text-xs text-muted-foreground">
+                                            {position.tsg_activated ? (
+                                                <>
+                                                    Pico: {position.tsg_max_pnl_pct?.toFixed(2) || 'N/A'}% • 
+                                                    Vende: {position.tsg_max_pnl_pct && position.tsg_drop_pct ? (position.tsg_max_pnl_pct - position.tsg_drop_pct).toFixed(2) : 'N/A'}%
+                                                    {position.tsg_activated && (
+                                                        <Badge variant="outline" className="ml-1 text-xs bg-amber-500/10">🎯 Rastreando</Badge>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Ativa: {position.tsg_activation_pct}% • 
+                                                    Queda: {position.tsg_drop_pct || 'N/A'}%
+                                                </>
+                                            )}
+                                            {position.tsg_triggered && (
+                                                <Badge variant="outline" className="ml-1 text-xs bg-green-500/10">Triggered</Badge>
+                                            )}
+                                        </p>
+                                    </div>
+                                )}
+
                                 {/* Stop Loss */}
                                 {position.sl_enabled && position.sl_pct !== null && (
                                     <div className="space-y-1">

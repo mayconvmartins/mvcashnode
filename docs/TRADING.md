@@ -153,6 +153,92 @@ Cenário 3 - SG ativado mas atingiu TP antes de cair:
 3. Preço cai para $50,700 (1.4% de lucro)
    - ✅ Lucro está em 1.4%, abaixo do threshold de venda (1.5%)
    - Sistema executa venda automática por STOP_GAIN
+
+### Trailing Stop Gain (TSG)
+
+Trailing Stop Gain é uma evolução do Stop Gain fixo que rastreia continuamente o pico máximo de lucro e vende se o lucro cair uma % configurada a partir desse pico.
+
+**IMPORTANTE**: TSG é **INDEPENDENTE** de Take Profit. Não requer TP habilitado para funcionar.
+
+#### Diferenças
+
+**Stop Gain Fixo**:
+- Ativa em 2%, vende se cair 0.5% → sempre vende em 1.5% (fixo)
+
+**Trailing Stop Gain**:
+- **Independente de TP** - funciona sozinho
+- Ativa em 2%, rastreia pico máximo continuamente
+- Se atingir 20% e cair 1% → vende em 19% via LIMIT
+- Se subir para 25% e cair 1% → vende em 24% via LIMIT
+- Sem limite máximo de lucro rastreado
+
+#### Parâmetros
+
+- `tsg_activation_pct`: % inicial para ativar o rastreamento (ex: 2.0)
+- `tsg_drop_pct`: % de queda do pico para executar venda (ex: 0.5 ou 1.0)
+- `tsg_max_pnl_pct`: Pico máximo de lucro % rastreado (atualizado dinamicamente)
+- `tsg_activated`: Flag indicando se o threshold de ativação foi atingido
+- `tsg_triggered`: Flag indicando se a venda foi executada
+
+#### Fluxo de Operação
+
+```
+1. Posição é aberta (ex: BTC @ $50,000)
+2. TSG configurado: ativa em 2%, vende se cair 1%
+
+Cenário 1 - Rastreamento Básico:
+├─ Preço sobe para $51,000 (2%) → TSG ATIVADO (tsg_activated = true, tsg_max_pnl_pct = 2%)
+├─ Preço sobe para $52,000 (4%) → NOVO PICO (tsg_max_pnl_pct = 4%)
+├─ Preço cai para $51,500 (3% = 4% - 1%) → TSG VENDIDO
+└─ Vende por TRAILING_STOP_GAIN
+
+Cenário 2 - Rastreamento Longo:
+├─ Preço sobe para $51,000 (2%) → TSG ATIVADO, pico = 2%
+├─ Preço sobe para $55,000 (10%) → pico = 10%
+├─ Preço sobe para $60,000 (20%) → pico = 20%
+├─ Preço cai para $59,500 (19% = 20% - 1%) → TSG VENDIDO
+└─ Vende por TRAILING_STOP_GAIN
+
+Cenário 3 - TSG + TP Coexistindo:
+├─ TSG: ativa em 2%, vende se cair 0.5%
+├─ TP: 25%
+├─ Preço sobe para $51,000 (2%) → TSG ativa
+├─ Preço sobe para $62,500 (25%) → VENDE por TP (atingiu primeiro)
+└─ Se TSG disparar antes, vende por TSG
+```
+
+#### Validações e Regras
+
+1. **TSG Independente**: TSG NÃO requer TP habilitado - funciona de forma autônoma
+2. **Activation > 0**: A % de ativação deve ser > 0 (ex: 2.0)
+3. **Drop > 0**: A % de queda deve ser > 0 (ex: 0.5, 1.0, 2.0)
+4. **Mutual Exclusion**: TSG e Stop Gain fixo são mutuamente exclusivos (só um pode estar ativo)
+5. **Compatível com TP**: TSG e TP podem coexistir - se TP disparar primeiro, executa TP
+6. **Sem Min Profit**: TSG NÃO valida min_profit_pct (protege lucros já obtidos)
+7. **Ordem LIMIT**: SEMPRE criar ordens LIMIT com spread de 0.1% para garantir execução
+8. **Rastreamento Contínuo**: O pico máximo é atualizado sempre que o lucro sobe, sem limite
+
+#### Exemplo Prático
+
+**Configuração**:
+- Preço de Entrada: $50,000
+- Trailing Stop Gain: Ativa em 2%, vende se cair 1%
+- Take Profit: 25% (opcional)
+
+**Timeline**:
+1. Compra BTC @ $50,000
+2. Preço sobe para $51,000 (2% de lucro)
+   - ✅ TSG é ATIVADO (`tsg_activated = true`, `tsg_max_pnl_pct = 2%`)
+   - Sistema passa a rastrear o pico máximo
+3. Preço sobe para $55,000 (10% de lucro)
+   - ✅ NOVO PICO (`tsg_max_pnl_pct = 10%`)
+   - Threshold de venda agora: 9% (10% - 1%)
+4. Preço sobe para $60,000 (20% de lucro)
+   - ✅ NOVO PICO (`tsg_max_pnl_pct = 20%`)
+   - Threshold de venda agora: 19% (20% - 1%)
+5. Preço cai para $59,500 (19% de lucro)
+   - ✅ Lucro está em 19%, igual ao threshold de venda
+   - Sistema executa venda automática por TRAILING_STOP_GAIN via LIMIT
 4. Resultado: Lucro de 1.4% protegido ao invés de esperar pelo TP de 5%
 
 #### Quando Usar

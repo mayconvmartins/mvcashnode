@@ -813,6 +813,84 @@ export class NotificationService {
   }
 
   /**
+   * Envia notificação de Trailing Stop Gain acionado
+   */
+  async sendTrailingStopGainAlert(positionId: number, executionId: number): Promise<void> {
+    const position = await this.prisma.tradePosition.findUnique({
+      where: { id: positionId },
+      include: {
+        exchange_account: true,
+      },
+    });
+
+    const execution = await this.prisma.tradeExecution.findUnique({
+      where: { id: executionId },
+    });
+
+    if (!position || !execution) {
+      return;
+    }
+
+    const recipients = await this.getPositionNotificationRecipients(position.exchange_account.user_id, 'TRAILING_STOP_GAIN');
+    if (recipients.length === 0) {
+      return;
+    }
+
+    const qty = execution.executed_qty.toNumber();
+    const sellPrice = execution.avg_price.toNumber();
+    const total = qty * sellPrice;
+    const buyPrice = position.price_open.toNumber();
+    const profitPct = ((sellPrice - buyPrice) / buyPrice) * 100;
+    const positionIdShort = position.id.toString().slice(0, 8).toUpperCase();
+    const tsgActivationPct = position.tsg_activation_pct?.toNumber() || 0;
+    const tsgDropPct = position.tsg_drop_pct?.toNumber() || 0;
+    const tsgMaxPnlPct = position.tsg_max_pnl_pct?.toNumber() || 0;
+
+    const variables: TemplateVariables = {
+      'account.label': position.exchange_account.label || 'Conta',
+      'symbol': position.symbol,
+      'qty': qty,
+      'sellPrice': sellPrice,
+      'total': total,
+      'buyPrice': buyPrice,
+      'profitPct': profitPct,
+      'positionId': positionIdShort,
+      'tsgActivationPct': tsgActivationPct,
+      'tsgDropPct': tsgDropPct,
+      'tsgMaxPnlPct': tsgMaxPnlPct,
+      'datetime': new Date(),
+    };
+
+    await this.sendWithTemplate('TRAILING_STOP_GAIN_TRIGGERED', variables, recipients);
+
+    // Enviar email se configurado
+    if (this.emailService) {
+      try {
+        const emailRecipients = await this.getEmailRecipients(position.exchange_account.user_id, 'operations_enabled');
+        for (const email of emailRecipients) {
+          await this.emailService.sendOperationAlert(email, {
+            type: 'TRAILING_STOP_GAIN',
+            message: `Trailing Stop Gain acionado para ${position.symbol} - Venda em ${profitPct.toFixed(2)}% (Pico: ${tsgMaxPnlPct.toFixed(2)}%)`,
+            details: {
+              positionId: position.id,
+              symbol: position.symbol,
+              qty,
+              sellPrice,
+              profitPct,
+              tsgActivationPct,
+              tsgDropPct,
+              tsgMaxPnlPct,
+            },
+            datetime: new Date(),
+          });
+        }
+      } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao enviar email de trailing stop gain:', error);
+      }
+    }
+  }
+
+  /**
    * Envia notificação de Take Profit parcial
    */
   async sendPartialTPAlert(positionId: number, executionId: number): Promise<void> {

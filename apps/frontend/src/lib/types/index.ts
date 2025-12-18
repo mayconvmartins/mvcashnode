@@ -214,6 +214,9 @@ export interface TradeParameter {
     default_sg_enabled: boolean
     default_sg_pct?: number
     default_sg_drop_pct?: number | null
+    default_tsg_enabled: boolean
+    default_tsg_activation_pct?: number
+    default_tsg_drop_pct?: number | null
     trailing_stop_enabled: boolean
     trailing_distance_pct?: number
     min_profit_pct?: number
@@ -379,6 +382,12 @@ export interface Position {
     sg_pct?: number | null
     sg_drop_pct?: number | null
     sg_activated: boolean
+    tsg_enabled: boolean
+    tsg_activation_pct?: number | null
+    tsg_drop_pct?: number | null
+    tsg_activated: boolean
+    tsg_max_pnl_pct?: number | null
+    tsg_triggered: boolean
     trailing_enabled: boolean
     trailing_distance_pct?: number
     trailing_max_price?: number
@@ -386,6 +395,7 @@ export interface Position {
     sl_triggered: boolean
     tp_triggered: boolean
     sg_triggered: boolean
+    tsg_triggered: boolean
     trailing_triggered: boolean
     partial_tp_triggered: boolean
     lock_sell_by_webhook: boolean
@@ -487,6 +497,9 @@ export interface UpdateSLTPDto {
     sgEnabled?: boolean
     sgPct?: number
     sgDropPct?: number
+    tsgEnabled?: boolean
+    tsgActivationPct?: number
+    tsgDropPct?: number
     trailingEnabled?: boolean
     trailingDistancePct?: number
 }
@@ -506,13 +519,20 @@ export interface PositionTPSLMonitoring {
     sg_pct: number | null
     sg_drop_pct: number | null
     sg_activated: boolean
+    tsg_enabled: boolean
+    tsg_activation_pct: number | null
+    tsg_drop_pct: number | null
+    tsg_activated: boolean
+    tsg_max_pnl_pct: number | null
     sl_enabled: boolean
     sl_pct: number | null
     tp_proximity_pct: number | null
     sg_proximity_pct: number | null
+    tsg_proximity_pct: number | null
     sl_proximity_pct: number | null
     distance_to_tp_pct: number | null
     distance_to_sg_pct: number | null
+    distance_to_tsg_pct: number | null
     distance_to_sl_pct: number | null
     status: 'PROFIT' | 'LOSS' | 'AT_TP' | 'AT_SL' | 'UNKNOWN'
     qty_remaining: number
@@ -520,6 +540,7 @@ export interface PositionTPSLMonitoring {
     sl_triggered: boolean
     tp_triggered: boolean
     sg_triggered: boolean
+    tsg_triggered: boolean
     total_value_usd: number
     current_value_usd: number | null
     unrealized_pnl_usd: number | null

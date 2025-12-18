@@ -10,7 +10,7 @@ interface WizardStepSLTPProps {
 }
 
 export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
-    const hasCurrentValues = data.stopLossPercent || data.takeProfitPercent || data.stopGainPercent || data.stopGainDropPercent || data.minProfitPct || data.trailingStop
+    const hasCurrentValues = data.stopLossPercent || data.takeProfitPercent || data.stopGainPercent || data.stopGainDropPercent || data.trailingStopGain || data.trailingStopGainActivationPct || data.trailingStopGainDropPct || data.minProfitPct || data.trailingStop
     
     // Validação: Stop Gain deve ser menor que Take Profit
     const sgError = data.stopGain && data.takeProfitPercent && data.stopGainPercent && 
@@ -51,6 +51,12 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Stop Gain:</span>
                                     <span className="font-medium">{data.stopGainPercent}%</span>
+                                </div>
+                            )}
+                            {data.trailingStopGain && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Trailing Stop Gain:</span>
+                                    <span className="font-medium">Habilitado</span>
                                 </div>
                             )}
                             {data.minProfitPct && (
@@ -152,6 +158,75 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                         )}
                     </div>
                 )}
+
+                {/* TSG - Independente de TP */}
+                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200">
+                    <div className="flex items-center justify-between mb-3">
+                        <Label>Trailing Stop Gain (Rastreamento Dinâmico)</Label>
+                        <Switch
+                            checked={data.trailingStopGain || false}
+                            onCheckedChange={(checked) => {
+                                updateData({ trailingStopGain: checked })
+                                if (!checked) {
+                                    updateData({ 
+                                        trailingStopGainActivationPct: undefined,
+                                        trailingStopGainDropPct: undefined
+                                    })
+                                }
+                            }}
+                            disabled={data.stopGain}
+                        />
+                    </div>
+                    {data.stopGain && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+                            Desabilite o Stop Gain fixo para usar Trailing Stop Gain
+                        </p>
+                    )}
+                    {data.trailingStopGain && (
+                        <div className="space-y-3">
+                            <div>
+                                <Label>% Inicial de Ativação</Label>
+                                <Input
+                                    type="number"
+                                    step="0.1"
+                                    min="0.1"
+                                    value={data.trailingStopGainActivationPct || ''}
+                                    onChange={(e) => updateData({ trailingStopGainActivationPct: e.target.value ? parseFloat(e.target.value) : undefined })}
+                                    placeholder="Ex: 2.0"
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Ativa o rastreamento quando atingir este lucro
+                                </p>
+                            </div>
+                            
+                            <div>
+                                <Label>% de Queda do Pico para Vender</Label>
+                                <Input
+                                    type="number"
+                                    step="0.1"
+                                    min="0.1"
+                                    value={data.trailingStopGainDropPct || ''}
+                                    onChange={(e) => updateData({ trailingStopGainDropPct: e.target.value ? parseFloat(e.target.value) : undefined })}
+                                    placeholder="Ex: 0.5 ou 1.0"
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Vende se cair esta % a partir do pico máximo atingido
+                                </p>
+                            </div>
+                            
+                            {data.trailingStopGainActivationPct && data.trailingStopGainDropPct && (
+                                <div className="bg-amber-100 dark:bg-amber-900/30 p-3 rounded border border-amber-300 dark:border-amber-700">
+                                    <p className="text-xs font-medium mb-1">Exemplo:</p>
+                                    <ul className="text-xs space-y-1 text-muted-foreground">
+                                        <li>• Ativa em {data.trailingStopGainActivationPct}%</li>
+                                        <li>• Se atingir 20%, vende se cair para {(20 - data.trailingStopGainDropPct).toFixed(1)}%</li>
+                                        <li>• Sem limite máximo de lucro rastreado</li>
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
 
                 <div>
                     <Label htmlFor="minProfitPct">Lucro Mínimo (%) *</Label>

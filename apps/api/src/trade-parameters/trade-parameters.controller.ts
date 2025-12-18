@@ -164,6 +164,9 @@ export class TradeParametersController {
             default_sg_enabled: true,
             default_sg_pct: true,
             default_sg_drop_pct: true,
+            default_tsg_enabled: true,
+            default_tsg_activation_pct: true,
+            default_tsg_drop_pct: true,
             created_at: true,
             updated_at: true,
             exchange_account: {
@@ -386,6 +389,11 @@ export class TradeParametersController {
           : (subscriberParams?.default_sg_pct !== null && subscriberParams?.default_sg_pct !== undefined),
         defaultSgPct: createDto.stopGainPercent || createDto.stopGain || subscriberParams?.default_sg_pct,
         defaultSgDropPct: createDto.stopGainDropPercent || subscriberParams?.default_sg_drop_pct,
+        defaultTsgEnabled: createDto.trailingStopGain !== undefined
+          ? createDto.trailingStopGain
+          : (subscriberParams?.default_tsg_enabled || false),
+        defaultTsgActivationPct: createDto.trailingStopGainActivationPct || subscriberParams?.default_tsg_activation_pct,
+        defaultTsgDropPct: createDto.trailingStopGainDropPct || subscriberParams?.default_tsg_drop_pct,
         trailingStopEnabled: createDto.trailingStop || false,
         trailingDistancePct: createDto.trailingDistancePct,
         minProfitPct: createDto.minProfitPct ?? createDto.min_profit_pct,
@@ -547,6 +555,12 @@ export class TradeParametersController {
       }
       if (updateDto.default_sg_drop_pct !== undefined) updateData.default_sg_drop_pct = updateDto.default_sg_drop_pct;
       if (updateDto.stopGainDropPercent !== undefined) updateData.default_sg_drop_pct = updateDto.stopGainDropPercent;
+      if (updateDto.default_tsg_enabled !== undefined) updateData.default_tsg_enabled = updateDto.default_tsg_enabled;
+      if (updateDto.trailingStopGain !== undefined) updateData.default_tsg_enabled = updateDto.trailingStopGain;
+      if (updateDto.default_tsg_activation_pct !== undefined) updateData.default_tsg_activation_pct = updateDto.default_tsg_activation_pct;
+      if (updateDto.trailingStopGainActivationPct !== undefined) updateData.default_tsg_activation_pct = updateDto.trailingStopGainActivationPct;
+      if (updateDto.default_tsg_drop_pct !== undefined) updateData.default_tsg_drop_pct = updateDto.default_tsg_drop_pct;
+      if (updateDto.trailingStopGainDropPct !== undefined) updateData.default_tsg_drop_pct = updateDto.trailingStopGainDropPct;
       if (updateDto.trailing_stop_enabled !== undefined) updateData.trailing_stop_enabled = updateDto.trailing_stop_enabled;
       if (updateDto.trailing_distance_pct !== undefined) updateData.trailing_distance_pct = updateDto.trailing_distance_pct;
       if (updateDto.min_profit_pct !== undefined || updateDto.minProfitPct !== undefined) {

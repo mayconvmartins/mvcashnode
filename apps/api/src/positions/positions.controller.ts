@@ -1478,6 +1478,7 @@ export class PositionsController {
         OR: [
           { sl_enabled: true },
           { tp_enabled: true },
+          { tsg_enabled: true },
         ],
       };
 
@@ -1648,6 +1649,14 @@ export class PositionsController {
             sg_triggered: position.sg_triggered,
             sg_proximity_pct: null,
             distance_to_sg_pct: null,
+            tsg_enabled: position.tsg_enabled,
+            tsg_activation_pct: position.tsg_activation_pct?.toNumber() || null,
+            tsg_drop_pct: position.tsg_drop_pct?.toNumber() || null,
+            tsg_activated: position.tsg_activated,
+            tsg_max_pnl_pct: position.tsg_max_pnl_pct?.toNumber() || null,
+            tsg_triggered: position.tsg_triggered,
+            tsg_proximity_pct: null,
+            distance_to_tsg_pct: null,
             total_value_usd: totalInvestedUsd,
             current_value_usd: null,
             unrealized_pnl_usd: null,
@@ -1708,6 +1717,43 @@ export class PositionsController {
           }
         }
 
+        // Calcular proximidade e distância para Trailing Stop Gain
+        let tsgProximityPct: number | null = null;
+        let distanceToTsgPct: number | null = null;
+        if (position.tsg_enabled && position.tsg_activation_pct) {
+          const tsgActivationPct = position.tsg_activation_pct.toNumber();
+          const tsgDropPct = position.tsg_drop_pct?.toNumber() || 0;
+          const tsgMaxPnlPct = position.tsg_max_pnl_pct?.toNumber() || null;
+          
+          if (position.tsg_activated && tsgMaxPnlPct !== null) {
+            // TSG já ativado - calcular proximidade baseado no pico máximo
+            const sellThreshold = tsgMaxPnlPct - tsgDropPct;
+            if (pnlPct <= sellThreshold) {
+              tsgProximityPct = 100; // Atingiu threshold de venda
+              distanceToTsgPct = 0;
+            } else {
+              // Proximidade baseada na distância do threshold de venda
+              const distanceFromThreshold = pnlPct - sellThreshold;
+              const totalRange = tsgMaxPnlPct - sellThreshold; // Range entre pico e threshold
+              if (totalRange > 0) {
+                tsgProximityPct = (distanceFromThreshold / totalRange) * 100;
+              } else {
+                tsgProximityPct = 0;
+              }
+              distanceToTsgPct = sellThreshold - pnlPct; // Quanto falta para vender
+            }
+          } else {
+            // TSG não ativado ainda - calcular proximidade até ativação
+            if (pnlPct >= tsgActivationPct) {
+              tsgProximityPct = 100;
+              distanceToTsgPct = 0;
+            } else {
+              tsgProximityPct = pnlPct > 0 ? (pnlPct / tsgActivationPct) * 100 : 0;
+              distanceToTsgPct = tsgActivationPct - pnlPct;
+            }
+          }
+        }
+
         // Determinar status
         let status: 'PROFIT' | 'LOSS' | 'AT_TP' | 'AT_SL' = pnlPct >= 0 ? 'PROFIT' : 'LOSS';
         if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
@@ -1731,13 +1777,22 @@ export class PositionsController {
           sg_pct: position.sg_pct?.toNumber() || null,
           sg_drop_pct: position.sg_drop_pct?.toNumber() || null,
           sg_activated: position.sg_activated,
+          sg_triggered: position.sg_triggered,
+          tsg_enabled: position.tsg_enabled,
+          tsg_activation_pct: position.tsg_activation_pct?.toNumber() || null,
+          tsg_drop_pct: position.tsg_drop_pct?.toNumber() || null,
+          tsg_activated: position.tsg_activated,
+          tsg_max_pnl_pct: position.tsg_max_pnl_pct?.toNumber() || null,
+          tsg_triggered: position.tsg_triggered,
           sl_enabled: position.sl_enabled,
           sl_pct: position.sl_pct?.toNumber() || null,
           tp_proximity_pct: tpProximityPct,
           sg_proximity_pct: sgProximityPct,
+          tsg_proximity_pct: tsgProximityPct,
           sl_proximity_pct: slProximityPct,
           distance_to_tp_pct: distanceToTpPct,
           distance_to_sg_pct: distanceToSgPct,
+          distance_to_tsg_pct: distanceToTsgPct,
           distance_to_sl_pct: distanceToSlPct,
           status,
           qty_remaining: qtyRemaining,

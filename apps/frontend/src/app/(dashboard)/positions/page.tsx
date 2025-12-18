@@ -711,11 +711,16 @@ export default function PositionsPage() {
                             SG: {position.sg_pct}% (-{position.sg_drop_pct}%)
                             {position.sg_activated && ' ✓'}
                         </Badge>
-                    ) : (
-                        <Badge variant="outline" className="text-xs opacity-50 text-muted-foreground">
-                            SG: -
+                    ) : null}
+                    {position.tsg_enabled ? (
+                        <Badge 
+                            variant="outline" 
+                            className={`text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800 ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 border-amber-500/50' : ''}`}
+                        >
+                            TSG {position.tsg_activated && '🎯'}
+                            {position.tsg_triggered && ' ✓'}
                         </Badge>
-                    )}
+                    ) : null}
                 </div>
             ),
         },
@@ -979,11 +984,16 @@ export default function PositionsPage() {
                             SG: {position.sg_pct}% (-{position.sg_drop_pct}%)
                             {position.sg_activated && ' ✓'}
                         </Badge>
-                    ) : (
-                        <Badge variant="outline" className="text-xs opacity-50 text-muted-foreground">
-                            SG: -
+                    ) : null}
+                    {position.tsg_enabled ? (
+                        <Badge 
+                            variant="outline" 
+                            className={`text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800 ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 border-amber-500/50' : ''}`}
+                        >
+                            TSG {position.tsg_activated && '🎯'}
+                            {position.tsg_triggered && ' ✓'}
                         </Badge>
-                    )}
+                    ) : null}
                 </div>
             ),
         },

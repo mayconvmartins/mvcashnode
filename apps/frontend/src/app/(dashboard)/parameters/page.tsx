@@ -174,11 +174,12 @@ export default function ParametersPage() {
                         <Badge variant="outline" className="text-xs">
                             SG: {param.default_sg_pct}%{param.default_sg_drop_pct && ` (-${param.default_sg_drop_pct}%)`}
                         </Badge>
-                    ) : (
-                        <Badge variant="outline" className="text-xs opacity-50 text-muted-foreground">
-                            SG: -
+                    ) : null}
+                    {param.default_tsg_enabled ? (
+                        <Badge variant="outline" className="text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800">
+                            TSG: {param.default_tsg_activation_pct}% (-{param.default_tsg_drop_pct}%)
                         </Badge>
-                    )}
+                    ) : null}
                     {param.trailing_stop_enabled && <Badge variant="outline">Trail</Badge>}
                 </div>
             ),

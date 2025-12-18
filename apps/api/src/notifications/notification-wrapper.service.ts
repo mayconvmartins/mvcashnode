@@ -142,6 +142,21 @@ export class NotificationWrapperService {
   }
 
   /**
+   * Envia notificação de Trailing Stop Gain acionado
+   */
+  async sendTrailingStopGainAlert(positionId: number, executionId: number): Promise<void> {
+    try {
+      const service = await this.getNotificationService();
+      if (!service) {
+        return;
+      }
+      await service.sendTrailingStopGainAlert(positionId, executionId);
+    } catch (error: any) {
+      console.error('[NOTIFICATION-WRAPPER] Erro ao enviar alerta de Trailing Stop Gain:', error.message);
+    }
+  }
+
+  /**
    * Envia notificação de Take Profit parcial
    */
   async sendPartialTPAlert(positionId: number, executionId: number): Promise<void> {

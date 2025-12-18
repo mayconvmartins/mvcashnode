@@ -74,6 +74,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           { sl_enabled: true },
           { tp_enabled: true },
           { trailing_enabled: true },
+          { tsg_enabled: true },
         ],
       },
       include: {
@@ -119,6 +120,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
           { sl_triggered: true },
           { tp_triggered: true },
           { trailing_triggered: true },
+          { tsg_triggered: true },
         ],
       },
       include: {
@@ -166,6 +168,12 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             }
             if (position.tp_triggered) {
               updateData.tp_triggered = false;
+            }
+            if (position.sg_triggered) {
+              updateData.sg_triggered = false;
+            }
+            if (position.tsg_triggered) {
+              updateData.tsg_triggered = false;
             }
             if (position.trailing_triggered) {
               updateData.trailing_triggered = false;
@@ -565,6 +573,155 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                 where: { id: position.id },
                 data: { sg_triggered: false },
               });
+            }
+          }
+        }
+
+        // === TRAILING STOP GAIN ===
+        // TSG é independente de TP - funciona sozinho
+        if (position.tsg_enabled && 
+            position.tsg_activation_pct && 
+            position.tsg_drop_pct &&
+            !position.tsg_triggered) {
+          
+          const tsgActivationPct = position.tsg_activation_pct.toNumber();
+          const tsgDropPct = position.tsg_drop_pct.toNumber();
+          
+          // Etapa 1: Ativar TSG quando atingir threshold de ativação
+          if (!position.tsg_activated && pnlPct >= tsgActivationPct) {
+            await this.prisma.tradePosition.updateMany({
+              where: { id: position.id, tsg_activated: false },
+              data: { 
+                tsg_activated: true,
+                tsg_max_pnl_pct: pnlPct // Inicializar pico com lucro atual
+              }
+            });
+            this.logger.log(
+              `[SL-TP-MONITOR-SIM] [TSG] 🎯 ATIVADO para posição ${position.id} (${position.symbol}) - ` +
+              `Lucro atingiu ${pnlPct.toFixed(2)}% (threshold: ${tsgActivationPct}%)`
+            );
+          }
+          
+          // Etapa 2: Atualizar pico máximo se lucro subiu (após ativação)
+          if (position.tsg_activated) {
+            const currentMax = position.tsg_max_pnl_pct?.toNumber() || tsgActivationPct;
+            
+            if (pnlPct > currentMax) {
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { tsg_max_pnl_pct: pnlPct }
+              });
+              this.logger.log(
+                `[SL-TP-MONITOR-SIM] [TSG] 📈 NOVO PICO para posição ${position.id} (${position.symbol}) - ` +
+                `${pnlPct.toFixed(2)}% (anterior: ${currentMax.toFixed(2)}%)`
+              );
+            }
+            
+            // Etapa 3: Verificar se deve vender (caiu X% do pico)
+            const sellThreshold = currentMax - tsgDropPct;
+            
+            // Só vende se caiu abaixo do threshold
+            if (pnlPct <= sellThreshold) {
+              // Lock otimista para prevenir duplicatas
+              const lockResult = await this.prisma.tradePosition.updateMany({
+                where: { id: position.id, tsg_triggered: false },
+                data: { tsg_triggered: true }
+              });
+              
+              if (lockResult.count === 0) {
+                // Outro processo já pegou o lock
+                continue;
+              }
+              
+              // Verificar se já existe job pendente
+              const existingJob = await this.prisma.tradeJob.findFirst({
+                where: {
+                  position_id_to_close: position.id,
+                  status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING'] }
+                }
+              });
+              
+              if (existingJob) {
+                this.logger.warn(
+                  `[SL-TP-MONITOR-SIM] [TSG] Job ${existingJob.id} (${existingJob.status}) já existe para posição ${position.id}`
+                );
+                continue;
+              }
+              
+              try {
+                // REVALIDAÇÃO: Verificar novamente se o preço ainda está na condição de venda
+                const currentPnlPct = ((currentPrice - priceOpen) / priceOpen) * 100;
+                
+                if (currentPnlPct > sellThreshold) {
+                  this.logger.debug(
+                    `[SL-TP-MONITOR-SIM] [TSG] Cancelado - preço recuperou: ${currentPnlPct.toFixed(2)}% > ${sellThreshold.toFixed(2)}%`
+                  );
+                  // Reverter flag pois preço voltou a subir
+                  await this.prisma.tradePosition.update({
+                    where: { id: position.id },
+                    data: { tsg_triggered: false }
+                  });
+                  continue;
+                }
+                
+                // IMPORTANTE: Calcular preço LIMIT com pequeno spread para garantir execução
+                const limitPrice = currentPrice * 0.999;
+                
+                this.logger.log(
+                  `[SL-TP-MONITOR-SIM] [TSG] 💰 Criando ordem LIMIT de venda - Posição ${position.id} ` +
+                  `Lucro atual: ${pnlPct.toFixed(2)}%, Pico: ${currentMax.toFixed(2)}%, ` +
+                  `Threshold: ${sellThreshold.toFixed(2)}%, Preço: ${limitPrice}`
+                );
+                
+                const tradeJob = await tradeJobService.createJob({
+                  exchangeAccountId: position.exchange_account_id,
+                  tradeMode: TradeMode.SIMULATION,
+                  symbol: position.symbol,
+                  side: 'SELL',
+                  orderType: 'LIMIT', // ✅ SEMPRE LIMIT
+                  baseQuantity: position.qty_remaining.toNumber(),
+                  limitPrice, // ✅ Preço calculado com spread
+                  positionIdToClose: position.id,
+                  skipParameterValidation: true,
+                  createdBy: 'TRAILING_STOP_GAIN'
+                });
+                
+                this.logger.log(
+                  `[SL-TP-MONITOR-SIM] [TSG] Job criado: ID=${tradeJob.id}, status=${tradeJob.status}, ` +
+                  `symbol=${position.symbol}, side=SELL, orderType=LIMIT, ` +
+                  `baseQuantity=${position.qty_remaining.toNumber()}, limitPrice=${limitPrice}`
+                );
+                
+                // Enfileirar job para execução
+                await this.tradeExecutionQueue.add(
+                  'execute-trade', 
+                  { tradeJobId: tradeJob.id },
+                  {
+                    jobId: `trade-job-${tradeJob.id}`,
+                    attempts: 3,
+                    removeOnComplete: true,
+                    removeOnFail: { age: 3600 }
+                  }
+                );
+                
+                this.logger.log(
+                  `[SL-TP-MONITOR-SIM] [TSG] ✅ Venda enfileirada - Job ${tradeJob.id} na fila trade-execution-sim`
+                );
+                
+                triggered++;
+              } catch (error: any) {
+                this.logger.error(
+                  `[SL-TP-MONITOR-SIM] [TSG] ❌ Erro ao criar job de venda para posição ${position.id}: ${error.message}`
+                );
+                
+                // Reverter flag se falhou
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { tsg_triggered: false }
+                });
+                
+                this.logger.warn(`[SL-TP-MONITOR-SIM] [TSG] Flag tsg_triggered revertida para posição ${position.id}`);
+              }
             }
           }
         }
