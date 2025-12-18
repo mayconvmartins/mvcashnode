@@ -246,12 +246,14 @@ function LoginPageContent() {
             if (error.name === 'NotAllowedError') {
                 // Este erro pode significar várias coisas
                 const msg = error.message?.toLowerCase() || ''
-                if (msg.includes('timed out')) {
-                    toast.error('Tempo esgotado. Tente novamente.')
-                    setError('A operação expirou. Clique no botão novamente para tentar.')
-                } else if (msg.includes('not allowed')) {
-                    toast.error('Operação bloqueada pelo navegador')
-                    setError('Nenhuma Passkey encontrada ou a operação foi bloqueada. Use email e senha.')
+                console.log('[Passkey] NotAllowedError:', error.message)
+                
+                if (msg.includes('timed out') || msg.includes('timeout')) {
+                    toast.error('Nenhuma Passkey encontrada neste dispositivo')
+                    setError('Passkey não encontrada. Verifique se você registrou a Passkey neste dispositivo/navegador, ou use email e senha.')
+                } else if (msg.includes('not allowed') || msg.includes('operation')) {
+                    toast.error('Passkey não disponível')
+                    setError('Nenhuma Passkey encontrada para esta conta neste dispositivo. A Passkey pode ter sido registrada em outro dispositivo/navegador.')
                 } else {
                     // Usuário apenas cancelou - não mostrar erro
                     console.log('[Passkey] Usuário cancelou a operação')
@@ -466,8 +468,8 @@ function LoginPageContent() {
                                     )}
                                 </div>
 
-                                {/* Passkey Button - mostrar se email tem passkeys */}
-                                {hasPasskeys && isPasskeySupported && (
+                                {/* Passkey Button - mostrar sempre que dispositivo suportar */}
+                                {isPasskeySupported && (
                                     <Button
                                         type="button"
                                         variant="outline"
@@ -484,8 +486,8 @@ function LoginPageContent() {
                                     </Button>
                                 )}
 
-                                {/* Divider quando tem passkeys */}
-                                {hasPasskeys && isPasskeySupported && (
+                                {/* Divider quando dispositivo suporta Passkey */}
+                                {isPasskeySupported && (
                                     <div className="relative">
                                         <div className="absolute inset-0 flex items-center">
                                             <span className="w-full border-t border-slate-700" />

@@ -31,8 +31,14 @@
 ### Erro NotAllowedError no Desktop
 - **Problema:** Mensagem genérica quando operação de Passkey era bloqueada ou expirava
 - **Solução:** Tratamento específico com mensagens claras:
-  - Timeout: "A operação expirou. Clique no botão novamente para tentar."
-  - Bloqueado: "Nenhuma Passkey encontrada ou a operação foi bloqueada. Use email e senha."
+  - Timeout: "Passkey não encontrada. Verifique se você registrou a Passkey neste dispositivo/navegador."
+  - Bloqueado: "Nenhuma Passkey encontrada para esta conta neste dispositivo. A Passkey pode ter sido registrada em outro dispositivo/navegador."
+- **Arquivos alterados:**
+  - `apps/frontend/src/app/login/page.tsx`
+
+### Botão de Passkey Sempre Visível
+- **Problema:** Botão de Passkey só aparecia se o email já tivesse Passkeys cadastradas
+- **Solução:** Botão agora aparece sempre que o dispositivo suportar Passkeys, permitindo login mesmo sem digitar email primeiro
 - **Arquivos alterados:**
   - `apps/frontend/src/app/login/page.tsx`
 
