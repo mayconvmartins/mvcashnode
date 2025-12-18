@@ -106,18 +106,8 @@ export class SubscriberController {
       });
     }
 
-    const minAmountRaw = defaults.min_quote_amount;
-    const maxAmountRaw = defaults.max_quote_amount;
-    
-    const minAmount: number = typeof minAmountRaw === 'object' && minAmountRaw !== null && 'toNumber' in minAmountRaw 
-      ? (minAmountRaw as any).toNumber() 
-      : (minAmountRaw as number) ?? 20;
-    
-    const maxAmount: number | null = maxAmountRaw === null || maxAmountRaw === undefined 
-      ? null 
-      : (typeof maxAmountRaw === 'object' && 'toNumber' in maxAmountRaw 
-          ? (maxAmountRaw as any).toNumber() 
-          : (maxAmountRaw as number));
+    const minAmount = Number(defaults.min_quote_amount) || 20;
+    const maxAmount = defaults.max_quote_amount ? Number(defaults.max_quote_amount) : null;
 
     // Validar limites
     if (quote_amount_fixed < minAmount) {
