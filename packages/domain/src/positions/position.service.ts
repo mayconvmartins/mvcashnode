@@ -1475,8 +1475,15 @@ export class PositionService {
       throw new Error('Trailing Stop Gain e Stop Gain fixo não podem estar habilitados ao mesmo tempo');
     }
 
-    // Se tpEnabled for definido como false, desabilitar também o Stop Gain
+    // Se TSG está sendo ativado, desativar TP e SG automaticamente
     const updateData: any = {};
+    if (tsgEnabled === true) {
+      updateData.tp_enabled = false;
+      updateData.sg_enabled = false;
+      updateData.sg_pct = null;
+      updateData.sg_drop_pct = null;
+      updateData.sg_activated = false;
+    }
     if (slEnabled !== undefined) updateData.sl_enabled = slEnabled;
     if (slPct !== undefined) updateData.sl_pct = slPct;
     if (tpEnabled !== undefined) {

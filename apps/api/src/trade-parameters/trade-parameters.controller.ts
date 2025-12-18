@@ -547,14 +547,41 @@ export class TradeParametersController {
         updateData.default_tp_enabled = true;
         updateData.default_tp_pct = updateDto.takeProfitPercent || updateDto.takeProfit;
       }
-      if (updateDto.default_sg_enabled !== undefined) updateData.default_sg_enabled = updateDto.default_sg_enabled;
-      if (updateDto.default_sg_pct !== undefined) updateData.default_sg_pct = updateDto.default_sg_pct;
+      if (updateDto.default_sg_enabled !== undefined) {
+        updateData.default_sg_enabled = updateDto.default_sg_enabled;
+        // Se desabilitar SG, limpar os valores
+        if (updateDto.default_sg_enabled === false) {
+          updateData.default_sg_pct = null;
+          updateData.default_sg_drop_pct = null;
+        }
+      }
+      if (updateDto.default_sg_pct !== undefined) {
+        // Só atualizar se for um número válido, não false
+        if (typeof updateDto.default_sg_pct === 'number') {
+          updateData.default_sg_pct = updateDto.default_sg_pct;
+        } else if (updateDto.default_sg_pct === null) {
+          updateData.default_sg_pct = null;
+        }
+      }
       if (updateDto.stopGain !== undefined || updateDto.stopGainPercent !== undefined) {
         updateData.default_sg_enabled = true;
-        updateData.default_sg_pct = updateDto.stopGainPercent || updateDto.stopGain;
+        const sgPct = updateDto.stopGainPercent || updateDto.stopGain;
+        if (typeof sgPct === 'number') {
+          updateData.default_sg_pct = sgPct;
+        }
       }
-      if (updateDto.default_sg_drop_pct !== undefined) updateData.default_sg_drop_pct = updateDto.default_sg_drop_pct;
-      if (updateDto.stopGainDropPercent !== undefined) updateData.default_sg_drop_pct = updateDto.stopGainDropPercent;
+      if (updateDto.default_sg_drop_pct !== undefined) {
+        if (typeof updateDto.default_sg_drop_pct === 'number') {
+          updateData.default_sg_drop_pct = updateDto.default_sg_drop_pct;
+        } else if (updateDto.default_sg_drop_pct === null) {
+          updateData.default_sg_drop_pct = null;
+        }
+      }
+      if (updateDto.stopGainDropPercent !== undefined) {
+        if (typeof updateDto.stopGainDropPercent === 'number') {
+          updateData.default_sg_drop_pct = updateDto.stopGainDropPercent;
+        }
+      }
       if (updateDto.default_tsg_enabled !== undefined) updateData.default_tsg_enabled = updateDto.default_tsg_enabled;
       if (updateDto.trailingStopGain !== undefined) updateData.default_tsg_enabled = updateDto.trailingStopGain;
       if (updateDto.default_tsg_activation_pct !== undefined) updateData.default_tsg_activation_pct = updateDto.default_tsg_activation_pct;

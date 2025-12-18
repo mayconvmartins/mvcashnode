@@ -64,6 +64,9 @@ export default function PositionsPage() {
     const [bulkSGEnabled, setBulkSGEnabled] = useState(false)
     const [bulkSGPct, setBulkSGPct] = useState<string>('')
     const [bulkSGDropPct, setBulkSGDropPct] = useState<string>('')
+    const [bulkTSGEnabled, setBulkTSGEnabled] = useState(false)
+    const [bulkTSGActivationPct, setBulkTSGActivationPct] = useState<string>('')
+    const [bulkTSGDropPct, setBulkTSGDropPct] = useState<string>('')
     const [createManualModalOpen, setCreateManualModalOpen] = useState(false)
     const [manualBuyModalOpen, setManualBuyModalOpen] = useState(false)
     const [bulkMinProfitDialogOpen, setBulkMinProfitDialogOpen] = useState(false)
@@ -314,10 +317,13 @@ export default function PositionsPage() {
             setBulkSLPct('')
             setBulkTPEnabled(false)
             setBulkTPPct('')
-            setBulkSGEnabled(false)
-            setBulkSGPct('')
-            setBulkSGDropPct('')
-            if (data.updated > 0) {
+                                setBulkSGEnabled(false)
+                                setBulkSGPct('')
+                                setBulkSGDropPct('')
+                                setBulkTSGEnabled(false)
+                                setBulkTSGActivationPct('')
+                                setBulkTSGDropPct('')
+                                if (data.updated > 0) {
                 toast.success(`${data.updated} posição(ões) atualizada(s) com sucesso`)
             }
             if (data.errors && data.errors.length > 0) {
@@ -374,6 +380,25 @@ export default function PositionsPage() {
             updateData.sgDropPct = sgDropPctNum
         } else if (bulkSGEnabled === false) {
             updateData.sgEnabled = false
+        }
+
+        if (bulkTSGEnabled && bulkTSGActivationPct && bulkTSGDropPct) {
+            const tsgActivationPctNum = parseFloat(bulkTSGActivationPct)
+            const tsgDropPctNum = parseFloat(bulkTSGDropPct)
+            
+            if (tsgActivationPctNum <= 0 || tsgDropPctNum <= 0) {
+                toast.error('Valores de TSG devem ser maiores que 0')
+                return
+            }
+            
+            updateData.tsgEnabled = true
+            updateData.tsgActivationPct = tsgActivationPctNum
+            updateData.tsgDropPct = tsgDropPctNum
+            // Se ativar TSG, desativar TP e SG
+            updateData.tpEnabled = false
+            updateData.sgEnabled = false
+        } else if (bulkTSGEnabled === false) {
+            updateData.tsgEnabled = false
         }
 
         bulkUpdateSLTPMutation.mutate(updateData)
@@ -712,15 +737,15 @@ export default function PositionsPage() {
                             {position.sg_activated && ' ✓'}
                         </Badge>
                     ) : null}
-                    {position.tsg_enabled ? (
+                    {position.tsg_enabled && (
                         <Badge 
                             variant="outline" 
-                            className={`text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800 ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 border-amber-500/50' : ''}`}
+                            className={`text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800 ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/50 dark:border-amber-500/50' : 'text-amber-700 dark:text-amber-300'}`}
                         >
-                            TSG {position.tsg_activated && '🎯'}
+                            TSG {position.tsg_activated ? '🎯' : '⏳'}
                             {position.tsg_triggered && ' ✓'}
                         </Badge>
-                    ) : null}
+                    )}
                 </div>
             ),
         },
@@ -985,15 +1010,15 @@ export default function PositionsPage() {
                             {position.sg_activated && ' ✓'}
                         </Badge>
                     ) : null}
-                    {position.tsg_enabled ? (
+                    {position.tsg_enabled && (
                         <Badge 
                             variant="outline" 
-                            className={`text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800 ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 border-amber-500/50' : ''}`}
+                            className={`text-xs bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-800 ${position.tsg_activated ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/50 dark:border-amber-500/50' : 'text-amber-700 dark:text-amber-300'}`}
                         >
-                            TSG {position.tsg_activated && '🎯'}
+                            TSG {position.tsg_activated ? '🎯' : '⏳'}
                             {position.tsg_triggered && ' ✓'}
                         </Badge>
-                    ) : null}
+                    )}
                 </div>
             ),
         },
@@ -1716,6 +1741,63 @@ export default function PositionsPage() {
                                 )}
                             </div>
                         )}
+
+                        {/* Trailing Stop Gain */}
+                        <div className="space-y-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                            <div className="flex items-center space-x-2">
+                                <Checkbox
+                                    id="bulk-tsg-enabled"
+                                    checked={bulkTSGEnabled}
+                                    onCheckedChange={(checked) => {
+                                        const isChecked = checked === true
+                                        setBulkTSGEnabled(isChecked)
+                                        // Se ativar TSG, desativar TP e SG automaticamente
+                                        if (isChecked) {
+                                            setBulkTPEnabled(false)
+                                            setBulkSGEnabled(false)
+                                        }
+                                    }}
+                                    disabled={bulkSGEnabled}
+                                />
+                                <Label htmlFor="bulk-tsg-enabled" className="font-medium">
+                                    Ativar Trailing Stop Gain (Rastreamento Dinâmico)
+                                </Label>
+                            </div>
+                            {bulkSGEnabled && (
+                                <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    Desabilite o Stop Gain fixo para usar Trailing Stop Gain
+                                </p>
+                            )}
+                            {bulkTSGEnabled && (
+                                <div className="space-y-2 pl-6">
+                                    <Label htmlFor="bulk-tsg-activation-pct">% Inicial de Ativação</Label>
+                                    <Input
+                                        id="bulk-tsg-activation-pct"
+                                        type="number"
+                                        step="0.1"
+                                        min="0.1"
+                                        placeholder="Ex: 2.0"
+                                        value={bulkTSGActivationPct}
+                                        onChange={(e) => setBulkTSGActivationPct(e.target.value)}
+                                    />
+                                    <Label htmlFor="bulk-tsg-drop-pct">% de Queda do Pico para Vender</Label>
+                                    <Input
+                                        id="bulk-tsg-drop-pct"
+                                        type="number"
+                                        step="0.1"
+                                        min="0.1"
+                                        placeholder="Ex: 0.5 ou 1.0"
+                                        value={bulkTSGDropPct}
+                                        onChange={(e) => setBulkTSGDropPct(e.target.value)}
+                                    />
+                                    {bulkTSGActivationPct && bulkTSGDropPct && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Ativa em {bulkTSGActivationPct}%, vende se cair {bulkTSGDropPct}% do pico máximo
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button
@@ -1729,6 +1811,9 @@ export default function PositionsPage() {
                                 setBulkSGEnabled(false)
                                 setBulkSGPct('')
                                 setBulkSGDropPct('')
+                                setBulkTSGEnabled(false)
+                                setBulkTSGActivationPct('')
+                                setBulkTSGDropPct('')
                             }}
                         >
                             Cancelar
@@ -1737,10 +1822,12 @@ export default function PositionsPage() {
                             onClick={handleBulkUpdateSLTP}
                             disabled={
                                 bulkUpdateSLTPMutation.isPending || 
-                                (!bulkSLEnabled && !bulkTPEnabled && !bulkSGEnabled) ||
+                                (!bulkSLEnabled && !bulkTPEnabled && !bulkSGEnabled && !bulkTSGEnabled) ||
                                 Boolean(bulkSGEnabled && bulkSGPct && bulkTPPct && parseFloat(bulkSGPct) >= parseFloat(bulkTPPct)) ||
                                 Boolean(bulkSGEnabled && bulkSGDropPct && bulkSGPct && 
-                                    (parseFloat(bulkSGDropPct) <= 0 || parseFloat(bulkSGDropPct) >= parseFloat(bulkSGPct)))
+                                    (parseFloat(bulkSGDropPct) <= 0 || parseFloat(bulkSGDropPct) >= parseFloat(bulkSGPct))) ||
+                                Boolean(bulkTSGEnabled && (!bulkTSGActivationPct || !bulkTSGDropPct || 
+                                    parseFloat(bulkTSGActivationPct) <= 0 || parseFloat(bulkTSGDropPct) <= 0))
                             }
                         >
                             {bulkUpdateSLTPMutation.isPending ? 'Atualizando...' : 'Aplicar'}

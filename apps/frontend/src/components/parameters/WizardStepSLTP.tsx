@@ -160,7 +160,7 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                 )}
 
                 {/* TSG - Independente de TP */}
-                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200">
+                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
                     <div className="flex items-center justify-between mb-3">
                         <Label>Trailing Stop Gain (Rastreamento Dinâmico)</Label>
                         <Switch

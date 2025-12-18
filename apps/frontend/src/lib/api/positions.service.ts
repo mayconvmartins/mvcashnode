@@ -74,6 +74,9 @@ export const positionsService = {
         sgEnabled?: boolean
         sgPct?: number
         sgDropPct?: number
+        tsgEnabled?: boolean
+        tsgActivationPct?: number
+        tsgDropPct?: number
     }): Promise<{
         updated: number
         errors: Array<{ positionId: number; error: string }>

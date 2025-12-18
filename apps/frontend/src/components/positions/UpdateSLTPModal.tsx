@@ -80,6 +80,14 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
             // TSG - Independente de TP
             payload.tsgEnabled = tsgEnabled
             
+            // Se TSG está sendo ativado, desativar TP e SG automaticamente
+            if (tsgEnabled === true) {
+                payload.tpEnabled = false
+                payload.sgEnabled = false
+                payload.sgPct = undefined
+                payload.sgDropPct = undefined
+            }
+            
             if (tsgEnabled === false) {
                 payload.tsgActivationPct = undefined
                 payload.tsgDropPct = undefined
@@ -240,13 +248,21 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                 </div>
             )}
             {/* TSG - Independente de TP */}
-            <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200">
+            <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
                 <div className="flex items-center space-x-2 mb-3">
                     <input
                         type="checkbox"
                         id="tsgEnabled"
                         checked={tsgEnabled}
-                        onChange={(e) => setTsgEnabled(e.target.checked)}
+                        onChange={(e) => {
+                            const checked = e.target.checked
+                            setTsgEnabled(checked)
+                            // Se ativar TSG, desativar TP e SG automaticamente
+                            if (checked) {
+                                setTpEnabled(false)
+                                setSgEnabled(false)
+                            }
+                        }}
                         className="rounded"
                         disabled={sgEnabled}
                     />

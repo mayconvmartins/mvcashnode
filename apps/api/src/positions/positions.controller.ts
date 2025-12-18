@@ -2575,7 +2575,7 @@ export class PositionsController {
   })
   async bulkUpdateSLTP(
     @CurrentUser() user: any,
-    @Body() bulkUpdateDto: { positionIds: number[]; slEnabled?: boolean; slPct?: number; tpEnabled?: boolean; tpPct?: number; sgEnabled?: boolean; sgPct?: number; sgDropPct?: number }
+    @Body() bulkUpdateDto: { positionIds: number[]; slEnabled?: boolean; slPct?: number; tpEnabled?: boolean; tpPct?: number; sgEnabled?: boolean; sgPct?: number; sgDropPct?: number; tsgEnabled?: boolean; tsgActivationPct?: number; tsgDropPct?: number }
   ): Promise<{ updated: number; errors: Array<{ positionId: number; error: string }> }> {
     const errors: Array<{ positionId: number; error: string }> = [];
     let updated = 0;
@@ -2603,15 +2603,27 @@ export class PositionsController {
           continue;
         }
 
+        // Se TSG está sendo ativado, desativar TP e SG automaticamente
+        let finalTpEnabled = bulkUpdateDto.tpEnabled
+        let finalSgEnabled = bulkUpdateDto.sgEnabled
+        
+        if (bulkUpdateDto.tsgEnabled === true) {
+          finalTpEnabled = false
+          finalSgEnabled = false
+        }
+
         await this.positionsService.getDomainService().updateSLTP(
           positionId,
           bulkUpdateDto.slEnabled,
           bulkUpdateDto.slPct,
-          bulkUpdateDto.tpEnabled,
+          finalTpEnabled,
           bulkUpdateDto.tpPct,
-          bulkUpdateDto.sgEnabled,
+          finalSgEnabled,
           bulkUpdateDto.sgPct,
-          bulkUpdateDto.sgDropPct
+          bulkUpdateDto.sgDropPct,
+          bulkUpdateDto.tsgEnabled,
+          bulkUpdateDto.tsgActivationPct,
+          bulkUpdateDto.tsgDropPct
         );
 
         // Emitir evento WebSocket
