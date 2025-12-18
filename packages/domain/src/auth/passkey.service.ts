@@ -93,7 +93,7 @@ export class PasskeyService {
    */
   async generateRegistrationOptions(
     userId: number,
-    userAgent?: string
+    _userAgent?: string
   ): Promise<PasskeyRegistrationOptions> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -181,7 +181,7 @@ export class PasskeyService {
       throw new Error('Verificação de passkey falhou');
     }
 
-    const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+    const { credentialID, credentialPublicKey, counter } = verification.registrationInfo;
 
     // Limpar o challenge usado
     challengeStore.delete(`reg_${userId}`);
@@ -193,9 +193,9 @@ export class PasskeyService {
     const passkey = await this.prisma.passkey.create({
       data: {
         user_id: userId,
-        credential_id: credential.id,
-        public_key: Buffer.from(credential.publicKey).toString('base64'),
-        counter: BigInt(credential.counter),
+        credential_id: credentialID,
+        public_key: Buffer.from(credentialPublicKey).toString('base64'),
+        counter: BigInt(counter),
         device_name: autoDeviceName,
         transports: response.response.transports?.join(',') || null,
         user_agent: userAgent,

@@ -244,7 +244,7 @@ export class WebPushService {
     subscriptions: any[],
     payload: WebPushPayload,
     templateType?: string,
-    userId?: number,
+    _userId?: number,
     metadata?: { webhookEventId?: number; positionId?: number }
   ): Promise<SendWebPushResult> {
     let sent = 0;

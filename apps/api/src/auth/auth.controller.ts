@@ -34,6 +34,7 @@ import {
   PasskeyCheckEmailDto,
   UpdatePasskeyNameDto,
 } from './dto/passkey.dto';
+import { AuditEntityType, AuditAction } from '@mvcashnode/shared';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -560,11 +561,11 @@ export class AuthController {
       const refreshToken = this.authService.getDomainAuthService().generateRefreshToken(payload);
 
       // Registrar login no histórico
-      await this.authService.getDomainAuditService().logAction({
+      await this.authService.getDomainAuditService().logUserAction({
         userId: authResult.userId,
-        entityType: 'user',
+        entityType: AuditEntityType.USER,
         entityId: authResult.userId,
-        action: 'LOGIN_PASSKEY',
+        action: AuditAction.LOGIN_PASSKEY,
         ip,
         userAgent,
       });

@@ -1,5 +1,5 @@
 import { PrismaService } from '@mvcashnode/db';
-import { TemplateService } from './template.service';
+import { TemplateService, TemplateVariables } from './template.service';
 
 export type NotificationChannel = 'whatsapp' | 'email' | 'webpush';
 
@@ -28,9 +28,6 @@ export interface TemplateRenderResult {
   actionUrl?: string;
 }
 
-export interface TemplateVariables {
-  [key: string]: any;
-}
 
 // Templates padrão por tipo e canal
 const DEFAULT_TEMPLATES: Record<TemplateType, Partial<Record<NotificationChannel, {
