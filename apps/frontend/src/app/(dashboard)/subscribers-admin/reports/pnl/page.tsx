@@ -84,26 +84,39 @@ export default function SubscriberPnLReportPage() {
     const symbolColumns: Column<any>[] = [
         { key: 'symbol', label: 'Símbolo' },
         {
-            key: 'total_pnl',
+            key: 'pnl_usd',
             label: 'PnL Total',
-            render: (row) => <PnLBadge value={row.total_pnl} />,
+            render: (row) => <PnLBadge value={row.pnl_usd} />,
         },
-        { key: 'total_trades', label: 'Total Trades' },
-        { key: 'win_rate', label: 'Win Rate', render: (row) => `${(row.win_rate * 100).toFixed(1)}%` },
+        { key: 'trades', label: 'Total Trades' },
+        { key: 'win_rate', label: 'Win Rate', render: (row) => `${((row.win_rate || 0) * 100).toFixed(1)}%` },
         {
             key: 'avg_pnl',
             label: 'PnL Médio',
-            render: (row) => <PnLBadge value={row.avg_pnl} />,
+            render: (row) => <PnLBadge value={row.trades ? (row.pnl_usd / row.trades) : 0} />,
         },
     ]
+
+    // Calcular PnL acumulado a partir dos dados
+    const byDayWithCumulative = useMemo(() => {
+        if (!byDay) return []
+        let cumulative = 0
+        return byDay.map((day: any) => {
+            cumulative += day.pnl_usd || 0
+            return {
+                ...day,
+                cumulative_pnl: cumulative,
+            }
+        })
+    }, [byDay])
 
     // Colunas para tabela de PnL por dia
     const dayColumns: Column<any>[] = [
         { key: 'date', label: 'Data', render: (row) => new Date(row.date).toLocaleDateString('pt-BR') },
         {
-            key: 'pnl',
+            key: 'pnl_usd',
             label: 'PnL',
-            render: (row) => <PnLBadge value={row.pnl} />,
+            render: (row) => <PnLBadge value={row.pnl_usd} />,
         },
         { key: 'trades', label: 'Trades' },
         {
@@ -189,29 +202,29 @@ export default function SubscriberPnLReportPage() {
             <div className="grid gap-4 md:grid-cols-4">
                 <StatsCard
                     title="PnL Total"
-                    value={formatCurrency(summary?.total_pnl || 0)}
-                    icon={summary?.total_pnl >= 0 ? TrendingUp : TrendingDown}
-                    trend={summary?.total_pnl >= 0 ? 'up' : 'down'}
+                    value={formatCurrency(summary?.netPnL || 0)}
+                    icon={(summary?.netPnL ?? 0) >= 0 ? TrendingUp : TrendingDown}
+                    trend={(summary?.netPnL ?? 0) >= 0 ? 'up' : 'down'}
                     loading={loadingSummary}
                 />
                 <StatsCard
                     title="Total de Trades"
-                    value={summary?.total_trades?.toString() || '0'}
+                    value={summary?.totalTrades?.toString() || '0'}
                     icon={Target}
                     loading={loadingSummary}
                 />
                 <StatsCard
                     title="Win Rate"
-                    value={`${((summary?.win_rate || 0) * 100).toFixed(1)}%`}
+                    value={`${((summary?.winRate || 0) * 100).toFixed(1)}%`}
                     icon={Award}
-                    trend={summary?.win_rate >= 0.5 ? 'up' : 'down'}
+                    trend={(summary?.winRate ?? 0) >= 0.5 ? 'up' : 'down'}
                     loading={loadingSummary}
                 />
                 <StatsCard
                     title="PnL Médio"
-                    value={formatCurrency(summary?.avg_pnl || 0)}
-                    icon={summary?.avg_pnl >= 0 ? TrendingUp : TrendingDown}
-                    trend={summary?.avg_pnl >= 0 ? 'up' : 'down'}
+                    value={formatCurrency(summary?.totalTrades ? ((summary.netPnL || 0) / summary.totalTrades) : 0)}
+                    icon={(summary?.netPnL ?? 0) >= 0 ? TrendingUp : TrendingDown}
+                    trend={(summary?.netPnL ?? 0) >= 0 ? 'up' : 'down'}
                     loading={loadingSummary}
                 />
             </div>
@@ -225,7 +238,7 @@ export default function SubscriberPnLReportPage() {
                     {viewMode === 'chart' ? (
                         <div className="h-[400px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={byDay || []}>
+                                <LineChart data={byDayWithCumulative}>
                                     <CartesianGrid strokeDasharray="3 3" />
                                     <XAxis 
                                         dataKey="date" 
@@ -243,14 +256,14 @@ export default function SubscriberPnLReportPage() {
                                         strokeWidth={2}
                                         name="PnL Acumulado"
                                     />
-                                    <Bar dataKey="pnl" fill="#6366f1" name="PnL Diário" />
+                                    <Bar dataKey="pnl_usd" fill="#6366f1" name="PnL Diário" />
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
                     ) : (
                         <DataTable
                             columns={dayColumns}
-                            data={byDay || []}
+                            data={byDayWithCumulative}
                             loading={loadingByDay}
                         />
                     )}
@@ -272,7 +285,7 @@ export default function SubscriberPnLReportPage() {
                                     <YAxis type="category" dataKey="symbol" width={80} />
                                     <Tooltip formatter={(value: number) => formatCurrency(value)} />
                                     <Bar 
-                                        dataKey="total_pnl" 
+                                        dataKey="pnl_usd" 
                                         fill="#6366f1"
                                         name="PnL Total"
                                     />

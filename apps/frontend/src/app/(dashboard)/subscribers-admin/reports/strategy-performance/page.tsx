@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DataTable, type Column } from '@/components/shared/DataTable'
@@ -147,7 +147,7 @@ export default function SubscriberStrategyPerformanceReportPage() {
             </Collapsible>
 
             {/* Gráfico de Performance */}
-            {strategyData?.length > 0 && (
+            {(strategyData?.length ?? 0) > 0 && (
                 <Card>
                     <CardHeader>
                         <CardTitle>Comparativo de Estratégias</CardTitle>

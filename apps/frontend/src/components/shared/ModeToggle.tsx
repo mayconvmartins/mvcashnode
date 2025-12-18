@@ -17,8 +17,8 @@ export function ModeToggle({ className, showLabel = true }: ModeToggleProps) {
     const { user } = useAuthStore()
     
     // Ocultar para assinantes (eles só operam em modo REAL)
-    const isSubscriber = user?.roles?.some(r => r.role === 'subscriber') 
-                         && !user?.roles?.some(r => r.role === 'admin')
+    const isSubscriber = user?.roles?.some((r: any) => r === 'subscriber' || (typeof r === 'object' && r.role === 'subscriber')) 
+                         && !user?.roles?.some((r: any) => r === 'admin' || (typeof r === 'object' && r.role === 'admin'))
     
     if (isSubscriber) {
         return null
