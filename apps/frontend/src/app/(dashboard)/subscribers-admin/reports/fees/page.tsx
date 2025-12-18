@@ -181,7 +181,7 @@ export default function SubscriberFeesReportPage() {
                                         cx="50%"
                                         cy="50%"
                                         outerRadius={100}
-                                        label={({ type, percent }) => `${type} (${(percent * 100).toFixed(1)}%)`}
+                                        label={({ name, percent }: any) => `${name} (${((percent || 0) * 100).toFixed(1)}%)`}
                                     >
                                         {feesByType.map((entry: any, index: number) => (
                                             <Cell key={entry.type} fill={COLORS[index % COLORS.length]} />
