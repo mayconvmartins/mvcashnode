@@ -1,5 +1,6 @@
 import { PrismaClient } from '@mvcashnode/db';
 import { TradeMode, PositionStatus, CloseReason, ExchangeType, getBaseAsset, getQuoteAsset } from '@mvcashnode/shared';
+import { ResidueService } from './residue.service';
 
 export interface PositionFill {
   executionId: number;
@@ -1068,7 +1069,7 @@ export class PositionService {
       // ✅ NOVO: Validar que position_id_to_close é obrigatório
       // FIFO foi removido - todas as vendas devem especificar qual posição fechar
       if (!job.position_id_to_close) {
-        const errorMsg = 'SELL job must have position_id_to_close. FIFO logic has been removed. All sell orders must specify which position to close.';
+        const errorMsg = '[CRITICAL] SELL job must have position_id_to_close. All sell orders must specify which position to close.';
         console.error(`[POSITION-SERVICE] ${errorMsg} Job ID: ${jobId}`);
         await tx.tradeJob.update({
           where: { id: jobId },
@@ -1081,32 +1082,25 @@ export class PositionService {
         throw new Error(errorMsg);
       }
 
-      // Calcular taxa em USD para a venda
-      let feeUsd = 0;
-      if (feeAmount && feeAmount > 0 && feeCurrency) {
-        const quoteAsset = job.symbol.split('/')[1] || 'USDT';
-        if (feeCurrency === 'USDT' || feeCurrency === 'USD' || feeCurrency === quoteAsset) {
-          // Taxa já está em USD ou em quote asset
-          feeUsd = feeAmount;
-        } else if (feeCurrency === job.symbol.split('/')[0]) {
-          // Taxa em base asset, converter usando preço de venda
-          feeUsd = feeAmount * avgPrice;
-        } else {
-          // Outra moeda, usar aproximação
-          feeUsd = feeAmount;
-          console.warn(`[POSITION-SERVICE] Taxa em moeda desconhecida ${feeCurrency}, usando valor direto`);
-        }
-      }
+      // ✅ LOCK PESSIMISTA: Previne race condition em vendas simultâneas
+      // Usa raw query pois Prisma não expõe FOR UPDATE nativamente
+      await tx.$executeRaw`
+        SELECT id FROM trade_positions 
+        WHERE id = ${job.position_id_to_close} 
+        FOR UPDATE
+      `;
 
-      // Buscar APENAS a posição específica vinculada ao job
-      const targetPosition = await tx.tradePosition.findUnique({
+      console.log(`[POSITION-SERVICE] [LOCK-ACQUIRED] Lock FOR UPDATE obtido para posição ${job.position_id_to_close}`);
+
+      // ✅ REVALIDAÇÃO: Buscar posição APÓS lock com dados atualizados
+      const lockedPosition = await tx.tradePosition.findUnique({
         where: { id: job.position_id_to_close },
       });
 
-      console.log(`[POSITION-SERVICE] Job ${jobId} tem position_id_to_close=${job.position_id_to_close}, buscando posição específica...`);
+      console.log(`[POSITION-SERVICE] Job ${jobId} tem position_id_to_close=${job.position_id_to_close}, buscando posição específica com lock...`);
 
-      if (!targetPosition) {
-        console.error(`[POSITION-SERVICE] Posição ${job.position_id_to_close} não encontrada para job ${jobId}`);
+      if (!lockedPosition) {
+        console.error(`[POSITION-SERVICE] [POSITION-NOT-FOUND] Posição ${job.position_id_to_close} não encontrada após lock`);
         await tx.tradeJob.update({
           where: { id: jobId },
           data: {
@@ -1115,34 +1109,47 @@ export class PositionService {
             reason_message: `Position ${job.position_id_to_close} not found`,
           },
         });
-
-        // ✅ NOVO: Limpar flags da posição para permitir nova tentativa (se posição existir)
-        if (job.position_id_to_close) {
-          try {
-            await tx.tradePosition.update({
-              where: { id: job.position_id_to_close },
-              data: {
-                tp_triggered: false,
-                sl_triggered: false,
-                trailing_triggered: false,
-              },
-            });
-            console.log(`[POSITION-SERVICE] Flags de trigger limpas na posição ${job.position_id_to_close} após job ${jobId} ser marcado como SKIPPED (POSITION_NOT_FOUND)`);
-          } catch (error: any) {
-            // Se posição não existe, não há flags para limpar
-            console.debug(`[POSITION-SERVICE] Não foi possível limpar flags da posição ${job.position_id_to_close} (posição não existe)`);
-          }
-        }
-
-        return;
+        return; // ABORT
       }
 
-      console.log(`[POSITION-SERVICE] Posição ${targetPosition.id} encontrada para fechamento:`);
-      console.log(`[POSITION-SERVICE]   - status=${targetPosition.status}, qty_remaining=${targetPosition.qty_remaining.toNumber()}`);
-      console.log(`[POSITION-SERVICE]   - flags: tp_triggered=${targetPosition.tp_triggered}, sl_triggered=${targetPosition.sl_triggered}, trailing_triggered=${targetPosition.trailing_triggered}`);
+      // ✅ VALIDAÇÃO: Posição deve estar OPEN
+      if (lockedPosition.status !== 'OPEN') {
+        console.error(
+          `[POSITION-SERVICE] [POSITION-CLOSED] Posição ${lockedPosition.id} não está mais OPEN ` +
+          `(status: ${lockedPosition.status}), abortando venda`
+        );
+        await tx.tradeJob.update({
+          where: { id: jobId },
+          data: {
+            status: 'SKIPPED',
+            reason_code: 'POSITION_CLOSED',
+            reason_message: `Position ${lockedPosition.id} was closed by another job (status: ${lockedPosition.status})`,
+          },
+        });
+        return; // ABORT
+      }
+
+      // Calcular taxa em USD para a venda
+      let feeUsd = 0;
+      if (feeAmount && feeAmount > 0 && feeCurrency) {
+        const quoteAsset = job.symbol.split('/')[1] || 'USDT';
+        if (feeCurrency === 'USDT' || feeCurrency === 'USD' || feeCurrency === quoteAsset) {
+          feeUsd = feeAmount;
+        } else if (feeCurrency === job.symbol.split('/')[0]) {
+          feeUsd = feeAmount * avgPrice;
+        } else {
+          feeUsd = feeAmount;
+          console.warn(`[POSITION-SERVICE] Taxa em moeda desconhecida ${feeCurrency}, usando valor direto`);
+        }
+      }
+
+      console.log(`[POSITION-SERVICE] Posição ${lockedPosition.id} encontrada para fechamento (com lock):`);
+      console.log(`[POSITION-SERVICE]   - status=${lockedPosition.status}, qty_remaining=${lockedPosition.qty_remaining.toNumber()}`);
+      console.log(`[POSITION-SERVICE]   - flags: tp_triggered=${lockedPosition.tp_triggered}, sl_triggered=${lockedPosition.sl_triggered}, trailing_triggered=${lockedPosition.trailing_triggered}`);
       console.log(`[POSITION-SERVICE]   - origin=${origin}, executedQty=${executedQty}, avgPrice=${avgPrice}`);
 
-      // ✅ DEBUG: Logs detalhados de validação de elegibilidade
+      // Validar elegibilidade usando lockedPosition
+      const targetPosition = lockedPosition; // Usar lockedPosition para manter compatibilidade com código existente
       console.log(`[POSITION-SERVICE] ========== VALIDAÇÃO DE ELEGIBILIDADE - Posição ${targetPosition.id} ==========`);
       console.log(`[POSITION-SERVICE]   - position.exchange_account_id: ${targetPosition.exchange_account_id} (type: ${typeof targetPosition.exchange_account_id})`);
       console.log(`[POSITION-SERVICE]   - job.exchange_account_id: ${job.exchange_account_id} (type: ${typeof job.exchange_account_id})`);
@@ -1433,6 +1440,41 @@ export class PositionService {
             reason_message: `Position ${currentPosition.id} closed (${qtyToClose}), but ${remainingQty} remaining from executed quantity`,
           },
         });
+
+        // ========== TRATAMENTO DE RESÍDUOS ==========
+        const residueValueUSD = remainingQty * avgPrice;
+        
+        if (residueValueUSD < 1) {
+          console.warn(
+            `[POSITION-SERVICE] [SMALL-RESIDUE] Resíduo muito pequeno (~$${residueValueUSD.toFixed(4)}). ` +
+            `Movendo para posição de resíduo...`
+          );
+          
+          // ✅ NOVO: Mover resíduo para posição de resíduo
+          try {
+            const residueService = new ResidueService(tx as any);
+            const residuePositionId = await residueService.moveToResiduePosition(
+              currentPosition.id,
+              remainingQty,
+              avgPrice
+            );
+            
+            console.log(
+              `[POSITION-SERVICE] [RESIDUE-MOVED] Resíduo de ${remainingQty} ` +
+              `movido para posição de resíduo #${residuePositionId}`
+            );
+          } catch (residueError: any) {
+            console.error(
+              `[POSITION-SERVICE] [RESIDUE-MOVE-FAILED] Erro ao mover resíduo: ${residueError.message}. ` +
+              `Resíduo permanecerá na posição original.`
+            );
+          }
+        } else {
+          console.warn(
+            `[POSITION-SERVICE] [LARGE-RESIDUE] Resíduo maior que $1 USD (~$${residueValueUSD.toFixed(2)}). ` +
+            `Não será movido para posição de resíduo.`
+          );
+        }
       } else {
         // Posição fechada completamente
         await tx.tradeJob.update({

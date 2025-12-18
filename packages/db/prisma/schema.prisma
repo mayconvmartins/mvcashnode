@@ -591,6 +591,9 @@ model TradePosition {
   original_position_id  Int?
   close_reason          String?   @db.VarChar(50)
   closed_at             DateTime?
+  // ✅ NOVO: Sistema de resíduos
+  is_residue_position   Boolean   @default(false) @map("is_residue_position")
+  parent_position_id    Int?                     @map("parent_position_id")
   created_at            DateTime  @default(now())
   updated_at            DateTime  @updatedAt
 
@@ -599,6 +602,11 @@ model TradePosition {
   close_jobs       TradeJob[]      @relation("PositionCloseJob")
   original_position TradePosition?  @relation("DustOriginalPosition", fields: [original_position_id], references: [id])
   dust_positions   TradePosition[] @relation("DustOriginalPosition")
+  // ✅ NOVO: Relações de resíduo
+  parent_position   TradePosition?  @relation("ResidueMoves", fields: [parent_position_id], references: [id])
+  residue_moves     TradePosition[] @relation("ResidueMoves")
+  residue_transfers_out ResidueTransferJob[] @relation("ResidueSource")
+  residue_transfers_in  ResidueTransferJob[] @relation("ResidueTarget")
   fills            PositionFill[]
   grouped_jobs     PositionGroupedJob[]
 
@@ -610,6 +618,7 @@ model TradePosition {
   @@index([created_at])
   @@index([is_dust])
   @@index([original_position_id])
+  @@index([is_residue_position])
   @@map("trade_positions")
 }
 
@@ -643,6 +652,26 @@ model PositionGroupedJob {
   @@index([position_id])
   @@index([trade_job_id])
   @@map("position_grouped_jobs")
+}
+
+// ✅ NOVO: Job de transferência de resíduo
+model ResidueTransferJob {
+  id                    Int      @id @default(autoincrement())
+  source_position_id    Int      @map("source_position_id")
+  target_position_id    Int?     @map("target_position_id")
+  symbol                String   @db.VarChar(50)
+  qty_transferred       Decimal  @db.Decimal(36, 18) @map("qty_transferred")
+  status                String   @db.VarChar(50) // PENDING, COMPLETED, FAILED
+  reason_message        String?  @db.Text @map("reason_message")
+  created_at            DateTime @default(now()) @map("created_at")
+  completed_at          DateTime? @map("completed_at")
+  
+  source_position TradePosition @relation("ResidueSource", fields: [source_position_id], references: [id])
+  target_position TradePosition? @relation("ResidueTarget", fields: [target_position_id], references: [id])
+  
+  @@index([status])
+  @@index([source_position_id])
+  @@map("residue_transfer_jobs")
 }
 
 // ============================================

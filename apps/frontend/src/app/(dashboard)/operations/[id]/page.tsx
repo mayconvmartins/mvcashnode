@@ -365,8 +365,8 @@ export default function OperationDetailPage() {
                                                     #{job.position_id_to_close}
                                                 </Link>
                                             ) : (
-                                                <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
-                                                    FIFO (sem posição específica)
+                                                <Badge variant="destructive" className="bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20">
+                                                    ⚠️ SEM POSIÇÃO (BUG)
                                                 </Badge>
                                             )}
                                         </div>

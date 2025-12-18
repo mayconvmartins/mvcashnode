@@ -12,14 +12,10 @@ import { EncryptionService, getBaseAsset, getQuoteAsset } from '@mvcashnode/shar
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { NotificationHttpService } from '@mvcashnode/notifications';
-import { RetryService } from '../../common/services/retry.service';
-
 @Processor('trade-execution-real')
 export class TradeExecutionRealProcessor extends WorkerHost {
   private readonly logger = new Logger(TradeExecutionRealProcessor.name);
   private notificationService: NotificationHttpService;
-
-  private retryService: RetryService;
   
   // ✅ OTIMIZAÇÃO CPU: Cache de adapters para reduzir criação de objetos
   private adapterCache = new Map<string, { adapter: any; timestamp: number }>();
@@ -34,7 +30,6 @@ export class TradeExecutionRealProcessor extends WorkerHost {
   ) {
     super();
     this.notificationService = new NotificationHttpService(process.env.API_URL || 'http://localhost:4010');
-    this.retryService = new RetryService();
   }
 
   /**
@@ -274,18 +269,51 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           return { success: false, skipped: true, reason: 'POSITION_NO_QUANTITY' };
         }
 
-        // ✅ Validar se quantidade do job não excede quantidade da posição
+        // ✅ VALIDAÇÃO DE SALDO: Prevenir over-selling
         const jobBaseQty = tradeJob.base_quantity?.toNumber() || 0;
-        if (jobBaseQty > 0 && jobBaseQty > positionQtyRemaining) {
-          this.logger.warn(`[EXECUTOR] [SEGURANÇA] ⚠️ Job ${tradeJobId} - Quantidade do job (${jobBaseQty}) > quantidade da posição (${positionQtyRemaining}), AJUSTANDO para ${positionQtyRemaining}`);
+        
+        // Margem de 1% para arredondamentos normais
+        if (jobBaseQty > positionQtyRemaining * 1.01) {
+          this.logger.error(
+            `[EXECUTOR] [SEGURANÇA] [OVER-SELLING-BLOCKED] Job ${tradeJobId} - ` +
+            `Quantidade do job (${jobBaseQty}) MUITO MAIOR que saldo da posição (${positionQtyRemaining}). ` +
+            `Diferença: ${((jobBaseQty / positionQtyRemaining - 1) * 100).toFixed(2)}%. ` +
+            `ABORTANDO para prevenir double-sell.`
+          );
+          
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'QUANTITY_EXCEEDS_POSITION',
+              reason_message: 
+                `Job quantity (${jobBaseQty}) exceeds position qty_remaining (${positionQtyRemaining}) by ${((jobBaseQty / positionQtyRemaining - 1) * 100).toFixed(2)}%. ` +
+                `This may indicate duplicate job or race condition. Order blocked for safety.`
+            },
+          });
+          
+          return { 
+            success: false, 
+            skipped: true, 
+            reason: 'QUANTITY_EXCEEDS_POSITION' 
+          };
+        }
+
+        // Se quantidade excede em até 1%, ajustar silenciosamente (arredondamentos normais)
+        if (jobBaseQty > positionQtyRemaining) {
+          this.logger.warn(
+            `[EXECUTOR] [SEGURANÇA] [QTY-ADJUSTMENT] Job ${tradeJobId} - ` +
+            `Quantidade do job (${jobBaseQty}) ligeiramente maior que posição (${positionQtyRemaining}), ` +
+            `AJUSTANDO para ${positionQtyRemaining} (diferença: ${(jobBaseQty - positionQtyRemaining).toFixed(8)})`
+          );
+          
           await this.prisma.tradeJob.update({
             where: { id: tradeJobId },
             data: { base_quantity: positionQtyRemaining },
           });
         }
 
-        this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} validada: status=${targetPosition.status}, qty_remaining=${positionQtyRemaining}`);
-      }
+        this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} validada`);
 
       // ============================================
       // VALIDAÇÃO E BUSCA DE QUANTIDADE
@@ -837,25 +865,14 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Enviando ordem para exchange: ${orderType} ${tradeJob.side} amount=${amountToUse} ${tradeJob.symbol}`);
         
-        // ✅ BUG-ALTO-003 FIX: Implementar retry com backoff exponencial para erros de rede
-        order = await this.retryService.executeWithRetry(
-          () =>
-            adapter.createOrder(
-              tradeJob.symbol,
-              orderType,
-              tradeJob.side.toLowerCase(),
-              amountToUse,
-              tradeJob.limit_price?.toNumber()
-            ),
-          {
-            maxRetries: 3,
-            baseDelay: 1000,
-            maxDelay: 30000,
-            retryableErrors: ['NETWORK_ERROR', 'TIMEOUT', 'RATE_LIMIT', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'],
-            onRetry: (attempt, error) => {
-              this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Retry ${attempt}/3 para erro de rede: ${error.message}`);
-            },
-          }
+        // ✅ REMOVIDO: Retry que poderia criar ordens duplicadas na Binance
+        // Se houver erro de rede, o job falhará e não será reexecutado automaticamente
+        order = await adapter.createOrder(
+          tradeJob.symbol,
+          orderType,
+          tradeJob.side.toLowerCase(),
+          amountToUse,
+          tradeJob.limit_price?.toNumber()
         );
 
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada na exchange: ${order.id}, status: ${order.status}`);

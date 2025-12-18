@@ -100,33 +100,49 @@ export class TradeJobService {
       }
     }
 
-    // ✅ VALIDAÇÃO: Prevenir múltiplas ordens LIMIT pendentes para a mesma posição
+    // ✅ VALIDAÇÃO: Prevenir múltiplas ordens para a mesma posição
     // Esta validação é crítica para evitar vendas duplicadas na exchange
-    if (dto.side === 'SELL' && dto.orderType === 'LIMIT' && dto.positionIdToClose) {
-      const existingLimitOrder = await this.prisma.tradeJob.findFirst({
+    if (dto.side === 'SELL' && dto.positionIdToClose) {
+      const existingOrder = await this.prisma.tradeJob.findFirst({
         where: {
           position_id_to_close: dto.positionIdToClose,
           side: 'SELL',
-          order_type: 'LIMIT',
           status: {
-            in: ['PENDING_LIMIT', 'EXECUTING'],
+            in: [
+              'PENDING',
+              'PENDING_LIMIT',
+              'EXECUTING',
+              'PARTIALLY_FILLED' // ← ADICIONAR
+            ],
           },
         },
         select: {
           id: true,
           status: true,
+          order_type: true,
           created_by: true,
+          base_quantity: true,
         },
       });
 
-      if (existingLimitOrder) {
-        const creatorInfo = existingLimitOrder.created_by ? ` (criado por: ${existingLimitOrder.created_by})` : '';
+      if (existingOrder) {
+        const creatorInfo = existingOrder.created_by ? ` (criado por: ${existingOrder.created_by})` : '';
+        const qtyInfo = existingOrder.base_quantity ? ` (qty: ${existingOrder.base_quantity})` : '';
+        
         throw new Error(
-          `Já existe uma ordem LIMIT pendente para a posição ${dto.positionIdToClose}${creatorInfo}. ` +
-          `Job ID: ${existingLimitOrder.id}, Status: ${existingLimitOrder.status}. ` +
-          `Não é permitido criar múltiplas ordens LIMIT para a mesma posição.`
+          `[DUPLICATE-ORDER-BLOCKED] Já existe uma ordem ${existingOrder.order_type} para a posição ${dto.positionIdToClose}${creatorInfo}. ` +
+          `Job ID: ${existingOrder.id}, Status: ${existingOrder.status}${qtyInfo}. ` +
+          `Não é permitido criar múltiplas ordens para a mesma posição.`
         );
       }
+    }
+
+    // ✅ VALIDAÇÃO: SELL deve sempre ter position_id_to_close
+    if (dto.side === 'SELL' && !dto.positionIdToClose) {
+      throw new Error(
+        `[MISSING-POSITION-ID] Todas ordens de VENDA devem ter position_id_to_close. ` +
+        `Não é permitido criar job de venda sem posição vinculada.`
+      );
     }
 
     // Determinar status inicial baseado no order type
