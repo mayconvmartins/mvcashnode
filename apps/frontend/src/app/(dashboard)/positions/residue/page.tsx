@@ -244,7 +244,7 @@ export default function ResiduePositionsPage() {
                                 </div>
                             ) : (residueData?.data?.length ?? 0) > 0 ? (
                                 <DataTable
-                                    data={residueData.data}
+                                    data={residueData?.data ?? []}
                                     columns={positionColumns}
                                 />
                             ) : (
