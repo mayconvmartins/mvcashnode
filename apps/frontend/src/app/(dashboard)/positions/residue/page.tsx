@@ -3,14 +3,13 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
-import { api } from '@/lib/api'
+import { positionsService } from '@/lib/api/positions.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DataTable, type Column } from '@/components/shared/DataTable'
-import { formatCurrency, formatDateTime } from '@/lib/utils'
+import { formatCurrency, formatDateTime } from '@/lib/utils/format'
 import { Loader2, Package, ArrowRightLeft, AlertCircle, CheckCircle, Clock } from 'lucide-react'
-import { SymbolDisplay } from '@/components/shared/SymbolDisplay'
 import { Position, ResidueTransferJob } from '@/lib/types'
 
 export default function ResiduePositionsPage() {
@@ -20,23 +19,13 @@ export default function ResiduePositionsPage() {
     // Query para posições de resíduo
     const { data: residueData, isLoading: isLoadingPositions } = useQuery({
         queryKey: ['residue-positions', tradeMode],
-        queryFn: async () => {
-            const response = await api.get('/positions/residue', {
-                params: { trade_mode: tradeMode }
-            })
-            return response.data
-        }
+        queryFn: () => positionsService.getResiduePositions({ trade_mode: tradeMode })
     })
 
     // Query para transferências de resíduo
     const { data: transfersData, isLoading: isLoadingTransfers } = useQuery({
         queryKey: ['residue-transfers', tradeMode],
-        queryFn: async () => {
-            const response = await api.get('/positions/residue/transfers', {
-                params: { trade_mode: tradeMode, limit: 100 }
-            })
-            return response.data
-        }
+        queryFn: () => positionsService.getResidueTransfers({ trade_mode: tradeMode, limit: 100 })
     })
 
     const positionColumns: Column<Position & { estimated_value_usd?: number; residue_moves_count?: number }>[] = [
@@ -45,7 +34,7 @@ export default function ResiduePositionsPage() {
             label: 'Símbolo',
             render: (pos) => (
                 <div className="flex items-center gap-2">
-                    <SymbolDisplay symbol={pos.symbol} exchange={pos.exchange_account_id as any} showExchange={false} />
+                    <span className="font-mono font-medium">{pos.symbol}</span>
                     <Badge variant="outline" className="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/50 text-xs">
                         Consolidado
                     </Badge>
@@ -111,7 +100,7 @@ export default function ResiduePositionsPage() {
         {
             key: 'symbol',
             label: 'Símbolo',
-            render: (t) => <SymbolDisplay symbol={t.symbol} showExchange={false} />
+            render: (t) => <span className="font-mono font-medium">{t.symbol}</span>
         },
         {
             key: 'source_position',
@@ -253,7 +242,7 @@ export default function ResiduePositionsPage() {
                                 <div className="flex items-center justify-center py-8">
                                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                                 </div>
-                            ) : residueData?.data?.length > 0 ? (
+                            ) : (residueData?.data?.length ?? 0) > 0 ? (
                                 <DataTable
                                     data={residueData.data}
                                     columns={positionColumns}
@@ -284,7 +273,7 @@ export default function ResiduePositionsPage() {
                                 <div className="flex items-center justify-center py-8">
                                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                                 </div>
-                            ) : transfersData?.data?.length > 0 ? (
+                            ) : (transfersData?.data?.length ?? 0) > 0 ? (
                                 <DataTable
                                     data={transfersData.data}
                                     columns={transferColumns}

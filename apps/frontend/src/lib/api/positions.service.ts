@@ -171,4 +171,36 @@ export const positionsService = {
         })
         return response.data
     },
+
+    // Endpoints de resíduos
+    getResiduePositions: async (filters?: { trade_mode?: string; exchange_account_id?: number; symbol?: string }): Promise<{
+        data: any[]
+        total: number
+        summary: {
+            total_positions: number
+            total_estimated_value_usd: number
+        }
+    }> => {
+        const response = await apiClient.get('/positions/residue', { params: filters })
+        return response.data
+    },
+
+    getResidueTransfers: async (filters?: { 
+        trade_mode?: string
+        status?: string
+        symbol?: string
+        page?: number
+        limit?: number 
+    }): Promise<{
+        data: any[]
+        pagination: {
+            page: number
+            limit: number
+            total: number
+            pages: number
+        }
+    }> => {
+        const response = await apiClient.get('/positions/residue/transfers', { params: filters })
+        return response.data
+    },
 }

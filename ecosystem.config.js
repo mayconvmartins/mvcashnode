@@ -120,6 +120,7 @@ module.exports = {
       script: 'pnpm',
       args: 'exec next start -p 5010',
       cwd: './apps/frontend',
+      version: '1.9.0', // Versão manual pois PM2 não lê package.json quando script é 'pnpm'
       // Fork mode - Next.js não suporta cluster mode nativamente
       instances: 1,
       exec_mode: 'fork',
