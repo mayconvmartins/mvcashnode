@@ -76,6 +76,12 @@ export class TradeJobService {
       }
     }
 
+    // ✅ VALIDAÇÃO GLOBAL: Mínimo de $20 USD por ordem de compra
+    const MIN_QUOTE_AMOUNT_USD = 20;
+    if (dto.side === 'BUY' && quoteAmount && quoteAmount < MIN_QUOTE_AMOUNT_USD) {
+      throw new Error(`Valor mínimo por ordem: $${MIN_QUOTE_AMOUNT_USD} USD. Valor solicitado: $${quoteAmount.toFixed(2)} USD`);
+    }
+
     // ✅ NOVO: Validar SELL - position_id_to_close é obrigatório
     if (dto.side === 'SELL') {
       if (!dto.positionIdToClose || dto.positionIdToClose <= 0) {

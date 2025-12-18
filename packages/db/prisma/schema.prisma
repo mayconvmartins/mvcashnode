@@ -1025,6 +1025,7 @@ model SubscriberParameters {
   id                        Int      @id @default(autoincrement())
   user_id                   Int      @unique
   default_exchange_account_id Int?
+  quote_amount_fixed        Decimal? @db.Decimal(36, 18) // Valor escolhido pelo assinante
   max_orders_per_hour       Int?
   min_interval_sec          Int?
   default_order_type        String   @default("MARKET") @db.VarChar(20)
@@ -1042,6 +1043,33 @@ model SubscriberParameters {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("subscriber_parameters")
+}
+
+// Parametros padrao globais para todos os assinantes
+model SubscriberDefaultParameters {
+  id                         Int      @id @default(autoincrement())
+  // Limites de valor da ordem
+  min_quote_amount           Decimal  @default(20) @db.Decimal(36, 18)  // Minimo USD
+  max_quote_amount           Decimal? @db.Decimal(36, 18)               // Maximo USD (null = sem limite)
+  default_quote_amount       Decimal  @default(100) @db.Decimal(36, 18) // Valor padrao
+  // SL/TP/SG/TSG padrao
+  default_sl_enabled         Boolean  @default(false)
+  default_sl_pct             Decimal? @db.Decimal(5, 2)
+  default_tp_enabled         Boolean  @default(false)
+  default_tp_pct             Decimal? @db.Decimal(5, 2)
+  default_sg_enabled         Boolean  @default(false)
+  default_sg_pct             Decimal? @db.Decimal(5, 2)
+  default_sg_drop_pct        Decimal? @db.Decimal(5, 2)
+  default_tsg_enabled        Boolean  @default(false)
+  default_tsg_activation_pct Decimal? @db.Decimal(5, 2)
+  default_tsg_drop_pct       Decimal? @db.Decimal(5, 2)
+  min_profit_pct             Decimal? @db.Decimal(5, 2)
+  // Configuracoes gerais
+  lock_webhook_on_tsg        Boolean  @default(true)
+  created_at                 DateTime @default(now())
+  updated_at                 DateTime @updatedAt
+
+  @@map("subscriber_default_parameters")
 }
 
 // ============================================

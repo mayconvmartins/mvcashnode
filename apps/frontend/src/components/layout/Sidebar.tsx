@@ -61,11 +61,23 @@ const menuItems = [
 // Menu de gerenciamento de assinantes (separado do Admin)
 const subscriberAdminMenuItems = [
     { icon: CreditCard, label: 'Lista Assinantes', href: '/subscribers-admin/subscribers' },
-    { icon: Settings2, label: 'Parâmetros', href: '/subscribers-admin/parameters' },
+    { icon: Settings2, label: 'Parâmetros Padrão', href: '/subscribers-admin/default-parameters' },
+    { icon: Settings2, label: 'Parâmetros Assinantes', href: '/subscribers-admin/parameters' },
     { icon: Webhook, label: 'Webhooks Padrão', href: '/subscribers-admin/webhooks' },
     { icon: Receipt, label: 'Assinaturas', href: '/subscribers-admin/subscriptions' },
     { icon: LineChart, label: 'Posições', href: '/subscribers-admin/positions' },
     { icon: History, label: 'Operações', href: '/subscribers-admin/operations' },
+    { icon: Flame, label: 'Mapa de Calor', href: '/subscribers-admin/heatmap' },
+    { icon: Target, label: 'Monitor SL/TP', href: '/subscribers-admin/monitoring-tp-sl' },
+]
+
+// Menu específico para usuários assinantes (restrito)
+const subscriberOnlyMenuItems = [
+    { icon: Wallet, label: 'Contas', href: '/accounts' },
+    { icon: Flame, label: 'Mapa de Calor', href: '/heatmap' },
+    { icon: Target, label: 'Monitor SL/TP', href: '/monitoring-positionstp-sl' },
+    { icon: FileBarChart, label: 'Relatórios', href: '/reports' },
+    { icon: Settings2, label: 'Valor da Posição', href: '/settings/position-value' },
 ]
 
 // Menu Admin (sem itens de assinantes)
@@ -248,64 +260,87 @@ export function Sidebar() {
 
                     {/* Navigation */}
                     <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-                        {menuItems.map((item) => {
-                            // Ocultar itens apenas para admin
-                            if (item.adminOnly && !isAdmin) return null
-                            
-                            // Ocultar itens bloqueados para assinantes
-                            if (item.subscriberBlocked && isSubscriber && !isAdmin) return null
+                        {/* Menu para assinantes (não-admin) - apenas itens permitidos */}
+                        {isSubscriber && !isAdmin ? (
+                            <>
+                                {subscriberOnlyMenuItems.map((item) => {
+                                    const isActive = pathname === item.href
 
-                            const isActive = pathname === item.href
-
-                            return (
+                                    return (
+                                        <Link
+                                            key={item.href}
+                                            href={item.href}
+                                            className={cn(
+                                                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                                                isActive
+                                                    ? "bg-primary/10 text-primary"
+                                                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                            )}
+                                            onClick={() => setIsOpen(false)}
+                                        >
+                                            <item.icon className={cn("h-5 w-5", isActive ? "text-primary" : "text-muted-foreground")} />
+                                            {item.label}
+                                        </Link>
+                                    )
+                                })}
+                                {/* Meu Plano - para assinantes */}
                                 <Link
-                                    key={item.href}
-                                    href={item.href}
+                                    href="/my-plan"
                                     className={cn(
                                         "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                                        isActive
+                                        pathname === '/my-plan'
                                             ? "bg-primary/10 text-primary"
                                             : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                                     )}
                                     onClick={() => setIsOpen(false)}
                                 >
-                                    <item.icon className={cn("h-5 w-5", isActive ? "text-primary" : "text-muted-foreground")} />
-                                    {item.label}
+                                    <CreditCard className={cn("h-5 w-5", pathname === '/my-plan' ? "text-primary" : "text-muted-foreground")} />
+                                    Meu Plano
                                 </Link>
-                            )
-                        })}
+                            </>
+                        ) : (
+                            <>
+                                {/* Menu completo para usuários normais e admin */}
+                                {menuItems.map((item) => {
+                                    // Ocultar itens apenas para admin
+                                    if (item.adminOnly && !isAdmin) return null
 
-                        {/* Meu Plano - apenas para assinantes */}
-                        {isSubscriber && (
-                            <Link
-                                href="/my-plan"
-                                className={cn(
-                                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                                    pathname === '/my-plan'
-                                        ? "bg-primary/10 text-primary"
-                                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                    const isActive = pathname === item.href
+
+                                    return (
+                                        <Link
+                                            key={item.href}
+                                            href={item.href}
+                                            className={cn(
+                                                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                                                isActive
+                                                    ? "bg-primary/10 text-primary"
+                                                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                            )}
+                                            onClick={() => setIsOpen(false)}
+                                        >
+                                            <item.icon className={cn("h-5 w-5", isActive ? "text-primary" : "text-muted-foreground")} />
+                                            {item.label}
+                                        </Link>
+                                    )
+                                })}
+
+                                {/* Subscriber Admin Dropdown - apenas para admin */}
+                                {isAdmin && (
+                                    <SubscriberAdminDropdown 
+                                        pathname={pathname} 
+                                        onNavigate={() => setIsOpen(false)} 
+                                    />
                                 )}
-                                onClick={() => setIsOpen(false)}
-                            >
-                                <CreditCard className={cn("h-5 w-5", pathname === '/my-plan' ? "text-primary" : "text-muted-foreground")} />
-                                Meu Plano
-                            </Link>
-                        )}
 
-                        {/* Subscriber Admin Dropdown - apenas para admin */}
-                        {isAdmin && (
-                            <SubscriberAdminDropdown 
-                                pathname={pathname} 
-                                onNavigate={() => setIsOpen(false)} 
-                            />
-                        )}
-
-                        {/* Admin Dropdown */}
-                        {isAdmin && (
-                            <AdminDropdown 
-                                pathname={pathname} 
-                                onNavigate={() => setIsOpen(false)} 
-                            />
+                                {/* Admin Dropdown */}
+                                {isAdmin && (
+                                    <AdminDropdown 
+                                        pathname={pathname} 
+                                        onNavigate={() => setIsOpen(false)} 
+                                    />
+                                )}
+                            </>
                         )}
                     </nav>
 

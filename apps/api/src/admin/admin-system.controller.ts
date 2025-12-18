@@ -7830,5 +7830,461 @@ export class AdminSystemController {
       } : null
     };
   }
+
+  // ============================================
+  // SUBSCRIBER DEFAULT PARAMETERS
+  // ============================================
+
+  @Get('subscribers/default-parameters')
+  @ApiOperation({
+    summary: 'Obter parâmetros padrão globais de assinantes',
+    description: 'Retorna os parâmetros padrão aplicados a todos os assinantes (limites de valor, SL/TP/SG/TSG padrão).'
+  })
+  async getSubscriberDefaultParameters(): Promise<any> {
+    // Buscar ou criar registro padrão
+    let defaults = await this.prisma.subscriberDefaultParameters.findFirst();
+    
+    if (!defaults) {
+      defaults = await this.prisma.subscriberDefaultParameters.create({
+        data: {
+          min_quote_amount: 20,
+          default_quote_amount: 100,
+          lock_webhook_on_tsg: true
+        }
+      });
+    }
+
+    return {
+      id: defaults.id,
+      min_quote_amount: defaults.min_quote_amount?.toNumber?.() || defaults.min_quote_amount,
+      max_quote_amount: defaults.max_quote_amount?.toNumber?.() || null,
+      default_quote_amount: defaults.default_quote_amount?.toNumber?.() || defaults.default_quote_amount,
+      default_sl_enabled: defaults.default_sl_enabled,
+      default_sl_pct: defaults.default_sl_pct?.toNumber?.() || null,
+      default_tp_enabled: defaults.default_tp_enabled,
+      default_tp_pct: defaults.default_tp_pct?.toNumber?.() || null,
+      default_sg_enabled: defaults.default_sg_enabled,
+      default_sg_pct: defaults.default_sg_pct?.toNumber?.() || null,
+      default_sg_drop_pct: defaults.default_sg_drop_pct?.toNumber?.() || null,
+      default_tsg_enabled: defaults.default_tsg_enabled,
+      default_tsg_activation_pct: defaults.default_tsg_activation_pct?.toNumber?.() || null,
+      default_tsg_drop_pct: defaults.default_tsg_drop_pct?.toNumber?.() || null,
+      min_profit_pct: defaults.min_profit_pct?.toNumber?.() || null,
+      lock_webhook_on_tsg: defaults.lock_webhook_on_tsg,
+      created_at: defaults.created_at,
+      updated_at: defaults.updated_at
+    };
+  }
+
+  @Put('subscribers/default-parameters')
+  @ApiOperation({
+    summary: 'Atualizar parâmetros padrão globais de assinantes',
+    description: 'Atualiza os parâmetros padrão aplicados a todos os assinantes.'
+  })
+  async updateSubscriberDefaultParameters(@Body() dto: {
+    min_quote_amount?: number;
+    max_quote_amount?: number | null;
+    default_quote_amount?: number;
+    default_sl_enabled?: boolean;
+    default_sl_pct?: number | null;
+    default_tp_enabled?: boolean;
+    default_tp_pct?: number | null;
+    default_sg_enabled?: boolean;
+    default_sg_pct?: number | null;
+    default_sg_drop_pct?: number | null;
+    default_tsg_enabled?: boolean;
+    default_tsg_activation_pct?: number | null;
+    default_tsg_drop_pct?: number | null;
+    min_profit_pct?: number | null;
+    lock_webhook_on_tsg?: boolean;
+  }): Promise<any> {
+    // Buscar ou criar registro
+    let defaults = await this.prisma.subscriberDefaultParameters.findFirst();
+    
+    const updateData: any = {};
+    
+    if (dto.min_quote_amount !== undefined) updateData.min_quote_amount = dto.min_quote_amount;
+    if (dto.max_quote_amount !== undefined) updateData.max_quote_amount = dto.max_quote_amount;
+    if (dto.default_quote_amount !== undefined) updateData.default_quote_amount = dto.default_quote_amount;
+    if (dto.default_sl_enabled !== undefined) updateData.default_sl_enabled = dto.default_sl_enabled;
+    if (dto.default_sl_pct !== undefined) updateData.default_sl_pct = dto.default_sl_pct;
+    if (dto.default_tp_enabled !== undefined) updateData.default_tp_enabled = dto.default_tp_enabled;
+    if (dto.default_tp_pct !== undefined) updateData.default_tp_pct = dto.default_tp_pct;
+    if (dto.default_sg_enabled !== undefined) updateData.default_sg_enabled = dto.default_sg_enabled;
+    if (dto.default_sg_pct !== undefined) updateData.default_sg_pct = dto.default_sg_pct;
+    if (dto.default_sg_drop_pct !== undefined) updateData.default_sg_drop_pct = dto.default_sg_drop_pct;
+    if (dto.default_tsg_enabled !== undefined) updateData.default_tsg_enabled = dto.default_tsg_enabled;
+    if (dto.default_tsg_activation_pct !== undefined) updateData.default_tsg_activation_pct = dto.default_tsg_activation_pct;
+    if (dto.default_tsg_drop_pct !== undefined) updateData.default_tsg_drop_pct = dto.default_tsg_drop_pct;
+    if (dto.min_profit_pct !== undefined) updateData.min_profit_pct = dto.min_profit_pct;
+    if (dto.lock_webhook_on_tsg !== undefined) updateData.lock_webhook_on_tsg = dto.lock_webhook_on_tsg;
+
+    if (defaults) {
+      defaults = await this.prisma.subscriberDefaultParameters.update({
+        where: { id: defaults.id },
+        data: updateData
+      });
+    } else {
+      defaults = await this.prisma.subscriberDefaultParameters.create({
+        data: {
+          min_quote_amount: dto.min_quote_amount ?? 20,
+          max_quote_amount: dto.max_quote_amount,
+          default_quote_amount: dto.default_quote_amount ?? 100,
+          ...updateData
+        }
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Parâmetros padrão atualizados com sucesso',
+      data: {
+        id: defaults.id,
+        min_quote_amount: defaults.min_quote_amount?.toNumber?.() || defaults.min_quote_amount,
+        max_quote_amount: defaults.max_quote_amount?.toNumber?.() || null,
+        default_quote_amount: defaults.default_quote_amount?.toNumber?.() || defaults.default_quote_amount,
+        default_sl_enabled: defaults.default_sl_enabled,
+        default_sl_pct: defaults.default_sl_pct?.toNumber?.() || null,
+        default_tp_enabled: defaults.default_tp_enabled,
+        default_tp_pct: defaults.default_tp_pct?.toNumber?.() || null,
+        default_sg_enabled: defaults.default_sg_enabled,
+        default_sg_pct: defaults.default_sg_pct?.toNumber?.() || null,
+        default_sg_drop_pct: defaults.default_sg_drop_pct?.toNumber?.() || null,
+        default_tsg_enabled: defaults.default_tsg_enabled,
+        default_tsg_activation_pct: defaults.default_tsg_activation_pct?.toNumber?.() || null,
+        default_tsg_drop_pct: defaults.default_tsg_drop_pct?.toNumber?.() || null,
+        min_profit_pct: defaults.min_profit_pct?.toNumber?.() || null,
+        lock_webhook_on_tsg: defaults.lock_webhook_on_tsg,
+        updated_at: defaults.updated_at
+      }
+    };
+  }
+
+  // ============================================
+  // SUBSCRIBER HEATMAP
+  // ============================================
+
+  @Get('subscribers/heatmap')
+  @ApiOperation({
+    summary: 'Mapa de Calor de posições de assinantes',
+    description: 'Retorna todas as posições OPEN de todos os assinantes para visualização em mapa de calor.'
+  })
+  async getSubscribersHeatmap(
+    @Query('subscriber_id') subscriberId?: string,
+    @Query('trade_mode') tradeMode?: string
+  ): Promise<any> {
+    // Buscar IDs de usuários com role subscriber
+    const subscriberUsers = await this.prisma.user.findMany({
+      where: {
+        roles: { some: { role: 'subscriber' } }
+      },
+      select: { id: true }
+    });
+    const subscriberUserIds = subscriberUsers.map(u => u.id);
+
+    if (subscriberUserIds.length === 0) {
+      return { data: [], summary: { total_positions: 0, total_value_usd: 0, avg_pnl_pct: 0 } };
+    }
+
+    // Buscar exchange accounts desses usuários
+    const subscriberAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { 
+        user_id: { in: subscriberUserIds },
+        ...(subscriberId ? { user_id: parseInt(subscriberId) } : {})
+      },
+      select: { id: true, user_id: true, label: true, exchange: true }
+    });
+    const accountIds = subscriberAccounts.map(a => a.id);
+    const accountMap = new Map(subscriberAccounts.map(a => [a.id, a]));
+
+    // Buscar posições abertas
+    const positions = await this.prisma.tradePosition.findMany({
+      where: {
+        exchange_account_id: { in: accountIds },
+        status: 'OPEN',
+        is_residue_position: false,
+        ...(tradeMode ? { trade_mode: tradeMode } : {})
+      },
+      include: {
+        exchange_account: {
+          select: {
+            id: true,
+            label: true,
+            exchange: true,
+            user: {
+              select: {
+                id: true,
+                email: true,
+                profile: { select: { full_name: true } }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    // Calcular PnL para cada posição
+    const positionsWithPnl = await Promise.all(positions.map(async (pos) => {
+      const currentPrice = await this.cacheService.get(`price:${pos.symbol}`);
+      const priceNow = currentPrice ? parseFloat(currentPrice) : pos.price_open.toNumber();
+      
+      const qtyRemaining = pos.qty_remaining.toNumber();
+      const priceOpen = pos.price_open.toNumber();
+      const currentValue = qtyRemaining * priceNow;
+      const investedValue = qtyRemaining * priceOpen;
+      const unrealizedPnl = currentValue - investedValue;
+      const pnlPct = priceOpen > 0 ? ((priceNow - priceOpen) / priceOpen) * 100 : 0;
+
+      return {
+        id: pos.id,
+        symbol: pos.symbol,
+        qty_remaining: qtyRemaining,
+        qty_total: pos.qty_total.toNumber(),
+        price_open: priceOpen,
+        current_price: priceNow,
+        invested_value_usd: investedValue,
+        current_value_usd: currentValue,
+        unrealized_pnl_usd: unrealizedPnl,
+        pnl_pct: pnlPct,
+        trade_mode: pos.trade_mode,
+        created_at: pos.created_at,
+        exchange_account: {
+          id: pos.exchange_account.id,
+          label: pos.exchange_account.label,
+          exchange: pos.exchange_account.exchange
+        },
+        subscriber: {
+          id: pos.exchange_account.user.id,
+          email: pos.exchange_account.user.email,
+          full_name: pos.exchange_account.user.profile?.full_name || null
+        }
+      };
+    }));
+
+    // Calcular sumário
+    const totalValue = positionsWithPnl.reduce((sum, p) => sum + p.invested_value_usd, 0);
+    const totalPnl = positionsWithPnl.reduce((sum, p) => sum + p.unrealized_pnl_usd, 0);
+    const avgPnlPct = positionsWithPnl.length > 0 
+      ? positionsWithPnl.reduce((sum, p) => sum + p.pnl_pct, 0) / positionsWithPnl.length 
+      : 0;
+
+    return {
+      data: positionsWithPnl,
+      summary: {
+        total_positions: positionsWithPnl.length,
+        total_value_usd: totalValue,
+        total_unrealized_pnl_usd: totalPnl,
+        avg_pnl_pct: avgPnlPct
+      }
+    };
+  }
+
+  // ============================================
+  // SUBSCRIBER MONITORING TP/SL
+  // ============================================
+
+  @Get('subscribers/monitoring-tp-sl')
+  @ApiOperation({
+    summary: 'Monitor SL/TP de posições de assinantes',
+    description: 'Retorna posições com TP/SL/SG/TSG de todos os assinantes com cálculos de proximidade.'
+  })
+  async getSubscribersMonitoringTPSL(
+    @Query('subscriber_id') subscriberId?: string,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('sort_by') sortBy?: string
+  ): Promise<any> {
+    // Buscar IDs de usuários com role subscriber
+    const subscriberUsers = await this.prisma.user.findMany({
+      where: {
+        roles: { some: { role: 'subscriber' } }
+      },
+      select: { id: true }
+    });
+    const subscriberUserIds = subscriberUsers.map(u => u.id);
+
+    if (subscriberUserIds.length === 0) {
+      return { data: [], summary: { total_positions: 0, positions_with_tp: 0, positions_with_sl: 0 } };
+    }
+
+    // Buscar exchange accounts
+    const subscriberAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { 
+        user_id: { in: subscriberUserIds },
+        ...(subscriberId ? { user_id: parseInt(subscriberId) } : {})
+      },
+      select: { id: true }
+    });
+    const accountIds = subscriberAccounts.map(a => a.id);
+
+    // Buscar posições abertas com configurações de TP/SL
+    const positions = await this.prisma.tradePosition.findMany({
+      where: {
+        exchange_account_id: { in: accountIds },
+        status: 'OPEN',
+        is_residue_position: false,
+        qty_remaining: { gt: 0 },
+        ...(tradeMode ? { trade_mode: tradeMode } : {}),
+        OR: [
+          { tp_enabled: true },
+          { sl_enabled: true },
+          { sg_enabled: true },
+          { tsg_enabled: true }
+        ]
+      },
+      include: {
+        exchange_account: {
+          select: {
+            id: true,
+            label: true,
+            exchange: true,
+            user: {
+              select: {
+                id: true,
+                email: true,
+                profile: { select: { full_name: true } }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Calcular métricas para cada posição
+    const positionsWithMetrics = await Promise.all(positions.map(async (pos) => {
+      const currentPrice = await this.cacheService.get(`price:${pos.symbol}`);
+      const priceNow = currentPrice ? parseFloat(currentPrice) : pos.price_open.toNumber();
+      
+      const priceOpen = pos.price_open.toNumber();
+      const pnlPct = priceOpen > 0 ? ((priceNow - priceOpen) / priceOpen) * 100 : 0;
+      
+      // Calcular proximidade de TP
+      let tpProximityPct = null;
+      let tpTargetPrice = null;
+      if (pos.tp_enabled && pos.tp_pct) {
+        const tpPct = pos.tp_pct.toNumber();
+        tpTargetPrice = priceOpen * (1 + tpPct / 100);
+        tpProximityPct = tpPct > 0 ? (pnlPct / tpPct) * 100 : 0;
+      }
+
+      // Calcular proximidade de SL
+      let slProximityPct = null;
+      let slTargetPrice = null;
+      if (pos.sl_enabled && pos.sl_pct) {
+        const slPct = pos.sl_pct.toNumber();
+        slTargetPrice = priceOpen * (1 - slPct / 100);
+        slProximityPct = slPct > 0 ? (Math.abs(pnlPct) / slPct) * 100 : 0;
+        if (pnlPct > 0) slProximityPct = 0; // Se está em lucro, não está próximo do SL
+      }
+
+      // Calcular proximidade de SG
+      let sgProximityPct = null;
+      if (pos.sg_enabled && pos.sg_pct) {
+        const sgPct = pos.sg_pct.toNumber();
+        sgProximityPct = sgPct > 0 ? (pnlPct / sgPct) * 100 : 0;
+      }
+
+      // Calcular status TSG
+      let tsgStatus = null;
+      if (pos.tsg_enabled && pos.tsg_activation_pct) {
+        const activationPct = pos.tsg_activation_pct.toNumber();
+        const isActivated = pnlPct >= activationPct;
+        tsgStatus = {
+          activation_pct: activationPct,
+          drop_pct: pos.tsg_drop_pct?.toNumber?.() || null,
+          is_activated: isActivated,
+          max_pnl_pct: pos.tsg_max_pnl_pct?.toNumber?.() || null,
+          proximity_to_activation: activationPct > 0 ? (pnlPct / activationPct) * 100 : 0
+        };
+      }
+
+      const qtyRemaining = pos.qty_remaining.toNumber();
+      const investedValue = qtyRemaining * priceOpen;
+      const currentValue = qtyRemaining * priceNow;
+
+      return {
+        id: pos.id,
+        symbol: pos.symbol,
+        qty_remaining: qtyRemaining,
+        price_open: priceOpen,
+        current_price: priceNow,
+        pnl_pct: pnlPct,
+        invested_value_usd: investedValue,
+        current_value_usd: currentValue,
+        unrealized_pnl_usd: currentValue - investedValue,
+        trade_mode: pos.trade_mode,
+        created_at: pos.created_at,
+        // TP
+        tp_enabled: pos.tp_enabled,
+        tp_pct: pos.tp_pct?.toNumber?.() || null,
+        tp_target_price: tpTargetPrice,
+        tp_proximity_pct: tpProximityPct,
+        // SL
+        sl_enabled: pos.sl_enabled,
+        sl_pct: pos.sl_pct?.toNumber?.() || null,
+        sl_target_price: slTargetPrice,
+        sl_proximity_pct: slProximityPct,
+        // SG
+        sg_enabled: pos.sg_enabled,
+        sg_pct: pos.sg_pct?.toNumber?.() || null,
+        sg_drop_pct: pos.sg_drop_pct?.toNumber?.() || null,
+        sg_proximity_pct: sgProximityPct,
+        sg_triggered: pos.sg_triggered,
+        // TSG
+        tsg_enabled: pos.tsg_enabled,
+        tsg_status: tsgStatus,
+        tsg_triggered: pos.tsg_triggered,
+        // Webhook
+        lock_sell_by_webhook: pos.lock_sell_by_webhook,
+        // Subscriber info
+        exchange_account: {
+          id: pos.exchange_account.id,
+          label: pos.exchange_account.label,
+          exchange: pos.exchange_account.exchange
+        },
+        subscriber: {
+          id: pos.exchange_account.user.id,
+          email: pos.exchange_account.user.email,
+          full_name: pos.exchange_account.user.profile?.full_name || null
+        }
+      };
+    }));
+
+    // Ordenar
+    let sortedPositions = [...positionsWithMetrics];
+    switch (sortBy) {
+      case 'tp-closest':
+        sortedPositions.sort((a, b) => (b.tp_proximity_pct ?? -999) - (a.tp_proximity_pct ?? -999));
+        break;
+      case 'sl-closest':
+        sortedPositions.sort((a, b) => (b.sl_proximity_pct ?? -999) - (a.sl_proximity_pct ?? -999));
+        break;
+      case 'profit-highest':
+        sortedPositions.sort((a, b) => b.pnl_pct - a.pnl_pct);
+        break;
+      case 'profit-lowest':
+        sortedPositions.sort((a, b) => a.pnl_pct - b.pnl_pct);
+        break;
+      default:
+        sortedPositions.sort((a, b) => b.pnl_pct - a.pnl_pct);
+    }
+
+    // Sumário
+    const positionsWithTp = positionsWithMetrics.filter(p => p.tp_enabled).length;
+    const positionsWithSl = positionsWithMetrics.filter(p => p.sl_enabled).length;
+    const positionsWithSg = positionsWithMetrics.filter(p => p.sg_enabled).length;
+    const positionsWithTsg = positionsWithMetrics.filter(p => p.tsg_enabled).length;
+
+    return {
+      data: sortedPositions,
+      summary: {
+        total_positions: sortedPositions.length,
+        positions_with_tp: positionsWithTp,
+        positions_with_sl: positionsWithSl,
+        positions_with_sg: positionsWithSg,
+        positions_with_tsg: positionsWithTsg
+      }
+    };
+  }
 }
 

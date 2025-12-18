@@ -1220,5 +1220,162 @@ export const adminService = {
         const response = await apiClient.get(`/admin/subscribers/operations/${id}`)
         return response.data
     },
+
+    // ============================================
+    // SUBSCRIBER DEFAULT PARAMETERS
+    // ============================================
+
+    getSubscriberDefaultParameters: async (): Promise<{
+        id: number;
+        min_quote_amount: number;
+        max_quote_amount: number | null;
+        default_quote_amount: number;
+        default_sl_enabled: boolean;
+        default_sl_pct: number | null;
+        default_tp_enabled: boolean;
+        default_tp_pct: number | null;
+        default_sg_enabled: boolean;
+        default_sg_pct: number | null;
+        default_sg_drop_pct: number | null;
+        default_tsg_enabled: boolean;
+        default_tsg_activation_pct: number | null;
+        default_tsg_drop_pct: number | null;
+        min_profit_pct: number | null;
+        lock_webhook_on_tsg: boolean;
+    }> => {
+        const response = await apiClient.get('/admin/subscribers/default-parameters')
+        return response.data
+    },
+
+    updateSubscriberDefaultParameters: async (data: {
+        min_quote_amount?: number;
+        max_quote_amount?: number | null;
+        default_quote_amount?: number;
+        default_sl_enabled?: boolean;
+        default_sl_pct?: number | null;
+        default_tp_enabled?: boolean;
+        default_tp_pct?: number | null;
+        default_sg_enabled?: boolean;
+        default_sg_pct?: number | null;
+        default_sg_drop_pct?: number | null;
+        default_tsg_enabled?: boolean;
+        default_tsg_activation_pct?: number | null;
+        default_tsg_drop_pct?: number | null;
+        min_profit_pct?: number | null;
+        lock_webhook_on_tsg?: boolean;
+    }): Promise<{ success: boolean; message: string; data: any }> => {
+        const response = await apiClient.put('/admin/subscribers/default-parameters', data)
+        return response.data
+    },
+
+    // ============================================
+    // SUBSCRIBER HEATMAP
+    // ============================================
+
+    getSubscribersHeatmap: async (filters?: {
+        subscriber_id?: number;
+        trade_mode?: 'REAL' | 'SIMULATION';
+    }): Promise<{
+        data: Array<{
+            id: number;
+            symbol: string;
+            qty_remaining: number;
+            qty_total: number;
+            price_open: number;
+            current_price: number;
+            invested_value_usd: number;
+            current_value_usd: number;
+            unrealized_pnl_usd: number;
+            pnl_pct: number;
+            trade_mode: string;
+            created_at: string;
+            exchange_account: {
+                id: number;
+                label: string;
+                exchange: string;
+            };
+            subscriber: {
+                id: number;
+                email: string;
+                full_name: string | null;
+            };
+        }>;
+        summary: {
+            total_positions: number;
+            total_value_usd: number;
+            total_unrealized_pnl_usd: number;
+            avg_pnl_pct: number;
+        };
+    }> => {
+        const response = await apiClient.get('/admin/subscribers/heatmap', { params: filters })
+        return response.data
+    },
+
+    // ============================================
+    // SUBSCRIBER MONITORING TP/SL
+    // ============================================
+
+    getSubscribersMonitoringTPSL: async (filters?: {
+        subscriber_id?: number;
+        trade_mode?: 'REAL' | 'SIMULATION';
+        sort_by?: 'tp-closest' | 'sl-closest' | 'profit-highest' | 'profit-lowest';
+    }): Promise<{
+        data: Array<{
+            id: number;
+            symbol: string;
+            qty_remaining: number;
+            price_open: number;
+            current_price: number;
+            pnl_pct: number;
+            invested_value_usd: number;
+            current_value_usd: number;
+            unrealized_pnl_usd: number;
+            trade_mode: string;
+            created_at: string;
+            tp_enabled: boolean;
+            tp_pct: number | null;
+            tp_target_price: number | null;
+            tp_proximity_pct: number | null;
+            sl_enabled: boolean;
+            sl_pct: number | null;
+            sl_target_price: number | null;
+            sl_proximity_pct: number | null;
+            sg_enabled: boolean;
+            sg_pct: number | null;
+            sg_drop_pct: number | null;
+            sg_proximity_pct: number | null;
+            sg_triggered: boolean;
+            tsg_enabled: boolean;
+            tsg_status: {
+                activation_pct: number;
+                drop_pct: number | null;
+                is_activated: boolean;
+                max_pnl_pct: number | null;
+                proximity_to_activation: number;
+            } | null;
+            tsg_triggered: boolean;
+            lock_sell_by_webhook: boolean;
+            exchange_account: {
+                id: number;
+                label: string;
+                exchange: string;
+            };
+            subscriber: {
+                id: number;
+                email: string;
+                full_name: string | null;
+            };
+        }>;
+        summary: {
+            total_positions: number;
+            positions_with_tp: number;
+            positions_with_sl: number;
+            positions_with_sg: number;
+            positions_with_tsg: number;
+        };
+    }> => {
+        const response = await apiClient.get('/admin/subscribers/monitoring-tp-sl', { params: filters })
+        return response.data
+    },
 }
 

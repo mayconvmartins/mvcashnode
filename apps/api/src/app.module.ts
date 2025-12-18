@@ -21,6 +21,7 @@ import { WebSocketModule } from './websocket/websocket.module';
 import { CommonModule } from './common/common.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { CryptoLogosModule } from './crypto-logos/crypto-logos.module';
+import { SubscriberModule } from './subscriber/subscriber.module';
 import * as path from 'path';
 
 @Module({
@@ -74,6 +75,7 @@ import * as path from 'path';
     CommonModule,
     SubscriptionsModule,
     CryptoLogosModule,
+    SubscriberModule,
   ],
   controllers: [AppController],
   providers: [
