@@ -40,6 +40,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
         status: PositionStatus.OPEN, // Apenas posições abertas
         qty_remaining: { gt: 0 }, // Apenas posições com quantidade restante
         closed_at: null, // Garantir que não há data de fechamento (camada extra de segurança)
+        is_residue_position: false, // Ignorar posições de resíduo consolidadas
         OR: [
           { sl_enabled: true },
           { tp_enabled: true },

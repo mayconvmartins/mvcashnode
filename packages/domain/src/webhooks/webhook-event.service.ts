@@ -406,6 +406,7 @@ export class WebhookEventService {
               status: 'OPEN',
               lock_sell_by_webhook: false, // Não vender se estiver bloqueado
               qty_remaining: { gt: 0 }, // Apenas posições com quantidade disponível
+              is_residue_position: false, // Ignorar posições de resíduo consolidadas
             },
             orderBy: {
               created_at: 'asc', // Ordenar por data de criação (para logs)

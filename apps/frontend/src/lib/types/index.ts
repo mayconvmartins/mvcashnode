@@ -404,6 +404,8 @@ export interface Position {
     dust_value_usd?: number
     original_position_id?: number | null
     grouping_open?: boolean | null
+    is_residue_position?: boolean
+    parent_position_id?: number | null
     close_reason?: string
     closed_at?: string
     created_at: string
@@ -463,6 +465,36 @@ export interface GroupPreview {
     weighted_avg_price: number
     total_invested: number
     group_started_at: string
+}
+
+// ============================================
+// RESIDUE TRANSFER JOBS
+// ============================================
+
+export interface ResidueTransferJob {
+    id: number
+    source_position_id: number
+    target_position_id: number | null
+    symbol: string
+    qty_transferred: number
+    status: 'PENDING' | 'COMPLETED' | 'FAILED'
+    reason_message?: string
+    created_at: string
+    completed_at?: string
+    source_position?: {
+        id: number
+        symbol: string
+        trade_mode: TradeMode
+        exchange_account?: {
+            id: number
+            label: string
+        }
+    }
+    target_position?: {
+        id: number
+        symbol: string
+        qty_remaining: number
+    }
 }
 
 export interface CreateManualPositionDto {

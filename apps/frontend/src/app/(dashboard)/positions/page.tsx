@@ -544,6 +544,11 @@ export default function PositionsPage() {
                                 Resíduo
                             </Badge>
                         )}
+                        {position.is_residue_position && (
+                            <Badge variant="outline" className="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/50 text-xs">
+                                Consolidado
+                            </Badge>
+                        )}
                         {position.is_grouped && (
                             <Badge 
                                 variant="outline" 
@@ -798,6 +803,11 @@ export default function PositionsPage() {
                         {position.is_dust && (
                             <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/50 text-xs">
                                 Resíduo
+                            </Badge>
+                        )}
+                        {position.is_residue_position && (
+                            <Badge variant="outline" className="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/50 text-xs">
+                                Consolidado
                             </Badge>
                         )}
                         {position.is_grouped && (

@@ -48,6 +48,7 @@ const menuItems = [
     { icon: Webhook, label: 'Webhooks', href: '/webhooks', subscriberBlocked: true }, // Bloqueado para assinantes
     { icon: Activity, label: 'Monitor Webhook', href: '/webhooks/monitor', subscriberBlocked: true }, // Bloqueado para assinantes
     { icon: LineChart, label: 'Posições', href: '/positions' },
+    { icon: Package, label: 'Resíduos', href: '/positions/residue' },
     { icon: Flame, label: 'Mapa de Calor', href: '/heatmap' },
     { icon: ArrowLeftRight, label: 'Ordens Limit', href: '/limit-orders' },
     { icon: History, label: 'Operações', href: '/operations', subscriberBlocked: true }, // Bloqueado para assinantes

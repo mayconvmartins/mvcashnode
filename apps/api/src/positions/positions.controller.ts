@@ -3493,5 +3493,174 @@ export class PositionsController {
 
     return result;
   }
+
+  // ============================================
+  // ENDPOINTS DE RESÍDUOS
+  // ============================================
+
+  @Get('residue')
+  @ApiOperation({ 
+    summary: 'Listar posições de resíduo',
+    description: 'Retorna todas as posições consolidadas de resíduos (is_residue_position = true)'
+  })
+  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'] })
+  @ApiQuery({ name: 'exchange_account_id', required: false, type: Number })
+  @ApiQuery({ name: 'symbol', required: false, type: String })
+  @ApiResponse({ status: 200, description: 'Lista de posições de resíduo' })
+  async getResiduePositions(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('exchange_account_id') exchangeAccountId?: string,
+    @Query('symbol') symbol?: string
+  ): Promise<any> {
+    // Verificar permissão do usuário para ver posições de resíduo
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: user.id },
+      select: { id: true }
+    });
+    const userAccountIds = userAccounts.map(a => a.id);
+
+    const where: any = {
+      is_residue_position: true,
+      exchange_account_id: { in: userAccountIds }
+    };
+
+    if (tradeMode) {
+      where.trade_mode = tradeMode;
+    }
+
+    if (exchangeAccountId) {
+      const accId = parseInt(exchangeAccountId, 10);
+      if (userAccountIds.includes(accId)) {
+        where.exchange_account_id = accId;
+      }
+    }
+
+    if (symbol) {
+      where.symbol = symbol.toUpperCase().replace('/', '');
+    }
+
+    const residuePositions = await this.prisma.tradePosition.findMany({
+      where,
+      include: {
+        exchange_account: {
+          select: { id: true, label: true, exchange: true }
+        },
+        residue_moves: {
+          select: { id: true, symbol: true, qty_total: true, created_at: true },
+          take: 10,
+          orderBy: { created_at: 'desc' }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    // Calcular valor estimado em USD para cada posição
+    const positionsWithValue = residuePositions.map(pos => ({
+      ...pos,
+      qty_remaining: pos.qty_remaining?.toNumber?.() || pos.qty_remaining,
+      qty_total: pos.qty_total?.toNumber?.() || pos.qty_total,
+      price_open: pos.price_open?.toNumber?.() || pos.price_open,
+      estimated_value_usd: (pos.qty_remaining?.toNumber?.() || 0) * (pos.price_open?.toNumber?.() || 0),
+      residue_moves_count: pos.residue_moves?.length || 0
+    }));
+
+    return {
+      data: positionsWithValue,
+      total: positionsWithValue.length,
+      summary: {
+        total_positions: positionsWithValue.length,
+        total_estimated_value_usd: positionsWithValue.reduce((sum, p) => sum + (p.estimated_value_usd || 0), 0)
+      }
+    };
+  }
+
+  @Get('residue/transfers')
+  @ApiOperation({ 
+    summary: 'Listar transferências de resíduo',
+    description: 'Retorna histórico de transferências de resíduo entre posições'
+  })
+  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'] })
+  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'COMPLETED', 'FAILED'] })
+  @ApiQuery({ name: 'symbol', required: false, type: String })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Lista de transferências de resíduo' })
+  async getResidueTransfers(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('status') status?: string,
+    @Query('symbol') symbol?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ): Promise<any> {
+    // Verificar permissão do usuário
+    const userAccounts = await this.prisma.exchangeAccount.findMany({
+      where: { user_id: user.id },
+      select: { id: true }
+    });
+    const userAccountIds = userAccounts.map(a => a.id);
+
+    const pageNum = parseInt(page || '1', 10);
+    const limitNum = Math.min(parseInt(limit || '50', 10), 100);
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {
+      source_position: {
+        exchange_account_id: { in: userAccountIds }
+      }
+    };
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (symbol) {
+      where.symbol = symbol.toUpperCase().replace('/', '');
+    }
+
+    const [transfers, total] = await Promise.all([
+      this.prisma.residueTransferJob.findMany({
+        where,
+        include: {
+          source_position: {
+            select: { 
+              id: true, 
+              symbol: true, 
+              trade_mode: true,
+              exchange_account: { select: { id: true, label: true } }
+            }
+          },
+          target_position: {
+            select: { id: true, symbol: true, qty_remaining: true }
+          }
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limitNum
+      }),
+      this.prisma.residueTransferJob.count({ where })
+    ]);
+
+    // Converter Decimals para números
+    const formattedTransfers = transfers.map(t => ({
+      ...t,
+      qty_transferred: t.qty_transferred?.toNumber?.() || t.qty_transferred,
+      target_position: t.target_position ? {
+        ...t.target_position,
+        qty_remaining: t.target_position.qty_remaining?.toNumber?.() || t.target_position.qty_remaining
+      } : null
+    }));
+
+    return {
+      data: formattedTransfers,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    };
+  }
 }
 

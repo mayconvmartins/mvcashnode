@@ -1,6 +1,6 @@
 {
   "name": "@mvcashnode/monitors",
-  "version": "1.0.0",
+  "version": "1.9.0",
   "main": "./dist/main.js",
   "scripts": {
     "build": "tsc",
