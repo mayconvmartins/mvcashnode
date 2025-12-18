@@ -188,7 +188,7 @@ export default function SubscriberOpenPositionsReportPage() {
                                         cx="50%"
                                         cy="50%"
                                         outerRadius={100}
-                                        label={({ symbol, percent }) => `${symbol} (${(percent * 100).toFixed(1)}%)`}
+                                        label={({ name, percent }: any) => `${name} (${((percent || 0) * 100).toFixed(1)}%)`}
                                     >
                                         {bySymbol.map((entry, index) => (
                                             <Cell key={entry.symbol} fill={COLORS[index % COLORS.length]} />
