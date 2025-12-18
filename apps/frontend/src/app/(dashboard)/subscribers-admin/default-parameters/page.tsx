@@ -320,9 +320,23 @@ export default function SubscriberDefaultParametersPage() {
                                     </div>
                                     <Switch
                                         checked={formData.default_tsg_enabled}
-                                        onCheckedChange={(checked) => setFormData({ ...formData, default_tsg_enabled: checked })}
+                                        onCheckedChange={(checked) => {
+                                            setFormData({ 
+                                                ...formData, 
+                                                default_tsg_enabled: checked,
+                                                // TSG + TP podem coexistir, apenas SG é desativado
+                                                default_sg_enabled: checked ? false : formData.default_sg_enabled,
+                                                default_sg_pct: checked ? null : formData.default_sg_pct,
+                                                default_sg_drop_pct: checked ? null : formData.default_sg_drop_pct,
+                                            })
+                                        }}
                                     />
                                 </div>
+                                {formData.default_tsg_enabled && formData.default_tp_enabled && (
+                                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                                        💡 TP + TSG ativos: O primeiro a atingir aciona a venda. TP funciona como &quot;lucro máximo garantido&quot;.
+                                    </p>
+                                )}
                                 {formData.default_tsg_enabled && (
                                     <div className="space-y-2">
                                         <div>

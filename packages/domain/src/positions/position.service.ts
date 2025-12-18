@@ -1568,10 +1568,11 @@ export class PositionService {
       throw new Error('Trailing Stop Gain e Stop Gain fixo não podem estar habilitados ao mesmo tempo');
     }
 
-    // Se TSG está sendo ativado, desativar TP e SG automaticamente e bloquear webhook
+    // TSG pode funcionar junto com TP (TP como teto máximo)
+    // Apenas SG é desativado quando TSG está ativo
     const updateData: any = {};
     if (tsgEnabled === true) {
-      updateData.tp_enabled = false;
+      // TSG + TP podem coexistir, apenas SG é desativado
       updateData.sg_enabled = false;
       updateData.sg_pct = null;
       updateData.sg_drop_pct = null;

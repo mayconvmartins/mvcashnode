@@ -159,7 +159,7 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                     </div>
                 )}
 
-                {/* TSG - Independente de TP */}
+                {/* TSG - Pode funcionar junto com TP (TP como teto máximo) */}
                 <div className="mt-4 p-4 bg-muted/50 rounded-lg border border-dashed">
                     <div className="flex items-center justify-between mb-3">
                         <Label>Trailing Stop Gain (Rastreamento Dinâmico)</Label>
@@ -168,9 +168,9 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                             onCheckedChange={(checked) => {
                                 updateData({ trailingStopGain: checked })
                                 if (checked) {
-                                    // Se ativar TSG, desativar TP e SG automaticamente
+                                    // TSG pode funcionar junto com TP (TP como teto máximo)
+                                    // Apenas SG é desativado quando TSG está ativo
                                     updateData({ 
-                                        takeProfitPercent: undefined,
                                         stopGain: false,
                                         stopGainPercent: undefined,
                                         stopGainDropPercent: undefined
@@ -189,6 +189,11 @@ export function WizardStepSLTP({ data, updateData }: WizardStepSLTPProps) {
                     {data.stopGain && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
                             Desabilite o Stop Gain fixo para usar Trailing Stop Gain
+                        </p>
+                    )}
+                    {data.trailingStopGain && data.takeProfitPercent && (
+                        <p className="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                            💡 TP + TSG ativos: O primeiro a atingir aciona a venda. TP funciona como &quot;lucro máximo garantido&quot;.
                         </p>
                     )}
                     {data.trailingStopGain && (

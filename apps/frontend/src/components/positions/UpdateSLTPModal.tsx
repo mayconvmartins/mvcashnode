@@ -77,12 +77,12 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                 payload.sgDropPct = parseFloat(sgDropPct)
             }
 
-            // TSG - Independente de TP
+            // TSG - Pode funcionar junto com TP (TP como teto máximo)
             payload.tsgEnabled = tsgEnabled
             
-            // Se TSG está sendo ativado, desativar TP e SG automaticamente
+            // Se TSG está sendo ativado, apenas SG é desativado (TSG tem prioridade sobre SG)
+            // TP continua ativo como "lucro máximo garantido"
             if (tsgEnabled === true) {
-                payload.tpEnabled = false
                 payload.sgEnabled = false
                 payload.sgPct = undefined
                 payload.sgDropPct = undefined
@@ -257,9 +257,9 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                         onChange={(e) => {
                             const checked = e.target.checked
                             setTsgEnabled(checked)
-                            // Se ativar TSG, desativar TP e SG automaticamente
+                            // TSG pode funcionar junto com TP (TP como teto máximo)
+                            // Apenas SG é desativado quando TSG está ativo
                             if (checked) {
-                                setTpEnabled(false)
                                 setSgEnabled(false)
                             }
                         }}
@@ -273,6 +273,11 @@ export function UpdateSLTPModal({ position, open, onClose }: UpdateSLTPModalProp
                 {sgEnabled && (
                     <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
                         Desabilite o Stop Gain fixo para usar Trailing Stop Gain
+                    </p>
+                )}
+                {tsgEnabled && tpEnabled && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                        💡 TP + TSG ativos: O primeiro a atingir aciona a venda. TP funciona como &quot;lucro máximo garantido&quot;.
                     </p>
                 )}
                 {tsgEnabled && (

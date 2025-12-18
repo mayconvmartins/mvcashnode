@@ -339,9 +339,164 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           }
         }
 
+        // === TAKE PROFIT - VERIFICAR PRIMEIRO (funciona como teto máximo, mesmo com TSG ativo) ===
+        // Quando TP e TSG estão ativos juntos, o TP funciona como "lucro máximo garantido"
+        // Se o preço atingir TP% antes do TSG acionar, vende imediatamente
+        if (position.tp_enabled && position.tp_pct && !position.tp_triggered) {
+          const tpPct = position.tp_pct.toNumber();
+          
+          if (pnlPct >= tpPct) {
+            // ========== ETAPA 1: Verificar job existente ANTES do lock ==========
+            const existingJob = await this.prisma.tradeJob.findFirst({
+              where: {
+                position_id_to_close: position.id,
+                side: 'SELL',
+                status: { 
+                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED']
+                }
+              },
+              select: { id: true, status: true, order_type: true, base_quantity: true }
+            });
+
+            if (existingJob) {
+              this.logger.warn(
+                `[MONITOR] [DUPLICATE-PREVENTION] Job ${existingJob.id} (${existingJob.status}, ${existingJob.order_type}) ` +
+                `já existe para posição ${position.id}, pulando criação. ` +
+                `Quantidade: ${existingJob.base_quantity}`
+              );
+            } else {
+              // ========== ETAPA 2: Revalidar posição ANTES do lock ==========
+              const freshPosition = await this.prisma.tradePosition.findUnique({
+                where: { id: position.id },
+                select: { 
+                  qty_remaining: true, 
+                  status: true,
+                  symbol: true 
+                }
+              });
+
+              if (freshPosition && 
+                  freshPosition.status === 'OPEN' && 
+                  freshPosition.qty_remaining.toNumber() > 0) {
+                
+                // Validar quantidade mínima (evitar tentar vender resíduos)
+                const minQtyUSD = 1; // $1 USD mínimo
+                const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
+                
+                if (estimatedValueUSD >= minQtyUSD) {
+                  // ========== ETAPA 3: Lock otimista com condições restritas ==========
+                  const lockResult = await this.prisma.tradePosition.updateMany({
+                    where: {
+                      id: position.id,
+                      tp_triggered: false,
+                      status: 'OPEN',
+                      qty_remaining: { gt: 0 }
+                    },
+                    data: { tp_triggered: true },
+                  });
+
+                  if (lockResult.count > 0) {
+                    // ========== ETAPA 4: Double-check jobs após lock ==========
+                    const doubleCheckJob = await this.prisma.tradeJob.findFirst({
+                      where: {
+                        position_id_to_close: position.id,
+                        side: 'SELL',
+                        status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] }
+                      },
+                      select: { id: true, status: true }
+                    });
+
+                    if (doubleCheckJob) {
+                      // Reverter lock
+                      await this.prisma.tradePosition.update({
+                        where: { id: position.id },
+                        data: { tp_triggered: false }
+                      });
+                      this.logger.warn(
+                        `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} criado por outro processo ` +
+                        `durante lock, FLAG REVERTIDA`
+                      );
+                    } else {
+                      // ========== ETAPA 5: Criar job com quantidade validada ==========
+                      try {
+                        const limitPrice = priceOpen * (1 + tpPct / 100);
+                        
+                        // VALIDAÇÃO DE LUCRO MÍNIMO
+                        const validationResult = await positionService.validateMinProfit(
+                          position.id,
+                          limitPrice
+                        );
+
+                        if (!validationResult.valid) {
+                          this.logger.warn(`[SL-TP-MONITOR-REAL] ⚠️ Take Profit SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+                          await this.prisma.tradePosition.update({
+                            where: { id: position.id },
+                            data: { tp_triggered: false },
+                          });
+                        } else {
+                          const tradeJob = await tradeJobService.createJob({
+                            exchangeAccountId: position.exchange_account_id,
+                            tradeMode: TradeMode.REAL,
+                            symbol: position.symbol,
+                            side: 'SELL',
+                            orderType: 'LIMIT',
+                            baseQuantity: freshPosition.qty_remaining.toNumber(),
+                            limitPrice,
+                            positionIdToClose: position.id,
+                            skipParameterValidation: true,
+                            createdBy: 'TAKE_PROFIT',
+                          });
+
+                          this.logger.log(
+                            `[MONITOR] [JOB-CREATED] TAKE_PROFIT job criado (teto máximo): ` +
+                            `ID=${tradeJob.id}, symbol=${position.symbol}, ` +
+                            `qty=${freshPosition.qty_remaining.toNumber()}, limitPrice=${limitPrice}, ` +
+                            `TSG_ativo=${position.tsg_enabled}`
+                          );
+
+                          await this.tradeExecutionQueue.add(
+                            'execute-trade',
+                            { tradeJobId: tradeJob.id },
+                            {
+                              jobId: `trade-job-${tradeJob.id}`,
+                              attempts: 1,
+                              removeOnComplete: true,
+                              removeOnFail: { age: 3600 }
+                            }
+                          );
+
+                          triggered++;
+                          continue; // TP acionado, pular outras verificações para esta posição
+                        }
+                      } catch (error: any) {
+                        this.logger.error(
+                          `[MONITOR] [JOB-CREATION-FAILED] Erro ao criar job TP para posição ${position.id}: ${error.message}`
+                        );
+                        
+                        await this.prisma.tradePosition.update({
+                          where: { id: position.id },
+                          data: { tp_triggered: false }
+                        });
+                        
+                        this.logger.warn(`[MONITOR] [LOCK-REVERTED] Flag tp_triggered revertida para posição ${position.id}`);
+                      }
+                    }
+                  }
+                } else {
+                  this.logger.warn(
+                    `[MONITOR] [RESIDUE-SKIP] Posição ${position.id} tem resíduo muito pequeno para TP: ` +
+                    `${freshPosition.qty_remaining.toNumber()} ${freshPosition.symbol} (~$${estimatedValueUSD.toFixed(2)})`
+                  );
+                }
+              }
+            }
+          }
+        }
+
         // === STOP GAIN - Lógica Corrigida ===
+        // SG só funciona quando TSG NÃO está ativo (TSG tem prioridade sobre SG)
         // Funciona como trailing stop: ativa em sg_pct, vende se cair para (sg_pct - sg_drop_pct)
-        if (position.tp_enabled && position.sg_enabled && 
+        if (position.tp_enabled && position.sg_enabled && !position.tsg_enabled &&
             position.sg_pct && position.sg_drop_pct && position.tp_pct &&
             !position.tp_triggered) {
           
@@ -549,10 +704,12 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         }
 
         // === TRAILING STOP GAIN ===
-        // TSG é independente de TP - funciona sozinho
+        // TSG funciona junto com TP - o primeiro a atingir vence
+        // Se TP já foi triggered, não processar TSG
         if (position.tsg_enabled && 
             position.tsg_activation_pct && 
-            position.tsg_drop_pct) {
+            position.tsg_drop_pct &&
+            !position.tp_triggered) {
           
           // Se tsg_triggered está true mas não há job válido, verificar se ainda é viável
           if (position.tsg_triggered) {
@@ -770,169 +927,6 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 
                 this.logger.warn(`[MONITOR] [LOCK-REVERTED] Flag tsg_triggered revertida para posição ${position.id}`);
               }
-            }
-          }
-        }
-
-        // Check Take Profit
-        if (position.tp_enabled && position.tp_pct && pnlPct >= position.tp_pct.toNumber()) {
-          if (!position.tp_triggered) {
-            // ========== ETAPA 1: Verificar job existente ANTES do lock ==========
-            const existingJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { 
-                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED']
-                }
-              },
-              select: { id: true, status: true, order_type: true, base_quantity: true }
-            });
-
-            if (existingJob) {
-              this.logger.warn(
-                `[MONITOR] [DUPLICATE-PREVENTION] Job ${existingJob.id} (${existingJob.status}, ${existingJob.order_type}) ` +
-                `já existe para posição ${position.id}, pulando criação. ` +
-                `Quantidade: ${existingJob.base_quantity}`
-              );
-              continue;
-            }
-
-            // ========== ETAPA 2: Revalidar posição ANTES do lock ==========
-            const freshPosition = await this.prisma.tradePosition.findUnique({
-              where: { id: position.id },
-              select: { 
-                qty_remaining: true, 
-                status: true,
-                symbol: true 
-              }
-            });
-
-            if (!freshPosition || 
-                freshPosition.status !== 'OPEN' || 
-                freshPosition.qty_remaining.toNumber() <= 0) {
-              this.logger.warn(
-                `[MONITOR] [POSITION-VALIDATION] Posição ${position.id} não elegível: ` +
-                `status=${freshPosition?.status}, qty=${freshPosition?.qty_remaining.toNumber()}`
-              );
-              continue;
-            }
-
-            // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 1; // $1 USD mínimo
-            const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
-            if (estimatedValueUSD < minQtyUSD) {
-              this.logger.warn(
-                `[MONITOR] [RESIDUE-SKIP] Posição ${position.id} tem resíduo muito pequeno: ` +
-                `${freshPosition.qty_remaining.toNumber()} ${freshPosition.symbol} (~$${estimatedValueUSD.toFixed(2)}). ` +
-                `Pulando venda (mínimo: $${minQtyUSD})`
-              );
-              continue;
-            }
-
-            // ========== ETAPA 3: Lock otimista com condições restritas ==========
-            const lockResult = await this.prisma.tradePosition.updateMany({
-              where: {
-                id: position.id,
-                tp_triggered: false,
-                status: 'OPEN',
-                qty_remaining: { gt: 0 }
-              },
-              data: { tp_triggered: true },
-            });
-
-            if (lockResult.count === 0) {
-              this.logger.warn(
-                `[MONITOR] [LOCK-FAILED] Lock falhou para posição ${position.id} ` +
-                `(outra execução ou posição mudou)`
-              );
-              continue;
-            }
-
-            // ========== ETAPA 4: Double-check jobs após lock ==========
-            const doubleCheckJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] }
-              },
-              select: { id: true, status: true }
-            });
-
-            if (doubleCheckJob) {
-              // Reverter lock
-              await this.prisma.tradePosition.update({
-                where: { id: position.id },
-                data: { tp_triggered: false }
-              });
-              this.logger.warn(
-                `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} criado por outro processo ` +
-                `durante lock, FLAG REVERTIDA`
-              );
-              continue;
-            }
-
-            // ========== ETAPA 5: Criar job com quantidade validada ==========
-            try {
-              const tpPct = position.tp_pct.toNumber();
-              const limitPrice = priceOpen * (1 + tpPct / 100);
-              
-              // VALIDAÇÃO DE LUCRO MÍNIMO
-              const validationResult = await positionService.validateMinProfit(
-                position.id,
-                limitPrice
-              );
-
-              if (!validationResult.valid) {
-                console.warn(`[SL-TP-MONITOR-REAL] ⚠️ Take Profit SKIPADO para posição ${position.id}: ${validationResult.reason}`);
-                await this.prisma.tradePosition.update({
-                  where: { id: position.id },
-                  data: { tp_triggered: false },
-                });
-                continue;
-              }
-              
-              const tradeJob = await tradeJobService.createJob({
-                exchangeAccountId: position.exchange_account_id,
-                tradeMode: TradeMode.REAL,
-                symbol: position.symbol,
-                side: 'SELL',
-                orderType: 'LIMIT',
-                baseQuantity: freshPosition.qty_remaining.toNumber(),
-                limitPrice,
-                positionIdToClose: position.id,
-                skipParameterValidation: true,
-              });
-
-              this.logger.log(
-                `[MONITOR] [JOB-CREATED] TAKE_PROFIT job criado: ` +
-                `ID=${tradeJob.id}, symbol=${position.symbol}, ` +
-                `qty=${freshPosition.qty_remaining.toNumber()}, limitPrice=${limitPrice}`
-              );
-
-              await this.tradeExecutionQueue.add(
-                'execute-trade',
-                { tradeJobId: tradeJob.id },
-                {
-                  jobId: `trade-job-${tradeJob.id}`,
-                  attempts: 1,
-                  removeOnComplete: true,
-                  removeOnFail: { age: 3600 }
-                }
-              );
-
-              triggered++;
-            } catch (error: any) {
-              this.logger.error(
-                `[MONITOR] [JOB-CREATION-FAILED] Erro ao criar job para posição ${position.id}: ${error.message}`
-              );
-              
-              await this.prisma.tradePosition.update({
-                where: { id: position.id },
-                data: { tp_triggered: false }
-              });
-              
-              this.logger.warn(`[MONITOR] [LOCK-REVERTED] Flag tp_triggered revertida para posição ${position.id}`);
             }
           }
         }

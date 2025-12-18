@@ -394,8 +394,8 @@ export default function PositionsPage() {
             updateData.tsgEnabled = true
             updateData.tsgActivationPct = tsgActivationPctNum
             updateData.tsgDropPct = tsgDropPctNum
-            // Se ativar TSG, desativar TP e SG
-            updateData.tpEnabled = false
+            // TSG pode funcionar junto com TP (TP funciona como teto máximo)
+            // Apenas SG é desativado quando TSG está ativo
             updateData.sgEnabled = false
         } else if (bulkTSGEnabled === false) {
             updateData.tsgEnabled = false
@@ -1761,9 +1761,9 @@ export default function PositionsPage() {
                                     onCheckedChange={(checked) => {
                                         const isChecked = checked === true
                                         setBulkTSGEnabled(isChecked)
-                                        // Se ativar TSG, desativar TP e SG automaticamente
+                                        // TSG pode funcionar junto com TP (TP como teto máximo)
+                                        // Apenas SG é desativado quando TSG está ativo
                                         if (isChecked) {
-                                            setBulkTPEnabled(false)
                                             setBulkSGEnabled(false)
                                         }
                                     }}

@@ -363,13 +363,18 @@ export default function MonitoringPositionstpSlPage() {
                                     </div>
                                 )}
 
-                                {/* Take Profit - Não mostrar se TSG estiver ativo */}
-                                {position.tp_enabled && position.tp_pct !== null && !position.tsg_enabled && (
+                                {/* Take Profit - Mostrar mesmo com TSG ativo (TP funciona como teto máximo) */}
+                                {position.tp_enabled && position.tp_pct !== null && (
                                     <div className="space-y-1">
                                         <div className="flex items-center justify-between text-xs">
                                             <div className="flex items-center gap-1">
                                                 <TrendingUp className="h-3 w-3 text-green-500" />
                                                 <span className="text-muted-foreground">Take Profit</span>
+                                                {position.tsg_enabled && (
+                                                    <Badge variant="outline" className="text-[10px] ml-1 bg-blue-500/10 text-blue-500 border-blue-500">
+                                                        Teto Máx.
+                                                    </Badge>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 {position.tp_proximity_pct !== null ? (

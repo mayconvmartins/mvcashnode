@@ -2616,12 +2616,13 @@ export class PositionsController {
           continue;
         }
 
-        // Se TSG está sendo ativado, desativar TP e SG automaticamente
+        // TSG pode funcionar junto com TP (TP como teto máximo)
+        // Apenas SG é desativado quando TSG está ativo
         let finalTpEnabled = bulkUpdateDto.tpEnabled
         let finalSgEnabled = bulkUpdateDto.sgEnabled
         
         if (bulkUpdateDto.tsgEnabled === true) {
-          finalTpEnabled = false
+          // TSG + TP podem coexistir, apenas SG é desativado
           finalSgEnabled = false
         }
 
