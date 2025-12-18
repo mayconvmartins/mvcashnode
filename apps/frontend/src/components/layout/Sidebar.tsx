@@ -73,6 +73,7 @@ const subscriberAdminMenuItems = [
 
 // Menu específico para usuários assinantes (restrito)
 const subscriberOnlyMenuItems = [
+    { icon: LayoutDashboard, label: 'Dashboard', href: '/subscriber-dashboard' },
     { icon: Wallet, label: 'Contas', href: '/accounts' },
     { icon: Flame, label: 'Mapa de Calor', href: '/heatmap' },
     { icon: Target, label: 'Monitor SL/TP', href: '/monitoring-positionstp-sl' },

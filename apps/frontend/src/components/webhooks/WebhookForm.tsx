@@ -32,7 +32,7 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
         label: webhook?.label || '',
         webhookCode: webhook?.webhook_code || '',
         tradeMode: (webhook?.trade_mode || 'REAL') as TradeMode,
-        allowedIPs: webhook?.allowed_ips_json?.join('\n') || '',
+        allowedIPs: ((webhook as any)?.allowed_ips_json || (webhook as any)?.allowed_ips)?.join('\n') || '',
         requireSignature: webhook?.require_signature || false,
         rateLimitPerMin: webhook?.rate_limit_per_min || 60,
         alertGroupEnabled: webhook?.alert_group_enabled || false,
@@ -48,7 +48,7 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
                 label: webhook.label || '',
                 webhookCode: webhook.webhook_code || '',
                 tradeMode: (webhook.trade_mode || 'REAL') as TradeMode,
-                allowedIPs: webhook.allowed_ips_json?.join('\n') || '',
+                allowedIPs: ((webhook as any).allowed_ips_json || (webhook as any).allowed_ips)?.join('\n') || '',
                 requireSignature: webhook.require_signature || false,
                 rateLimitPerMin: webhook.rate_limit_per_min || 60,
                 alertGroupEnabled: webhook.alert_group_enabled || false,
@@ -90,8 +90,8 @@ export function WebhookForm({ webhook, onSuccess, onCancel }: WebhookFormProps) 
             if (formData.allowedIPs.trim()) {
                 payload.allowedIPs = formData.allowedIPs
                     .split('\n')
-                    .map(ip => ip.trim())
-                    .filter(ip => ip.length > 0)
+                    .map((ip: string) => ip.trim())
+                    .filter((ip: string) => ip.length > 0)
             } else {
                 payload.allowedIPs = []
             }

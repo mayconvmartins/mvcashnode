@@ -8222,6 +8222,7 @@ export class AdminSystemController {
         id: pos.id,
         symbol: pos.symbol,
         qty_remaining: qtyRemaining,
+        qty_total: pos.qty_total.toNumber(),
         price_open: priceOpen,
         current_price: priceNow,
         pnl_pct: pnlPct,

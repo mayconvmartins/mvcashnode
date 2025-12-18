@@ -181,10 +181,17 @@ export default function SubscriberPositionsPage() {
           <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">
             {pos.subscriber?.email?.charAt(0).toUpperCase() || '?'}
           </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-medium">{pos.subscriber?.full_name || pos.subscriber?.email}</span>
-            <span className="text-xs text-muted-foreground">{pos.subscriber?.email}</span>
-          </div>
+          <span className="text-sm font-medium">{pos.subscriber?.email || '-'}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'exchange_account',
+      label: 'Conta Exchange',
+      render: (pos) => (
+        <div className="flex flex-col">
+          <span className="text-sm font-medium">{(pos as any).exchange_account?.label || '-'}</span>
+          <span className="text-xs text-muted-foreground">{(pos as any).exchange_account?.exchange || '-'}</span>
         </div>
       ),
     },
@@ -223,7 +230,7 @@ export default function SubscriberPositionsPage() {
     },
     {
       key: 'unrealized_pnl',
-      label: 'PnL',
+      label: 'PnL %',
       render: (pos) => {
         const pnlPct = pos.unrealized_pnl_pct || 0;
         const isProfit = pnlPct >= 0;
@@ -238,6 +245,19 @@ export default function SubscriberPositionsPage() {
               {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
             </span>
           </div>
+        );
+      },
+    },
+    {
+      key: 'unrealized_pnl_usd',
+      label: 'PnL USD',
+      render: (pos) => {
+        const pnlUsd = pos.unrealized_pnl_usd || 0;
+        const isProfit = pnlUsd >= 0;
+        return (
+          <span className={isProfit ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+            {isProfit ? '+' : ''}{formatCurrency(pnlUsd)}
+          </span>
         );
       },
     },

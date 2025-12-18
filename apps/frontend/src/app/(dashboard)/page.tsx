@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { reportsService } from '@/lib/api/reports.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTradeMode } from '@/lib/hooks/useTradeMode'
+import { useAuthStore } from '@/lib/stores/authStore'
 import { LineChart as RechartsLineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, Legend } from 'recharts'
 
 const COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6']
@@ -73,8 +75,21 @@ const getPeriodDates = (period: PeriodOption): { from: Date; to: Date } => {
 }
 
 export default function DashboardPage() {
+    const router = useRouter()
+    const { user } = useAuthStore()
     const { tradeMode } = useTradeMode()
     const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>('today')
+    
+    // Verificar se é assinante e redirecionar para dashboard de assinante
+    const isSubscriber = user?.roles?.some((r: any) => r.role === 'subscriber')
+    const isAdmin = user?.roles?.some((r: any) => r.role === 'admin')
+    
+    useEffect(() => {
+        // Se for apenas assinante (não admin), redirecionar para dashboard de assinante
+        if (isSubscriber && !isAdmin) {
+            router.replace('/subscriber-dashboard')
+        }
+    }, [isSubscriber, isAdmin, router])
     
     // Calcular datas baseado no período selecionado
     const { from, to } = useMemo(() => getPeriodDates(selectedPeriod), [selectedPeriod])
@@ -83,6 +98,7 @@ export default function DashboardPage() {
         queryKey: ['dashboard', 'detailed', tradeMode, selectedPeriod],
         queryFn: () => reportsService.getDetailedDashboardSummary(tradeMode, from, to),
         refetchInterval: 30000, // Atualizar a cada 30 segundos
+        enabled: !isSubscriber || isAdmin, // Não buscar dados se for assinante
     })
 
     if (isLoading) {

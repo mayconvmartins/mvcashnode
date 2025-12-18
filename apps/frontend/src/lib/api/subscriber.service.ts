@@ -8,12 +8,43 @@ export interface PositionSettings {
     message: string;
 }
 
-export interface SubscriberDashboard {
-    total_positions: number;
-    open_positions: number;
-    accounts_count: number;
-    position_settings: PositionSettings | null;
+export interface SymbolPerformance {
+    symbol: string;
+    pnl: number;
+    pnlPct: number;
 }
+
+export interface PositionBySymbol {
+    symbol: string;
+    open: number;
+    closed: number;
+}
+
+export interface SubscriberDashboard {
+    // Resumo principal
+    totalPositions: number;
+    openPositions: number;
+    closedPositions: number;
+    totalInvestment: number;
+    totalPnL: number;
+    realizedPnL: number;
+    unrealizedPnL: number;
+    capitalInvested: number;
+    
+    // ROI
+    roiAccumulated: number;
+    roiRealized: number;
+    roiUnrealized: number;
+    
+    // Top símbolos
+    topProfitable: SymbolPerformance[];
+    topLosses: SymbolPerformance[];
+    
+    // Gráficos
+    positionsBySymbol: PositionBySymbol[];
+}
+
+export type PeriodOption = 'today' | 'last7days' | 'currentMonth' | 'previousMonth';
 
 export const subscriberService = {
     // ============================================
@@ -42,8 +73,10 @@ export const subscriberService = {
     // DASHBOARD
     // ============================================
 
-    getDashboard: async (): Promise<SubscriberDashboard> => {
-        const response = await apiClient.get<SubscriberDashboard>('/subscriber/dashboard')
+    getDashboard: async (tradeMode: 'REAL' | 'SIMULATION', period: PeriodOption = 'today'): Promise<SubscriberDashboard> => {
+        const response = await apiClient.get<SubscriberDashboard>('/subscriber/dashboard', {
+            params: { trade_mode: tradeMode, period }
+        })
         return response.data
     },
 }

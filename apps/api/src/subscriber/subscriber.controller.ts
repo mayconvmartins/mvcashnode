@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Body,
+  Query,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
@@ -11,18 +12,24 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PrismaService } from '@mvcashnode/db';
 import { SubscriberOnlyGuard } from '../subscriptions/guards/subscriber-only.guard';
+import { ReportsService } from '../reports/reports.service';
+import { TradeMode } from '@mvcashnode/shared';
 
 @ApiTags('Subscriber')
 @Controller('subscriber')
 @UseGuards(JwtAuthGuard, SubscriberOnlyGuard)
 @ApiBearerAuth()
 export class SubscriberController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private reportsService: ReportsService
+  ) {}
 
   @Get('position-settings')
   @ApiOperation({
@@ -141,51 +148,77 @@ export class SubscriberController {
 
   @Get('dashboard')
   @ApiOperation({
-    summary: 'Resumo do dashboard do assinante',
-    description: 'Retorna um resumo das posições e operações do assinante.'
+    summary: 'Dashboard completo do assinante',
+    description: 'Retorna dados completos da dashboard do assinante, similar à dashboard do admin mas sem métricas de SL/TP.'
   })
-  async getDashboard(@CurrentUser() user: any): Promise<any> {
-    // Buscar contas do assinante
-    const accounts = await this.prisma.exchangeAccount.findMany({
-      where: { user_id: user.userId },
-      select: { id: true }
-    });
-    const accountIds = accounts.map(a => a.id);
-
-    if (accountIds.length === 0) {
-      return {
-        total_positions: 0,
-        open_positions: 0,
-        total_invested_usd: 0,
-        total_unrealized_pnl_usd: 0,
-        position_settings: null
-      };
+  @ApiQuery({ name: 'trade_mode', required: false, enum: ['REAL', 'SIMULATION'] })
+  @ApiQuery({ name: 'period', required: false, description: 'today, last7days, currentMonth, previousMonth' })
+  async getDashboard(
+    @CurrentUser() user: any,
+    @Query('trade_mode') tradeMode?: string,
+    @Query('period') period?: string
+  ): Promise<any> {
+    // Calcular datas baseado no período
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    let from: Date;
+    let to: Date;
+    
+    switch (period) {
+      case 'last7days':
+        from = new Date(today);
+        from.setDate(from.getDate() - 6);
+        to = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
+        break;
+      case 'currentMonth':
+        from = new Date(now.getFullYear(), now.getMonth(), 1);
+        to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        break;
+      case 'previousMonth':
+        from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        break;
+      case 'today':
+      default:
+        from = new Date(today);
+        to = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
+        break;
     }
-
-    // Contar posições
-    const openPositions = await this.prisma.tradePosition.count({
-      where: {
-        exchange_account_id: { in: accountIds },
-        status: 'OPEN',
-        is_residue_position: false
-      }
-    });
-
-    const totalPositions = await this.prisma.tradePosition.count({
-      where: {
-        exchange_account_id: { in: accountIds },
-        is_residue_position: false
-      }
-    });
-
-    // Buscar configurações
-    const settings = await this.getPositionSettings(user);
-
+    
+    // Usar ReportsService para obter dados detalhados
+    const mode = tradeMode === 'SIMULATION' ? TradeMode.SIMULATION : TradeMode.REAL;
+    const dashboardData = await this.reportsService.getDetailedDashboardSummary(
+      user.userId,
+      mode,
+      from,
+      to
+    );
+    
+    // Retornar dados simplificados (sem SL/TP vs Webhook, sem estatísticas SL/TP, sem evolução P&L)
     return {
-      total_positions: totalPositions,
-      open_positions: openPositions,
-      accounts_count: accountIds.length,
-      position_settings: settings
+      // Resumo principal
+      totalPositions: dashboardData.totalPositions,
+      openPositions: dashboardData.openPositions,
+      closedPositions: dashboardData.closedPositions,
+      totalInvestment: dashboardData.totalInvestment,
+      totalPnL: dashboardData.totalPnL,
+      realizedPnL: dashboardData.realizedPnL,
+      unrealizedPnL: dashboardData.unrealizedPnL,
+      capitalInvested: dashboardData.capitalInvested,
+      
+      // ROI
+      roiAccumulated: dashboardData.roiAccumulated,
+      roiRealized: dashboardData.roiRealized,
+      roiUnrealized: dashboardData.roiUnrealized,
+      
+      // Top símbolos
+      topProfitable: dashboardData.topProfitable,
+      topLosses: dashboardData.topLosses,
+      
+      // Gráficos
+      positionsBySymbol: dashboardData.positionsBySymbol,
+      // Composição P&L já está em realizedPnL e unrealizedPnL
     };
   }
 }

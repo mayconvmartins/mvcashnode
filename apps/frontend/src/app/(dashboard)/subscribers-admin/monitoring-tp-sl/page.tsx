@@ -261,9 +261,14 @@ export default function SubscribersMonitoringTPSLPage() {
                                         <CardTitle className="text-lg">
                                             {position.symbol}
                                         </CardTitle>
-                                        <CardDescription className="mt-1 flex items-center gap-1">
-                                            <Users className="h-3 w-3" />
-                                            {position.subscriber?.full_name || position.subscriber?.email?.split('@')[0]}
+                                        <CardDescription className="mt-1 flex flex-col gap-0.5">
+                                            <span className="flex items-center gap-1">
+                                                <Users className="h-3 w-3" />
+                                                {position.subscriber?.email || '-'}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {position.exchange_account?.label || position.exchange_account?.exchange || '-'}
+                                            </span>
                                         </CardDescription>
                                     </div>
                                     {getStatusBadge(position.pnl_pct)}

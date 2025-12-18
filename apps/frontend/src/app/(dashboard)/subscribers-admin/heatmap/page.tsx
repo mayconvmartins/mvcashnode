@@ -376,19 +376,27 @@ export default function SubscribersHeatmapPage() {
                                             </div>
                                         </div>
                                         
-                                        {/* Subscriber info */}
+                                        {/* Subscriber email */}
                                         <div className="text-[9px] text-white/60 truncate flex items-center gap-1">
                                             <Users className="h-2.5 w-2.5" />
-                                            {pos.subscriber?.full_name || pos.subscriber?.email?.split('@')[0] || 'N/A'}
+                                            {pos.subscriber?.email || 'N/A'}
                                         </div>
                                         
-                                        {/* Footer com PnL */}
+                                        {/* Exchange account */}
+                                        <div className="text-[8px] text-white/50 truncate">
+                                            {pos.exchange_account?.label || pos.exchange_account?.exchange || '-'}
+                                        </div>
+                                        
+                                        {/* Footer com PnL e valor investido */}
                                         <div className="text-center">
-                                            <div className="text-xl font-bold text-white">
+                                            <div className="text-lg font-bold text-white">
                                                 {pos.pnl_pct >= 0 ? '+' : ''}{pos.pnl_pct.toFixed(2)}%
                                             </div>
                                             <div className="text-[10px] text-white/70">
                                                 {formatCurrency(pos.unrealized_pnl_usd)}
+                                            </div>
+                                            <div className="text-[8px] text-white/50 mt-0.5">
+                                                Inv: {formatCurrency(pos.invested_value_usd)}
                                             </div>
                                         </div>
                                     </div>
