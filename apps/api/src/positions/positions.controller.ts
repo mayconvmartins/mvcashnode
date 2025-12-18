@@ -2172,7 +2172,10 @@ export class PositionsController {
         updateDto.tpPct,
         updateDto.sgEnabled,
         updateDto.sgPct,
-        updateDto.sgDropPct
+        updateDto.sgDropPct,
+        updateDto.tsgEnabled,
+        updateDto.tsgActivationPct,
+        updateDto.tsgDropPct
       );
 
       // Emitir evento WebSocket
@@ -2187,6 +2190,11 @@ export class PositionsController {
         sg_pct: updatedPosition.sg_pct,
         sg_drop_pct: updatedPosition.sg_drop_pct,
         sg_activated: updatedPosition.sg_activated,
+        tsg_enabled: updatedPosition.tsg_enabled,
+        tsg_activation_pct: updatedPosition.tsg_activation_pct,
+        tsg_drop_pct: updatedPosition.tsg_drop_pct,
+        tsg_activated: updatedPosition.tsg_activated,
+        tsg_max_pnl_pct: updatedPosition.tsg_max_pnl_pct,
       });
 
       return updatedPosition;

@@ -45,6 +45,25 @@ export class UpdateSLTPDto {
   @Max(100)
   sgDropPct?: number;
 
+  @ApiProperty({ required: false, description: 'Ativar Trailing Stop Gain (rastreamento dinâmico de lucro)' })
+  @IsOptional()
+  @IsBoolean()
+  tsgEnabled?: boolean;
+
+  @ApiProperty({ required: false, example: 2.0, description: 'Porcentagem inicial para ativar Trailing Stop Gain' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.1)
+  @Max(100)
+  tsgActivationPct?: number;
+
+  @ApiProperty({ required: false, example: 0.5, description: 'Porcentagem de queda do pico para vender (Trailing Stop Gain)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.1)
+  @Max(100)
+  tsgDropPct?: number;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()

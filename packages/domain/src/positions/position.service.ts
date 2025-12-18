@@ -1424,7 +1424,10 @@ export class PositionService {
     tpPct?: number,
     sgEnabled?: boolean,
     sgPct?: number,
-    sgDropPct?: number
+    sgDropPct?: number,
+    tsgEnabled?: boolean,
+    tsgActivationPct?: number,
+    tsgDropPct?: number
   ): Promise<any> {
     // Validação: Stop Gain só pode ser habilitado se TP estiver habilitado
     if (sgEnabled && !tpEnabled) {
@@ -1448,6 +1451,30 @@ export class PositionService {
       throw new Error('% de queda do Stop Gain é obrigatória quando Stop Gain está habilitado');
     }
 
+    // ========== VALIDAÇÕES TRAILING STOP GAIN (TSG) ==========
+    
+    // TSG é independente de TP - não precisa de TP habilitado
+    
+    // Validação: tsgActivationPct deve ser > 0
+    if (tsgEnabled && tsgActivationPct !== undefined && tsgActivationPct <= 0) {
+      throw new Error('% de ativação do Trailing Stop Gain deve ser maior que 0');
+    }
+
+    // Validação: tsgDropPct deve ser > 0
+    if (tsgEnabled && tsgDropPct !== undefined && tsgDropPct <= 0) {
+      throw new Error('% de queda do Trailing Stop Gain deve ser maior que 0');
+    }
+
+    // Validação: se tsgEnabled, ambos os parâmetros são obrigatórios
+    if (tsgEnabled && (tsgActivationPct === undefined || tsgDropPct === undefined)) {
+      throw new Error('% de ativação e % de queda são obrigatórias quando Trailing Stop Gain está habilitado');
+    }
+
+    // Validação: TSG e SG fixo são mutuamente exclusivos
+    if (tsgEnabled && sgEnabled) {
+      throw new Error('Trailing Stop Gain e Stop Gain fixo não podem estar habilitados ao mesmo tempo');
+    }
+
     // Se tpEnabled for definido como false, desabilitar também o Stop Gain
     const updateData: any = {};
     if (slEnabled !== undefined) updateData.sl_enabled = slEnabled;
@@ -1461,6 +1488,7 @@ export class PositionService {
         updateData.sg_drop_pct = null;
         updateData.sg_activated = false;
       }
+      // TSG continua independente mesmo se TP for desabilitado
     }
     if (tpPct !== undefined) updateData.tp_pct = tpPct;
     if (sgEnabled !== undefined) {
@@ -1476,6 +1504,23 @@ export class PositionService {
     if (sgEnabled !== false) {
       if (sgPct !== undefined) updateData.sg_pct = sgPct;
       if (sgDropPct !== undefined) updateData.sg_drop_pct = sgDropPct;
+    }
+
+    // ========== ATUALIZAR TRAILING STOP GAIN ==========
+    if (tsgEnabled !== undefined) {
+      updateData.tsg_enabled = tsgEnabled;
+      // Se TSG está sendo desabilitado, limpar todos os valores relacionados
+      if (tsgEnabled === false) {
+        updateData.tsg_activation_pct = null;
+        updateData.tsg_drop_pct = null;
+        updateData.tsg_activated = false;
+        updateData.tsg_max_pnl_pct = null;
+      }
+    }
+    // Só atualizar tsgActivationPct e tsgDropPct se TSG estiver habilitado
+    if (tsgEnabled !== false) {
+      if (tsgActivationPct !== undefined) updateData.tsg_activation_pct = tsgActivationPct;
+      if (tsgDropPct !== undefined) updateData.tsg_drop_pct = tsgDropPct;
     }
 
     return this.prisma.tradePosition.update({
