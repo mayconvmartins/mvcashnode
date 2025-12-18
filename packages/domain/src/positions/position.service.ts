@@ -92,6 +92,9 @@ export class PositionService {
     let sgEnabled: boolean = false;
     let sgPct: number | null = null;
     let sgDropPct: number | null = null;
+    let tsgEnabled: boolean = false;
+    let tsgActivationPct: number | null = null;
+    let tsgDropPct: number | null = null;
     let groupPositionsEnabled: boolean = false;
     let groupPositionsIntervalMinutes: number | null = null;
 
@@ -209,6 +212,22 @@ export class PositionService {
           sgDropPct = bothParameter.default_sg_drop_pct.toNumber();
           console.log(`[POSITION-SERVICE] ✓ sg_drop_pct=${sgDropPct}% copiado do parâmetro BOTH`);
         }
+        
+        // Copiar TSG
+        if (bothParameter.default_tsg_enabled !== undefined && bothParameter.default_tsg_enabled !== null) {
+          tsgEnabled = bothParameter.default_tsg_enabled;
+          console.log(`[POSITION-SERVICE] ✓ tsg_enabled=${tsgEnabled} copiado do parâmetro BOTH`);
+        }
+        
+        if (bothParameter.default_tsg_activation_pct !== null && bothParameter.default_tsg_activation_pct !== undefined) {
+          tsgActivationPct = bothParameter.default_tsg_activation_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ tsg_activation_pct=${tsgActivationPct}% copiado do parâmetro BOTH`);
+        }
+        
+        if (bothParameter.default_tsg_drop_pct !== null && bothParameter.default_tsg_drop_pct !== undefined) {
+          tsgDropPct = bothParameter.default_tsg_drop_pct.toNumber();
+          console.log(`[POSITION-SERVICE] ✓ tsg_drop_pct=${tsgDropPct}% copiado do parâmetro BOTH`);
+        }
       } else {
         // Não encontrou BOTH, usar BUY e SELL separadamente
         console.log(`[POSITION-SERVICE] Parâmetro BOTH não encontrado, buscando BUY e SELL separadamente`);
@@ -260,6 +279,22 @@ export class PositionService {
             sgDropPct = buyParameter.default_sg_drop_pct.toNumber();
             console.log(`[POSITION-SERVICE] ✓ sg_drop_pct=${sgDropPct}% copiado do parâmetro BUY`);
           }
+          
+          // Copiar TSG
+          if (buyParameter.default_tsg_enabled !== undefined && buyParameter.default_tsg_enabled !== null) {
+            tsgEnabled = buyParameter.default_tsg_enabled;
+            console.log(`[POSITION-SERVICE] ✓ tsg_enabled=${tsgEnabled} copiado do parâmetro BUY`);
+          }
+          
+          if (buyParameter.default_tsg_activation_pct !== null && buyParameter.default_tsg_activation_pct !== undefined) {
+            tsgActivationPct = buyParameter.default_tsg_activation_pct.toNumber();
+            console.log(`[POSITION-SERVICE] ✓ tsg_activation_pct=${tsgActivationPct}% copiado do parâmetro BUY`);
+          }
+          
+          if (buyParameter.default_tsg_drop_pct !== null && buyParameter.default_tsg_drop_pct !== undefined) {
+            tsgDropPct = buyParameter.default_tsg_drop_pct.toNumber();
+            console.log(`[POSITION-SERVICE] ✓ tsg_drop_pct=${tsgDropPct}% copiado do parâmetro BUY`);
+          }
         }
       }
 
@@ -269,6 +304,7 @@ export class PositionService {
       console.log(`[POSITION-SERVICE]   - sl_enabled: ${slEnabled}, sl_pct: ${slPct !== null ? `${slPct}%` : 'null'}`);
       console.log(`[POSITION-SERVICE]   - tp_enabled: ${tpEnabled}, tp_pct: ${tpPct !== null ? `${tpPct}%` : 'null'}`);
       console.log(`[POSITION-SERVICE]   - sg_enabled: ${sgEnabled}, sg_pct: ${sgPct !== null ? `${sgPct}%` : 'null'}, sg_drop_pct: ${sgDropPct !== null ? `${sgDropPct}%` : 'null'}`);
+      console.log(`[POSITION-SERVICE]   - tsg_enabled: ${tsgEnabled}, tsg_activation_pct: ${tsgActivationPct !== null ? `${tsgActivationPct}%` : 'null'}, tsg_drop_pct: ${tsgDropPct !== null ? `${tsgDropPct}%` : 'null'}`);
 
       if (!parameter) {
         console.warn(`[POSITION-SERVICE] ⚠️ Nenhum parâmetro encontrado para account=${job.exchange_account_id}, symbol=${job.symbol}. Usando valores padrão.`);
@@ -482,7 +518,7 @@ export class PositionService {
         if (!positionToUpdate || positionToUpdate.status !== PositionStatus.OPEN) {
           // Posição não existe mais ou foi fechada, criar nova
           console.log(`[POSITION-SERVICE] ⚠️ Posição elegível não está mais disponível, criando nova posição`);
-          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, sgEnabled, sgPct, sgDropPct, false, null, feeUsd);
+          return await this.createNewPosition(tx, job, jobId, executionId, executedQty, avgPrice, minProfitPct, slEnabled, slPct, tpEnabled, tpPct, sgEnabled, sgPct, sgDropPct, tsgEnabled, tsgActivationPct, tsgDropPct, false, null, feeUsd);
         }
 
         // Calcular novo custo médio ponderado
@@ -656,6 +692,9 @@ export class PositionService {
         sgEnabled,
         sgPct,
         sgDropPct,
+        tsgEnabled,
+        tsgActivationPct,
+        tsgDropPct,
         false,
         null,
         feeUsd
@@ -684,10 +723,16 @@ export class PositionService {
     sgEnabled: boolean,
     sgPct: number | null,
     sgDropPct: number | null,
+    tsgEnabled: boolean,
+    tsgActivationPct: number | null,
+    tsgDropPct: number | null,
     isGrouped: boolean,
     groupStartedAt: Date | null,
     feesOnBuyUsd: number = 0
   ): Promise<number> {
+    // Se TSG está ativo, bloquear webhook automaticamente
+    const lockWebhook = tsgEnabled === true;
+    
     // Create new position
     const position = await prisma.tradePosition.create({
       data: {
@@ -709,6 +754,12 @@ export class PositionService {
         sg_pct: sgPct,
         sg_drop_pct: sgDropPct,
         sg_activated: false,
+        tsg_enabled: tsgEnabled,
+        tsg_activation_pct: tsgActivationPct,
+        tsg_drop_pct: tsgDropPct,
+        tsg_activated: false,
+        tsg_max_pnl_pct: null,
+        lock_sell_by_webhook: lockWebhook, // Bloquear webhook se TSG está ativo
         is_grouped: isGrouped,
         group_started_at: groupStartedAt,
         fees_on_buy_usd: feesOnBuyUsd,
@@ -1475,7 +1526,7 @@ export class PositionService {
       throw new Error('Trailing Stop Gain e Stop Gain fixo não podem estar habilitados ao mesmo tempo');
     }
 
-    // Se TSG está sendo ativado, desativar TP e SG automaticamente
+    // Se TSG está sendo ativado, desativar TP e SG automaticamente e bloquear webhook
     const updateData: any = {};
     if (tsgEnabled === true) {
       updateData.tp_enabled = false;
@@ -1483,6 +1534,10 @@ export class PositionService {
       updateData.sg_pct = null;
       updateData.sg_drop_pct = null;
       updateData.sg_activated = false;
+      updateData.lock_sell_by_webhook = true; // Bloquear webhook quando TSG é ativado
+    } else if (tsgEnabled === false) {
+      // Se TSG está sendo desativado, desbloquear webhook
+      updateData.lock_sell_by_webhook = false;
     }
     if (slEnabled !== undefined) updateData.sl_enabled = slEnabled;
     if (slPct !== undefined) updateData.sl_pct = slPct;
