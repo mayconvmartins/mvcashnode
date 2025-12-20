@@ -1012,40 +1012,47 @@ export class WebhookMonitorService {
       );
 
       const priceAlert = alertBeforeUpdate.price_alert.toNumber();
+      // IMPORTANTE: Usar price_first_alert para cálculo de métricas (considera cadeia de substituições)
+      const priceFirstAlert = alertBeforeUpdate.price_first_alert?.toNumber() || priceAlert;
       const execPrice = executionPrice?.toNumber() || priceAlert;
       // ✅ BUG-MED-003 FIX: Usar tipagem correta ao invés de as any
       const side = alertBeforeUpdate.side || 'BUY';
 
-      // Calcular economia vs preço inicial
+      // Calcular economia vs preço do PRIMEIRO alerta
       // ✅ BUG-MED-010 FIX: Prevenir divisão por zero em savings_pct
-      // Para BUY: economia positiva quando executa abaixo do preço do alerta
-      // Para SELL: economia positiva quando executa acima do preço do alerta
-      if (priceAlert > 0) {
+      // Para BUY: economia positiva quando executa abaixo do preço do primeiro alerta
+      // Para SELL: economia positiva quando executa acima do preço do primeiro alerta
+      if (priceFirstAlert > 0) {
         if (side === 'BUY') {
-          savingsPct = ((priceAlert - execPrice) / priceAlert) * 100;
+          savingsPct = ((priceFirstAlert - execPrice) / priceFirstAlert) * 100;
         } else {
-          // SELL: economia é quando vende acima do preço do alerta
-          savingsPct = ((execPrice - priceAlert) / priceAlert) * 100;
+          // SELL: economia é quando vende acima do preço do primeiro alerta
+          savingsPct = ((execPrice - priceFirstAlert) / priceFirstAlert) * 100;
         }
       } else {
         savingsPct = 0; // Preço do alerta inválido
       }
 
-      // Calcular eficiência (proximidade do melhor preço)
+      // Calcular eficiência (proximidade do melhor preço) usando price_first_alert
       // ✅ BUG-CRIT-004 FIX: Prevenir divisão por zero em cálculos de eficiência
+      // Permite valores negativos quando execução é pior que o ideal, limitado a [-100, 100]
       if (side === 'BUY' && alertBeforeUpdate.price_minimum) {
         const priceMin = alertBeforeUpdate.price_minimum.toNumber();
-        const denominator = priceAlert - priceMin;
-        if (priceAlert !== priceMin && Math.abs(denominator) > 0.000001) {
-          efficiencyPct = ((priceAlert - execPrice) / denominator) * 100;
+        const denominator = priceFirstAlert - priceMin;
+        if (priceFirstAlert !== priceMin && Math.abs(denominator) > 0.000001) {
+          efficiencyPct = ((priceFirstAlert - execPrice) / denominator) * 100;
+          // Limitar eficiência entre -100% e 100%
+          efficiencyPct = Math.max(-100, Math.min(100, efficiencyPct));
         } else {
           efficiencyPct = 0; // Preços iguais ou muito próximos
         }
       } else if (side === 'SELL' && alertBeforeUpdate.price_maximum) {
         const priceMax = alertBeforeUpdate.price_maximum.toNumber();
-        const denominator = priceMax - priceAlert;
-        if (priceMax !== priceAlert && Math.abs(denominator) > 0.000001) {
-          efficiencyPct = ((execPrice - priceAlert) / denominator) * 100;
+        const denominator = priceMax - priceFirstAlert;
+        if (priceMax !== priceFirstAlert && Math.abs(denominator) > 0.000001) {
+          efficiencyPct = ((execPrice - priceFirstAlert) / denominator) * 100;
+          // Limitar eficiência entre -100% e 100%
+          efficiencyPct = Math.max(-100, Math.min(100, efficiencyPct));
         } else {
           efficiencyPct = 0; // Preços iguais ou muito próximos
         }
@@ -1064,7 +1071,7 @@ export class WebhookMonitorService {
         exit_details: exitDetails,
         monitoring_duration_minutes: monitoringDurationMinutes,
         savings_pct: savingsPct,
-        efficiency_pct: Math.min(100, Math.max(0, efficiencyPct)),
+        efficiency_pct: efficiencyPct, // Já limitado acima entre -100 e 100
       },
     });
 
@@ -1642,15 +1649,17 @@ export class WebhookMonitorService {
           savingsPct = 0; // Preço do alerta inválido
         }
 
-        // Calcular eficiência (proximidade do melhor preço)
+        // Calcular eficiência (proximidade do melhor preço) usando price_first_alert
         // ✅ BUG-CRIT-004 FIX: Prevenir divisão por zero em cálculos de eficiência
-        // Eficiência usa price_first_alert como referência inicial
+        // Permite valores negativos quando execução é pior que o ideal, limitado a [-100, 100]
         let efficiencyPct = 0;
         if (side === 'BUY' && alert.price_minimum) {
           const priceMin = alert.price_minimum.toNumber();
           const denominator = priceFirstAlert - priceMin;
           if (priceFirstAlert !== priceMin && Math.abs(denominator) > 0.000001) {
             efficiencyPct = ((priceFirstAlert - executionPrice) / denominator) * 100;
+            // Limitar eficiência entre -100% e 100%
+            efficiencyPct = Math.max(-100, Math.min(100, efficiencyPct));
           } else {
             efficiencyPct = 0; // Preços iguais ou muito próximos
           }
@@ -1659,6 +1668,8 @@ export class WebhookMonitorService {
           const denominator = priceMax - priceFirstAlert;
           if (priceMax !== priceFirstAlert && Math.abs(denominator) > 0.000001) {
             efficiencyPct = ((executionPrice - priceFirstAlert) / denominator) * 100;
+            // Limitar eficiência entre -100% e 100%
+            efficiencyPct = Math.max(-100, Math.min(100, efficiencyPct));
           } else {
             efficiencyPct = 0; // Preços iguais ou muito próximos
           }
@@ -1670,7 +1681,7 @@ export class WebhookMonitorService {
           data: {
             monitoring_duration_minutes: monitoringDurationMinutes,
             savings_pct: savingsPct,
-            efficiency_pct: Math.min(100, Math.max(0, efficiencyPct)),
+            efficiency_pct: efficiencyPct, // Já limitado acima entre -100 e 100
           },
         });
 

@@ -137,9 +137,11 @@ export default function WebhookMonitorPage() {
             key: 'price_first_alert',
             label: '1º Alerta',
             render: (alert: any) => {
-                if (!alert.price_first_alert) return <span className="font-mono text-muted-foreground">-</span>
-                const priceFirst = typeof alert.price_first_alert === 'number' ? alert.price_first_alert : Number(alert.price_first_alert)
                 const priceAlert = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
+                // Usar price_first_alert se disponível, senão usar price_alert como fallback
+                const priceFirst = alert.price_first_alert 
+                    ? (typeof alert.price_first_alert === 'number' ? alert.price_first_alert : Number(alert.price_first_alert))
+                    : priceAlert
                 const replacementCount = alert.replacement_count || 0
 
                 return (
@@ -268,9 +270,11 @@ export default function WebhookMonitorPage() {
             key: 'price_first_alert',
             label: '1º Alerta',
             render: (alert: any) => {
-                if (!alert.price_first_alert) return <span className="font-mono text-muted-foreground">-</span>
-                const priceFirst = typeof alert.price_first_alert === 'number' ? alert.price_first_alert : Number(alert.price_first_alert)
                 const priceAlert = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
+                // Usar price_first_alert se disponível, senão usar price_alert como fallback
+                const priceFirst = alert.price_first_alert 
+                    ? (typeof alert.price_first_alert === 'number' ? alert.price_first_alert : Number(alert.price_first_alert))
+                    : priceAlert
                 const replacementCount = alert.replacement_count || 0
 
                 return (
