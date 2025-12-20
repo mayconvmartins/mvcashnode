@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { adminService } from '@/lib/api/admin.service';
@@ -60,10 +60,52 @@ export default function SubscriberOperationsPage() {
         }),
     });
 
+    const operations = operationsData?.data || []
+
+    // Preparar dados para ordenação (adicionar campos calculados)
+    const operationsWithSortValues = useMemo(() => {
+        return operations.map((op: SubscriberOperation) => ({
+            ...op,
+            // Campos para ordenação
+            _sort_id: op.id,
+            _sort_symbol: op.symbol,
+            _sort_subscriber: op.subscriber?.email || op.subscriber?.full_name || '',
+            _sort_value: op.total_value_usd || 0,
+            _sort_side: op.side,
+            _sort_status: op.status,
+            _sort_created_at: new Date(op.created_at).getTime(),
+        }))
+    }, [operations])
+
+    // Função helper para formatar motivo resumido
+    const getReasonLabel = (reasonCode: string | null | undefined): string => {
+        if (!reasonCode) return ''
+        const reasonMap: Record<string, string> = {
+            'INVALID_PRECISION': 'Precisão Inválida',
+            'NO_ELIGIBLE_POSITIONS': 'Sem Posições',
+            'POSITION_NOT_AVAILABLE': 'Posição Indisponível',
+            'POSITION_ALREADY_CLOSED': 'Posição Fechada',
+            'WEBHOOK_LOCK': 'Bloqueado por Webhook',
+            'SKIPPED': 'Ignorado',
+            'DEBUG_BREAKEVEN': 'Debug Breakeven',
+        }
+        return reasonMap[reasonCode] || reasonCode
+    }
+
+    // Função helper para obter variant do badge de motivo
+    const getReasonVariant = (reasonCode: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' => {
+        if (!reasonCode) return 'outline'
+        if (reasonCode === 'INVALID_PRECISION') return 'default' // amarelo/laranja
+        if (reasonCode === 'NO_ELIGIBLE_POSITIONS' || reasonCode === 'SKIPPED') return 'secondary' // cinza
+        if (reasonCode === 'POSITION_NOT_AVAILABLE' || reasonCode === 'POSITION_ALREADY_CLOSED') return 'destructive' // vermelho
+        return 'outline'
+    }
+
     const columns: Column<SubscriberOperation>[] = [
         {
-            key: 'subscriber',
+            key: '_sort_subscriber',
             label: 'Assinante',
+            sortable: true,
             render: (op) => (
                 <div className="flex items-center gap-2">
                     <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">
@@ -77,20 +119,23 @@ export default function SubscriberOperationsPage() {
             ),
         },
         {
-            key: 'id',
+            key: '_sort_id',
             label: 'ID',
+            sortable: true,
             render: (op) => <span className="font-mono text-sm">#{op.id}</span>,
         },
         {
-            key: 'symbol',
+            key: '_sort_symbol',
             label: 'Símbolo',
+            sortable: true,
             render: (op) => (
                 <SymbolDisplay symbol={op.symbol} exchange={op.exchange_account?.exchange as any || 'BINANCE_SPOT'} showExchange={false} />
             ),
         },
         {
-            key: 'side',
+            key: '_sort_side',
             label: 'Lado',
+            sortable: true,
             render: (op) => (
                 <div className="flex items-center gap-1">
                     {op.side === 'BUY' ? (
@@ -105,13 +150,39 @@ export default function SubscriberOperationsPage() {
             ),
         },
         {
-            key: 'status',
+            key: '_sort_status',
             label: 'Status',
+            sortable: true,
             render: (op) => (
                 <Badge variant={statusColors[op.status] || 'outline'}>
                     {op.status}
                 </Badge>
             ),
+        },
+        {
+            key: 'status_reason',
+            label: 'Status/Motivo',
+            sortable: false,
+            render: (op) => {
+                const statusVariant = statusColors[op.status] || 'outline'
+                const hasReason = op.reason_code && op.status !== 'FILLED'
+                
+                return (
+                    <div className="flex flex-col gap-1">
+                        <Badge variant={statusVariant} className="w-fit">
+                            {op.status}
+                        </Badge>
+                        {hasReason && (
+                            <Badge 
+                                variant={getReasonVariant(op.reason_code)} 
+                                className="w-fit text-xs"
+                            >
+                                {getReasonLabel(op.reason_code)}
+                            </Badge>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             key: 'order_type',
@@ -126,8 +197,9 @@ export default function SubscriberOperationsPage() {
             render: (op) => <span className="font-mono text-sm">{Number(op.base_quantity || 0).toFixed(4)}</span>,
         },
         {
-            key: 'total_value_usd',
+            key: '_sort_value',
             label: 'Valor',
+            sortable: true,
             render: (op) => op.total_value_usd ? formatCurrency(op.total_value_usd) : '-',
         },
         {
@@ -150,8 +222,9 @@ export default function SubscriberOperationsPage() {
             },
         },
         {
-            key: 'created_at',
+            key: '_sort_created_at',
             label: 'Criado em',
+            sortable: true,
             render: (op) => formatDateTime(op.created_at),
         },
         {
@@ -297,7 +370,7 @@ export default function SubscriberOperationsPage() {
                         </div>
                     ) : (
                         <DataTable
-                            data={operationsData?.data || []}
+                            data={operationsWithSortValues}
                             columns={columns}
                         />
                     )}
