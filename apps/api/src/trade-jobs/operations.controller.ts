@@ -77,6 +77,34 @@ export class OperationsController {
     example: 'BTCUSDT'
   })
   @ApiQuery({ 
+    name: 'side', 
+    required: false, 
+    enum: ['BUY', 'SELL'], 
+    description: 'Filtrar por lado da operação',
+    example: 'BUY'
+  })
+  @ApiQuery({ 
+    name: 'from', 
+    required: false, 
+    type: String, 
+    description: 'Data inicial (ISO 8601)',
+    example: '2025-01-01T00:00:00.000Z'
+  })
+  @ApiQuery({ 
+    name: 'to', 
+    required: false, 
+    type: String, 
+    description: 'Data final (ISO 8601)',
+    example: '2025-01-31T23:59:59.999Z'
+  })
+  @ApiQuery({ 
+    name: 'id', 
+    required: false, 
+    type: Number, 
+    description: 'Filtrar por ID específico da operação',
+    example: 123
+  })
+  @ApiQuery({ 
     name: 'page', 
     required: false, 
     type: Number, 
@@ -131,6 +159,10 @@ export class OperationsController {
     @Query('status') status?: string,
     @Query('exchange_account_id') exchangeAccountId?: string,
     @Query('symbol') symbol?: string,
+    @Query('side') side?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('id') id?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string
   ) {
@@ -179,6 +211,40 @@ export class OperationsController {
 
       if (symbol) {
         where.symbol = symbol;
+      }
+
+      if (side) {
+        if (side !== 'BUY' && side !== 'SELL') {
+          throw new BadRequestException(`side inválido: ${side}. Valores aceitos: BUY, SELL`);
+        }
+        where.side = side;
+      }
+
+      if (id) {
+        const idNum = parseInt(id, 10);
+        if (isNaN(idNum)) {
+          throw new BadRequestException('id deve ser um número válido');
+        }
+        where.id = idNum;
+      }
+
+      // Filtros de data
+      if (from || to) {
+        where.created_at = {};
+        if (from) {
+          const fromDate = new Date(from);
+          if (isNaN(fromDate.getTime())) {
+            throw new BadRequestException('from deve ser uma data válida no formato ISO 8601');
+          }
+          where.created_at.gte = fromDate;
+        }
+        if (to) {
+          const toDate = new Date(to);
+          if (isNaN(toDate.getTime())) {
+            throw new BadRequestException('to deve ser uma data válida no formato ISO 8601');
+          }
+          where.created_at.lte = toDate;
+        }
       }
 
       // ✅ BUG-ALTO-001 FIX: Validação completa de page/limit com limites máximos
@@ -640,6 +706,7 @@ export class OperationsController {
           limit_order_expires_at: jobWithRelations.limit_order_expires_at,
           exchange_account: jobWithRelations.exchange_account,
           webhook_event_id: jobWithRelations.webhook_event_id,
+          position_id_to_close: jobWithRelations.position_id_to_close,
           created_at: jobWithRelations.created_at,
           updated_at: jobWithRelations.updated_at,
         },

@@ -24,6 +24,9 @@ import {
     Copy,
     Webhook,
     History,
+    RefreshCw,
+    Percent,
+    AlertTriangle,
 } from 'lucide-react'
 import { formatCurrency, formatDateTime, formatAssetAmount, formatPercentage } from '@/lib/utils/format'
 import { toast } from 'sonner'
@@ -34,7 +37,7 @@ export default function OperationDetailPage() {
     const router = useRouter()
     const operationId = parseInt(params.id as string)
 
-    const { data: operation, isLoading, refetch } = useQuery<OperationDetail>({
+    const { data: operation, isLoading, isRefetching, refetch } = useQuery<OperationDetail>({
         queryKey: ['operation', operationId],
         queryFn: () => operationsService.getById(operationId),
         enabled: !isNaN(operationId),
@@ -113,71 +116,95 @@ export default function OperationDetailPage() {
 
     const { job, executions, position, positions_closed, sell_jobs, webhook_event, timeline } = operation
 
-    // Debug: verificar se positions_closed está chegando
-    if (job.side === 'SELL') {
-        console.log('[OperationDetail] Job SELL - positions_closed:', positions_closed)
-    }
+    // Calcular métricas
+    const totalExecutedQty = executions.reduce((sum, exec) => sum + (exec.executed_qty || 0), 0)
+    const totalValue = executions.reduce((sum, exec) => sum + (exec.cumm_quote_qty || 0), 0)
+    const avgPrice = totalExecutedQty > 0 ? totalValue / totalExecutedQty : 0
+    const totalFees = executions.reduce((sum, exec) => {
+        if (exec.fee_amount && exec.fee_currency) {
+            // Se a taxa é em quote currency, usar diretamente
+            const quoteAsset = job.symbol.split('/')[1] || 'USDT'
+            if (exec.fee_currency === quoteAsset) {
+                return sum + exec.fee_amount
+            }
+            // Se é em base currency, converter usando preço médio
+            if (exec.fee_currency === job.symbol.split('/')[0]) {
+                return sum + (exec.fee_amount * avgPrice)
+            }
+        }
+        return sum
+    }, 0)
 
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="sm" onClick={() => router.push('/operations')}>
                         <ArrowLeft className="h-4 w-4 mr-2" />
                         Voltar
                     </Button>
                     <div>
-                        <h1 className="text-3xl font-bold gradient-text">
+                        <h1 className="text-2xl sm:text-3xl font-bold gradient-text">
                             Operação #{job.id}
                         </h1>
-                        <p className="text-muted-foreground mt-1">
-                            {job.symbol} • {getSideBadge(job.side)}
+                        <p className="text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+                            <span className="font-mono">{job.symbol}</span>
+                            <span>•</span>
+                            {getSideBadge(job.side)}
                         </p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
                     {getStatusBadge(job.status)}
-                    <Button variant="outline" size="sm" onClick={() => refetch()}>
-                        <Activity className="h-4 w-4 mr-2" />
-                        Atualizar
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => refetch()}
+                        disabled={isRefetching}
+                    >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
+                        {isRefetching ? 'Atualizando...' : 'Atualizar'}
                     </Button>
                 </div>
             </div>
 
             {/* Resumo */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Card className="glass">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Tipo de Ordem</CardTitle>
                         <Package className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
+                    </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{job.order_type}</div>
                         {job.limit_price && (
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground mt-1">
                                 Limite: {formatCurrency(job.limit_price)}
                             </p>
-                    )}
-                </CardContent>
-            </Card>
+                        )}
+                    </CardContent>
+                </Card>
 
                 <Card className="glass">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Quantidade</CardTitle>
+                        <CardTitle className="text-sm font-medium">Valor Total</CardTitle>
                         <DollarSign className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        {job.base_quantity ? (
-                            <div className="text-2xl font-bold">
-                                {formatAssetAmount(job.base_quantity, job.symbol.split('/')[0])}
-                            </div>
+                        {totalValue > 0 ? (
+                            <>
+                                <div className="text-2xl font-bold">{formatCurrency(totalValue)}</div>
+                                {totalExecutedQty > 0 && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        {formatAssetAmount(totalExecutedQty, job.symbol.split('/')[0])} @ {formatCurrency(avgPrice)}
+                                    </p>
+                                )}
+                            </>
                         ) : job.quote_amount ? (
-                            <div className="text-2xl font-bold">
-                                {formatCurrency(job.quote_amount)}
-                            </div>
+                            <div className="text-2xl font-bold">{formatCurrency(job.quote_amount)}</div>
                         ) : (
-                            <div className="text-2xl font-bold">-</div>
+                            <div className="text-2xl font-bold text-muted-foreground">-</div>
                         )}
                     </CardContent>
                 </Card>
@@ -189,12 +216,9 @@ export default function OperationDetailPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{executions.length}</div>
-                        {executions.length > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                                Total: {formatAssetAmount(
-                                    executions.reduce((sum, e) => sum + e.executed_qty, 0),
-                                    job.symbol.split('/')[0]
-                                )}
+                        {totalFees > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Taxas: {formatCurrency(totalFees)}
                             </p>
                         )}
                     </CardContent>
@@ -208,7 +232,7 @@ export default function OperationDetailPage() {
                     <CardContent>
                         {job.side === 'BUY' && position ? (
                             <>
-                                <div className="text-2xl font-bold">
+                                <div className="text-lg font-bold">
                                     <Badge variant={position.status === 'OPEN' ? 'success' : 'secondary'}>
                                         {position.status}
                                     </Badge>
@@ -217,19 +241,39 @@ export default function OperationDetailPage() {
                                     {formatAssetAmount(position.qty_remaining, job.symbol.split('/')[0])} restante
                                 </p>
                             </>
-                        ) : job.side === 'SELL' && positions_closed && positions_closed.length > 0 ? (
+                        ) : job.side === 'SELL' && (job.position_id_to_close || (positions_closed && positions_closed.length > 0)) ? (
                             <>
-                                <div className="text-2xl font-bold">
-                                    <Badge variant="secondary">
-                                        {positions_closed.length} posição(ões) fechada(s)
-                                    </Badge>
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    {positions_closed.map((p: any) => `#${p.id}`).join(', ')}
-                                </p>
+                                {job.position_id_to_close ? (
+                                    <>
+                                        <div className="text-lg font-bold">
+                                            <Link
+                                                href={`/positions/${job.position_id_to_close}`}
+                                                className="text-primary hover:underline font-mono"
+                                            >
+                                                #{job.position_id_to_close}
+                                            </Link>
+                                        </div>
+                                        {positions_closed && positions_closed.length > 0 && (
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                {positions_closed.length} posição(ões) fechada(s)
+                                            </p>
+                                        )}
+                                    </>
+                                ) : positions_closed && positions_closed.length > 0 ? (
+                                    <>
+                                        <div className="text-lg font-bold">
+                                            <Badge variant="secondary">
+                                                {positions_closed.length} posição(ões)
+                                            </Badge>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            {positions_closed.map((p: any) => `#${p.id}`).join(', ')}
+                                        </p>
+                                    </>
+                                ) : null}
                             </>
                         ) : (
-                            <div className="text-2xl font-bold text-muted-foreground">-</div>
+                            <div className="text-lg font-bold text-muted-foreground">-</div>
                         )}
                     </CardContent>
                 </Card>
@@ -360,13 +404,26 @@ export default function OperationDetailPage() {
                                             {job.position_id_to_close ? (
                                                 <Link
                                                     href={`/positions/${job.position_id_to_close}`}
-                                                    className="text-primary hover:underline font-mono"
+                                                    className="text-primary hover:underline font-mono font-semibold"
                                                 >
                                                     #{job.position_id_to_close}
                                                 </Link>
+                                            ) : positions_closed && positions_closed.length > 0 ? (
+                                                <div className="flex flex-col gap-1">
+                                                    {positions_closed.map((p: any) => (
+                                                        <Link
+                                                            key={p.id}
+                                                            href={`/positions/${p.id}`}
+                                                            className="text-primary hover:underline font-mono text-sm"
+                                                        >
+                                                            #{p.id}
+                                                        </Link>
+                                                    ))}
+                                                </div>
                                             ) : (
-                                                <Badge variant="destructive" className="bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20">
-                                                    ⚠️ SEM POSIÇÃO (BUG)
+                                                <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
+                                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                                    Sem posição vinculada
                                                 </Badge>
                                             )}
                                         </div>
