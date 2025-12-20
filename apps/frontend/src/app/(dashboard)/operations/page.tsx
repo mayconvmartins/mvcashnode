@@ -146,20 +146,64 @@ export default function OperationsPage() {
 
     const operations = operationsResponse?.data || []
 
+    // Preparar dados para ordenação (adicionar campos calculados)
+    const operationsWithSortValues = useMemo(() => {
+        return operations.map((op: any) => ({
+            ...op,
+            // Campos para ordenação
+            _sort_id: op.job.id,
+            _sort_symbol: op.job.symbol,
+            _sort_account: op.job.exchange_account?.label || '',
+            _sort_value: op.executions.reduce((sum: number, exec: any) => {
+                return sum + (exec.cumm_quote_qty || 0);
+            }, 0),
+            _sort_side: op.job.side,
+            _sort_status: op.job.status,
+            _sort_created_at: new Date(op.job.created_at).getTime(),
+        }))
+    }, [operations])
+
+    // Função helper para formatar motivo resumido
+    const getReasonLabel = (reasonCode: string | null | undefined): string => {
+        if (!reasonCode) return ''
+        const reasonMap: Record<string, string> = {
+            'INVALID_PRECISION': 'Precisão Inválida',
+            'NO_ELIGIBLE_POSITIONS': 'Sem Posições',
+            'POSITION_NOT_AVAILABLE': 'Posição Indisponível',
+            'POSITION_ALREADY_CLOSED': 'Posição Fechada',
+            'WEBHOOK_LOCK': 'Bloqueado por Webhook',
+            'SKIPPED': 'Ignorado',
+            'DEBUG_BREAKEVEN': 'Debug Breakeven',
+        }
+        return reasonMap[reasonCode] || reasonCode
+    }
+
+    // Função helper para obter variant do badge de motivo
+    const getReasonVariant = (reasonCode: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' => {
+        if (!reasonCode) return 'outline'
+        if (reasonCode === 'INVALID_PRECISION') return 'default' // amarelo/laranja
+        if (reasonCode === 'NO_ELIGIBLE_POSITIONS' || reasonCode === 'SKIPPED') return 'secondary' // cinza
+        if (reasonCode === 'POSITION_NOT_AVAILABLE' || reasonCode === 'POSITION_ALREADY_CLOSED') return 'destructive' // vermelho
+        return 'outline'
+    }
+
     const columns: Column<any>[] = [
         { 
-            key: 'id', 
-            label: 'ID', 
+            key: '_sort_id', 
+            label: 'ID',
+            sortable: true,
             render: (op) => <span className="font-mono">#{op.job.id}</span> 
         },
         {
-            key: 'symbol',
+            key: '_sort_symbol',
             label: 'Símbolo',
+            sortable: true,
             render: (op) => <span className="font-mono">{op.job.symbol}</span>
         },
         {
-            key: 'account',
+            key: '_sort_account',
             label: 'Conta',
+            sortable: true,
             render: (op) => {
                 const account = op.job.exchange_account;
                 if (account) {
@@ -174,8 +218,9 @@ export default function OperationsPage() {
             },
         },
         {
-            key: 'value',
+            key: '_sort_value',
             label: 'Valor',
+            sortable: true,
             render: (op) => {
                 const totalValue = op.executions.reduce((sum: number, exec: any) => {
                     return sum + (exec.cumm_quote_qty || 0);
@@ -188,8 +233,9 @@ export default function OperationsPage() {
             },
         },
         {
-            key: 'side',
+            key: '_sort_side',
             label: 'Lado',
+            sortable: true,
             render: (op) => (
                 <Badge variant={op.job.side === 'BUY' ? 'success' : 'destructive'}>
                     {op.job.side}
@@ -197,8 +243,9 @@ export default function OperationsPage() {
             ),
         },
         {
-            key: 'status',
+            key: '_sort_status',
             label: 'Status',
+            sortable: true,
             render: (op) => {
                 const variant =
                     op.job.status === 'FILLED'
@@ -207,6 +254,37 @@ export default function OperationsPage() {
                         ? 'destructive'
                         : 'secondary'
                 return <Badge variant={variant}>{op.job.status}</Badge>
+            },
+        },
+        {
+            key: 'status_reason',
+            label: 'Status/Motivo',
+            sortable: false,
+            render: (op) => {
+                const statusVariant =
+                    op.job.status === 'FILLED'
+                        ? 'success'
+                        : op.job.status === 'FAILED'
+                        ? 'destructive'
+                        : 'secondary'
+                
+                const hasReason = op.job.reason_code && op.job.status !== 'FILLED'
+                
+                return (
+                    <div className="flex flex-col gap-1">
+                        <Badge variant={statusVariant} className="w-fit">
+                            {op.job.status}
+                        </Badge>
+                        {hasReason && (
+                            <Badge 
+                                variant={getReasonVariant(op.job.reason_code)} 
+                                className="w-fit text-xs"
+                            >
+                                {getReasonLabel(op.job.reason_code)}
+                            </Badge>
+                        )}
+                    </div>
+                )
             },
         },
         {
@@ -245,8 +323,9 @@ export default function OperationsPage() {
             render: (op) => <span>{op.executions.length}</span>
         },
         { 
-            key: 'created_at', 
-            label: 'Criado em', 
+            key: '_sort_created_at', 
+            label: 'Criado em',
+            sortable: true,
             render: (op) => <span className="text-sm">{formatDateTime(op.job.created_at)}</span> 
         },
         {
@@ -389,7 +468,7 @@ export default function OperationsPage() {
                 </CardHeader>
                 <CardContent>
                     <DataTable
-                        data={operations}
+                        data={operationsWithSortValues}
                         columns={columns}
                         loading={isLoading}
                         pagination={!!operationsResponse?.pagination}

@@ -116,8 +116,21 @@ export function DataTable<T extends { id?: number | string }>({
         const aValue = (a as any)[sortColumn]
         const bValue = (b as any)[sortColumn]
 
-        if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
-        if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
+        // Tratar valores nulos/undefined
+        if (aValue === null || aValue === undefined) return 1
+        if (bValue === null || bValue === undefined) return -1
+
+        // Tratar números
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+            return sortDirection === 'asc' ? aValue - bValue : bValue - aValue
+        }
+
+        // Tratar strings
+        const aStr = String(aValue).toLowerCase()
+        const bStr = String(bValue).toLowerCase()
+        
+        if (aStr < bStr) return sortDirection === 'asc' ? -1 : 1
+        if (aStr > bStr) return sortDirection === 'asc' ? 1 : -1
         return 0
     })
 
