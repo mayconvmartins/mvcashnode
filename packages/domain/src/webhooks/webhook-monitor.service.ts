@@ -20,17 +20,24 @@ export interface WebhookMonitorConfig {
   // BUY
   lateral_tolerance_pct: number;
   lateral_cycles_min: number;
+  lateral_cycles_enabled: boolean;
   rise_trigger_pct: number;
   rise_cycles_min: number;
+  rise_cycles_enabled: boolean;
   max_fall_pct: number;
+  max_fall_enabled: boolean;
   max_monitoring_time_min: number;
+  max_monitoring_time_enabled: boolean;
   cooldown_after_execution_min: number;
   // SELL
   sell_lateral_tolerance_pct: number;
   sell_lateral_cycles_min: number;
+  sell_lateral_cycles_enabled: boolean;
   sell_fall_trigger_pct: number;
   sell_fall_cycles_min: number;
+  sell_fall_cycles_enabled: boolean;
   sell_max_monitoring_time_min: number;
+  sell_max_monitoring_time_enabled: boolean;
   sell_cooldown_after_execution_min: number;
 }
 
@@ -51,17 +58,24 @@ export class WebhookMonitorService {
     // BUY
     lateral_tolerance_pct: 0.3,
     lateral_cycles_min: 4,
+    lateral_cycles_enabled: true,
     rise_trigger_pct: 0.75,
     rise_cycles_min: 2,
+    rise_cycles_enabled: true,
     max_fall_pct: 6.0,
+    max_fall_enabled: false, // Desabilitado por padrão
     max_monitoring_time_min: 60,
+    max_monitoring_time_enabled: false, // Desabilitado por padrão
     cooldown_after_execution_min: 30,
     // SELL
     sell_lateral_tolerance_pct: 0.3,
     sell_lateral_cycles_min: 4,
+    sell_lateral_cycles_enabled: true,
     sell_fall_trigger_pct: 0.5,
     sell_fall_cycles_min: 2,
+    sell_fall_cycles_enabled: true,
     sell_max_monitoring_time_min: 60,
+    sell_max_monitoring_time_enabled: false, // Desabilitado por padrão
     sell_cooldown_after_execution_min: 30,
   };
 
@@ -98,16 +112,23 @@ export class WebhookMonitorService {
       check_interval_sec: config.check_interval_sec,
       lateral_tolerance_pct: config.lateral_tolerance_pct?.toNumber() || 0.3,
       lateral_cycles_min: config.lateral_cycles_min,
+      lateral_cycles_enabled: config.lateral_cycles_enabled ?? true,
       rise_trigger_pct: config.rise_trigger_pct?.toNumber() || 0.75,
       rise_cycles_min: config.rise_cycles_min,
+      rise_cycles_enabled: config.rise_cycles_enabled ?? true,
       max_fall_pct: config.max_fall_pct?.toNumber() || 6.0,
+      max_fall_enabled: config.max_fall_enabled ?? false,
       max_monitoring_time_min: config.max_monitoring_time_min,
+      max_monitoring_time_enabled: config.max_monitoring_time_enabled ?? false,
       cooldown_after_execution_min: config.cooldown_after_execution_min,
       sell_lateral_tolerance_pct: config.sell_lateral_tolerance_pct?.toNumber() || 0.3,
       sell_lateral_cycles_min: config.sell_lateral_cycles_min,
+      sell_lateral_cycles_enabled: config.sell_lateral_cycles_enabled ?? true,
       sell_fall_trigger_pct: config.sell_fall_trigger_pct?.toNumber() || 0.5,
       sell_fall_cycles_min: config.sell_fall_cycles_min,
+      sell_fall_cycles_enabled: config.sell_fall_cycles_enabled ?? true,
       sell_max_monitoring_time_min: config.sell_max_monitoring_time_min,
+      sell_max_monitoring_time_enabled: config.sell_max_monitoring_time_enabled ?? false,
       sell_cooldown_after_execution_min: config.sell_cooldown_after_execution_min,
     };
   }
@@ -320,7 +341,13 @@ export class WebhookMonitorService {
                 });
               }
 
-              const newAlertResult = await this.createNewAlertInTransaction(tx, dto);
+              // Passar o alerta existente para herdar price_first_alert e replacement_count
+              const newAlertResult = await this.createNewAlertInTransaction(tx, dto, {
+                id: existingAlert.id,
+                price_first_alert: existingAlert.price_first_alert,
+                price_alert: existingAlert.price_alert,
+                replacement_count: existingAlert.replacement_count,
+              });
               pendingSnapshots.push(...newAlertResult.pendingSnapshots);
               return { alert: newAlertResult.alert, pendingSnapshots };
             } else {
@@ -367,7 +394,13 @@ export class WebhookMonitorService {
                 });
               }
 
-              const newAlertResult = await this.createNewAlertInTransaction(tx, dto);
+              // Passar o alerta existente para herdar price_first_alert e replacement_count
+              const newAlertResult = await this.createNewAlertInTransaction(tx, dto, {
+                id: existingAlert.id,
+                price_first_alert: existingAlert.price_first_alert,
+                price_alert: existingAlert.price_alert,
+                replacement_count: existingAlert.replacement_count,
+              });
               pendingSnapshots.push(...newAlertResult.pendingSnapshots);
               return { alert: newAlertResult.alert, pendingSnapshots };
             } else {
@@ -434,8 +467,13 @@ export class WebhookMonitorService {
   /**
    * Criar novo alerta (versão para uso dentro de transação)
    * Retorna o alerta e os snapshots pendentes para criar após o commit
+   * @param replacedAlert - Alerta que está sendo substituído (para herdar price_first_alert)
    */
-  private async createNewAlertInTransaction(tx: any, dto: CreateOrUpdateAlertDto): Promise<{
+  private async createNewAlertInTransaction(
+    tx: any, 
+    dto: CreateOrUpdateAlertDto,
+    replacedAlert?: { id: number; price_first_alert?: any; price_alert: any; replacement_count?: number }
+  ): Promise<{
     alert: any;
     pendingSnapshots: Array<{
       alertId: number;
@@ -444,6 +482,17 @@ export class WebhookMonitorService {
     }>;
   }> {
     const isBuy = dto.side === 'BUY';
+    
+    // Se está substituindo, herdar price_first_alert do alerta anterior
+    // Se for o primeiro da cadeia, price_first_alert = price_original = preço deste alerta
+    const priceFirstAlert = replacedAlert 
+      ? (replacedAlert.price_first_alert?.toNumber?.() || replacedAlert.price_first_alert || replacedAlert.price_alert?.toNumber?.() || replacedAlert.price_alert)
+      : dto.priceAlert;
+    
+    // Contador de substituições: incrementa se está substituindo
+    const replacementCount = replacedAlert 
+      ? (replacedAlert.replacement_count || 0) + 1 
+      : 0;
     
     const alert = await tx.webhookMonitorAlert.create({
       data: {
@@ -462,6 +511,8 @@ export class WebhookMonitorService {
         trade_mode: dto.tradeMode,
         side: dto.side,
         price_alert: dto.priceAlert,
+        price_original: dto.priceAlert, // Preço com que ESTE alerta foi criado
+        price_first_alert: priceFirstAlert, // Preço do PRIMEIRO alerta da cadeia
         price_minimum: isBuy ? dto.priceAlert : null, // BUY usa price_minimum
         price_maximum: !isBuy ? dto.priceAlert : null, // SELL usa price_maximum
         current_price: dto.priceAlert,
@@ -470,10 +521,12 @@ export class WebhookMonitorService {
         cycles_without_new_low: 0, // Sempre 0 (BUY usa, SELL não usa mas campo é obrigatório)
         cycles_without_new_high: 0, // Sempre 0 (SELL usa, BUY não usa mas campo é obrigatório)
         last_price_check_at: new Date(),
+        replaced_alert_id: replacedAlert?.id || null, // ID do alerta que este substituiu
+        replacement_count: replacementCount, // Quantos alertas foram substituídos na cadeia
       },
     });
 
-    console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${dto.side} criado: ID=${alert.id}, símbolo=${dto.symbol}, preço=${dto.priceAlert}`);
+    console.log(`[WEBHOOK-MONITOR] ✅ Alerta ${dto.side} criado: ID=${alert.id}, símbolo=${dto.symbol}, preço=${dto.priceAlert}, priceFirstAlert=${priceFirstAlert}, replacementCount=${replacementCount}`);
     
     // Retornar snapshot CREATED para criar APÓS o commit da transação
     const pendingSnapshots = [{
@@ -564,7 +617,7 @@ export class WebhookMonitorService {
     const config = await this.getConfig();
     
     // Log de configuração usada para debug
-    console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Config usada - lateral_cycles_min=${config.lateral_cycles_min}, lateral_tolerance_pct=${config.lateral_tolerance_pct}%, rise_cycles_min=${config.rise_cycles_min}, rise_trigger_pct=${config.rise_trigger_pct}%`);
+    console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Config usada - lateral_cycles_min=${config.lateral_cycles_min} (enabled=${config.lateral_cycles_enabled}), lateral_tolerance_pct=${config.lateral_tolerance_pct}%, rise_cycles_min=${config.rise_cycles_min} (enabled=${config.rise_cycles_enabled}), rise_trigger_pct=${config.rise_trigger_pct}%, max_fall_enabled=${config.max_fall_enabled}, max_time_enabled=${config.max_monitoring_time_enabled}`);
     
     const priceMinimum = alert.price_minimum?.toNumber() || alert.price_alert.toNumber();
     const priceAlert = alert.price_alert.toNumber();
@@ -590,19 +643,21 @@ export class WebhookMonitorService {
       if (priceVariationPct <= config.lateral_tolerance_pct) {
         trend = PriceTrend.LATERAL;
         
-        // Se está lateral há ciclos suficientes, pode executar
-        if (cyclesWithoutNewLow >= config.lateral_cycles_min) {
+        // Se está lateral há ciclos suficientes, pode executar (se lateral_cycles_enabled)
+        // Se lateral_cycles_enabled = false, ignora a verificação de ciclos mínimos
+        if (!config.lateral_cycles_enabled || cyclesWithoutNewLow >= config.lateral_cycles_min) {
           shouldExecute = true;
-          console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Condição de execução atendida - Lateral há ${cyclesWithoutNewLow} ciclos (>= ${config.lateral_cycles_min} configurado)`);
+          console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Condição de execução atendida - Lateral há ${cyclesWithoutNewLow} ciclos ${config.lateral_cycles_enabled ? `(>= ${config.lateral_cycles_min} configurado)` : '(verificação de ciclos desabilitada)'}`);
         }
       } else if (priceVariationPct >= config.rise_trigger_pct) {
         // Verificar se iniciou alta
         trend = PriceTrend.RISING;
         
-        // Se subiu o suficiente e já passou ciclos mínimos, pode executar
-        if (cyclesWithoutNewLow >= config.rise_cycles_min) {
+        // Se subiu o suficiente e já passou ciclos mínimos, pode executar (se rise_cycles_enabled)
+        // Se rise_cycles_enabled = false, ignora a verificação de ciclos mínimos
+        if (!config.rise_cycles_enabled || cyclesWithoutNewLow >= config.rise_cycles_min) {
           shouldExecute = true;
-          console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Condição de execução atendida - Em alta há ${cyclesWithoutNewLow} ciclos (>= ${config.rise_cycles_min} configurado)`);
+          console.log(`[WEBHOOK-MONITOR] BUY Alerta ${alertId}: Condição de execução atendida - Em alta há ${cyclesWithoutNewLow} ciclos ${config.rise_cycles_enabled ? `(>= ${config.rise_cycles_min} configurado)` : '(verificação de ciclos desabilitada)'}`);
         }
       } else {
         // Ainda em queda, mas não fez novo fundo
@@ -610,16 +665,16 @@ export class WebhookMonitorService {
       }
     }
 
-    // Verificar proteções
+    // Verificar proteções - APENAS se habilitadas
     const fallFromAlertPct = ((priceAlert - newPriceMinimum) / priceAlert) * 100;
-    if (fallFromAlertPct > config.max_fall_pct) {
+    if (config.max_fall_enabled && fallFromAlertPct > config.max_fall_pct) {
       shouldCancel = true;
       cancelReason = `Queda máxima excedida: ${fallFromAlertPct.toFixed(2)}% > ${config.max_fall_pct}%`;
     }
 
-    // Verificar tempo máximo de monitoramento
+    // Verificar tempo máximo de monitoramento - APENAS se habilitado
     const monitoringTimeMinutes = (Date.now() - alert.created_at.getTime()) / (1000 * 60);
-    if (monitoringTimeMinutes > config.max_monitoring_time_min) {
+    if (config.max_monitoring_time_enabled && monitoringTimeMinutes > config.max_monitoring_time_min) {
       shouldCancel = true;
       cancelReason = `Tempo máximo de monitoramento excedido: ${monitoringTimeMinutes.toFixed(1)}min > ${config.max_monitoring_time_min}min`;
     }
@@ -687,7 +742,7 @@ export class WebhookMonitorService {
     const config = await this.getConfig();
     
     // Log de configuração usada para debug
-    console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Config usada - sell_lateral_cycles_min=${config.sell_lateral_cycles_min}, sell_lateral_tolerance_pct=${config.sell_lateral_tolerance_pct}%, sell_fall_cycles_min=${config.sell_fall_cycles_min}, sell_fall_trigger_pct=${config.sell_fall_trigger_pct}%`);
+    console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Config usada - sell_lateral_cycles_min=${config.sell_lateral_cycles_min} (enabled=${config.sell_lateral_cycles_enabled}), sell_lateral_tolerance_pct=${config.sell_lateral_tolerance_pct}%, sell_fall_cycles_min=${config.sell_fall_cycles_min} (enabled=${config.sell_fall_cycles_enabled}), sell_fall_trigger_pct=${config.sell_fall_trigger_pct}%, sell_max_time_enabled=${config.sell_max_monitoring_time_enabled}`);
     
     const priceMaximum = alert.price_maximum?.toNumber() || alert.price_alert.toNumber();
     let newPriceMaximum = priceMaximum;
@@ -716,19 +771,21 @@ export class WebhookMonitorService {
       if (fallFromMaxPct <= config.sell_lateral_tolerance_pct) {
         trend = PriceTrend.LATERAL;
         
-        // Se está lateral há ciclos suficientes, pode executar
-        if (cyclesWithoutNewHigh >= config.sell_lateral_cycles_min) {
+        // Se está lateral há ciclos suficientes, pode executar (se sell_lateral_cycles_enabled)
+        // Se sell_lateral_cycles_enabled = false, ignora a verificação de ciclos mínimos
+        if (!config.sell_lateral_cycles_enabled || cyclesWithoutNewHigh >= config.sell_lateral_cycles_min) {
           shouldExecute = true;
-          console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Condição de execução atendida - Lateral há ${cyclesWithoutNewHigh} ciclos (>= ${config.sell_lateral_cycles_min} configurado)`);
+          console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Condição de execução atendida - Lateral há ${cyclesWithoutNewHigh} ciclos ${config.sell_lateral_cycles_enabled ? `(>= ${config.sell_lateral_cycles_min} configurado)` : '(verificação de ciclos desabilitada)'}`);
         }
       } else if (fallFromMaxPct >= config.sell_fall_trigger_pct) {
         // Verificar se iniciou queda (caiu do máximo)
         trend = PriceTrend.FALLING;
         
-        // Se caiu o suficiente e já passou ciclos mínimos, pode executar
-        if (cyclesWithoutNewHigh >= config.sell_fall_cycles_min) {
+        // Se caiu o suficiente e já passou ciclos mínimos, pode executar (se sell_fall_cycles_enabled)
+        // Se sell_fall_cycles_enabled = false, ignora a verificação de ciclos mínimos
+        if (!config.sell_fall_cycles_enabled || cyclesWithoutNewHigh >= config.sell_fall_cycles_min) {
           shouldExecute = true;
-          console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Condição de execução atendida - Em queda há ${cyclesWithoutNewHigh} ciclos (>= ${config.sell_fall_cycles_min} configurado)`);
+          console.log(`[WEBHOOK-MONITOR] SELL Alerta ${alertId}: Condição de execução atendida - Em queda há ${cyclesWithoutNewHigh} ciclos ${config.sell_fall_cycles_enabled ? `(>= ${config.sell_fall_cycles_min} configurado)` : '(verificação de ciclos desabilitada)'}`);
         }
       } else {
         // Entre lateral e queda - continua monitorando
@@ -736,9 +793,9 @@ export class WebhookMonitorService {
       }
     }
 
-    // Verificar tempo máximo de monitoramento
+    // Verificar tempo máximo de monitoramento - APENAS se habilitado
     const monitoringTimeMinutes = (Date.now() - alert.created_at.getTime()) / (1000 * 60);
-    if (monitoringTimeMinutes > config.sell_max_monitoring_time_min) {
+    if (config.sell_max_monitoring_time_enabled && monitoringTimeMinutes > config.sell_max_monitoring_time_min) {
       shouldCancel = true;
       cancelReason = `Tempo máximo de monitoramento excedido: ${monitoringTimeMinutes.toFixed(1)}min > ${config.sell_max_monitoring_time_min}min`;
     }
@@ -1541,6 +1598,7 @@ export class WebhookMonitorService {
         created_at: true,
         updated_at: true,
         price_alert: true,
+        price_first_alert: true, // Adicionado para cálculo de métricas com base no primeiro alerta
         execution_price: true,
         price_minimum: true,
         price_maximum: true,
@@ -1559,21 +1617,26 @@ export class WebhookMonitorService {
         );
 
         const priceAlert = alert.price_alert.toNumber();
+        // IMPORTANTE: Usar price_first_alert para cálculo de economia
+        // Isso considera o preço do PRIMEIRO alerta da cadeia de substituições
+        // Se não houver substituição, price_first_alert = price_alert
+        const priceFirstAlert = alert.price_first_alert?.toNumber() || priceAlert;
         const executionPrice = alert.execution_price?.toNumber() || priceAlert;
         // ✅ BUG-MED-003 FIX: Usar tipagem correta ao invés de as any
         const side = alert.side || 'BUY';
 
-        // Calcular economia vs preço inicial
+        // Calcular economia vs preço do PRIMEIRO alerta (não o último)
         // ✅ BUG-MED-010 FIX: Prevenir divisão por zero em savings_pct
-        // Para BUY: economia positiva quando executa abaixo do preço do alerta
-        // Para SELL: economia positiva quando executa acima do preço do alerta
+        // Para BUY: economia positiva quando executa abaixo do preço do primeiro alerta
+        // Para SELL: economia positiva quando executa acima do preço do primeiro alerta
         let savingsPct = 0;
-        if (priceAlert > 0) {
+        if (priceFirstAlert > 0) {
           if (side === 'BUY') {
-            savingsPct = ((priceAlert - executionPrice) / priceAlert) * 100;
+            // Ex: primeiro alerta $90000, executou $89500 = economia de 0.56%
+            savingsPct = ((priceFirstAlert - executionPrice) / priceFirstAlert) * 100;
           } else {
-            // SELL: economia é quando vende acima do preço do alerta
-            savingsPct = ((executionPrice - priceAlert) / priceAlert) * 100;
+            // SELL: economia é quando vende acima do preço do primeiro alerta
+            savingsPct = ((executionPrice - priceFirstAlert) / priceFirstAlert) * 100;
           }
         } else {
           savingsPct = 0; // Preço do alerta inválido
@@ -1581,20 +1644,21 @@ export class WebhookMonitorService {
 
         // Calcular eficiência (proximidade do melhor preço)
         // ✅ BUG-CRIT-004 FIX: Prevenir divisão por zero em cálculos de eficiência
+        // Eficiência usa price_first_alert como referência inicial
         let efficiencyPct = 0;
         if (side === 'BUY' && alert.price_minimum) {
           const priceMin = alert.price_minimum.toNumber();
-          const denominator = priceAlert - priceMin;
-          if (priceAlert !== priceMin && Math.abs(denominator) > 0.000001) {
-            efficiencyPct = ((priceAlert - executionPrice) / denominator) * 100;
+          const denominator = priceFirstAlert - priceMin;
+          if (priceFirstAlert !== priceMin && Math.abs(denominator) > 0.000001) {
+            efficiencyPct = ((priceFirstAlert - executionPrice) / denominator) * 100;
           } else {
             efficiencyPct = 0; // Preços iguais ou muito próximos
           }
         } else if (side === 'SELL' && alert.price_maximum) {
           const priceMax = alert.price_maximum.toNumber();
-          const denominator = priceMax - priceAlert;
-          if (priceMax !== priceAlert && Math.abs(denominator) > 0.000001) {
-            efficiencyPct = ((executionPrice - priceAlert) / denominator) * 100;
+          const denominator = priceMax - priceFirstAlert;
+          if (priceMax !== priceFirstAlert && Math.abs(denominator) > 0.000001) {
+            efficiencyPct = ((executionPrice - priceFirstAlert) / denominator) * 100;
           } else {
             efficiencyPct = 0; // Preços iguais ou muito próximos
           }

@@ -6,6 +6,7 @@ import { webhookMonitorService, type WebhookMonitorConfig } from '@/lib/api/webh
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 
 export function WebhookMonitorConfigForm() {
@@ -18,13 +19,28 @@ export function WebhookMonitorConfigForm() {
     const [formData, setFormData] = useState<Partial<WebhookMonitorConfig>>({
         monitor_enabled: true,
         check_interval_sec: 30,
+        // BUY
         lateral_tolerance_pct: 0.3,
         lateral_cycles_min: 4,
+        lateral_cycles_enabled: true,
         rise_trigger_pct: 0.75,
         rise_cycles_min: 2,
+        rise_cycles_enabled: true,
         max_fall_pct: 6.0,
+        max_fall_enabled: false,
         max_monitoring_time_min: 60,
+        max_monitoring_time_enabled: false,
         cooldown_after_execution_min: 30,
+        // SELL
+        sell_lateral_tolerance_pct: 0.3,
+        sell_lateral_cycles_min: 4,
+        sell_lateral_cycles_enabled: true,
+        sell_fall_trigger_pct: 0.5,
+        sell_fall_cycles_min: 2,
+        sell_fall_cycles_enabled: true,
+        sell_max_monitoring_time_min: 60,
+        sell_max_monitoring_time_enabled: false,
+        sell_cooldown_after_execution_min: 30,
     })
 
     // Atualizar formData quando config for carregado
@@ -62,11 +78,15 @@ export function WebhookMonitorConfigForm() {
         if (formData.check_interval_sec !== undefined && formData.check_interval_sec !== null && !isNaN(formData.check_interval_sec)) {
             dataToSend.check_interval_sec = formData.check_interval_sec
         }
+        // BUY
         if (formData.lateral_tolerance_pct !== undefined && formData.lateral_tolerance_pct !== null && !isNaN(formData.lateral_tolerance_pct)) {
             dataToSend.lateral_tolerance_pct = formData.lateral_tolerance_pct
         }
         if (formData.lateral_cycles_min !== undefined && formData.lateral_cycles_min !== null && !isNaN(formData.lateral_cycles_min)) {
             dataToSend.lateral_cycles_min = formData.lateral_cycles_min
+        }
+        if (formData.lateral_cycles_enabled !== undefined) {
+            dataToSend.lateral_cycles_enabled = formData.lateral_cycles_enabled
         }
         if (formData.rise_trigger_pct !== undefined && formData.rise_trigger_pct !== null && !isNaN(formData.rise_trigger_pct)) {
             dataToSend.rise_trigger_pct = formData.rise_trigger_pct
@@ -74,11 +94,20 @@ export function WebhookMonitorConfigForm() {
         if (formData.rise_cycles_min !== undefined && formData.rise_cycles_min !== null && !isNaN(formData.rise_cycles_min)) {
             dataToSend.rise_cycles_min = formData.rise_cycles_min
         }
+        if (formData.rise_cycles_enabled !== undefined) {
+            dataToSend.rise_cycles_enabled = formData.rise_cycles_enabled
+        }
         if (formData.max_fall_pct !== undefined && formData.max_fall_pct !== null && !isNaN(formData.max_fall_pct)) {
             dataToSend.max_fall_pct = formData.max_fall_pct
         }
+        if (formData.max_fall_enabled !== undefined) {
+            dataToSend.max_fall_enabled = formData.max_fall_enabled
+        }
         if (formData.max_monitoring_time_min !== undefined && formData.max_monitoring_time_min !== null && !isNaN(formData.max_monitoring_time_min)) {
             dataToSend.max_monitoring_time_min = formData.max_monitoring_time_min
+        }
+        if (formData.max_monitoring_time_enabled !== undefined) {
+            dataToSend.max_monitoring_time_enabled = formData.max_monitoring_time_enabled
         }
         if (formData.cooldown_after_execution_min !== undefined && formData.cooldown_after_execution_min !== null && !isNaN(formData.cooldown_after_execution_min)) {
             dataToSend.cooldown_after_execution_min = formData.cooldown_after_execution_min
@@ -90,14 +119,23 @@ export function WebhookMonitorConfigForm() {
         if (formData.sell_lateral_cycles_min !== undefined && formData.sell_lateral_cycles_min !== null && !isNaN(formData.sell_lateral_cycles_min)) {
             dataToSend.sell_lateral_cycles_min = formData.sell_lateral_cycles_min
         }
+        if (formData.sell_lateral_cycles_enabled !== undefined) {
+            dataToSend.sell_lateral_cycles_enabled = formData.sell_lateral_cycles_enabled
+        }
         if (formData.sell_fall_trigger_pct !== undefined && formData.sell_fall_trigger_pct !== null && !isNaN(formData.sell_fall_trigger_pct)) {
             dataToSend.sell_fall_trigger_pct = formData.sell_fall_trigger_pct
         }
         if (formData.sell_fall_cycles_min !== undefined && formData.sell_fall_cycles_min !== null && !isNaN(formData.sell_fall_cycles_min)) {
             dataToSend.sell_fall_cycles_min = formData.sell_fall_cycles_min
         }
+        if (formData.sell_fall_cycles_enabled !== undefined) {
+            dataToSend.sell_fall_cycles_enabled = formData.sell_fall_cycles_enabled
+        }
         if (formData.sell_max_monitoring_time_min !== undefined && formData.sell_max_monitoring_time_min !== null && !isNaN(formData.sell_max_monitoring_time_min)) {
             dataToSend.sell_max_monitoring_time_min = formData.sell_max_monitoring_time_min
+        }
+        if (formData.sell_max_monitoring_time_enabled !== undefined) {
+            dataToSend.sell_max_monitoring_time_enabled = formData.sell_max_monitoring_time_enabled
         }
         if (formData.sell_cooldown_after_execution_min !== undefined && formData.sell_cooldown_after_execution_min !== null && !isNaN(formData.sell_cooldown_after_execution_min)) {
             dataToSend.sell_cooldown_after_execution_min = formData.sell_cooldown_after_execution_min
@@ -132,25 +170,32 @@ export function WebhookMonitorConfigForm() {
                     <strong>Configuração Global:</strong> As alterações aqui serão aplicadas a todos os alertas de monitoramento do sistema.
                 </p>
             </div>
+
+            {/* Configurações Gerais */}
             <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Configurações Gerais</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <Label htmlFor="check_interval_sec">Intervalo de Verificação (segundos)</Label>
+                        <Input
+                            id="check_interval_sec"
+                            type="number"
+                            min="10"
+                            value={formData.check_interval_sec || 30}
+                            onChange={(e) => handleChange('check_interval_sec', parseInt(e.target.value) || 30)}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                            Intervalo entre verificações de preço (padrão: 30s)
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Parâmetros para BUY */}
+            <div className="space-y-4 mt-8 pt-8 border-t">
                 <h3 className="text-lg font-semibold">Parâmetros para Compra (BUY)</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                    <Label htmlFor="check_interval_sec">Intervalo de Verificação (segundos)</Label>
-                    <Input
-                        id="check_interval_sec"
-                        type="number"
-                        min="10"
-                        max="300"
-                        value={formData.check_interval_sec || 30}
-                        onChange={(e) => handleChange('check_interval_sec', parseInt(e.target.value) || 30)}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                        Intervalo entre verificações de preço (padrão: 30s)
-                    </p>
-                </div>
-
                 <div>
                     <Label htmlFor="lateral_tolerance_pct">Tolerância Lateral (%)</Label>
                     <Input
@@ -158,7 +203,6 @@ export function WebhookMonitorConfigForm() {
                         type="number"
                         step="0.1"
                         min="0.1"
-                        max="5"
                         value={formData.lateral_tolerance_pct || 0.3}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
@@ -171,13 +215,25 @@ export function WebhookMonitorConfigForm() {
                 </div>
 
                 <div>
-                    <Label htmlFor="lateral_cycles_min">Ciclos Mínimos Lateral</Label>
+                    <div className="flex items-center justify-between mb-2">
+                        <Label htmlFor="lateral_cycles_min">Ciclos Mínimos Lateral</Label>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="lateral_cycles_enabled"
+                                checked={formData.lateral_cycles_enabled ?? true}
+                                onCheckedChange={(checked) => handleChange('lateral_cycles_enabled', checked)}
+                            />
+                            <Label htmlFor="lateral_cycles_enabled" className="text-xs text-muted-foreground">
+                                {formData.lateral_cycles_enabled ? 'Habilitado' : 'Desabilitado'}
+                            </Label>
+                        </div>
+                    </div>
                     <Input
                         id="lateral_cycles_min"
                         type="number"
                         min="1"
-                        max="20"
                         value={formData.lateral_cycles_min || 4}
+                        disabled={!formData.lateral_cycles_enabled}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseInt(e.target.value)
                             handleChange('lateral_cycles_min', value !== undefined && !isNaN(value) ? value : undefined)
@@ -195,7 +251,6 @@ export function WebhookMonitorConfigForm() {
                         type="number"
                         step="0.1"
                         min="0.1"
-                        max="10"
                         value={formData.rise_trigger_pct || 0.75}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
@@ -208,13 +263,25 @@ export function WebhookMonitorConfigForm() {
                 </div>
 
                 <div>
-                    <Label htmlFor="rise_cycles_min">Ciclos Mínimos Alta</Label>
+                    <div className="flex items-center justify-between mb-2">
+                        <Label htmlFor="rise_cycles_min">Ciclos Mínimos Alta</Label>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="rise_cycles_enabled"
+                                checked={formData.rise_cycles_enabled ?? true}
+                                onCheckedChange={(checked) => handleChange('rise_cycles_enabled', checked)}
+                            />
+                            <Label htmlFor="rise_cycles_enabled" className="text-xs text-muted-foreground">
+                                {formData.rise_cycles_enabled ? 'Habilitado' : 'Desabilitado'}
+                            </Label>
+                        </div>
+                    </div>
                     <Input
                         id="rise_cycles_min"
                         type="number"
                         min="1"
-                        max="10"
                         value={formData.rise_cycles_min || 2}
+                        disabled={!formData.rise_cycles_enabled}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseInt(e.target.value)
                             handleChange('rise_cycles_min', value !== undefined && !isNaN(value) ? value : undefined)
@@ -226,39 +293,63 @@ export function WebhookMonitorConfigForm() {
                 </div>
 
                 <div>
-                    <Label htmlFor="max_fall_pct">Queda Máxima (%)</Label>
+                    <div className="flex items-center justify-between mb-2">
+                        <Label htmlFor="max_fall_pct">Queda Máxima (%)</Label>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="max_fall_enabled"
+                                checked={formData.max_fall_enabled ?? false}
+                                onCheckedChange={(checked) => handleChange('max_fall_enabled', checked)}
+                            />
+                            <Label htmlFor="max_fall_enabled" className="text-xs text-muted-foreground">
+                                {formData.max_fall_enabled ? 'Habilitado' : 'Desabilitado'}
+                            </Label>
+                        </div>
+                    </div>
                     <Input
                         id="max_fall_pct"
                         type="number"
                         step="0.1"
-                        min="1"
-                        max="20"
+                        min="0.1"
                         value={formData.max_fall_pct || 6.0}
+                        disabled={!formData.max_fall_enabled}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
                             handleChange('max_fall_pct', value !== undefined && !isNaN(value) ? value : undefined)
                         }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                        Queda máxima desde o alerta para cancelar (padrão: 6%)
+                        Queda máxima desde o alerta para cancelar (sem limite máximo)
                     </p>
                 </div>
 
                 <div>
-                    <Label htmlFor="max_monitoring_time_min">Tempo Máximo (minutos)</Label>
+                    <div className="flex items-center justify-between mb-2">
+                        <Label htmlFor="max_monitoring_time_min">Tempo Máximo (minutos)</Label>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="max_monitoring_time_enabled"
+                                checked={formData.max_monitoring_time_enabled ?? false}
+                                onCheckedChange={(checked) => handleChange('max_monitoring_time_enabled', checked)}
+                            />
+                            <Label htmlFor="max_monitoring_time_enabled" className="text-xs text-muted-foreground">
+                                {formData.max_monitoring_time_enabled ? 'Habilitado' : 'Desabilitado'}
+                            </Label>
+                        </div>
+                    </div>
                     <Input
                         id="max_monitoring_time_min"
                         type="number"
-                        min="5"
-                        max="300"
+                        min="1"
                         value={formData.max_monitoring_time_min || 60}
+                        disabled={!formData.max_monitoring_time_enabled}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseInt(e.target.value)
                             handleChange('max_monitoring_time_min', value !== undefined && !isNaN(value) ? value : undefined)
                         }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                        Tempo máximo de monitoramento antes de cancelar (padrão: 60min)
+                        Tempo máximo de monitoramento antes de cancelar (sem limite máximo)
                     </p>
                 </div>
 
@@ -267,8 +358,7 @@ export function WebhookMonitorConfigForm() {
                     <Input
                         id="cooldown_after_execution_min"
                         type="number"
-                        min="5"
-                        max="300"
+                        min="0"
                         value={formData.cooldown_after_execution_min || 30}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseInt(e.target.value)
@@ -281,6 +371,7 @@ export function WebhookMonitorConfigForm() {
                 </div>
             </div>
 
+            {/* Parâmetros para SELL */}
             <div className="space-y-4 mt-8 pt-8 border-t">
                 <h3 className="text-lg font-semibold">Parâmetros para Venda (SELL)</h3>
             </div>
@@ -292,7 +383,6 @@ export function WebhookMonitorConfigForm() {
                         type="number"
                         step="0.1"
                         min="0.1"
-                        max="5"
                         value={formData.sell_lateral_tolerance_pct || 0.3}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
@@ -305,13 +395,25 @@ export function WebhookMonitorConfigForm() {
                 </div>
 
                 <div>
-                    <Label htmlFor="sell_lateral_cycles_min">Ciclos Mínimos Lateral SELL</Label>
+                    <div className="flex items-center justify-between mb-2">
+                        <Label htmlFor="sell_lateral_cycles_min">Ciclos Mínimos Lateral SELL</Label>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="sell_lateral_cycles_enabled"
+                                checked={formData.sell_lateral_cycles_enabled ?? true}
+                                onCheckedChange={(checked) => handleChange('sell_lateral_cycles_enabled', checked)}
+                            />
+                            <Label htmlFor="sell_lateral_cycles_enabled" className="text-xs text-muted-foreground">
+                                {formData.sell_lateral_cycles_enabled ? 'Habilitado' : 'Desabilitado'}
+                            </Label>
+                        </div>
+                    </div>
                     <Input
                         id="sell_lateral_cycles_min"
                         type="number"
                         min="1"
-                        max="20"
                         value={formData.sell_lateral_cycles_min || 4}
+                        disabled={!formData.sell_lateral_cycles_enabled}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseInt(e.target.value)
                             handleChange('sell_lateral_cycles_min', value !== undefined && !isNaN(value) ? value : undefined)
@@ -329,7 +431,6 @@ export function WebhookMonitorConfigForm() {
                         type="number"
                         step="0.1"
                         min="0.1"
-                        max="10"
                         value={formData.sell_fall_trigger_pct || 0.5}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
@@ -342,13 +443,25 @@ export function WebhookMonitorConfigForm() {
                 </div>
 
                 <div>
-                    <Label htmlFor="sell_fall_cycles_min">Ciclos Mínimos Queda SELL</Label>
+                    <div className="flex items-center justify-between mb-2">
+                        <Label htmlFor="sell_fall_cycles_min">Ciclos Mínimos Queda SELL</Label>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="sell_fall_cycles_enabled"
+                                checked={formData.sell_fall_cycles_enabled ?? true}
+                                onCheckedChange={(checked) => handleChange('sell_fall_cycles_enabled', checked)}
+                            />
+                            <Label htmlFor="sell_fall_cycles_enabled" className="text-xs text-muted-foreground">
+                                {formData.sell_fall_cycles_enabled ? 'Habilitado' : 'Desabilitado'}
+                            </Label>
+                        </div>
+                    </div>
                     <Input
                         id="sell_fall_cycles_min"
                         type="number"
                         min="1"
-                        max="10"
                         value={formData.sell_fall_cycles_min || 2}
+                        disabled={!formData.sell_fall_cycles_enabled}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseInt(e.target.value)
                             handleChange('sell_fall_cycles_min', value !== undefined && !isNaN(value) ? value : undefined)
@@ -360,20 +473,32 @@ export function WebhookMonitorConfigForm() {
                 </div>
 
                 <div>
-                    <Label htmlFor="sell_max_monitoring_time_min">Tempo Máximo SELL (minutos)</Label>
+                    <div className="flex items-center justify-between mb-2">
+                        <Label htmlFor="sell_max_monitoring_time_min">Tempo Máximo SELL (minutos)</Label>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="sell_max_monitoring_time_enabled"
+                                checked={formData.sell_max_monitoring_time_enabled ?? false}
+                                onCheckedChange={(checked) => handleChange('sell_max_monitoring_time_enabled', checked)}
+                            />
+                            <Label htmlFor="sell_max_monitoring_time_enabled" className="text-xs text-muted-foreground">
+                                {formData.sell_max_monitoring_time_enabled ? 'Habilitado' : 'Desabilitado'}
+                            </Label>
+                        </div>
+                    </div>
                     <Input
                         id="sell_max_monitoring_time_min"
                         type="number"
-                        min="5"
-                        max="300"
+                        min="1"
                         value={formData.sell_max_monitoring_time_min || 60}
+                        disabled={!formData.sell_max_monitoring_time_enabled}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseInt(e.target.value)
                             handleChange('sell_max_monitoring_time_min', value !== undefined && !isNaN(value) ? value : undefined)
                         }}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                        Tempo máximo de monitoramento para venda (padrão: 60min)
+                        Tempo máximo de monitoramento para venda (sem limite máximo)
                     </p>
                 </div>
 
@@ -382,8 +507,7 @@ export function WebhookMonitorConfigForm() {
                     <Input
                         id="sell_cooldown_after_execution_min"
                         type="number"
-                        min="5"
-                        max="300"
+                        min="0"
                         value={formData.sell_cooldown_after_execution_min || 30}
                         onChange={(e) => {
                             const value = e.target.value === '' ? undefined : parseInt(e.target.value)
@@ -404,4 +528,3 @@ export function WebhookMonitorConfigForm() {
         </form>
     )
 }
-

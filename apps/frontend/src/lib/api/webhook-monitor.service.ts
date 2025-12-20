@@ -9,6 +9,8 @@ export interface WebhookMonitorAlert {
   trade_mode: string
   side: 'BUY' | 'SELL'
   price_alert: number
+  price_original: number | null // Preço com que ESTE alerta foi criado
+  price_first_alert: number | null // Preço do PRIMEIRO alerta da cadeia (herdado)
   price_minimum: number | null
   price_maximum: number | null
   current_price: number | null
@@ -26,6 +28,8 @@ export interface WebhookMonitorAlert {
   monitoring_duration_minutes: number | null
   savings_pct: number | null
   efficiency_pct: number | null
+  replaced_alert_id: number | null // ID do alerta que este substituiu
+  replacement_count: number // Quantos alertas foram substituídos na cadeia
   created_at: string
   updated_at: string
   webhook_source?: {
@@ -61,17 +65,24 @@ export interface WebhookMonitorConfig {
   // BUY
   lateral_tolerance_pct: number
   lateral_cycles_min: number
+  lateral_cycles_enabled: boolean
   rise_trigger_pct: number
   rise_cycles_min: number
+  rise_cycles_enabled: boolean
   max_fall_pct: number
+  max_fall_enabled: boolean
   max_monitoring_time_min: number
+  max_monitoring_time_enabled: boolean
   cooldown_after_execution_min: number
   // SELL
   sell_lateral_tolerance_pct: number
   sell_lateral_cycles_min: number
+  sell_lateral_cycles_enabled: boolean
   sell_fall_trigger_pct: number
   sell_fall_cycles_min: number
+  sell_fall_cycles_enabled: boolean
   sell_max_monitoring_time_min: number
+  sell_max_monitoring_time_enabled: boolean
   sell_cooldown_after_execution_min: number
 }
 

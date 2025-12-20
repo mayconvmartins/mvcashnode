@@ -134,6 +134,31 @@ export default function WebhookMonitorPage() {
             },
         },
         {
+            key: 'price_first_alert',
+            label: '1º Alerta',
+            render: (alert: any) => {
+                if (!alert.price_first_alert) return <span className="font-mono text-muted-foreground">-</span>
+                const priceFirst = typeof alert.price_first_alert === 'number' ? alert.price_first_alert : Number(alert.price_first_alert)
+                const priceAlert = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
+                
+                // Se é o mesmo preço, não mostrar
+                if (Math.abs(priceFirst - priceAlert) < 0.000001) {
+                    return <span className="font-mono text-muted-foreground">-</span>
+                }
+                
+                const replacementCount = alert.replacement_count || 0
+                
+                return (
+                    <div className="flex flex-col">
+                        <span className="font-mono text-blue-600">${priceFirst.toFixed(8)}</span>
+                        {replacementCount > 0 && (
+                            <span className="text-xs text-muted-foreground">({replacementCount} subst.)</span>
+                        )}
+                    </div>
+                )
+            },
+        },
+        {
             key: 'price_minimum',
             label: 'Preço Ref.',
             render: (alert: any) => {
@@ -243,6 +268,31 @@ export default function WebhookMonitorPage() {
             render: (alert) => {
                 const price = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
                 return <span className="font-mono">${price.toFixed(8)}</span>
+            },
+        },
+        {
+            key: 'price_first_alert',
+            label: '1º Alerta',
+            render: (alert: any) => {
+                if (!alert.price_first_alert) return <span className="font-mono text-muted-foreground">-</span>
+                const priceFirst = typeof alert.price_first_alert === 'number' ? alert.price_first_alert : Number(alert.price_first_alert)
+                const priceAlert = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
+                
+                // Se é o mesmo preço, não mostrar
+                if (Math.abs(priceFirst - priceAlert) < 0.000001) {
+                    return <span className="font-mono text-muted-foreground">-</span>
+                }
+                
+                const replacementCount = alert.replacement_count || 0
+                
+                return (
+                    <div className="flex flex-col">
+                        <span className="font-mono text-blue-600">${priceFirst.toFixed(8)}</span>
+                        {replacementCount > 0 && (
+                            <span className="text-xs text-muted-foreground">({replacementCount} subst.)</span>
+                        )}
+                    </div>
+                )
             },
         },
         {

@@ -389,6 +389,8 @@ model WebhookMonitorAlert {
   trade_mode               String    @db.VarChar(20) // 'REAL' | 'SIMULATION'
   side                     String    @default("BUY") @db.VarChar(10) // 'BUY' | 'SELL'
   price_alert              Decimal   @db.Decimal(36, 18)
+  price_original           Decimal?  @db.Decimal(36, 18) // Preço com que ESTE alerta foi criado
+  price_first_alert        Decimal?  @db.Decimal(36, 18) // Preço do PRIMEIRO alerta da cadeia (herdado quando substituído)
   price_minimum            Decimal?  @db.Decimal(36, 18) // Para BUY: menor preço visto
   price_maximum            Decimal?  @db.Decimal(36, 18) // Para SELL: maior preço visto
   current_price            Decimal?  @db.Decimal(36, 18)
@@ -406,6 +408,8 @@ model WebhookMonitorAlert {
   monitoring_duration_minutes Int?   // Tempo total em monitoramento (minutos)
   savings_pct                 Decimal?  @db.Decimal(10, 4) // % economia vs preço alerta inicial
   efficiency_pct              Decimal?  @db.Decimal(10, 4) // % proximidade do melhor preço (min/max)
+  replaced_alert_id        Int?      // ID do alerta que este substituiu (para rastreabilidade da cadeia)
+  replacement_count        Int       @default(0) // Contador de quantos alertas foram substituídos na cadeia
   created_at               DateTime  @default(now())
   updated_at               DateTime  @updatedAt
 
@@ -419,6 +423,7 @@ model WebhookMonitorAlert {
   @@index([state])
   @@index([side])
   @@index([created_at])
+  @@index([replaced_alert_id])
   @@map("webhook_monitor_alerts")
 }
 
@@ -431,19 +436,26 @@ model WebhookMonitorConfig {
   // Parâmetros para BUY
   lateral_tolerance_pct        Decimal  @default(0.3) @db.Decimal(5, 2)
   lateral_cycles_min          Int      @default(4)
+  lateral_cycles_enabled      Boolean  @default(true) // Se false, ignora lateral_cycles_min
   rise_trigger_pct            Decimal  @default(0.75) @db.Decimal(5, 2)
   rise_cycles_min             Int      @default(2)
+  rise_cycles_enabled         Boolean  @default(true) // Se false, ignora rise_cycles_min
   max_fall_pct                Decimal  @default(6.0) @db.Decimal(5, 2)
+  max_fall_enabled            Boolean  @default(false) // Se false, não cancela por queda máxima
   max_monitoring_time_min     Int      @default(60)
+  max_monitoring_time_enabled Boolean  @default(false) // Se false, não cancela por tempo máximo
   cooldown_after_execution_min Int     @default(30)
   
   // Parâmetros para SELL
   sell_lateral_tolerance_pct   Decimal  @default(0.3) @db.Decimal(5, 2)
   sell_lateral_cycles_min      Int      @default(4)
+  sell_lateral_cycles_enabled  Boolean  @default(true) // Se false, ignora sell_lateral_cycles_min
   sell_fall_trigger_pct        Decimal  @default(0.5) @db.Decimal(5, 2) // Quando considerar "caindo" para executar
   sell_fall_cycles_min         Int      @default(2)
+  sell_fall_cycles_enabled     Boolean  @default(true) // Se false, ignora sell_fall_cycles_min
   sell_max_rise_pct            Decimal  @default(6.0) @db.Decimal(5, 2) // DEPRECADO: Não faz sentido cancelar venda se preço sobe (mais lucro). Mantido apenas para compatibilidade.
   sell_max_monitoring_time_min Int      @default(60)
+  sell_max_monitoring_time_enabled Boolean @default(false) // Se false, não cancela por tempo máximo
   sell_cooldown_after_execution_min Int @default(30)
   
   created_at                  DateTime @default(now())
