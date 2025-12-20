@@ -212,6 +212,7 @@ export class WebhookMonitorController {
             id: true,
             label: true,
             webhook_code: true,
+            owner_user_id: true,
           },
         },
         exchange_account: {
@@ -237,7 +238,12 @@ export class WebhookMonitorController {
     }
 
     // Verificar se o usuário tem acesso a este alerta
-    if (alert.exchange_account.user_id !== user.userId && !user.roles?.some((r: any) => r.role === 'admin')) {
+    // Verificar via webhook_source (obrigatório) ou exchange_account (opcional)
+    const isAdmin = user.roles?.some((r: any) => r.role === 'admin');
+    const ownsWebhook = alert.webhook_source?.owner_user_id === user.userId;
+    const ownsAccount = alert.exchange_account?.user_id === user.userId;
+    
+    if (!isAdmin && !ownsWebhook && !ownsAccount) {
       throw new NotFoundException('Alerta não encontrado');
     }
 
