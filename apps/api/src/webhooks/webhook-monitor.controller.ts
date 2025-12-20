@@ -122,6 +122,8 @@ export class WebhookMonitorController {
           trade_mode: true,
           side: true,
           price_alert: true,
+          price_original: true,
+          price_first_alert: true,
           price_minimum: true,
           price_maximum: true,
           current_price: true,
@@ -132,6 +134,8 @@ export class WebhookMonitorController {
           exit_reason: true,
           exit_details: true,
           executed_trade_job_ids_json: true,
+          replacement_count: true,
+          replaced_alert_id: true,
           state: true,
           created_at: true,
           updated_at: true,
@@ -171,6 +175,8 @@ export class WebhookMonitorController {
     const data = alerts.map((alert: any) => ({
       ...alert,
       price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
+      price_original: alert.price_original?.toNumber ? alert.price_original.toNumber() : (alert.price_original ? Number(alert.price_original) : null),
+      price_first_alert: alert.price_first_alert?.toNumber ? alert.price_first_alert.toNumber() : (alert.price_first_alert ? Number(alert.price_first_alert) : null),
       price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : (alert.price_minimum ? Number(alert.price_minimum) : null),
       price_maximum: alert.price_maximum?.toNumber ? alert.price_maximum.toNumber() : (alert.price_maximum ? Number(alert.price_maximum) : null),
       current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
@@ -182,6 +188,8 @@ export class WebhookMonitorController {
       exit_details: alert.exit_details || null,
       side: alert.side || 'BUY',
       executed_trade_job_ids_json: alert.executed_trade_job_ids_json || null,
+      replacement_count: alert.replacement_count || 0,
+      replaced_alert_id: alert.replaced_alert_id || null,
     }));
 
     return {
@@ -251,8 +259,12 @@ export class WebhookMonitorController {
     return {
       ...alert,
       price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
+      price_original: alert.price_original?.toNumber ? alert.price_original.toNumber() : (alert.price_original ? Number(alert.price_original) : null),
+      price_first_alert: alert.price_first_alert?.toNumber ? alert.price_first_alert.toNumber() : (alert.price_first_alert ? Number(alert.price_first_alert) : null),
       price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : Number(alert.price_minimum),
       current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
+      replacement_count: alert.replacement_count || 0,
+      replaced_alert_id: alert.replaced_alert_id || null,
     } as Record<string, any>;
   }
 
@@ -393,6 +405,8 @@ export class WebhookMonitorController {
       const data = history.map((alert: any) => ({
         ...alert,
         price_alert: alert.price_alert?.toNumber ? alert.price_alert.toNumber() : Number(alert.price_alert),
+        price_original: alert.price_original?.toNumber ? alert.price_original.toNumber() : (alert.price_original ? Number(alert.price_original) : null),
+        price_first_alert: alert.price_first_alert?.toNumber ? alert.price_first_alert.toNumber() : (alert.price_first_alert ? Number(alert.price_first_alert) : null),
         price_minimum: alert.price_minimum?.toNumber ? alert.price_minimum.toNumber() : (alert.price_minimum ? Number(alert.price_minimum) : null),
         price_maximum: alert.price_maximum?.toNumber ? alert.price_maximum.toNumber() : (alert.price_maximum ? Number(alert.price_maximum) : null),
         current_price: alert.current_price?.toNumber ? alert.current_price.toNumber() : (alert.current_price ? Number(alert.current_price) : null),
@@ -400,6 +414,8 @@ export class WebhookMonitorController {
         savings_pct: alert.savings_pct?.toNumber ? alert.savings_pct.toNumber() : (alert.savings_pct ? Number(alert.savings_pct) : null),
         efficiency_pct: alert.efficiency_pct?.toNumber ? alert.efficiency_pct.toNumber() : (alert.efficiency_pct ? Number(alert.efficiency_pct) : null),
         monitoring_duration_minutes: alert.monitoring_duration_minutes || null,
+        replacement_count: alert.replacement_count || 0,
+        replaced_alert_id: alert.replaced_alert_id || null,
       }));
 
       const totalPages = Math.ceil(totalItems / finalLimit);
