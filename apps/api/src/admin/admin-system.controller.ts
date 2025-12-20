@@ -8547,40 +8547,25 @@ export class AdminSystemController {
 
   @Post('debug/close-positions-breakeven')
   @ApiOperation({
-    summary: 'Encerrar posições abertas sem lucro/perda',
-    description: 'Cria jobs de venda fictícios no preço de entrada para fechar posições sem lucro ou perda. Tudo é criado diretamente no banco, sem passar pelo executor ou exchange.'
+    summary: 'Encerrar posição específica sem lucro/perda',
+    description: 'Cria job de venda fictício no preço de entrada para fechar uma posição específica sem lucro ou perda. Tudo é criado diretamente no banco, sem passar pelo executor ou exchange.'
   })
   @ApiResponse({
     status: 200,
-    description: 'Posições fechadas com sucesso'
+    description: 'Posição fechada com sucesso'
   })
   async closePositionsBreakeven(@Body() dto: {
-    trade_mode: 'REAL' | 'SIMULATION';
-    exchange_account_id?: number;
-    symbol?: string;
+    position_id: number;
   }): Promise<any> {
-    const { trade_mode, exchange_account_id, symbol } = dto;
+    const { position_id } = dto;
 
-    if (!trade_mode || (trade_mode !== 'REAL' && trade_mode !== 'SIMULATION')) {
-      throw new BadRequestException('trade_mode é obrigatório e deve ser REAL ou SIMULATION');
+    if (!position_id || isNaN(position_id) || position_id <= 0) {
+      throw new BadRequestException('position_id é obrigatório e deve ser um número válido maior que 0');
     }
 
-    // Buscar posições abertas
-    const where: any = {
-      status: 'OPEN',
-      trade_mode: trade_mode,
-    };
-
-    if (exchange_account_id) {
-      where.exchange_account_id = exchange_account_id;
-    }
-
-    if (symbol) {
-      where.symbol = symbol;
-    }
-
-    const positions = await this.prisma.tradePosition.findMany({
-      where,
+    // Buscar posição específica
+    const position = await this.prisma.tradePosition.findUnique({
+      where: { id: position_id },
       include: {
         exchange_account: {
           select: {
@@ -8590,108 +8575,149 @@ export class AdminSystemController {
           },
         },
       },
-      orderBy: {
-        created_at: 'asc',
-      },
     });
 
-    // Filtrar apenas posições com qty_remaining > 0
-    const eligiblePositions = positions.filter(
-      (p) => p.qty_remaining.toNumber() > 0
-    );
-
-    const jobsCreated: number[] = [];
-    const executionsCreated: number[] = [];
-    const errors: string[] = [];
-    let totalClosed = 0;
-
-    // Processar cada posição em transação
-    for (const position of eligiblePositions) {
-      try {
-        await this.prisma.$transaction(async (tx) => {
-          const qtyRemaining = position.qty_remaining.toNumber();
-          const priceOpen = position.price_open.toNumber();
-          const cummQuoteQty = qtyRemaining * priceOpen;
-          const timestamp = Date.now();
-
-          // 1. Criar trade_job SELL
-          const job = await tx.tradeJob.create({
-            data: {
-              side: 'SELL',
-              position_id_to_close: position.id,
-              base_quantity: qtyRemaining,
-              limit_price: priceOpen,
-              order_type: 'LIMIT',
-              trade_mode: position.trade_mode,
-              exchange_account_id: position.exchange_account_id,
-              symbol: position.symbol,
-              status: 'FILLED',
-              reason_code: 'DEBUG_BREAKEVEN',
-              reason_message: 'Fechamento sem lucro/perda via debug tool',
-            },
-          });
-
-          jobsCreated.push(job.id);
-
-          // 2. Criar trade_execution
-          const execution = await tx.tradeExecution.create({
-            data: {
-              trade_job_id: job.id,
-              exchange_account_id: position.exchange_account_id,
-              trade_mode: position.trade_mode,
-              exchange: position.exchange_account.exchange,
-              exchange_order_id: `DEBUG-BREAKEVEN-${timestamp}-${position.id}`,
-              client_order_id: `debug-breakeven-${job.id}-${timestamp}`,
-              status_exchange: 'FILLED',
-              executed_qty: qtyRemaining,
-              avg_price: priceOpen,
-              cumm_quote_qty: cummQuoteQty,
-              fee_amount: 0,
-              fee_currency: null,
-            },
-          });
-
-          executionsCreated.push(execution.id);
-
-          // 3. Atualizar trade_position
-          await tx.tradePosition.update({
-            where: { id: position.id },
-            data: {
-              qty_remaining: 0,
-              status: 'CLOSED',
-              closed_at: new Date(),
-              close_reason: 'DEBUG_BREAKEVEN',
-              // realized_profit_usd permanece o mesmo (não incrementa, pois avg_price = price_open)
-            },
-          });
-
-          // 4. Criar position_fill
-          await tx.positionFill.create({
-            data: {
-              position_id: position.id,
-              trade_execution_id: execution.id,
-              side: 'SELL',
-              qty: qtyRemaining,
-              price: priceOpen,
-            },
-          });
-
-          totalClosed++;
-        });
-      } catch (error: any) {
-        const errorMsg = `Erro ao fechar posição #${position.id}: ${error.message}`;
-        errors.push(errorMsg);
-        console.error(`[DEBUG-TOOLS] ${errorMsg}`, error);
-      }
+    if (!position) {
+      return {
+        position_id,
+        position_closed: false,
+        job_created: null,
+        execution_created: null,
+        error: `Posição #${position_id} não encontrada`,
+      };
     }
 
-    return {
-      total_positions_found: eligiblePositions.length,
-      total_positions_closed: totalClosed,
-      jobs_created: jobsCreated,
-      executions_created: executionsCreated,
-      errors: errors.length > 0 ? errors : undefined,
-    };
+    if (position.status !== 'OPEN') {
+      return {
+        position_id,
+        position_closed: false,
+        job_created: null,
+        execution_created: null,
+        error: `Posição #${position_id} não está aberta (status: ${position.status})`,
+        position_info: {
+          symbol: position.symbol,
+          qty_remaining: position.qty_remaining.toNumber(),
+          price_open: position.price_open.toNumber(),
+          exchange_account: position.exchange_account.label || `${position.exchange_account.exchange} #${position.exchange_account.id}`,
+        },
+      };
+    }
+
+    const qtyRemaining = position.qty_remaining.toNumber();
+    if (qtyRemaining <= 0) {
+      return {
+        position_id,
+        position_closed: false,
+        job_created: null,
+        execution_created: null,
+        error: `Posição #${position_id} não tem quantidade restante para fechar`,
+        position_info: {
+          symbol: position.symbol,
+          qty_remaining: qtyRemaining,
+          price_open: position.price_open.toNumber(),
+          exchange_account: position.exchange_account.label || `${position.exchange_account.exchange} #${position.exchange_account.id}`,
+        },
+      };
+    }
+
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const priceOpen = position.price_open.toNumber();
+        const cummQuoteQty = qtyRemaining * priceOpen;
+        const timestamp = Date.now();
+
+        // 1. Criar trade_job SELL
+        const job = await tx.tradeJob.create({
+          data: {
+            side: 'SELL',
+            position_id_to_close: position.id,
+            base_quantity: qtyRemaining,
+            limit_price: priceOpen,
+            order_type: 'LIMIT',
+            trade_mode: position.trade_mode,
+            exchange_account_id: position.exchange_account_id,
+            symbol: position.symbol,
+            status: 'FILLED',
+            reason_code: 'DEBUG_BREAKEVEN',
+            reason_message: 'Fechamento sem lucro/perda via debug tool',
+          },
+        });
+
+        // 2. Criar trade_execution
+        const execution = await tx.tradeExecution.create({
+          data: {
+            trade_job_id: job.id,
+            exchange_account_id: position.exchange_account_id,
+            trade_mode: position.trade_mode,
+            exchange: position.exchange_account.exchange,
+            exchange_order_id: `DEBUG-BREAKEVEN-${timestamp}-${position.id}`,
+            client_order_id: `debug-breakeven-${job.id}-${timestamp}`,
+            status_exchange: 'FILLED',
+            executed_qty: qtyRemaining,
+            avg_price: priceOpen,
+            cumm_quote_qty: cummQuoteQty,
+            fee_amount: 0,
+            fee_currency: null,
+          },
+        });
+
+        // 3. Atualizar trade_position
+        await tx.tradePosition.update({
+          where: { id: position.id },
+          data: {
+            qty_remaining: 0,
+            status: 'CLOSED',
+            closed_at: new Date(),
+            close_reason: 'DEBUG_BREAKEVEN',
+            // realized_profit_usd permanece o mesmo (não incrementa, pois avg_price = price_open)
+          },
+        });
+
+        // 4. Criar position_fill
+        await tx.positionFill.create({
+          data: {
+            position_id: position.id,
+            trade_execution_id: execution.id,
+            side: 'SELL',
+            qty: qtyRemaining,
+            price: priceOpen,
+          },
+        });
+
+        return {
+          job_id: job.id,
+          execution_id: execution.id,
+        };
+      });
+
+      return {
+        position_id,
+        position_closed: true,
+        job_created: result.job_id,
+        execution_created: result.execution_id,
+        position_info: {
+          symbol: position.symbol,
+          qty_remaining: qtyRemaining,
+          price_open: position.price_open.toNumber(),
+          exchange_account: position.exchange_account.label || `${position.exchange_account.exchange} #${position.exchange_account.id}`,
+        },
+      };
+    } catch (error: any) {
+      console.error(`[DEBUG-TOOLS] Erro ao fechar posição #${position_id}:`, error);
+      return {
+        position_id,
+        position_closed: false,
+        job_created: null,
+        execution_created: null,
+        error: `Erro ao fechar posição: ${error.message}`,
+        position_info: {
+          symbol: position.symbol,
+          qty_remaining: qtyRemaining,
+          price_open: position.price_open.toNumber(),
+          exchange_account: position.exchange_account.label || `${position.exchange_account.exchange} #${position.exchange_account.id}`,
+        },
+      };
+    }
   }
 }
 

@@ -1446,18 +1446,22 @@ export const adminService = {
     // DEBUG TOOLS - CLOSE POSITIONS BREAKEVEN
     // ============================================
 
-    closePositionsBreakeven: async (filters: {
-        trade_mode: 'REAL' | 'SIMULATION';
-        exchange_account_id?: number;
-        symbol?: string;
+    closePositionsBreakeven: async (data: {
+        position_id: number;
     }): Promise<{
-        total_positions_found: number;
-        total_positions_closed: number;
-        jobs_created: number[];
-        executions_created: number[];
-        errors?: string[];
+        position_id: number;
+        position_closed: boolean;
+        job_created: number | null;
+        execution_created: number | null;
+        error?: string;
+        position_info?: {
+            symbol: string;
+            qty_remaining: number;
+            price_open: number;
+            exchange_account: string;
+        };
     }> => {
-        const response = await apiClient.post('/admin/debug/close-positions-breakeven', filters)
+        const response = await apiClient.post('/admin/debug/close-positions-breakeven', data)
         return response.data
     },
 }

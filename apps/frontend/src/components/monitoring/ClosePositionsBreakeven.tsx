@@ -1,68 +1,55 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { adminService } from '@/lib/api/admin.service'
-import { accountsService } from '@/lib/api/accounts.service'
+import { formatCurrency } from '@/lib/utils/format'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import { X, Loader2, AlertTriangle, DollarSign } from 'lucide-react'
 
 export function ClosePositionsBreakeven() {
-    const [tradeMode, setTradeMode] = useState<'REAL' | 'SIMULATION'>('REAL')
-    const [exchangeAccountId, setExchangeAccountId] = useState<string>('all')
-    const [symbol, setSymbol] = useState<string>('')
+    const [positionId, setPositionId] = useState<string>('')
     const [result, setResult] = useState<{
-        total_positions_found: number
-        total_positions_closed: number
-        jobs_created: number[]
-        executions_created: number[]
-        errors?: string[]
+        position_id: number
+        position_closed: boolean
+        job_created: number | null
+        execution_created: number | null
+        error?: string
+        position_info?: {
+            symbol: string
+            qty_remaining: number
+            price_open: number
+            exchange_account: string
+        }
     } | null>(null)
-
-    // Buscar contas
-    const { data: accounts } = useQuery({
-        queryKey: ['accounts'],
-        queryFn: accountsService.list,
-    })
 
     const closeMutation = useMutation({
         mutationFn: () => {
-            const filters: any = {
-                trade_mode: tradeMode,
+            const id = parseInt(positionId.trim())
+            if (isNaN(id) || id <= 0) {
+                throw new Error('ID da posição inválido')
             }
-            if (exchangeAccountId !== 'all') {
-                filters.exchange_account_id = parseInt(exchangeAccountId)
-            }
-            if (symbol.trim()) {
-                filters.symbol = symbol.trim()
-            }
-            return adminService.closePositionsBreakeven(filters)
+            return adminService.closePositionsBreakeven({ position_id: id })
         },
         onSuccess: (data) => {
             setResult(data)
-            if (data.total_positions_closed > 0) {
-                toast.success(
-                    `Fechamento concluído: ${data.total_positions_closed} posição(ões) fechada(s) sem lucro/perda`
-                )
+            if (data.position_closed) {
+                toast.success(`Posição #${data.position_id} fechada sem lucro/perda`)
             } else {
-                toast.info('Nenhuma posição encontrada para fechar')
-            }
-            if (data.errors && data.errors.length > 0) {
-                toast.warning(`${data.errors.length} erro(s) durante o fechamento`)
+                toast.error(data.error || 'Erro ao fechar posição')
             }
         },
         onError: (error: any) => {
-            toast.error(error.response?.data?.message || 'Erro ao fechar posições')
+            toast.error(error.response?.data?.message || error.message || 'Erro ao fechar posição')
         },
     })
 
-    const canExecute = tradeMode && (exchangeAccountId === 'all' || exchangeAccountId !== '')
+    const canExecute = positionId.trim() !== '' && !isNaN(parseInt(positionId.trim()))
 
     return (
         <Card>
@@ -72,123 +59,77 @@ export function ClosePositionsBreakeven() {
                     Fechar Posições sem Lucro/Perda
                 </CardTitle>
                 <CardDescription className="text-xs">
-                    Cria jobs de venda fictícios no preço de entrada para fechar posições sem lucro ou perda
+                    Cria job de venda fictício no preço de entrada para fechar uma posição específica sem lucro ou perda
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-                {/* Filtros */}
-                <div className="space-y-3">
-                    <div className="space-y-2">
-                        <Label htmlFor="trade-mode">Trade Mode *</Label>
-                        <Select value={tradeMode} onValueChange={(v) => setTradeMode(v as 'REAL' | 'SIMULATION')}>
-                            <SelectTrigger id="trade-mode">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="REAL">REAL</SelectItem>
-                                <SelectItem value="SIMULATION">SIMULATION</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="exchange-account">Conta de Exchange (opcional)</Label>
-                        <Select value={exchangeAccountId} onValueChange={setExchangeAccountId}>
-                            <SelectTrigger id="exchange-account">
-                                <SelectValue placeholder="Todas as contas" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">Todas as contas</SelectItem>
-                                {accounts
-                                    ?.filter((acc) => {
-                                        const accTradeMode = acc.is_simulation ? 'SIMULATION' : 'REAL'
-                                        return accTradeMode === tradeMode
-                                    })
-                                    .map((account) => (
-                                        <SelectItem key={account.id} value={account.id.toString()}>
-                                            {account.label} ({account.exchange})
-                                        </SelectItem>
-                                    ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="symbol">Símbolo (opcional)</Label>
-                        <Input
-                            id="symbol"
-                            placeholder="Ex: BTCUSDT"
-                            value={symbol}
-                            onChange={(e) => setSymbol(e.target.value)}
-                        />
-                    </div>
+                {/* Input de ID da Posição */}
+                <div className="space-y-2">
+                    <Label htmlFor="position-id">ID da Posição *</Label>
+                    <Input
+                        id="position-id"
+                        type="number"
+                        placeholder="Ex: 409"
+                        value={positionId}
+                        onChange={(e) => setPositionId(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        Informe o ID da posição que deseja fechar sem lucro/perda
+                    </p>
                 </div>
 
                 {/* Resultados */}
                 {result && (
                     <div className="space-y-2 p-4 bg-muted rounded-lg">
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Posições encontradas:</span>
-                            <Badge variant="outline">{result.total_positions_found}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Posições fechadas:</span>
-                            <Badge variant={result.total_positions_closed > 0 ? 'default' : 'secondary'}>
-                                {result.total_positions_closed}
-                            </Badge>
-                        </div>
-                        {result.jobs_created.length > 0 && (
-                            <div className="mt-2">
-                                <span className="text-sm font-medium">Jobs criados:</span>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                    {result.jobs_created.slice(0, 10).map((jobId) => (
-                                        <Badge key={jobId} variant="secondary" className="text-xs">
-                                            #{jobId}
-                                        </Badge>
-                                    ))}
-                                    {result.jobs_created.length > 10 && (
+                        {result.error ? (
+                            <div className="flex items-center gap-2 text-sm text-destructive">
+                                <AlertTriangle className="h-4 w-4" />
+                                <span>{result.error}</span>
+                            </div>
+                        ) : result.position_closed ? (
+                            <>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-medium">Posição:</span>
+                                    <Badge variant="default">#{result.position_id}</Badge>
+                                </div>
+                                {result.position_info && (
+                                    <>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">Símbolo:</span>
+                                            <span className="text-sm font-mono">{result.position_info.symbol}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">Quantidade:</span>
+                                            <span className="text-sm">{result.position_info.qty_remaining}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">Preço de Entrada:</span>
+                                            <span className="text-sm">{formatCurrency(result.position_info.price_open)}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">Conta:</span>
+                                            <span className="text-sm">{result.position_info.exchange_account}</span>
+                                        </div>
+                                    </>
+                                )}
+                                {result.job_created && (
+                                    <div className="flex items-center justify-between mt-2">
+                                        <span className="text-sm font-medium">Job criado:</span>
                                         <Badge variant="secondary" className="text-xs">
-                                            +{result.jobs_created.length - 10} mais
+                                            #{result.job_created}
                                         </Badge>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                        {result.executions_created.length > 0 && (
-                            <div className="mt-2">
-                                <span className="text-sm font-medium">Execuções criadas:</span>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                    {result.executions_created.slice(0, 10).map((execId) => (
-                                        <Badge key={execId} variant="secondary" className="text-xs">
-                                            #{execId}
-                                        </Badge>
-                                    ))}
-                                    {result.executions_created.length > 10 && (
+                                    </div>
+                                )}
+                                {result.execution_created && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium">Execução criada:</span>
                                         <Badge variant="secondary" className="text-xs">
-                                            +{result.executions_created.length - 10} mais
+                                            #{result.execution_created}
                                         </Badge>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                        {result.errors && result.errors.length > 0 && (
-                            <div className="mt-2">
-                                <div className="flex items-center gap-2 text-sm text-destructive mb-2">
-                                    <AlertTriangle className="h-4 w-4" />
-                                    <span className="font-medium">Erros ({result.errors.length}):</span>
-                                </div>
-                                <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
-                                    {result.errors.slice(0, 5).map((error, idx) => (
-                                        <li key={idx}>{error}</li>
-                                    ))}
-                                    {result.errors.length > 5 && (
-                                        <li className="text-muted-foreground">
-                                            ... e mais {result.errors.length - 5} erro(s)
-                                        </li>
-                                    )}
-                                </ul>
-                            </div>
-                        )}
+                                    </div>
+                                )}
+                            </>
+                        ) : null}
                     </div>
                 )}
 
@@ -203,12 +144,12 @@ export function ClosePositionsBreakeven() {
                         {closeMutation.isPending ? (
                             <>
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Fechando posições...
+                                Fechando posição...
                             </>
                         ) : (
                             <>
                                 <DollarSign className="h-4 w-4 mr-2" />
-                                Fechar Posições
+                                Fechar Posição
                             </>
                         )}
                     </Button>
