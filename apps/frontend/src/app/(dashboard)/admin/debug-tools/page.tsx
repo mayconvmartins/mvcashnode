@@ -11,6 +11,7 @@ import { EnqueueOrphanOrders } from '@/components/monitoring/EnqueueOrphanOrders
 import { OrphanedExecutions } from '@/components/monitoring/OrphanedExecutions'
 import { MissingOrders } from '@/components/monitoring/MissingOrders'
 import { MigrateToSubscriber } from '@/components/monitoring/MigrateToSubscriber'
+import { ClosePositionsBreakeven } from '@/components/monitoring/ClosePositionsBreakeven'
 import { Wrench } from 'lucide-react'
 
 export default function DebugToolsPage() {
@@ -29,6 +30,9 @@ export default function DebugToolsPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {/* Migrar Usuário para Assinante */}
                 <MigrateToSubscriber />
+
+                {/* Fechar Posições sem Lucro/Perda */}
+                <ClosePositionsBreakeven />
 
                 {/* Executions Órfãs */}
                 <OrphanedExecutions />

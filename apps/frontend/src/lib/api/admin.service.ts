@@ -1441,5 +1441,24 @@ export const adminService = {
         const response = await apiClient.post('/admin/debug/migrate-to-subscriber', data)
         return response.data
     },
+
+    // ============================================
+    // DEBUG TOOLS - CLOSE POSITIONS BREAKEVEN
+    // ============================================
+
+    closePositionsBreakeven: async (filters: {
+        trade_mode: 'REAL' | 'SIMULATION';
+        exchange_account_id?: number;
+        symbol?: string;
+    }): Promise<{
+        total_positions_found: number;
+        total_positions_closed: number;
+        jobs_created: number[];
+        executions_created: number[];
+        errors?: string[];
+    }> => {
+        const response = await apiClient.post('/admin/debug/close-positions-breakeven', filters)
+        return response.data
+    },
 }
 
