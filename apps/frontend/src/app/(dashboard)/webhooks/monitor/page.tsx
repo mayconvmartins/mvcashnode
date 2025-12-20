@@ -141,14 +141,7 @@ export default function WebhookMonitorPage() {
                 const priceFirst = typeof alert.price_first_alert === 'number' ? alert.price_first_alert : Number(alert.price_first_alert)
                 const priceAlert = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
                 const replacementCount = alert.replacement_count || 0
-                
-                // Mostrar se houver substituições OU se preços forem diferentes
-                const shouldShow = replacementCount > 0 || Math.abs(priceFirst - priceAlert) >= 0.000001
-                
-                if (!shouldShow) {
-                    return <span className="font-mono text-muted-foreground">-</span>
-                }
-                
+
                 return (
                     <div className="flex flex-col">
                         <span className="font-mono text-blue-600">${priceFirst.toFixed(8)}</span>
@@ -279,14 +272,7 @@ export default function WebhookMonitorPage() {
                 const priceFirst = typeof alert.price_first_alert === 'number' ? alert.price_first_alert : Number(alert.price_first_alert)
                 const priceAlert = typeof alert.price_alert === 'number' ? alert.price_alert : Number(alert.price_alert)
                 const replacementCount = alert.replacement_count || 0
-                
-                // Mostrar se houver substituições OU se preços forem diferentes
-                const shouldShow = replacementCount > 0 || Math.abs(priceFirst - priceAlert) >= 0.000001
-                
-                if (!shouldShow) {
-                    return <span className="font-mono text-muted-foreground">-</span>
-                }
-                
+
                 return (
                     <div className="flex flex-col">
                         <span className="font-mono text-blue-600">${priceFirst.toFixed(8)}</span>
