@@ -67,5 +67,36 @@ export class BinanceSpotAdapter extends ExchangeAdapter {
     
     return exchange;
   }
+
+  /**
+   * Filtros específicos da Binance (LOT_SIZE, MIN_NOTIONAL, PRICE_FILTER)
+   */
+  async getSymbolFilters(symbol: string): Promise<{
+    stepSize?: number;
+    minQty?: number;
+    minNotional?: number;
+    tickSize?: number;
+  } | null> {
+    try {
+      await this.exchange.loadMarkets();
+      const market = this.exchange.market(symbol);
+      if (!market) return null;
+
+      const filters = (market as any)?.info?.filters || [];
+      const lotSize = filters.find((f: any) => f.filterType === 'LOT_SIZE');
+      const minNotionalFilter = filters.find((f: any) => f.filterType === 'MIN_NOTIONAL' || f.filterType === 'NOTIONAL');
+      const priceFilter = filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+
+      const stepSize = lotSize?.stepSize ? Number(lotSize.stepSize) : undefined;
+      const minQty = lotSize?.minQty ? Number(lotSize.minQty) : undefined;
+      const minNotional = minNotionalFilter?.minNotional ? Number(minNotionalFilter.minNotional) : undefined;
+      const tickSize = priceFilter?.tickSize ? Number(priceFilter.tickSize) : undefined;
+
+      return { stepSize, minQty, minNotional, tickSize };
+    } catch (err) {
+      console.error(`[BinanceSpotAdapter] getSymbolFilters failed for ${symbol}:`, (err as any)?.message || err);
+      return null;
+    }
+  }
 }
 

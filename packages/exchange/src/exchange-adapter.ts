@@ -1,4 +1,6 @@
 import { Exchange } from 'ccxt';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ExchangeType } from '@mvcashnode/shared';
 
 export type TestConnectionResult = {
@@ -41,10 +43,61 @@ export interface Ticker {
 export abstract class ExchangeAdapter {
   protected exchange: Exchange;
   protected exchangeType: ExchangeType;
+  private readonly ccxtLogPath: string;
 
   constructor(exchangeType: ExchangeType, apiKey?: string, apiSecret?: string, options?: any) {
     this.exchangeType = exchangeType;
     this.exchange = this.createExchange(exchangeType, apiKey, apiSecret, options);
+    this.ccxtLogPath = process.env.CCXT_LOG_PATH || path.join(process.cwd(), 'logs', 'ccxt.log');
+  }
+
+  // =============================
+  // Logging CCXT (sanitizado)
+  // =============================
+  private sanitize(data: any, depth = 0): any {
+    if (depth > 3) return '[Trimmed]';
+    if (data === null || data === undefined) return data;
+    if (typeof data !== 'object') return data;
+
+    if (Array.isArray(data)) {
+      return data.slice(0, 20).map((item) => this.sanitize(item, depth + 1));
+    }
+
+    const result: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      const lower = key.toLowerCase();
+      if (['apikey', 'api_key', 'apisecret', 'secret', 'signature', 'password'].some((k) => lower.includes(k))) {
+        result[key] = '[REDACTED]';
+        continue;
+      }
+      if (['headers'].includes(lower)) {
+        result[key] = '[OMITTED]';
+        continue;
+      }
+      result[key] = this.sanitize(value, depth + 1);
+    }
+    return result;
+  }
+
+  protected logCcxt(event: 'request' | 'response' | 'error', payload: any) {
+    try {
+      const dir = path.dirname(this.ccxtLogPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      const entry = {
+        ts: new Date().toISOString(),
+        adapter: this.exchangeType,
+        event,
+        ...this.sanitize(payload),
+      };
+
+      fs.appendFileSync(this.ccxtLogPath, JSON.stringify(entry) + '\n', { encoding: 'utf-8' });
+    } catch (err) {
+      // Não bloquear fluxo por erro de log
+      console.error('[ExchangeAdapter] Falha ao gravar ccxt log:', (err as any)?.message || err);
+    }
   }
 
   abstract createExchange(
@@ -132,12 +185,47 @@ export abstract class ExchangeAdapter {
   }
 
   async fetchBalance(): Promise<Balance> {
-    const balance = await this.exchange.fetchBalance();
-    return {
-      free: (balance.free || {}) as unknown as Record<string, number>,
-      used: (balance.used || {}) as unknown as Record<string, number>,
-      total: (balance.total || {}) as unknown as Record<string, number>,
-    };
+    this.logCcxt('request', { method: 'fetchBalance' });
+    try {
+      const balance = await this.exchange.fetchBalance();
+      const sanitized = {
+        free: (balance.free || {}) as unknown as Record<string, number>,
+        used: (balance.used || {}) as unknown as Record<string, number>,
+        total: (balance.total || {}) as unknown as Record<string, number>,
+      };
+      this.logCcxt('response', { method: 'fetchBalance', balance: sanitized });
+      return sanitized;
+    } catch (err) {
+      this.logCcxt('error', { method: 'fetchBalance', error: (err as any)?.message || err });
+      throw err;
+    }
+  }
+
+  /**
+   * Retorna filtros/limites do símbolo (stepSize, minQty, minNotional, tickSize).
+   * Pode ser sobrescrito por adapters específicos para melhor precisão.
+   */
+  async getSymbolFilters(symbol: string): Promise<{
+    stepSize?: number;
+    minQty?: number;
+    minNotional?: number;
+    tickSize?: number;
+  } | null> {
+    try {
+      await this.exchange.loadMarkets();
+      const market = this.exchange.market(symbol);
+      if (!market) return null;
+
+      const minQty = market.limits?.amount?.min;
+      const stepSize = market.precision?.amount ? Math.pow(10, -market.precision.amount) : undefined;
+      const tickSize = market.precision?.price ? Math.pow(10, -market.precision.price) : undefined;
+      const minNotional = market.limits?.cost?.min;
+
+      return { stepSize, minQty, minNotional, tickSize };
+    } catch (err) {
+      console.error(`[ExchangeAdapter] getSymbolFilters failed for ${symbol}:`, (err as any)?.message || err);
+      return null;
+    }
   }
 
   async createOrder(
@@ -147,57 +235,81 @@ export abstract class ExchangeAdapter {
     amount: number,
     price?: number
   ): Promise<OrderResult> {
-    const order = await this.exchange.createOrder(symbol, type, side, amount, price);
-    return {
-      id: String(order.id || ''),
-      symbol: String(order.symbol || ''),
-      type: String(order.type || ''),
-      side: String(order.side || ''),
-      amount: Number(order.amount || 0),
-      price: order.price ? Number(order.price) : undefined,
-      status: String(order.status || ''),
-      filled: order.filled ? Number(order.filled) : undefined,
-      remaining: order.remaining ? Number(order.remaining) : undefined,
-      cost: order.cost ? Number(order.cost) : undefined,
-      average: order.average ? Number(order.average) : undefined,
-      fills: (order as any).fills || undefined,
-    };
+    this.logCcxt('request', { method: 'createOrder', symbol, type, side, amount, price });
+    try {
+      const order = await this.exchange.createOrder(symbol, type, side, amount, price);
+      const parsed = {
+        id: String(order.id || ''),
+        symbol: String(order.symbol || ''),
+        type: String(order.type || ''),
+        side: String(order.side || ''),
+        amount: Number(order.amount || 0),
+        price: order.price ? Number(order.price) : undefined,
+        status: String(order.status || ''),
+        filled: order.filled ? Number(order.filled) : undefined,
+        remaining: order.remaining ? Number(order.remaining) : undefined,
+        cost: order.cost ? Number(order.cost) : undefined,
+        average: order.average ? Number(order.average) : undefined,
+        fills: (order as any).fills || undefined,
+      };
+      this.logCcxt('response', { method: 'createOrder', symbol, type, side, amount, price, order: parsed });
+      return parsed;
+    } catch (err) {
+      this.logCcxt('error', { method: 'createOrder', symbol, type, side, amount, price, error: (err as any)?.message || err });
+      throw err;
+    }
   }
 
   async fetchOrder(orderId: string, symbol: string, params?: any): Promise<OrderResult> {
-    const order = await this.exchange.fetchOrder(orderId, symbol, params);
-    return {
-      id: String(order.id || ''),
-      symbol: String(order.symbol || ''),
-      type: String(order.type || ''),
-      side: String(order.side || ''),
-      amount: Number(order.amount || 0),
-      price: order.price ? Number(order.price) : undefined,
-      status: String(order.status || ''),
-      filled: order.filled ? Number(order.filled) : undefined,
-      remaining: order.remaining ? Number(order.remaining) : undefined,
-      cost: order.cost ? Number(order.cost) : undefined,
-      average: order.average ? Number(order.average) : undefined,
-      fills: (order as any).fills || undefined,
-    };
+    this.logCcxt('request', { method: 'fetchOrder', orderId, symbol, params });
+    try {
+      const order = await this.exchange.fetchOrder(orderId, symbol, params);
+      const parsed = {
+        id: String(order.id || ''),
+        symbol: String(order.symbol || ''),
+        type: String(order.type || ''),
+        side: String(order.side || ''),
+        amount: Number(order.amount || 0),
+        price: order.price ? Number(order.price) : undefined,
+        status: String(order.status || ''),
+        filled: order.filled ? Number(order.filled) : undefined,
+        remaining: order.remaining ? Number(order.remaining) : undefined,
+        cost: order.cost ? Number(order.cost) : undefined,
+        average: order.average ? Number(order.average) : undefined,
+        fills: (order as any).fills || undefined,
+      };
+      this.logCcxt('response', { method: 'fetchOrder', orderId, symbol, order: parsed });
+      return parsed;
+    } catch (err) {
+      this.logCcxt('error', { method: 'fetchOrder', orderId, symbol, error: (err as any)?.message || err });
+      throw err;
+    }
   }
 
   async fetchOpenOrders(symbol?: string, since?: number, limit?: number, params?: any): Promise<OrderResult[]> {
-    const orders = await this.exchange.fetchOpenOrders(symbol, since, limit, params);
-    return orders.map(order => ({
-      id: String(order.id || ''),
-      symbol: String(order.symbol || ''),
-      type: String(order.type || ''),
-      side: String(order.side || ''),
-      amount: Number(order.amount || 0),
-      price: order.price ? Number(order.price) : undefined,
-      status: String(order.status || ''),
-      filled: order.filled ? Number(order.filled) : undefined,
-      remaining: order.remaining ? Number(order.remaining) : undefined,
-      cost: order.cost ? Number(order.cost) : undefined,
-      average: order.average ? Number(order.average) : undefined,
-      fills: (order as any).fills || undefined,
-    }));
+    this.logCcxt('request', { method: 'fetchOpenOrders', symbol, since, limit, params });
+    try {
+      const orders = await this.exchange.fetchOpenOrders(symbol, since, limit, params);
+      const parsed = orders.map(order => ({
+        id: String(order.id || ''),
+        symbol: String(order.symbol || ''),
+        type: String(order.type || ''),
+        side: String(order.side || ''),
+        amount: Number(order.amount || 0),
+        price: order.price ? Number(order.price) : undefined,
+        status: String(order.status || ''),
+        filled: order.filled ? Number(order.filled) : undefined,
+        remaining: order.remaining ? Number(order.remaining) : undefined,
+        cost: order.cost ? Number(order.cost) : undefined,
+        average: order.average ? Number(order.average) : undefined,
+        fills: (order as any).fills || undefined,
+      }));
+      this.logCcxt('response', { method: 'fetchOpenOrders', symbol, count: parsed.length });
+      return parsed;
+    } catch (err) {
+      this.logCcxt('error', { method: 'fetchOpenOrders', symbol, error: (err as any)?.message || err });
+      throw err;
+    }
   }
 
   async fetchClosedOrder(orderId: string, symbol: string): Promise<OrderResult> {
@@ -209,8 +321,9 @@ export abstract class ExchangeAdapter {
     } catch (error: any) {
       // Se falhar, tentar fetchClosedOrder se disponível
       if (this.exchange.has['fetchClosedOrder']) {
+        this.logCcxt('request', { method: 'fetchClosedOrder', orderId, symbol });
         const order = await (this.exchange as any).fetchClosedOrder(orderId, symbol);
-        return {
+        const parsed = {
           id: String(order.id || ''),
           symbol: String(order.symbol || ''),
           type: String(order.type || ''),
@@ -224,6 +337,8 @@ export abstract class ExchangeAdapter {
           average: order.average ? Number(order.average) : undefined,
           fills: (order as any).fills || undefined,
         };
+        this.logCcxt('response', { method: 'fetchClosedOrder', orderId, symbol, order: parsed });
+        return parsed;
       }
       throw error;
     }

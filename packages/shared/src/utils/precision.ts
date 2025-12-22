@@ -16,3 +16,12 @@ export function normalizeQuantity(value: number, decimals: number = 8): number {
   return Math.round(value * factor) / factor;
 }
 
+/**
+ * Floor a value to the nearest valid step size (ex: stepSize=0.01 => 0.123 -> 0.12)
+ */
+export function floorToStep(value: number, stepSize?: number): number {
+  if (!stepSize || stepSize <= 0 || isNaN(value) || !isFinite(value)) return value;
+  const factor = 1 / stepSize;
+  return Math.floor(value * factor) / factor;
+}
+

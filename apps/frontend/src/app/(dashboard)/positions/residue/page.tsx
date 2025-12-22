@@ -160,7 +160,7 @@ export default function ResiduePositionsPage() {
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Posições de Resíduo</h1>
                     <p className="text-muted-foreground">
-                        Gerencie posições consolidadas de resíduos (quantidades menores que $1 USD)
+                        Gerencie posições consolidadas de resíduos (quantidades menores que $5 USD)
                     </p>
                 </div>
                 <Badge variant="outline" className="text-lg px-4 py-2">
@@ -234,7 +234,7 @@ export default function ResiduePositionsPage() {
                         <CardHeader>
                             <CardTitle>Posições de Resíduo Consolidadas</CardTitle>
                             <CardDescription>
-                                Resíduos pequenos (menores que $1 USD) são automaticamente movidos para estas posições consolidadas
+                                Resíduos pequenos (menores que $5 USD) são automaticamente movidos para estas posições consolidadas
                             </CardDescription>
                         </CardHeader>
                         <CardContent>

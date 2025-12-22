@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils'
 import {
     LayoutDashboard,
     LineChart,
-    Plus,
-    FileBarChart,
+    Target,
+    Flame,
     Menu,
 } from 'lucide-react'
 import { useAuthStore } from '@/lib/stores/authStore'
@@ -28,6 +28,10 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
         const roleValue = typeof role === 'object' && role !== null ? role.role : role
         return roleValue === 'subscriber' || roleValue === 'SUBSCRIBER'
     })
+    const isAdmin = user?.roles?.some((role: any) => {
+        const roleValue = typeof role === 'object' && role !== null ? role.role : role
+        return roleValue?.toLowerCase?.() === 'admin'
+    })
 
     const navItems: NavItem[] = [
         { 
@@ -41,15 +45,15 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
             href: '/positions' 
         },
         { 
-            icon: Plus, 
-            label: 'Novo', 
-            href: '/parameters/new',
+            icon: Target, 
+            label: 'SL+TP', 
+            href: isAdmin ? '/subscribers-admin/monitoring-tp-sl' : '/monitoring',
             isAction: true 
         },
         { 
-            icon: FileBarChart, 
-            label: 'Relatórios', 
-            href: '/reports' 
+            icon: Flame, 
+            label: 'Mapa de Calor', 
+            href: isAdmin ? '/subscribers-admin/heatmap' : '/heatmap' 
         },
         { 
             icon: Menu, 

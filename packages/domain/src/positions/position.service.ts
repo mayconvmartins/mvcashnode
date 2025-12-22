@@ -1447,8 +1447,9 @@ export class PositionService {
 
         // ========== TRATAMENTO DE RESÍDUOS ==========
         const residueValueUSD = remainingQty * avgPrice;
+        const RESIDUE_THRESHOLD_USD = 5;
         
-        if (residueValueUSD < 1) {
+        if (residueValueUSD < RESIDUE_THRESHOLD_USD) {
           console.warn(
             `[POSITION-SERVICE] [SMALL-RESIDUE] Resíduo muito pequeno (~$${residueValueUSD.toFixed(4)}). ` +
             `Movendo para posição de resíduo...`
@@ -1475,7 +1476,7 @@ export class PositionService {
           }
         } else {
           console.warn(
-            `[POSITION-SERVICE] [LARGE-RESIDUE] Resíduo maior que $1 USD (~$${residueValueUSD.toFixed(2)}). ` +
+            `[POSITION-SERVICE] [LARGE-RESIDUE] Resíduo maior que $${RESIDUE_THRESHOLD_USD} USD (~$${residueValueUSD.toFixed(2)}). ` +
             `Não será movido para posição de resíduo.`
           );
         }

@@ -74,8 +74,6 @@ export default function PositionsPage() {
     const [bulkMinProfitRemove, setBulkMinProfitRemove] = useState(false)
     const [groupModalOpen, setGroupModalOpen] = useState(false)
     const [groupPreview, setGroupPreview] = useState<GroupPreview | null>(null)
-    const [dustPage, setDustPage] = useState(1)
-    const [dustLimit, setDustLimit] = useState(20)
     const [positionTypeFilter, setPositionTypeFilter] = useState<'normal' | 'todas'>('normal')
 
     // Verificar se o usuário é admin (usando a mesma lógica dos outros componentes)
@@ -123,22 +121,6 @@ export default function PositionsPage() {
         return filters
     }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, closedPage, closedLimit])
 
-    // Construir filtros para posições resíduo
-    const dustFilters = useMemo(() => {
-        const filters: any = {
-            status: 'OPEN',
-            trade_mode: tradeMode,
-            is_dust: true,
-            page: dustPage,
-            limit: dustLimit,
-        }
-        if (selectedSymbol !== 'all') filters.symbol = selectedSymbol
-        if (selectedAccount !== 'all') filters.exchange_account_id = parseInt(selectedAccount)
-        if (dateFrom) filters.from = dateFrom
-        if (dateTo) filters.to = dateTo
-        return filters
-    }, [tradeMode, selectedSymbol, selectedAccount, dateFrom, dateTo, dustPage, dustLimit])
-
     const { data: openPositionsData, isLoading: loadingOpen } = useQuery({
         queryKey: ['positions', 'OPEN', openFilters],
         queryFn: () => positionsService.list(openFilters),
@@ -152,13 +134,6 @@ export default function PositionsPage() {
         staleTime: 60000, // Posições fechadas mudam pouco, staleTime maior
     })
 
-    const { data: dustPositionsData, isLoading: loadingDust } = useQuery({
-        queryKey: ['positions', 'DUST', dustFilters],
-        queryFn: () => positionsService.list(dustFilters),
-        refetchInterval: 60000, // Refetch a cada 60s (otimizado de 30s)
-        staleTime: 30000, // Dados considerados frescos por 30 segundos
-    })
-
     // Extrair dados, paginação e summary
     const openPositions = Array.isArray(openPositionsData) 
         ? openPositionsData 
@@ -169,13 +144,6 @@ export default function PositionsPage() {
         ? closedPositionsData 
         : (closedPositionsData as any)?.data || []
 
-    const dustPositions = Array.isArray(dustPositionsData) 
-        ? dustPositionsData 
-        : (dustPositionsData as any)?.data || []
-    
-    const dustPagination = Array.isArray(dustPositionsData) 
-        ? null 
-        : (dustPositionsData as any)?.pagination || null
     const closedPagination = (closedPositionsData as any)?.pagination
     const closedSummary = (closedPositionsData as any)?.summary
 
@@ -529,6 +497,13 @@ export default function PositionsPage() {
     // DataTableAdvanced só aceita label como string, não como função
     const openColumns = [
         {
+            key: 'id',
+            label: '#',
+            render: (position: Position) => (
+                <Badge variant="outline" className="font-mono">{position.id}</Badge>
+            ),
+        },
+        {
             key: 'symbol',
             label: 'Símbolo',
             render: (position: Position) => (
@@ -789,6 +764,13 @@ export default function PositionsPage() {
 
     // Colunas para DataTable normal (posições fechadas)
     const closedColumns: Column<Position>[] = [
+        {
+            key: 'id',
+            label: '#',
+            render: (position) => (
+                <Badge variant="outline" className="font-mono">{position.id}</Badge>
+            ),
+        },
         {
             key: 'symbol',
             label: 'Símbolo',
@@ -1315,9 +1297,6 @@ export default function PositionsPage() {
                     <TabsTrigger value="closed">
                         Fechadas ({closedPagination?.total_items || closedPositions?.length || 0})
                     </TabsTrigger>
-                    <TabsTrigger value="dust">
-                        Resíduos ({dustPagination?.total_items || dustPositions?.length || 0})
-                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="open">
@@ -1515,108 +1494,6 @@ export default function PositionsPage() {
                     </Card>
                 </TabsContent>
 
-                <TabsContent value="dust">
-                    <Card className="glass">
-                        <CardHeader>
-                            <CardTitle>
-                                Posições Resíduo - {tradeMode}
-                                {selectedSymbol !== 'all' && ` • ${selectedSymbol}`}
-                                {selectedAccount !== 'all' && accounts && ` • ${accounts.find(a => a.id.toString() === selectedAccount)?.label}`}
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <DataTable
-                                data={dustPositions || []}
-                                columns={closedColumns.map(col => {
-                                    // Adicionar badge de resíduo na coluna de símbolo
-                                    if (col.key === 'symbol') {
-                                        return {
-                                            ...col,
-                                            render: (position: Position) => (
-                                                <div className="flex items-center gap-2">
-                                                    <SymbolDisplay
-                                                        exchange={position.exchange_account_id as any}
-                                                        symbol={position.symbol}
-                                                        showExchange={false}
-                                                    />
-                                                    <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/50">
-                                                        Resíduo
-                                                    </Badge>
-                                                    {position.is_grouped && (
-                                                        <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/50">
-                                                            Agrupada
-                                                        </Badge>
-                                                    )}
-                                                </div>
-                                            ),
-                                        }
-                                    }
-                                    return col
-                                })}
-                                loading={loadingDust}
-                                emptyState={
-                                    <div className="text-center py-12">
-                                        <p className="text-muted-foreground">
-                                            {hasActiveFilters
-                                                ? 'Nenhuma posição resíduo encontrada com os filtros aplicados'
-                                                : 'Nenhuma posição resíduo'}
-                                        </p>
-                                    </div>
-                                }
-                            />
-                            
-                            {/* Paginação para posições resíduo */}
-                            {dustPagination && (
-                                <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-sm text-muted-foreground">Itens por página:</span>
-                                        <Select
-                                            value={dustLimit.toString()}
-                                            onValueChange={(value) => {
-                                                setDustLimit(Number(value))
-                                                setDustPage(1) // Resetar para primeira página
-                                            }}
-                                        >
-                                            <SelectTrigger className="w-[100px]">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="10">10</SelectItem>
-                                                <SelectItem value="20">20</SelectItem>
-                                                <SelectItem value="50">50</SelectItem>
-                                                <SelectItem value="100">100</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <span className="text-sm text-muted-foreground">
-                                            Página {dustPagination.current_page} de {dustPagination.total_pages}
-                                            ({dustPagination.total_items} total)
-                                        </span>
-                                    </div>
-                                    {dustPagination.total_pages > 1 && (
-                                        <div className="flex gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={dustPage <= 1 || loadingDust}
-                                                onClick={() => setDustPage(prev => Math.max(1, prev - 1))}
-                                            >
-                                                Anterior
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={dustPage >= dustPagination.total_pages || loadingDust}
-                                                onClick={() => setDustPage(prev => prev + 1)}
-                                            >
-                                                Próxima
-                                            </Button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                </TabsContent>
             </Tabs>
 
             {/* Dialog para definir TP/SL em massa */}

@@ -1464,5 +1464,14 @@ export const adminService = {
         const response = await apiClient.post('/admin/debug/close-positions-breakeven', data)
         return response.data
     },
+
+    // ============================================
+    // CCXT LOGS
+    // ============================================
+
+    getCcxtLogs: async (lines = 300): Promise<{ entries: any[] }> => {
+        const response = await apiClient.get('/admin/ccxt-logs', { params: { lines } })
+        return response.data
+    },
 }
 

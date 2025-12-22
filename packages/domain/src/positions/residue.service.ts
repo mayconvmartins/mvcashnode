@@ -36,10 +36,11 @@ export class ResidueService {
 
       // Validar que é realmente um resíduo pequeno
       const residueValueUSD = residueQty * currentPrice;
-      if (residueValueUSD >= 1) {
+      const RESIDUE_THRESHOLD_USD = 5;
+      if (residueValueUSD >= RESIDUE_THRESHOLD_USD) {
         throw new Error(
           `Residue value ($${residueValueUSD.toFixed(2)}) is too large. ` +
-          `Only residues < $1 USD should be moved to residue position.`
+          `Only residues < $${RESIDUE_THRESHOLD_USD} USD should be moved to residue position.`
         );
       }
 

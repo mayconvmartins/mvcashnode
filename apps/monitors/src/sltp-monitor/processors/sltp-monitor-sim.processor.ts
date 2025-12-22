@@ -182,7 +182,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 1; // $1 USD mínimo
+            const minQtyUSD = 5; // $5 USD mínimo
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(
@@ -326,7 +326,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                   freshPosition.qty_remaining.toNumber() > 0) {
                 
                 // Validar quantidade mínima (evitar tentar vender resíduos)
-                const minQtyUSD = 1; // $1 USD mínimo
+                const minQtyUSD = 5; // $5 USD mínimo
                 const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
                 
                 if (estimatedValueUSD >= minQtyUSD) {
@@ -546,7 +546,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 1; // $1 USD mínimo
+            const minQtyUSD = 5; // $5 USD mínimo
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(
@@ -793,7 +793,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               }
 
               // Validar quantidade mínima (evitar tentar vender resíduos)
-              const minQtyUSD = 1; // $1 USD mínimo
+              const minQtyUSD = 5; // $5 USD mínimo
               const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
               if (estimatedValueUSD < minQtyUSD) {
                 this.logger.warn(
@@ -972,7 +972,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 1; // $1 USD mínimo
+            const minQtyUSD = 5; // $5 USD mínimo
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(

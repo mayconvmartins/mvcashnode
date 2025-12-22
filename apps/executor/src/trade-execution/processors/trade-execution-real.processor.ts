@@ -8,7 +8,7 @@ import {
   VaultService,
   TradeParameterService,
 } from '@mvcashnode/domain';
-import { EncryptionService, getBaseAsset, getQuoteAsset, normalizeQuantity } from '@mvcashnode/shared';
+import { EncryptionService, getBaseAsset, getQuoteAsset, normalizeQuantity, floorToStep } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { NotificationHttpService } from '@mvcashnode/notifications';
@@ -328,6 +328,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       // Extrair position_id_to_close para usar nas validações
       const positionIdToClose = tradeJob.position_id_to_close;
+      const createdBy = (tradeJob as any)?.created_by || '';
+      const skipMinProfitValidation = createdBy === 'TRAILING_STOP_GAIN';
 
       // Extrair e validar quantidades do banco
       let baseQty = 0;
@@ -666,8 +668,69 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // Para MARKET BUY, sempre usar baseQty (já calculado acima se necessário)
       // Para LIMIT BUY, usar baseQty se disponível, senão usar quoteAmount com limit_price
       // Normalizar para evitar imprecisão de ponto flutuante
-      let amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
+      let limitPriceToUse = tradeJob.limit_price ? tradeJob.limit_price.toNumber() : undefined;
+      let amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && limitPriceToUse ? quoteAmount / limitPriceToUse : 0);
       amountToUse = normalizeQuantity(amountToUse);
+
+      // Ajustar por filtros da exchange (stepSize/minQty/minNotional/tickSize)
+      try {
+        const symbolFilters = await adapter.getSymbolFilters?.(tradeJob.symbol);
+        if (symbolFilters) {
+          const { stepSize, minQty, minNotional, tickSize } = symbolFilters;
+
+          if (tickSize && limitPriceToUse) {
+            const adjustedPrice = floorToStep(limitPriceToUse, tickSize);
+            if (adjustedPrice !== limitPriceToUse) {
+              this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ajustando preço pela tickSize (${tickSize}): ${limitPriceToUse} -> ${adjustedPrice}`);
+              limitPriceToUse = adjustedPrice;
+            }
+          }
+
+          if (stepSize) {
+            const adjustedQty = floorToStep(amountToUse, stepSize);
+            if (adjustedQty !== amountToUse) {
+              this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ajustando quantidade pela stepSize (${stepSize}): ${amountToUse} -> ${adjustedQty}`);
+              amountToUse = normalizeQuantity(adjustedQty);
+            }
+          }
+
+          // Validação de minQty (LOT_SIZE)
+          if (minQty && amountToUse < minQty) {
+            const reasonMessage = `Quantidade ${amountToUse} abaixo do minQty (${minQty}) da exchange`;
+            this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ${reasonMessage}`);
+            await this.prisma.tradeJob.update({
+              where: { id: tradeJobId },
+              data: {
+                status: TradeJobStatus.FAILED,
+                reason_code: 'INVALID_LOT_SIZE',
+                reason_message: reasonMessage,
+              },
+            });
+            return { success: false, reason: 'INVALID_LOT_SIZE' };
+          }
+
+          // Validação de minNotional
+          const priceForNotional = limitPriceToUse || 0;
+          if (minNotional && priceForNotional > 0) {
+            const notional = amountToUse * priceForNotional;
+            if (notional < minNotional) {
+              const reasonMessage = `Notional ${notional} abaixo do minNotional (${minNotional}) da exchange`;
+              this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ${reasonMessage}`);
+              await this.prisma.tradeJob.update({
+                where: { id: tradeJobId },
+                data: {
+                  status: TradeJobStatus.FAILED,
+                  reason_code: 'MIN_NOTIONAL_NOT_MET',
+                  reason_message: reasonMessage,
+                },
+              });
+              return { success: false, reason: 'MIN_NOTIONAL_NOT_MET' };
+            }
+          }
+        }
+      } catch (filterError: any) {
+        this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Não foi possível aplicar filtros da exchange: ${filterError?.message || filterError}`);
+      }
 
       // ✅ VERIFICAÇÃO DE SEGURANÇA MELHORADA: Verificar se já existe ordem similar na exchange
       try {
@@ -687,7 +750,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           if (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price) {
             const orderPrice = pendingOrderSameSide.price || 0;
             const existingOrderAmount = pendingOrderSameSide.amount || 0;
-            const limitPrice = tradeJob.limit_price.toNumber();
+            const limitPrice = limitPriceToUse ?? tradeJob.limit_price.toNumber();
             
             const priceDiff = Math.abs(orderPrice - limitPrice) / limitPrice;
             const amountDiff = amountToUse > 0 ? Math.abs(existingOrderAmount - amountToUse) / amountToUse : 1;
@@ -718,7 +781,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // ============================================
       // ✅ VALIDAÇÃO CRÍTICA: Lucro mínimo ANTES de criar ordem LIMIT SELL
       // ============================================
-      if (tradeJob.side === 'SELL' && tradeJob.order_type === 'LIMIT' && tradeJob.limit_price && tradeJob.position_id_to_close) {
+      if (!skipMinProfitValidation && tradeJob.side === 'SELL' && tradeJob.order_type === 'LIMIT' && tradeJob.limit_price && tradeJob.position_id_to_close) {
         this.logger.log(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} - Validando lucro mínimo ANTES de criar ordem LIMIT...`);
         
         const targetPosition = await this.prisma.tradePosition.findUnique({
@@ -731,7 +794,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           
           const validationResult = await positionService.validateMinProfit(
             targetPosition.id,
-            tradeJob.limit_price.toNumber()
+            limitPriceToUse ?? tradeJob.limit_price?.toNumber()
           );
           
           if (!validationResult.valid) {
@@ -755,6 +818,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           
           this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ Job ${tradeJobId} - Validação de lucro mínimo PASSOU: ${validationResult.reason}`);
         }
+      } else if (skipMinProfitValidation) {
+        this.logger.log(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} - Validação de lucro mínimo ignorada (created_by=${createdBy})`);
       }
 
       // ============================================
@@ -860,7 +925,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // LOG FINAL ANTES DE CRIAR ORDEM
       // ============================================
       // amountToUse já foi normalizado na inicialização acima
-      this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ VALIDAÇÃO FINAL: Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${amountToUse} ${tradeJob.symbol} @ ${tradeJob.limit_price?.toNumber() || 'MARKET'}`);
+      this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ VALIDAÇÃO FINAL: Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${amountToUse} ${tradeJob.symbol} @ ${limitPriceToUse || 'MARKET'}`);
       
       let order: any;
       let orderCreatedAfterAdjustment = false;
@@ -880,7 +945,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           orderType,
           tradeJob.side.toLowerCase(),
           amountToUse,
-          tradeJob.limit_price?.toNumber()
+          limitPriceToUse
         );
 
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada na exchange: ${order.id}, status: ${order.status}`);
@@ -1220,7 +1285,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       this.logger.log(`[EXECUTOR] Ordem LIMIT status: ${orderStatus}, filled: ${order.filled}, amount: ${order.amount}, executedQty calculado: ${executedQty}, isOrderFilled: ${isOrderFilled}`);
 
       // VALIDAÇÃO DE SEGURANÇA: Verificar lucro mínimo antes de executar venda (apenas se ordem foi preenchida)
-      if (tradeJob.side === 'SELL' && executedQty > 0) {
+      if (tradeJob.side === 'SELL' && executedQty > 0 && !skipMinProfitValidation) {
         try {
           const { PositionService } = await import('@mvcashnode/domain');
           const positionService = new PositionService(this.prisma);

@@ -156,6 +156,7 @@ const adminGroup: MenuGroup = {
         { icon: Users, label: 'Usuários', href: '/admin/users' },
         { icon: Package, label: 'Planos', href: '/admin/subscription-plans' },
         { icon: FileText, label: 'Audit Logs', href: '/admin/audit' },
+    { icon: Activity, label: 'Logs CCXT', href: '/admin/ccxt-logs' },
         { icon: MessageSquare, label: 'Notificações', href: '/admin/notifications' },
         { icon: CreditCard, label: 'Mercado Pago', href: '/admin/mercadopago' },
         { icon: CreditCard, label: 'TransFi', href: '/admin/transfi' },

@@ -10,6 +10,7 @@ import { AdminSubscriptionPlansController } from './admin-subscription-plans.con
 import { AdminMercadoPagoController } from './admin-mercadopago.controller';
 import { AdminTransFiController } from './admin-transfi.controller';
 import { AdminSubscriberWebhooksController } from './admin-subscriber-webhooks.controller';
+import { CcxtLogsController } from './ccxt-logs.controller';
 import { AdminService } from './admin.service';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
@@ -43,6 +44,7 @@ import { TransFiService } from '../subscriptions/transfi.service';
     AdminMercadoPagoController,
     AdminTransFiController,
     AdminSubscriberWebhooksController,
+    CcxtLogsController,
   ],
   providers: [
     AdminService,
