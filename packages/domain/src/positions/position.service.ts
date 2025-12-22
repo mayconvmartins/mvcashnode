@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, PositionStatus, CloseReason, ExchangeType, getBaseAsset, getQuoteAsset } from '@mvcashnode/shared';
+import { TradeMode, PositionStatus, CloseReason, ExchangeType, getBaseAsset, getQuoteAsset, normalizeQuantity } from '@mvcashnode/shared';
 import { ResidueService } from './residue.service';
 
 export interface PositionFill {
@@ -1314,7 +1314,9 @@ export class PositionService {
           totalSellQty += fill.qty.toNumber();
         }
       }
-      const calculatedQtyRemaining = currentPosition.qty_total.toNumber() - totalSellQty;
+      // Normalizar para evitar imprecisão de ponto flutuante
+      totalSellQty = normalizeQuantity(totalSellQty);
+      const calculatedQtyRemaining = normalizeQuantity(currentPosition.qty_total.toNumber() - totalSellQty);
 
       // Se houver discrepância, usar o valor calculado (mais confiável)
       const storedQtyRemaining = currentPosition.qty_remaining.toNumber();
@@ -1329,7 +1331,8 @@ export class PositionService {
       const actualQtyRemaining = calculatedQtyRemaining;
 
       // Calcular quantidade a fechar (não pode exceder qty_remaining)
-      const qtyToClose = Math.min(actualQtyRemaining, executedQty);
+      // Normalizar para evitar imprecisão de ponto flutuante
+      const qtyToClose = normalizeQuantity(Math.min(actualQtyRemaining, executedQty));
       
       // ✅ VALIDAÇÃO CRÍTICA: Verificar que quantidade não é zero ou negativa
       if (qtyToClose <= 0) {
@@ -1356,7 +1359,8 @@ export class PositionService {
       const grossProfitUsd = (avgPrice - currentPosition.price_open.toNumber()) * qtyToClose;
       const profitUsd = grossProfitUsd - feeUsd;
 
-      const newQtyRemaining = actualQtyRemaining - qtyToClose;
+      // Normalizar para evitar imprecisão de ponto flutuante
+      const newQtyRemaining = normalizeQuantity(actualQtyRemaining - qtyToClose);
       
       // ✅ BUG-CRIT-003 FIX: Validar que qty_remaining não ficará negativo
       if (newQtyRemaining < 0) {

@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode } from '@mvcashnode/shared';
+import { TradeMode, normalizeQuantity } from '@mvcashnode/shared';
 
 export class ResidueService {
   constructor(private prisma: PrismaClient) {}
@@ -101,8 +101,9 @@ export class ResidueService {
         );
       } else {
         // Atualizar posição de resíduo existente
-        const newQtyTotal = residuePosition.qty_total.toNumber() + residueQty;
-        const newQtyRemaining = residuePosition.qty_remaining.toNumber() + residueQty;
+        // Normalizar para evitar imprecisão de ponto flutuante
+        const newQtyTotal = normalizeQuantity(residuePosition.qty_total.toNumber() + residueQty);
+        const newQtyRemaining = normalizeQuantity(residuePosition.qty_remaining.toNumber() + residueQty);
         const newPriceOpen = (
           (residuePosition.price_open.toNumber() * residuePosition.qty_total.toNumber()) +
           (currentPrice * residueQty)
@@ -125,7 +126,8 @@ export class ResidueService {
       }
 
       // Subtrair resíduo da posição source
-      const newSourceQtyRemaining = sourcePosition.qty_remaining.toNumber() - residueQty;
+      // Normalizar para evitar imprecisão de ponto flutuante
+      const newSourceQtyRemaining = normalizeQuantity(sourcePosition.qty_remaining.toNumber() - residueQty);
       const sourceStatus = newSourceQtyRemaining === 0 ? 'CLOSED' : 'OPEN';
 
       await tx.tradePosition.update({

@@ -8,7 +8,7 @@ import {
   VaultService,
   TradeParameterService,
 } from '@mvcashnode/domain';
-import { EncryptionService, getBaseAsset, getQuoteAsset } from '@mvcashnode/shared';
+import { EncryptionService, getBaseAsset, getQuoteAsset, normalizeQuantity } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { NotificationHttpService } from '@mvcashnode/notifications';
@@ -440,7 +440,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           });
 
           if (openPosition) {
-            baseQty = openPosition.qty_remaining.toNumber();
+            // Normalizar para evitar imprecisão de ponto flutuante
+            baseQty = normalizeQuantity(openPosition.qty_remaining.toNumber());
             this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Posição encontrada: ID=${openPosition.id}, qty=${baseQty}`);
             
             await this.prisma.tradeJob.update({
@@ -535,7 +536,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Preço atual de ${tradeJob.symbol}: ${currentPrice}`);
           
           // Calcular baseQty = quoteAmount / currentPrice
-          baseQty = quoteAmount / currentPrice;
+          // Normalizar para evitar imprecisão de ponto flutuante
+          baseQty = normalizeQuantity(quoteAmount / currentPrice);
           
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - baseQty calculado: ${baseQty} (${quoteAmount} USDT / ${currentPrice})`);
           
@@ -624,14 +626,15 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           if (baseQty > available) {
             if (available > 0) {
               // Ajustar quantidade para o disponível (qualquer valor acima de zero)
-              this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Quantidade solicitada (${baseQty}) > disponível (${available}). Ajustando para ${available}`);
+              // Normalizar para evitar imprecisão de ponto flutuante
+              baseQty = normalizeQuantity(available);
+              
+              this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Quantidade solicitada > disponível. Ajustando para ${baseQty}`);
               
               // Adicionar warning se quantidade ajustada for muito pequena
-              if (available < 0.001) {
-                this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - ⚠️ Quantidade ajustada é muito pequena (${available} ${baseAsset}). A exchange pode rejeitar a ordem.`);
+              if (baseQty < 0.001) {
+                this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - ⚠️ Quantidade ajustada é muito pequena (${baseQty} ${baseAsset}). A exchange pode rejeitar a ordem.`);
               }
-              
-              baseQty = available;
               
               // Atualizar job no banco
               await this.prisma.tradeJob.update({
@@ -661,7 +664,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       // Para MARKET BUY, sempre usar baseQty (já calculado acima se necessário)
       // Para LIMIT BUY, usar baseQty se disponível, senão usar quoteAmount com limit_price
-      const amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
+      // Normalizar para evitar imprecisão de ponto flutuante
+      let amountToUse = baseQty > 0 ? baseQty : (tradeJob.order_type === 'LIMIT' && tradeJob.limit_price ? quoteAmount / tradeJob.limit_price.toNumber() : 0);
+      amountToUse = normalizeQuantity(amountToUse);
 
       // ✅ VERIFICAÇÃO DE SEGURANÇA MELHORADA: Verificar se já existe ordem similar na exchange
       try {
@@ -853,6 +858,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // ============================================
       // LOG FINAL ANTES DE CRIAR ORDEM
       // ============================================
+      // amountToUse já foi normalizado na inicialização acima
       this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ VALIDAÇÃO FINAL: Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${amountToUse} ${tradeJob.symbol} @ ${tradeJob.limit_price?.toNumber() || 'MARKET'}`);
       
       let order: any;
@@ -912,8 +918,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               
               if (available > 0 && available < baseQty) {
                 // Ajustar quantidade para o disponível (qualquer valor acima de zero)
+                // Normalizar para evitar imprecisão de ponto flutuante
                 const oldBaseQty = baseQty;
-                baseQty = available;
+                baseQty = normalizeQuantity(available);
                 
                 this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ajustando quantidade de ${oldBaseQty} para ${baseQty} ${baseAsset}`);
                 
