@@ -1677,8 +1677,9 @@ export class PositionService {
       throw new Error('Position not found or already closed');
     }
 
-    const qtyToClose = quantity || position.qty_remaining.toNumber();
-    if (qtyToClose > position.qty_remaining.toNumber()) {
+    // Normalizar quantidade para evitar imprecisão de ponto flutuante
+    const qtyToClose = normalizeQuantity(quantity || position.qty_remaining.toNumber());
+    if (qtyToClose > normalizeQuantity(position.qty_remaining.toNumber())) {
       throw new Error('Quantity exceeds remaining');
     }
 
@@ -1744,8 +1745,9 @@ export class PositionService {
       throw new Error('Limit price must be greater than zero');
     }
 
-    const qtyToSell = quantity || position.qty_remaining.toNumber();
-    if (qtyToSell > position.qty_remaining.toNumber()) {
+    // Normalizar quantidade para evitar imprecisão de ponto flutuante
+    const qtyToSell = normalizeQuantity(quantity || position.qty_remaining.toNumber());
+    if (qtyToSell > normalizeQuantity(position.qty_remaining.toNumber())) {
       throw new Error('Quantity exceeds remaining');
     }
 

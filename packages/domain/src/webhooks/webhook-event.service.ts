@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, WebhookEventStatus, WebhookAction } from '@mvcashnode/shared';
+import { TradeMode, WebhookEventStatus, WebhookAction, normalizeQuantity } from '@mvcashnode/shared';
 import { WebhookParserService } from './webhook-parser.service';
 import { TradeJobService } from '../trading/trade-job.service';
 import { PositionService } from '../positions/position.service';
@@ -440,7 +440,8 @@ export class WebhookEventService {
           // ✅ NOVO: Criar UM JOB POR POSIÇÃO
           for (const position of eligiblePositions) {
             try {
-              const positionQty = position.qty_remaining.toNumber();
+              // Normalizar quantidade para evitar imprecisão de ponto flutuante
+              const positionQty = normalizeQuantity(position.qty_remaining.toNumber());
               const priceOpen = position.price_open.toNumber();
               console.log(`[WEBHOOK-EVENT] Processando posição ID ${position.id}, quantidade: ${positionQty}, preço abertura: ${priceOpen}`);
 

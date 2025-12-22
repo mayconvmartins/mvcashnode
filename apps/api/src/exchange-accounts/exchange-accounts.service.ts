@@ -173,6 +173,30 @@ export class ExchangeAccountsService {
 
       // Sincronizar no banco
       const tradeMode = account.is_simulation ? TradeMode.SIMULATION : TradeMode.REAL;
+
+      // ✅ CORREÇÃO: Remover ativos que não existem mais na exchange (saldo zerado)
+      // A Binance não retorna ativos com saldo 0, então precisamos deletar do cache
+      const existingCache = await this.prisma.accountBalanceCache.findMany({
+        where: { exchange_account_id: accountId, trade_mode: tradeMode },
+        select: { asset: true },
+      });
+
+      const assetsFromExchange = new Set(Object.keys(balances));
+      const assetsToDelete = existingCache
+        .filter(c => !assetsFromExchange.has(c.asset))
+        .map(c => c.asset);
+
+      if (assetsToDelete.length > 0) {
+        await this.prisma.accountBalanceCache.deleteMany({
+          where: {
+            exchange_account_id: accountId,
+            trade_mode: tradeMode,
+            asset: { in: assetsToDelete },
+          },
+        });
+        console.log(`[ExchangeAccountsService] Removidos ${assetsToDelete.length} ativos zerados do cache: ${assetsToDelete.join(', ')}`);
+      }
+
       await this.domainService.syncBalance(accountId, tradeMode, balances);
 
       return {

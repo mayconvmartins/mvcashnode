@@ -335,7 +335,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       if (tradeJob.base_quantity) {
         const rawBaseQty = tradeJob.base_quantity.toNumber();
-        baseQty = isNaN(rawBaseQty) ? 0 : Number(rawBaseQty);
+        // Normalizar para evitar imprecisão de ponto flutuante
+        baseQty = isNaN(rawBaseQty) ? 0 : normalizeQuantity(Number(rawBaseQty));
       }
 
       if (tradeJob.quote_amount) {

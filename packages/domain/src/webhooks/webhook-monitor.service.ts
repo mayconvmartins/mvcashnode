@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode } from '@mvcashnode/shared';
+import { TradeMode, normalizeQuantity } from '@mvcashnode/shared';
 import { TradeJobService } from '../trading/trade-job.service';
 
 export enum WebhookMonitorAlertState {
@@ -927,6 +927,8 @@ export class WebhookMonitorService {
           // ✅ NOVO: Criar um job por posição
           for (const position of eligiblePositions) {
             try {
+              // Normalizar quantidade para evitar imprecisão de ponto flutuante
+              const normalizedQty = normalizeQuantity(position.qty_remaining.toNumber());
               const tradeJob = await this.tradeJobService.createJob({
                 webhookEventId: alert.webhook_event_id,
                 exchangeAccountId: binding.exchange_account.id,
@@ -935,13 +937,13 @@ export class WebhookMonitorService {
                 side: 'SELL',
                 orderType: 'LIMIT',
                 limitPrice,
-                baseQuantity: position.qty_remaining.toNumber(),
+                baseQuantity: normalizedQty,
                 positionIdToClose: position.id, // ✅ SEMPRE informar position_id
                 createdBy: 'WEBHOOK',
               });
               
               tradeJobIds.push(tradeJob.id);
-              console.log(`[WEBHOOK-MONITOR] ✅ TradeJob criado para posição ${position.id}: ID=${tradeJob.id} (SELL, LIMIT, limitPrice=${limitPrice}, qty=${position.qty_remaining.toNumber()})`);
+              console.log(`[WEBHOOK-MONITOR] ✅ TradeJob criado para posição ${position.id}: ID=${tradeJob.id} (SELL, LIMIT, limitPrice=${limitPrice}, qty=${normalizedQty})`);
             } catch (positionError: any) {
               console.error(`[WEBHOOK-MONITOR] ❌ Erro ao criar TradeJob para posição ${position.id}: ${positionError.message}`);
             }
