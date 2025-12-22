@@ -711,8 +711,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
           // Validação de minNotional
           const priceForNotional = limitPriceToUse || 0;
-          if (minNotional && priceForNotional > 0) {
-            const notional = amountToUse * priceForNotional;
+          const notionalPrice = priceForNotional || (tradeJob.order_type === 'MARKET' ? (await adapter.fetchTicker(tradeJob.symbol))?.last || 0 : 0);
+          if (minNotional && notionalPrice > 0) {
+            const notional = amountToUse * notionalPrice;
             if (notional < minNotional) {
               const reasonMessage = `Notional ${notional} abaixo do minNotional (${minNotional}) da exchange`;
               this.logger.error(`[EXECUTOR] Job ${tradeJobId} - ${reasonMessage}`);
@@ -1026,12 +1027,61 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                 
                 // Tentar criar ordem novamente com quantidade ajustada
                 try {
+                  // Reaplicar filtros (stepSize/minQty/minNotional/tickSize) após ajuste de saldo
+                  let retryLimitPrice = limitPriceToUse ?? tradeJob.limit_price?.toNumber();
+                  let retryAmount = normalizeQuantity(newAmountToUse);
+                  try {
+                    const retryFilters = await adapter.getSymbolFilters?.(tradeJob.symbol);
+                    if (retryFilters) {
+                      const { stepSize, minQty, minNotional, tickSize } = retryFilters;
+                      if (tickSize && retryLimitPrice) {
+                        const adjustedPrice = floorToStep(retryLimitPrice, tickSize);
+                        if (adjustedPrice !== retryLimitPrice) {
+                          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Retry: ajustando preço pela tickSize (${tickSize}): ${retryLimitPrice} -> ${adjustedPrice}`);
+                          retryLimitPrice = adjustedPrice;
+                        }
+                      }
+                      if (stepSize) {
+                        const adjustedQty = floorToStep(retryAmount, stepSize);
+                        if (adjustedQty !== retryAmount) {
+                          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Retry: ajustando quantidade pela stepSize (${stepSize}): ${retryAmount} -> ${adjustedQty}`);
+                          retryAmount = normalizeQuantity(adjustedQty);
+                        }
+                      }
+                      // Validar minQty
+                      if (minQty && retryAmount < minQty) {
+                        throw new Error(`Retry: quantidade ${retryAmount} abaixo do minQty (${minQty})`);
+                      }
+                      // Validar minNotional usando preço disponível
+                      const priceForNotional = retryLimitPrice || (tradeJob.order_type === 'MARKET' ? (await adapter.fetchTicker(tradeJob.symbol))?.last || 0 : 0);
+                      if (minNotional && priceForNotional > 0) {
+                        const notional = retryAmount * priceForNotional;
+                        if (notional < minNotional) {
+                          throw new Error(`Retry: notional ${notional} abaixo do minNotional (${minNotional})`);
+                        }
+                      }
+                    }
+                  } catch (retryFilterError: any) {
+                    this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Retry: filtros da exchange bloquearam a ordem: ${retryFilterError?.message || retryFilterError}`);
+                    reasonCode = 'MIN_NOTIONAL_NOT_MET';
+                    reasonMessage = retryFilterError?.message || 'Retry: filtros da exchange bloquearam a ordem';
+                    await this.prisma.tradeJob.update({
+                      where: { id: tradeJobId },
+                      data: {
+                        status: TradeJobStatus.FAILED,
+                        reason_code: reasonCode,
+                        reason_message: reasonMessage,
+                      },
+                    });
+                    throw new Error(`${reasonCode}: ${reasonMessage}`);
+                  }
+
                   order = await adapter.createOrder(
                     tradeJob.symbol,
                     orderType,
                     tradeJob.side.toLowerCase(),
-                    newAmountToUse,
-                    tradeJob.limit_price?.toNumber()
+                    retryAmount,
+                    retryLimitPrice
                   );
                   
                   this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ordem criada com sucesso após ajuste de quantidade: ${order.id}, status: ${order.status}`);
