@@ -31,8 +31,14 @@ export function isIPInCIDR(ip: string, cidr: string): boolean {
   const ipParts = ip.split('.').map(Number);
   const cidrParts = cidrIP.split('.').map(Number);
 
+  // #region agent log
+  const fs = require('fs');
+  const logPath = 'e:\\repositoriolocal\\projects\\mvcashnode\\.cursor\\debug.log';
   const ipNum = (ipParts[0] << 24) | (ipParts[1] << 16) | (ipParts[2] << 8) | ipParts[3];
   const cidrNum = (cidrParts[0] << 24) | (cidrParts[1] << 16) | (cidrParts[2] << 8) | cidrParts[3];
+  fs.appendFileSync(logPath, JSON.stringify({location:'validation.ts:isIPInCIDR',message:'IP CIDR validation - potential 32-bit overflow',data:{ip,cidr,ipParts,cidrParts,ipNum,cidrNum,ipNumNegative:ipNum<0,cidrNumNegative:cidrNum<0,firstOctetGte128:ipParts[0]>=128||cidrParts[0]>=128},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})+'\n');
+  // #endregion
+
   const maskNum = ~(0xffffffff >>> mask);
 
   return (ipNum & maskNum) === (cidrNum & maskNum);

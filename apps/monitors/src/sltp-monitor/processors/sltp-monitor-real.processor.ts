@@ -4,7 +4,7 @@ import { Job, Queue } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { TradeJobService, PositionService } from '@mvcashnode/domain';
-import { EncryptionService, CacheService } from '@mvcashnode/shared';
+import { EncryptionService, CacheService, MIN_POSITION_VALUE_USD, SELL_LIMIT_PRICE_MULTIPLIER } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, PositionStatus, TradeMode } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
@@ -234,7 +234,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 5; // $5 USD mínimo
+            const minQtyUSD = MIN_POSITION_VALUE_USD;
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(
@@ -289,8 +289,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
             // ========== ETAPA 5: Criar job com quantidade validada ==========
             try {
-              // Calcular preço LIMIT para Stop Loss
-              const limitPrice = currentPrice * 0.999; // 0.1% abaixo do preço atual
+              // Calcular preço LIMIT para Stop Loss (usando constante de slippage)
+              const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
               
               const tradeJob = await tradeJobService.createJob({
                 exchangeAccountId: position.exchange_account_id,
@@ -380,7 +380,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                   freshPosition.qty_remaining.toNumber() > 0) {
                 
                 // Validar quantidade mínima (evitar tentar vender resíduos)
-                const minQtyUSD = 5; // $5 USD mínimo
+                const minQtyUSD = MIN_POSITION_VALUE_USD;
                 const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
                 
                 if (estimatedValueUSD >= minQtyUSD) {
@@ -600,7 +600,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 5; // $5 USD mínimo
+            const minQtyUSD = MIN_POSITION_VALUE_USD;
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(
@@ -655,7 +655,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
             // ========== ETAPA 5: Criar job com quantidade validada ==========
             try {
-              const limitPrice = currentPrice * 0.999; // 0.1% abaixo do preço atual
+              const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
               
               const tradeJob = await tradeJobService.createJob({
                 exchangeAccountId: position.exchange_account_id,
@@ -827,7 +827,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               }
 
               // Validar quantidade mínima (evitar tentar vender resíduos)
-              const minQtyUSD = 5; // $5 USD mínimo
+              const minQtyUSD = MIN_POSITION_VALUE_USD;
               const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
               if (estimatedValueUSD < minQtyUSD) {
                 this.logger.warn(
@@ -882,7 +882,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
               // ========== ETAPA 5: Criar job com quantidade validada ==========
               try {
-                const limitPrice = currentPrice * 0.999; // 0.1% abaixo do preço atual
+                const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
                 
                 const tradeJob = await tradeJobService.createJob({
                   exchangeAccountId: position.exchange_account_id,
@@ -989,7 +989,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 5; // $5 USD mínimo
+            const minQtyUSD = MIN_POSITION_VALUE_USD;
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(

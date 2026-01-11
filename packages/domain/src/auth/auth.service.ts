@@ -44,24 +44,11 @@ export class AuthService {
   async hashPassword(password: string): Promise<string> {
     const saltRounds = 12;
     const hash = await bcrypt.hash(password, saltRounds);
-    console.log('[AUTH-DEBUG] hashPassword:', {
-      passwordLength: password.length,
-      hashLength: hash.length,
-      hashPrefix: hash.substring(0, 20) + '...',
-      hashFull: hash
-    });
     return hash;
   }
 
   async verifyPassword(password: string, hash: string): Promise<boolean> {
-    console.log('[AUTH-DEBUG] verifyPassword:', {
-      passwordLength: password.length,
-      hashLength: hash.length,
-      hashPrefix: hash.substring(0, 20) + '...',
-      hashFull: hash
-    });
     const isValid = await bcrypt.compare(password, hash);
-    console.log('[AUTH-DEBUG] verifyPassword result:', isValid);
     return isValid;
   }
 
@@ -161,7 +148,6 @@ export class AuthService {
     ip?: string,
     userAgent?: string
   ): Promise<LoginResult> {
-    console.log('[AUTH-DEBUG] login iniciado para:', credentials.email);
     const user = await this.prisma.user.findUnique({
       where: { email: credentials.email },
       include: {
@@ -171,32 +157,21 @@ export class AuthService {
     });
 
     if (!user) {
-      console.log('[AUTH-DEBUG] login - usuário não encontrado');
       await this.logLoginAttempt(credentials.email, false, ip, userAgent);
       throw new Error('Invalid credentials');
     }
 
     if (!user.is_active) {
-      console.log('[AUTH-DEBUG] login - usuário inativo');
       await this.logLoginAttempt(credentials.email, false, ip, userAgent);
       throw new Error('Invalid credentials');
     }
 
-    console.log('[AUTH-DEBUG] login - hash no banco:', {
-      hashLength: user.password_hash.length,
-      hashPrefix: user.password_hash.substring(0, 20) + '...',
-      hashFull: user.password_hash
-    });
-
     const isValidPassword = await this.verifyPassword(credentials.password, user.password_hash);
 
     if (!isValidPassword) {
-      console.log('[AUTH-DEBUG] login - senha inválida');
       await this.logLoginAttempt(user.id, false, ip, userAgent);
       throw new Error('Invalid credentials');
     }
-
-    console.log('[AUTH-DEBUG] login - senha válida, continuando...');
 
     // Check if 2FA is enabled
     if (user.profile?.twofa_enabled) {
@@ -338,8 +313,6 @@ export class AuthService {
     currentPassword: string,
     newPassword: string
   ): Promise<void> {
-    console.log('[AUTH-DEBUG] changePasswordRequired iniciado para:', email);
-    
     if (!email || !currentPassword || !newPassword) {
       const missing = [];
       if (!email) missing.push('email');
@@ -357,25 +330,16 @@ export class AuthService {
     });
 
     if (!user) {
-      console.log('[AUTH-DEBUG] changePasswordRequired - usuário não encontrado');
       throw new Error('Invalid credentials');
     }
 
     if (!user.is_active) {
-      console.log('[AUTH-DEBUG] changePasswordRequired - usuário inativo');
       throw new Error('Invalid credentials');
     }
 
     if (!user.must_change_password) {
-      console.log('[AUTH-DEBUG] changePasswordRequired - alteração de senha não é obrigatória');
       throw new Error('Password change is not required for this user');
     }
-
-    console.log('[AUTH-DEBUG] changePasswordRequired - hash atual no banco:', {
-      hashLength: user.password_hash.length,
-      hashPrefix: user.password_hash.substring(0, 20) + '...',
-      hashFull: user.password_hash
-    });
 
     const isValidPassword = await this.verifyPassword(currentPassword, user.password_hash);
     if (!isValidPassword) {
@@ -384,12 +348,6 @@ export class AuthService {
 
     const newPasswordHash = await this.hashPassword(newPassword);
 
-    console.log('[AUTH-DEBUG] changePasswordRequired - salvando novo hash:', {
-      hashLength: newPasswordHash.length,
-      hashPrefix: newPasswordHash.substring(0, 20) + '...',
-      hashFull: newPasswordHash
-    });
-
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -397,23 +355,6 @@ export class AuthService {
         must_change_password: false,
       },
     });
-
-    // Validar se foi salvo corretamente
-    const updatedUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      select: { password_hash: true },
-    });
-
-    console.log('[AUTH-DEBUG] changePasswordRequired - hash após salvar:', {
-      hashLength: updatedUser?.password_hash.length,
-      hashPrefix: updatedUser?.password_hash.substring(0, 20) + '...',
-      hashFull: updatedUser?.password_hash,
-      hashMatches: updatedUser?.password_hash === newPasswordHash
-    });
-
-    // Verificar se o hash salvo funciona
-    const testVerify = await this.verifyPassword(newPassword, updatedUser!.password_hash);
-    console.log('[AUTH-DEBUG] changePasswordRequired - teste de verificação após salvar:', testVerify);
   }
 
   /**
@@ -490,8 +431,6 @@ export class AuthService {
    * Retorna o email do usuário para envio de confirmação
    */
   async resetPassword(token: string, newPassword: string): Promise<string | null> {
-    console.log('[AUTH-DEBUG] resetPassword iniciado');
-    
     if (!token || !newPassword) {
       const missing = [];
       if (!token) missing.push('token');
@@ -506,31 +445,16 @@ export class AuthService {
     const userId = await this.validatePasswordResetToken(token);
 
     if (!userId) {
-      console.log('[AUTH-DEBUG] resetPassword - token inválido ou expirado');
       throw new Error('Invalid or expired token');
     }
 
     // Buscar email antes de atualizar
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { email: true, password_hash: true },
-    });
-
-    console.log('[AUTH-DEBUG] resetPassword - hash atual no banco:', {
-      userId,
-      email: user?.email,
-      hashLength: user?.password_hash.length,
-      hashPrefix: user?.password_hash.substring(0, 20) + '...',
-      hashFull: user?.password_hash
+      select: { email: true },
     });
 
     const newPasswordHash = await this.hashPassword(newPassword);
-
-    console.log('[AUTH-DEBUG] resetPassword - salvando novo hash:', {
-      hashLength: newPasswordHash.length,
-      hashPrefix: newPasswordHash.substring(0, 20) + '...',
-      hashFull: newPasswordHash
-    });
 
     // Atualizar senha
     await this.prisma.user.update({
@@ -539,23 +463,6 @@ export class AuthService {
         password_hash: newPasswordHash,
       },
     });
-
-    // Validar se foi salvo corretamente
-    const updatedUser = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { password_hash: true },
-    });
-
-    console.log('[AUTH-DEBUG] resetPassword - hash após salvar:', {
-      hashLength: updatedUser?.password_hash.length,
-      hashPrefix: updatedUser?.password_hash.substring(0, 20) + '...',
-      hashFull: updatedUser?.password_hash,
-      hashMatches: updatedUser?.password_hash === newPasswordHash
-    });
-
-    // Verificar se o hash salvo funciona
-    const testVerify = await this.verifyPassword(newPassword, updatedUser!.password_hash);
-    console.log('[AUTH-DEBUG] resetPassword - teste de verificação após salvar:', testVerify);
 
     // Marcar token como usado
     await this.prisma.passwordResetToken.update({

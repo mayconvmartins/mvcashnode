@@ -35,6 +35,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
   /**
    * ✅ OTIMIZAÇÃO CPU: Busca ou cria adapter com cache de 5 minutos
    * Reduz criação de objetos em ~30%
+   * 
+   * ✅ FIX: Incluir hash de credenciais no cacheKey para invalidar cache
+   * quando API keys são rotacionadas
    */
   private getOrCreateAdapter(
     accountId: number,
@@ -43,12 +46,23 @@ export class TradeExecutionRealProcessor extends WorkerHost {
     apiSecret: string,
     testnet: boolean
   ): any {
-    const cacheKey = `${accountId}-${exchange}-${testnet}`;
+    // Gerar um hash simples das credenciais para incluir no cache key
+    // Isso garante que se as credenciais mudarem, o cache será invalidado
+    const credentialsHash = this.generateCredentialsHash(apiKey, apiSecret);
+    const cacheKey = `${accountId}-${exchange}-${testnet}-${credentialsHash}`;
     const cached = this.adapterCache.get(cacheKey);
 
     // Verificar se tem cache válido
     if (cached && Date.now() - cached.timestamp < this.ADAPTER_CACHE_TTL) {
       return cached.adapter;
+    }
+
+    // Limpar caches antigos da mesma conta (podem ter credenciais diferentes)
+    const accountPrefix = `${accountId}-${exchange}-${testnet}-`;
+    for (const key of this.adapterCache.keys()) {
+      if (key.startsWith(accountPrefix) && key !== cacheKey) {
+        this.adapterCache.delete(key);
+      }
     }
 
     // Criar novo adapter
@@ -76,6 +90,20 @@ export class TradeExecutionRealProcessor extends WorkerHost {
     }
 
     return adapter;
+  }
+
+  /**
+   * Gera um hash simples das credenciais para usar no cache key
+   * Usa primeiros 4 + últimos 4 caracteres de cada credencial
+   */
+  private generateCredentialsHash(apiKey: string, apiSecret: string): string {
+    const keyPart = apiKey.length > 8 
+      ? `${apiKey.slice(0, 4)}${apiKey.slice(-4)}`
+      : apiKey;
+    const secretPart = apiSecret.length > 8
+      ? `${apiSecret.slice(0, 4)}${apiSecret.slice(-4)}`
+      : apiSecret;
+    return `${keyPart}${secretPart}`;
   }
 
   /**

@@ -320,6 +320,11 @@ export class PositionService {
     let eligiblePosition: any = null;
     
     if (groupPositionsEnabled && groupPositionsIntervalMinutes && groupPositionsIntervalMinutes > 0) {
+      // #region agent log
+      const fs = require('fs');
+      const logPath = 'e:\\repositoriolocal\\projects\\mvcashnode\\.cursor\\debug.log';
+      fs.appendFileSync(logPath, JSON.stringify({location:'position.service.ts:onBuyExecuted:grouping',message:'Position grouping started - race condition risk',data:{jobId,groupPositionsEnabled,groupPositionsIntervalMinutes,accountId:job.exchange_account_id,symbol:job.symbol,tradeMode:job.trade_mode,noAtomicTransaction:true},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})+'\n');
+      // #endregion
       console.log(`[POSITION-SERVICE] 🔄 Agrupamento habilitado (intervalo: ${groupPositionsIntervalMinutes} minutos)`);
       console.log(`[POSITION-SERVICE] Buscando posição elegível para: account=${job.exchange_account_id}, symbol=${job.symbol}, mode=${job.trade_mode}`);
       

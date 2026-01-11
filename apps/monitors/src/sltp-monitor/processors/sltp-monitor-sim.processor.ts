@@ -5,7 +5,7 @@ import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { TradeJobService, PositionService } from '@mvcashnode/domain';
 import { AdapterFactory } from '@mvcashnode/exchange';
-import { ExchangeType, PositionStatus, TradeMode, CacheService } from '@mvcashnode/shared';
+import { ExchangeType, PositionStatus, TradeMode, CacheService, MIN_POSITION_VALUE_USD, SELL_LIMIT_PRICE_MULTIPLIER } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
 
 @Processor('sl-tp-monitor-sim')
@@ -182,7 +182,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 5; // $5 USD mínimo
+            const minQtyUSD = MIN_POSITION_VALUE_USD;
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(
@@ -237,7 +237,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
 
             // ========== ETAPA 5: Criar job com quantidade validada ==========
             try {
-              const limitPrice = currentPrice * 0.999; // 0.1% abaixo do preço atual
+              const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
               
               const tradeJob = await tradeJobService.createJob({
                 exchangeAccountId: position.exchange_account_id,
@@ -326,7 +326,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                   freshPosition.qty_remaining.toNumber() > 0) {
                 
                 // Validar quantidade mínima (evitar tentar vender resíduos)
-                const minQtyUSD = 5; // $5 USD mínimo
+                const minQtyUSD = MIN_POSITION_VALUE_USD;
                 const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
                 
                 if (estimatedValueUSD >= minQtyUSD) {
@@ -546,7 +546,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 5; // $5 USD mínimo
+            const minQtyUSD = MIN_POSITION_VALUE_USD;
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(
@@ -617,7 +617,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               }
               
               // Calcular preço LIMIT (preço atual ou ligeiramente abaixo para garantir execução)
-              const limitPrice = currentPrice * 0.999; // 0.1% abaixo
+              const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
               
               // Stop Gain NÃO valida min_profit_pct pois já foi ativado em um lucro maior
               // e deve proteger os lucros obtidos mesmo que caiam abaixo do mínimo configurado
@@ -793,7 +793,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               }
 
               // Validar quantidade mínima (evitar tentar vender resíduos)
-              const minQtyUSD = 5; // $5 USD mínimo
+              const minQtyUSD = MIN_POSITION_VALUE_USD;
               const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
               if (estimatedValueUSD < minQtyUSD) {
                 this.logger.warn(
@@ -864,7 +864,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                 }
                 
                 // IMPORTANTE: Calcular preço LIMIT com pequeno spread para garantir execução
-                const limitPrice = currentPrice * 0.999;
+                const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
                 
                 const tradeJob = await tradeJobService.createJob({
                   exchangeAccountId: position.exchange_account_id,
@@ -972,7 +972,7 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
             }
 
             // Validar quantidade mínima (evitar tentar vender resíduos)
-            const minQtyUSD = 5; // $5 USD mínimo
+            const minQtyUSD = MIN_POSITION_VALUE_USD;
             const estimatedValueUSD = freshPosition.qty_remaining.toNumber() * currentPrice;
             if (estimatedValueUSD < minQtyUSD) {
               this.logger.warn(

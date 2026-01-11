@@ -27,14 +27,7 @@ export class UserService {
   ) {}
 
   async createUser(dto: CreateUserDto): Promise<{ id: number; email: string }> {
-    console.log('[USER-DEBUG] createUser iniciado para:', dto.email);
     const passwordHash = await this.authService.hashPassword(dto.password);
-
-    console.log('[USER-DEBUG] createUser - hash gerado:', {
-      hashLength: passwordHash.length,
-      hashPrefix: passwordHash.substring(0, 20) + '...',
-      hashFull: passwordHash
-    });
 
     const user = await this.prisma.user.create({
       data: {
@@ -55,24 +48,6 @@ export class UserService {
         },
       },
     });
-
-    // Validar se foi salvo corretamente
-    const savedUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      select: { password_hash: true },
-    });
-
-    console.log('[USER-DEBUG] createUser - hash após salvar:', {
-      userId: user.id,
-      hashLength: savedUser?.password_hash.length,
-      hashPrefix: savedUser?.password_hash.substring(0, 20) + '...',
-      hashFull: savedUser?.password_hash,
-      hashMatches: savedUser?.password_hash === passwordHash
-    });
-
-    // Verificar se o hash salvo funciona
-    const testVerify = await this.authService.verifyPassword(dto.password, savedUser!.password_hash);
-    console.log('[USER-DEBUG] createUser - teste de verificação após salvar:', testVerify);
 
     return {
       id: user.id,
@@ -136,8 +111,6 @@ export class UserService {
   }
 
   async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<void> {
-    console.log('[USER-DEBUG] changePassword iniciado para userId:', userId);
-    
     if (!userId || !currentPassword || !newPassword) {
       const missing = [];
       if (!userId) missing.push('userId');
@@ -155,15 +128,8 @@ export class UserService {
     });
 
     if (!user) {
-      console.log('[USER-DEBUG] changePassword - usuário não encontrado');
       throw new Error('User not found');
     }
-
-    console.log('[USER-DEBUG] changePassword - hash atual no banco:', {
-      hashLength: user.password_hash.length,
-      hashPrefix: user.password_hash.substring(0, 20) + '...',
-      hashFull: user.password_hash
-    });
 
     const isValid = await this.authService.verifyPassword(currentPassword, user.password_hash);
     if (!isValid) {
@@ -172,12 +138,6 @@ export class UserService {
 
     const newPasswordHash = await this.authService.hashPassword(newPassword);
 
-    console.log('[USER-DEBUG] changePassword - salvando novo hash:', {
-      hashLength: newPasswordHash.length,
-      hashPrefix: newPasswordHash.substring(0, 20) + '...',
-      hashFull: newPasswordHash
-    });
-
     await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -185,23 +145,6 @@ export class UserService {
         must_change_password: false,
       },
     });
-
-    // Validar se foi salvo corretamente
-    const updatedUser = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { password_hash: true },
-    });
-
-    console.log('[USER-DEBUG] changePassword - hash após salvar:', {
-      hashLength: updatedUser?.password_hash.length,
-      hashPrefix: updatedUser?.password_hash.substring(0, 20) + '...',
-      hashFull: updatedUser?.password_hash,
-      hashMatches: updatedUser?.password_hash === newPasswordHash
-    });
-
-    // Verificar se o hash salvo funciona
-    const testVerify = await this.authService.verifyPassword(newPassword, updatedUser!.password_hash);
-    console.log('[USER-DEBUG] changePassword - teste de verificação após salvar:', testVerify);
   }
 
   async forcePasswordChange(userId: number): Promise<void> {
@@ -218,8 +161,6 @@ export class UserService {
     newPassword: string,
     mustChangePassword: boolean = false
   ): Promise<void> {
-    console.log('[USER-DEBUG] adminChangePassword iniciado para userId:', userId);
-    
     if (!userId || !newPassword) {
       const missing = [];
       if (!userId) missing.push('userId');
@@ -236,23 +177,10 @@ export class UserService {
     });
 
     if (!user) {
-      console.log('[USER-DEBUG] adminChangePassword - usuário não encontrado');
       throw new Error('User not found');
     }
 
-    console.log('[USER-DEBUG] adminChangePassword - hash atual no banco:', {
-      hashLength: user.password_hash.length,
-      hashPrefix: user.password_hash.substring(0, 20) + '...',
-      hashFull: user.password_hash
-    });
-
     const newPasswordHash = await this.authService.hashPassword(newPassword);
-
-    console.log('[USER-DEBUG] adminChangePassword - salvando novo hash:', {
-      hashLength: newPasswordHash.length,
-      hashPrefix: newPasswordHash.substring(0, 20) + '...',
-      hashFull: newPasswordHash
-    });
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -261,23 +189,6 @@ export class UserService {
         must_change_password: mustChangePassword,
       },
     });
-
-    // Validar se foi salvo corretamente
-    const updatedUser = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { password_hash: true },
-    });
-
-    console.log('[USER-DEBUG] adminChangePassword - hash após salvar:', {
-      hashLength: updatedUser?.password_hash.length,
-      hashPrefix: updatedUser?.password_hash.substring(0, 20) + '...',
-      hashFull: updatedUser?.password_hash,
-      hashMatches: updatedUser?.password_hash === newPasswordHash
-    });
-
-    // Verificar se o hash salvo funciona
-    const testVerify = await this.authService.verifyPassword(newPassword, updatedUser!.password_hash);
-    console.log('[USER-DEBUG] adminChangePassword - teste de verificação após salvar:', testVerify);
   }
 
   async activateUser(userId: number): Promise<void> {

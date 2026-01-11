@@ -1376,6 +1376,12 @@ export class WebhookMonitorService {
     if (filters.limit !== undefined && (typeof filters.limit !== 'number' || filters.limit < 1 || filters.limit > 1000 || !Number.isInteger(filters.limit))) {
       throw new Error('limit deve ser um número inteiro entre 1 e 1000');
     }
+    if (filters.page !== undefined && (typeof filters.page !== 'number' || filters.page < 1 || !Number.isInteger(filters.page))) {
+      throw new Error('page deve ser um número inteiro positivo');
+    }
+    if (filters.skip !== undefined && (typeof filters.skip !== 'number' || filters.skip < 0 || !Number.isInteger(filters.skip))) {
+      throw new Error('skip deve ser um número inteiro não negativo');
+    }
 
     // Construir condições WHERE para a query SQL
     const conditions: string[] = [];

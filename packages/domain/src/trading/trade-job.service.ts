@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, TradeJobStatus, normalizeSymbol, isValidSymbol } from '@mvcashnode/shared';
+import { TradeMode, TradeJobStatus, normalizeSymbol, isValidSymbol, MIN_QUOTE_AMOUNT_BUY_USD } from '@mvcashnode/shared';
 import { TradeParameterService } from './trade-parameter.service';
 
 export interface CreateTradeJobDto {
@@ -114,9 +114,8 @@ export class TradeJobService {
     }
 
     // ✅ VALIDAÇÃO GLOBAL: Mínimo de $20 USD por ordem de compra
-    const MIN_QUOTE_AMOUNT_USD = 20;
-    if (dto.side === 'BUY' && quoteAmount && quoteAmount < MIN_QUOTE_AMOUNT_USD) {
-      throw new Error(`Valor mínimo por ordem: $${MIN_QUOTE_AMOUNT_USD} USD. Valor solicitado: $${quoteAmount.toFixed(2)} USD`);
+    if (dto.side === 'BUY' && quoteAmount && quoteAmount < MIN_QUOTE_AMOUNT_BUY_USD) {
+      throw new Error(`Valor mínimo por ordem: $${MIN_QUOTE_AMOUNT_BUY_USD} USD. Valor solicitado: $${quoteAmount.toFixed(2)} USD`);
     }
 
     // ✅ NOVO: Validar SELL - position_id_to_close é obrigatório
