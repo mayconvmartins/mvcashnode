@@ -890,6 +890,18 @@ export const adminService = {
         return response.data
     },
 
+    getMvmPayLogs: async (filters?: {
+        page?: number
+        limit?: number
+        level?: string
+        source?: string
+        email?: string
+        path?: string
+    }): Promise<{ page: number; limit: number; total: number; items: any[] }> => {
+        const response = await apiClient.get('/admin/mvm-pay/logs', { params: filters })
+        return response.data
+    },
+
     generateMvmPayActivationLinkForSubscriber: async (subscriberId: number): Promise<{ success: boolean; message: string; activation_url?: string; expires_at: string }> => {
         const response = await apiClient.post(`/admin/subscribers/${subscriberId}/mvm-pay/activation-link`)
         return response.data

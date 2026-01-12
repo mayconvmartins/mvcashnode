@@ -44,6 +44,14 @@ export class MvmPaySyncProcessor extends WorkerHost {
     const startedAt = Date.now();
     this.logger.log('Iniciando sync de usuários (MvM Pay)...');
 
+    await this.prisma.mvmPayLog.create({
+      data: {
+        level: 'INFO',
+        source: 'SYNC',
+        action: 'sync_start',
+      },
+    }).catch(() => undefined);
+
     // Só roda se provider estiver em mvm_pay
     const providerSetting = await this.prisma.systemSetting.findUnique({
       where: { key: 'subscription_provider' },
@@ -85,9 +93,31 @@ export class MvmPaySyncProcessor extends WorkerHost {
     if (!res.ok || !json) {
       const msg = json?.error?.message || `HTTP ${res.status}`;
       this.logger.warn(`Falha no sync MvM Pay: ${msg}`);
+      await this.prisma.mvmPayLog.create({
+        data: {
+          level: 'WARN',
+          source: 'SYNC',
+          action: 'sync_end',
+          status_code: res.status,
+          duration_ms: Date.now() - startedAt,
+          error_message: msg,
+          response_json: json as any,
+        },
+      }).catch(() => undefined);
       return { success: false, message: msg, synced: 0, updated: 0 };
     }
     if (!json.success) {
+      await this.prisma.mvmPayLog.create({
+        data: {
+          level: 'WARN',
+          source: 'SYNC',
+          action: 'sync_end',
+          status_code: res.status,
+          duration_ms: Date.now() - startedAt,
+          error_message: json?.error?.message || 'Erro do MvM Pay',
+          response_json: json as any,
+        },
+      }).catch(() => undefined);
       return { success: false, message: json?.error?.message || 'Erro do MvM Pay', synced: 0, updated: 0 };
     }
 
@@ -186,6 +216,21 @@ export class MvmPaySyncProcessor extends WorkerHost {
     }
 
     const duration = Date.now() - startedAt;
+    await this.prisma.mvmPayLog.create({
+      data: {
+        level: errors.length ? 'WARN' : 'INFO',
+        source: 'SYNC',
+        action: 'sync_end',
+        status_code: 200,
+        duration_ms: duration,
+        response_json: {
+          synced,
+          updated,
+          errors: errors.length,
+          error_details: errors.length ? errors.slice(0, 50) : undefined,
+        } as any,
+      },
+    }).catch(() => undefined);
     return {
       success: true,
       message: 'Sync concluído',

@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { EncryptionService } from '@mvcashnode/shared';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export type MvmPayAccessResponse = {
   success: boolean;
@@ -75,6 +77,7 @@ export type MvmPaySyncUsersResponse = {
 @Injectable()
 export class MvmPayService {
   private readonly logger = new Logger(MvmPayService.name);
+  private readonly fileLogPath = path.join(process.cwd(), 'logs', 'mvm-pay.log');
 
   constructor(
     private prisma: PrismaService,
@@ -134,7 +137,25 @@ export class MvmPayService {
       for (const [k, v] of Object.entries(opts.query)) url.searchParams.set(k, v);
     }
 
-    const res = await fetch(url.toString(), {
+    const startedAt = Date.now();
+    const urlStr = url.toString();
+
+    // Log request (DB + arquivo)
+    await this.safeLog({
+      level: 'INFO',
+      source: 'API',
+      action: 'request',
+      method: opts.method,
+      path: opts.path,
+      email: opts.query?.email,
+      request_json: {
+        url: urlStr,
+        query: opts.query || null,
+        body: opts.method === 'GET' ? null : (opts.bodyObj || {}),
+      },
+    });
+
+    const res = await fetch(urlStr, {
       method: opts.method,
       headers: {
         'Content-Type': 'application/json',
@@ -148,6 +169,18 @@ export class MvmPayService {
     const text = await res.text();
     const json = (text ? (JSON.parse(text) as T) : null) as T | null;
     if (!res.ok) {
+      await this.safeLog({
+        level: 'WARN',
+        source: 'API',
+        action: 'response',
+        method: opts.method,
+        path: opts.path,
+        status_code: res.status,
+        duration_ms: Date.now() - startedAt,
+        email: opts.query?.email,
+        response_json: this.safeJson(text),
+        error_message: `HTTP ${res.status}`,
+      });
       this.logger.warn(`MvM Pay error (${res.status})`, {
         path: opts.path,
         query: opts.query,
@@ -156,8 +189,73 @@ export class MvmPayService {
       });
       throw new BadRequestException(`Erro ao comunicar com MvM Pay (HTTP ${res.status})`);
     }
+
+    await this.safeLog({
+      level: 'INFO',
+      source: 'API',
+      action: 'response',
+      method: opts.method,
+      path: opts.path,
+      status_code: res.status,
+      duration_ms: Date.now() - startedAt,
+      email: opts.query?.email,
+      response_json: this.safeJson(text),
+    });
+
     if (!json) throw new BadRequestException('Resposta inválida do MvM Pay');
     return json;
+  }
+
+  private safeJson(text: string): any {
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch {
+      return { raw: String(text || '').slice(0, 2000) };
+    }
+  }
+
+  private async safeLog(entry: {
+    level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
+    source: 'API' | 'SYNC' | 'ADMIN' | 'WEBHOOK';
+    action?: string;
+    method?: string;
+    path?: string;
+    status_code?: number;
+    duration_ms?: number;
+    email?: string;
+    request_json?: any;
+    response_json?: any;
+    error_message?: string;
+  }): Promise<void> {
+    // 1) Banco (para o Admin)
+    try {
+      await this.prisma.mvmPayLog.create({
+        data: {
+          level: entry.level,
+          source: entry.source,
+          action: entry.action,
+          method: entry.method,
+          path: entry.path,
+          status_code: entry.status_code,
+          duration_ms: entry.duration_ms,
+          email: entry.email,
+          request_json: entry.request_json ?? undefined,
+          response_json: entry.response_json ?? undefined,
+          error_message: entry.error_message,
+        },
+      });
+    } catch {
+      // nunca quebrar fluxo por falha de log
+    }
+
+    // 2) Arquivo (opcional, para troubleshooting rápido no servidor)
+    try {
+      const line = JSON.stringify({ ts: new Date().toISOString(), ...entry });
+      fs.mkdirSync(path.dirname(this.fileLogPath), { recursive: true });
+      fs.appendFile(this.fileLogPath, line + '\n', () => undefined);
+    } catch {
+      // ignore
+    }
   }
 
   async authAccess(email: string): Promise<MvmPayAccessResponse> {

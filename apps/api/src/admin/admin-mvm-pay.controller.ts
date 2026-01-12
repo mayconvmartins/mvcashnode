@@ -8,6 +8,7 @@ import {
   Body,
   NotFoundException,
   Logger,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '@mvcashnode/db';
@@ -153,6 +154,40 @@ export class AdminMvmPayController {
         error: error?.message || 'Falha no teste',
       };
     }
+  }
+
+  @Get('logs')
+  @ApiOperation({ summary: 'Listar logs do MvM Pay (API/sync/etc)' })
+  @ApiResponse({ status: 200, description: 'Lista paginada de logs' })
+  async listLogs(
+    @Query('page') pageStr?: string,
+    @Query('limit') limitStr?: string,
+    @Query('level') level?: string,
+    @Query('source') source?: string,
+    @Query('email') email?: string,
+    @Query('path') path?: string,
+  ): Promise<{ page: number; limit: number; total: number; items: any[] }> {
+    const page = Math.max(parseInt(pageStr || '1', 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(limitStr || '50', 10) || 50, 1), 200);
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (level) where.level = level;
+    if (source) where.source = source;
+    if (email) where.email = { contains: email };
+    if (path) where.path = { contains: path };
+
+    const [total, items] = await Promise.all([
+      this.prisma.mvmPayLog.count({ where }),
+      this.prisma.mvmPayLog.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        take: limit,
+        skip,
+      }),
+    ]);
+
+    return { page, limit, total, items };
   }
 }
 
