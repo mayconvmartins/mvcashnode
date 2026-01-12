@@ -187,6 +187,7 @@ export class MvmPaySyncProcessor extends WorkerHost {
                 auto_renew: false,
                 payment_method: 'MVM_PAY',
                 origin_provider: 'mvm_pay',
+                external_subscription_id: u.subscription_id ? String(u.subscription_id) : undefined,
               },
             });
           } else {
@@ -200,6 +201,7 @@ export class MvmPaySyncProcessor extends WorkerHost {
                 auto_renew: false,
                 payment_method: 'MVM_PAY',
                 origin_provider: 'mvm_pay',
+                external_subscription_id: u.subscription_id ? String(u.subscription_id) : null,
               },
             });
           }

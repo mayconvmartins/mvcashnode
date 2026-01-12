@@ -966,9 +966,10 @@ export class SubscriptionsService {
       const candidate = subs?.data?.subscriptions?.find((s) => ['ativo', 'trial', 'ACTIVE', 'TRIAL'].includes(String(s.status))) ||
         subs?.data?.subscriptions?.[0];
 
-      if (!candidate?.plan_id) {
+          if (!candidate?.plan_id) {
         throw new BadRequestException('Não foi possível identificar o plano no MvM Pay');
       }
+          const externalSubId = candidate?.id ? String(candidate.id) : null;
 
       const localPlan = await this.prisma.subscriptionPlan.findFirst({
         where: {
@@ -1033,6 +1034,7 @@ export class SubscriptionsService {
             auto_renew: false,
             payment_method: 'MVM_PAY',
                 origin_provider: 'mvm_pay',
+                external_subscription_id: externalSubId ?? undefined,
           },
         });
       } else {
@@ -1046,6 +1048,7 @@ export class SubscriptionsService {
             auto_renew: false,
             payment_method: 'MVM_PAY',
                 origin_provider: 'mvm_pay',
+                external_subscription_id: externalSubId,
           },
         });
       }

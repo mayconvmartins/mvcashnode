@@ -1075,6 +1075,8 @@ model Subscription {
   // Fonte de verdade para origem do provedor da assinatura
   // 'native' | 'mvm_pay' (pode ser estendido futuramente)
   origin_provider   String   @default("native") @db.VarChar(20)
+  // ID da assinatura no provedor externo (ex.: MvM Pay subscription_id)
+  external_subscription_id String? @db.VarChar(64)
   mp_payment_id     String?  @db.VarChar(255)
   mp_preference_id  String?  @db.VarChar(255)
   created_at        DateTime @default(now())
@@ -1089,6 +1091,7 @@ model Subscription {
   @@index([status])
   @@index([user_id, status])
   @@index([origin_provider])
+  @@index([external_subscription_id])
   @@map("subscriptions")
 }
 
