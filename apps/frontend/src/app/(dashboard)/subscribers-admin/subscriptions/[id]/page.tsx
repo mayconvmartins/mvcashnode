@@ -46,6 +46,11 @@ export default function SubscriptionDetailsPage() {
     PENDING_PAYMENT: 'outline',
   };
 
+  const isMvmPay =
+    subscription.payment_method === 'MVM_PAY' ||
+    !!subscription.plan?.mvm_pay_plan_id_monthly ||
+    !!subscription.plan?.mvm_pay_plan_id_quarterly;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -97,9 +102,12 @@ export default function SubscriptionDetailsPage() {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Status</span>
-              <Badge variant={statusColors[subscription.status] || 'outline'}>
-                {subscription.status}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={statusColors[subscription.status] || 'outline'}>
+                  {subscription.status}
+                </Badge>
+                {isMvmPay && <Badge variant="secondary">MvM Pay</Badge>}
+              </div>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Plano</p>

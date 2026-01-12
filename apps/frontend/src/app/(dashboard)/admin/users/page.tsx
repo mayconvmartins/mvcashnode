@@ -85,7 +85,14 @@ export default function UsersAdminPage() {
             label: 'Usuário', 
             render: (user) => (
                 <div>
-                    <p className="font-medium">{user.email}</p>
+                    <div className="flex items-center gap-2">
+                        <p className="font-medium">{user.email}</p>
+                        {(() => {
+                            const sub: any = (user as any).subscription
+                            const isMvmPay = sub?.payment_method === 'MVM_PAY' || !!sub?.plan?.mvm_pay_plan_id_monthly || !!sub?.plan?.mvm_pay_plan_id_quarterly
+                            return isMvmPay ? <Badge variant="secondary">MvM Pay</Badge> : null
+                        })()}
+                    </div>
                     {user.profile?.full_name && (
                         <p className="text-sm text-muted-foreground">{user.profile.full_name}</p>
                     )}

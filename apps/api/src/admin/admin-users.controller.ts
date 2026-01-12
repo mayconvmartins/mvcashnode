@@ -77,7 +77,7 @@ export class AdminUsersController {
     @Query('email') email?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number
-  ) {
+  ): Promise<any[]> {
     try {
       const where: any = {};
       
@@ -94,6 +94,12 @@ export class AdminUsersController {
         include: {
           profile: true,
           roles: true,
+          subscriptions: {
+            where: { status: 'ACTIVE' },
+            include: { plan: true },
+            take: 1,
+            orderBy: { created_at: 'desc' },
+          },
         },
         orderBy: {
           created_at: 'desc',
@@ -121,6 +127,7 @@ export class AdminUsersController {
         profile: user.profile,
         created_at: user.created_at,
         updated_at: user.updated_at,
+        subscription: user.subscriptions?.[0] || null,
       }));
     } catch (error: any) {
       throw new BadRequestException('Erro ao listar usuários');
@@ -160,13 +167,19 @@ export class AdminUsersController {
       }
     }
   })
-  async getOne(@Param('id', ParseIntPipe) id: number) {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<any> {
     try {
       const user = await this.adminService.getDomainUserService().getUserById(id);
       
       if (!user) {
         throw new NotFoundException('Usuário não encontrado');
       }
+
+      const activeSubscription = await this.prisma.subscription.findFirst({
+        where: { user_id: id, status: 'ACTIVE' },
+        include: { plan: true },
+        orderBy: { created_at: 'desc' },
+      });
 
       return {
         id: user.id,
@@ -177,6 +190,7 @@ export class AdminUsersController {
         profile: user.profile,
         created_at: user.created_at,
         updated_at: user.updated_at,
+        subscription: activeSubscription || null,
       };
     } catch (error: any) {
       if (error instanceof NotFoundException) {

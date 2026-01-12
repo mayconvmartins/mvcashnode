@@ -97,11 +97,17 @@ export class AdminSubscribersController {
   @ApiOperation({ summary: 'Obter detalhes de um assinante' })
   @ApiParam({ name: 'id', type: 'number' })
   @ApiResponse({ status: 200, description: 'Detalhes do assinante' })
-  async get(@Param('id', ParseIntPipe) id: number) {
+  async get(@Param('id', ParseIntPipe) id: number): Promise<any> {
     const user = await this.prisma.user.findUnique({
       where: { id },
       include: {
         roles: true,
+        subscriptions: {
+          where: { status: 'ACTIVE' },
+          include: { plan: true },
+          take: 1,
+          orderBy: { created_at: 'desc' },
+        },
       },
     });
 
@@ -131,6 +137,8 @@ export class AdminSubscribersController {
 
     return {
       ...user,
+      subscription: user.subscriptions?.[0] || null,
+      subscriptions: undefined,
       subscriber_profile: subscriberProfile ? {
         ...subscriberProfile,
         cpf: decryptedCpf,
@@ -160,7 +168,7 @@ export class AdminSubscribersController {
         address_zipcode?: string;
       };
     }
-  ) {
+  ): Promise<any> {
     const user = await this.prisma.user.findUnique({
       where: { id },
       include: { roles: true },

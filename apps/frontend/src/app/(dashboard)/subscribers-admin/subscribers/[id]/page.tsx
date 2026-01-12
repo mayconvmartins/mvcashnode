@@ -89,6 +89,11 @@ export default function SubscriberDetailsPage() {
     );
   }
 
+  const isMvmPay =
+    subscriber.subscription?.payment_method === 'MVM_PAY' ||
+    !!subscriber.subscription?.plan?.mvm_pay_plan_id_monthly ||
+    !!subscriber.subscription?.plan?.mvm_pay_plan_id_quarterly;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -200,17 +205,20 @@ export default function SubscriberDetailsPage() {
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Status</span>
-                  <Badge
-                    variant={
-                      subscriber.subscription.status === 'ACTIVE'
-                        ? 'default'
-                        : subscriber.subscription.status === 'EXPIRED'
-                        ? 'destructive'
-                        : 'secondary'
-                    }
-                  >
-                    {subscriber.subscription.status}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={
+                        subscriber.subscription.status === 'ACTIVE'
+                          ? 'default'
+                          : subscriber.subscription.status === 'EXPIRED'
+                          ? 'destructive'
+                          : 'secondary'
+                      }
+                    >
+                      {subscriber.subscription.status}
+                    </Badge>
+                    {isMvmPay && <Badge variant="secondary">MvM Pay</Badge>}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between">
