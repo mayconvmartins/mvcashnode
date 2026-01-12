@@ -99,7 +99,9 @@ export class CronManagementService implements OnModuleInit {
 
       try {
         const repeatableJobs = await queue.getRepeatableJobs();
+        const bullName = this.getBullMQJobName(job.name) || job.name;
         const exists = repeatableJobs.some((rj) => {
+          if (rj.name && rj.name === bullName) return true;
           if (rj.id && (rj.id === job.job_id || rj.id.includes(job.job_id))) return true;
           if (rj.key && rj.key.includes(job.job_id)) return true;
           return false;
@@ -734,8 +736,9 @@ export class CronManagementService implements OnModuleInit {
     if (!queue) return;
 
     try {
+      const bullName = this.getBullMQJobName(job.name) || job.name;
       await queue.add(
-        job.name,
+        bullName,
         {},
         {
           repeat: { every: job.interval_ms },
@@ -744,7 +747,7 @@ export class CronManagementService implements OnModuleInit {
           removeOnFail: false,
         },
       );
-      console.log(`[Cron] Job ${job.name} retomado no BullMQ`);
+      console.log(`[Cron] Job ${job.name} retomado no BullMQ (name=${bullName}, jobId=${job.job_id})`);
     } catch (error) {
       console.error(`[Cron] Erro ao retomar job ${job.name}:`, error);
     }
@@ -774,8 +777,9 @@ export class CronManagementService implements OnModuleInit {
       }
 
       // Adiciona com novo intervalo
+      const bullName = this.getBullMQJobName(job.name) || job.name;
       await queue.add(
-        job.name,
+        bullName,
         {},
         {
           repeat: { every: newIntervalMs },
@@ -784,7 +788,7 @@ export class CronManagementService implements OnModuleInit {
           removeOnFail: false,
         },
       );
-      console.log(`[Cron] Job ${job.name} reagendado com intervalo ${newIntervalMs}ms`);
+      console.log(`[Cron] Job ${job.name} reagendado com intervalo ${newIntervalMs}ms (name=${bullName}, jobId=${job.job_id})`);
     } catch (error) {
       console.error(`[Cron] Erro ao reagendar job ${job.name}:`, error);
     }

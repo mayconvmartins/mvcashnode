@@ -39,13 +39,15 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
       // Performance: reiniciar se usar mais de 1GB RAM por instância
-      max_memory_restart: '2G',
+      // VPS 64GB: permitir mais memória por worker para reduzir restarts (PM2 max-memory-restart)
+      max_memory_restart: '12G',
       // Graceful shutdown
       kill_timeout: 5000,
       wait_ready: true,
       listen_timeout: 10000,
       // Node.js flags para performance
-      node_args: '--max-old-space-size=1024',
+      // Aumentar heap do Node (old space) para aguentar rotas pesadas e cargas maiores
+      node_args: '--max-old-space-size=8128',
     },
     {
       name: 'mvcashnode-executor',
@@ -64,15 +66,15 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      // Reiniciar se usar mais de 2GB RAM (reduzido de 4GB)
-      max_memory_restart: '2048M',
+      // VPS 64GB: executor pode usar mais memória sem restart agressivo
+      max_memory_restart: '4G',
       // Reiniciar diariamente às 3h da manhã para liberar recursos
       cron_restart: '0 3 * * *',
       // Graceful shutdown - mais tempo para finalizar trades em andamento
       kill_timeout: 30000,
       // Node.js flags para otimizar CPU e memória
       node_args: [
-        '--max-old-space-size=1536',
+        '--max-old-space-size=3072',
         '--gc-interval=100',
         '--optimize-for-size'
       ].join(' '),
@@ -98,15 +100,15 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      // Reiniciar se usar mais de 2GB RAM (reduzido de 4GB)
-      max_memory_restart: '2048M',
+      // VPS 64GB: monitors pode usar mais memória sem restart agressivo
+      max_memory_restart: '8G',
       // Reiniciar diariamente às 4h da manhã para liberar recursos
       cron_restart: '0 4 * * *',
       // Graceful shutdown
       kill_timeout: 30000, // 30s para finalizar jobs em andamento
       // Node.js flags para otimizar CPU e memória
       node_args: [
-        '--max-old-space-size=1536',
+        '--max-old-space-size=63072',
         '--gc-interval=100',
         '--optimize-for-size'
       ].join(' '),
@@ -136,8 +138,15 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '2G',
+      max_memory_restart: '3G',
       kill_timeout: 5000,
+      // Next roda via pnpm, então usamos NODE_OPTIONS para aumentar heap
+      env: {
+        NODE_ENV: 'production',
+        PORT: '5010',
+        NEXT_PUBLIC_SITE_MODE: 'app',
+        NODE_OPTIONS: '--max-old-space-size=2048',
+      },
     },
     // Site removido - agora é servido estaticamente pelo nginx
     // Build: cd apps/site && pnpm build
@@ -158,7 +167,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
-      max_memory_restart: '1512M',
+      max_memory_restart: '2G',
     },
   ],
 };

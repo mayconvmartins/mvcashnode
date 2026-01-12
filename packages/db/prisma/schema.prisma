@@ -989,6 +989,34 @@ model RegistrationToken {
 }
 
 // ============================================
+// MVM PAY LOGS
+// ============================================
+
+model MvmPayLog {
+  id           Int      @id @default(autoincrement())
+  level        String   @default("INFO") @db.VarChar(10) // INFO | WARN | ERROR | DEBUG
+  source       String   @db.VarChar(20) // API | SYNC | ADMIN | WEBHOOK
+  action       String?  @db.VarChar(50) // request | response | sync_start | sync_end | error
+  method       String?  @db.VarChar(10)
+  path         String?  @db.VarChar(255)
+  status_code  Int?
+  duration_ms  Int?
+  email        String?  @db.VarChar(255)
+  request_json Json?    @db.Json
+  response_json Json?   @db.Json
+  error_message String? @db.Text
+  created_at   DateTime @default(now())
+
+  @@index([created_at])
+  @@index([level])
+  @@index([source])
+  @@index([path])
+  @@index([status_code])
+  @@index([email])
+  @@map("mvm_pay_logs")
+}
+
+// ============================================
 // SYSTEM SETTINGS
 // ============================================
 
