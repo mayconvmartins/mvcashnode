@@ -29,6 +29,23 @@ export class CcxtLogsController {
     this.logPath = process.env.CCXT_LOG_PATH || path.join(process.cwd(), 'logs', 'ccxt.log');
   }
 
+  private readTail(filePath: string, maxBytes: number): string {
+    const stat = fs.statSync(filePath);
+    if (stat.size <= 0) return '';
+
+    const bytesToRead = Math.min(stat.size, maxBytes);
+    const start = Math.max(0, stat.size - bytesToRead);
+
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(bytesToRead);
+      fs.readSync(fd, buf, 0, bytesToRead, start);
+      return buf.toString('utf-8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
   @Get()
   @ApiOperation({
     summary: 'Listar logs do CCXT (sanitizados)',
@@ -42,8 +59,13 @@ export class CcxtLogsController {
       return { entries: [] };
     }
 
-    const content = fs.readFileSync(this.logPath, 'utf-8').trim();
-    if (!content) return { entries: [] };
+    // Nunca ler o arquivo inteiro (pode ser enorme e estourar memória/ERR_STRING_TOO_LONG)
+    // Lemos apenas o tail (até 2MB), suficiente para montar as últimas linhas.
+    const raw = this.readTail(this.logPath, 2 * 1024 * 1024);
+    const content = raw.trim();
+    if (!content) {
+      return { entries: [] };
+    }
 
     const split = content.split('\n');
     const slice = split.slice(-totalLines);

@@ -63,6 +63,9 @@ import { PrismaService } from '@mvcashnode/db';
       name: 'positions-sync-exchange',
     }),
     BullModule.registerQueue({
+      name: 'transfi-sync',
+    }),
+    BullModule.registerQueue({
       name: 'mvm-pay-sync',
     }),
   ],

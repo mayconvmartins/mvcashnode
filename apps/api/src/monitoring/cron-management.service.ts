@@ -29,6 +29,7 @@ export class CronManagementService implements OnModuleInit {
     @InjectQueue('positions-sync-quantity') private positionsSyncQuantityQueue: Queue,
     @InjectQueue('positions-sync-fees') private positionsSyncFeesQueue: Queue,
     @InjectQueue('positions-sync-exchange') private positionsSyncExchangeQueue: Queue,
+    @InjectQueue('transfi-sync') private transfiSyncQueue: Queue,
     @InjectQueue('mvm-pay-sync') private mvmPaySyncQueue: Queue,
   ) {}
 
@@ -53,6 +54,7 @@ export class CronManagementService implements OnModuleInit {
       'positions-sync-quantity': this.positionsSyncQuantityQueue,
       'positions-sync-fees': this.positionsSyncFeesQueue,
       'positions-sync-exchange': this.positionsSyncExchangeQueue,
+      'transfi-sync': this.transfiSyncQueue,
       'mvm-pay-sync': this.mvmPaySyncQueue,
     };
   }
@@ -79,9 +81,37 @@ export class CronManagementService implements OnModuleInit {
       'positions-sync-quantity': 'sync-quantity',
       'positions-sync-fees': 'sync-fees',
       'positions-sync-exchange': 'sync-exchange',
+      'transfi-sync': 'sync-transfi-payments',
       'mvm-pay-sync': 'sync-mvm-pay-users',
     };
     return nameMap[jobName] || null;
+  }
+
+  private async ensureRepeatableJobsForActiveConfigs(): Promise<void> {
+    const queueMap = this.getQueueMap();
+    const active = await this.prisma.cronJobConfig.findMany({
+      where: { enabled: true, status: CronJobStatus.ACTIVE },
+    });
+
+    for (const job of active) {
+      const queue = queueMap[job.queue_name];
+      if (!queue) continue;
+
+      try {
+        const repeatableJobs = await queue.getRepeatableJobs();
+        const exists = repeatableJobs.some((rj) => {
+          if (rj.id && (rj.id === job.job_id || rj.id.includes(job.job_id))) return true;
+          if (rj.key && rj.key.includes(job.job_id)) return true;
+          return false;
+        });
+
+        if (!exists) {
+          await this.resumeJobInBullMQ(job);
+        }
+      } catch (err) {
+        console.error(`[Cron] Erro ao garantir job repetitivo ${job.name}:`, err);
+      }
+    }
   }
 
   /**
@@ -442,27 +472,35 @@ export class CronManagementService implements OnModuleInit {
    * Calcula estatísticas de um job
    */
   private async getJobStatistics(jobConfigId: number): Promise<any> {
-    const executions = await this.prisma.cronJobExecution.findMany({
+    // Evitar carregar todas as execuções (pode ficar gigantesco e deixar o endpoint /cron/jobs lento)
+    const total_runs = await this.prisma.cronJobExecution.count({
       where: { job_config_id: jobConfigId },
     });
 
-    const total_runs = executions.length;
-    const success_count = executions.filter((e) => e.status === CronExecutionStatus.SUCCESS).length;
-    const failure_count = executions.filter((e) => e.status === CronExecutionStatus.FAILED).length;
+    const byStatus = await this.prisma.cronJobExecution.groupBy({
+      by: ['status'],
+      where: { job_config_id: jobConfigId },
+      _count: { _all: true },
+    });
 
-    const completedExecutions = executions.filter((e) => e.duration_ms !== null);
-    const avg_duration_ms =
-      completedExecutions.length > 0
-        ? completedExecutions.reduce((sum, e) => sum + (e.duration_ms || 0), 0) / completedExecutions.length
-        : 0;
+    const success_count =
+      byStatus.find((s) => s.status === CronExecutionStatus.SUCCESS)?._count._all || 0;
+    const failure_count =
+      byStatus.find((s) => s.status === CronExecutionStatus.FAILED)?._count._all || 0;
 
+    const avgAgg = await this.prisma.cronJobExecution.aggregate({
+      where: { job_config_id: jobConfigId },
+      _avg: { duration_ms: true },
+    });
+
+    const avg_duration_ms = Math.round(avgAgg._avg.duration_ms || 0);
     const success_rate = total_runs > 0 ? (success_count / total_runs) * 100 : 0;
 
     return {
       total_runs,
       success_count,
       failure_count,
-      avg_duration_ms: Math.round(avg_duration_ms),
+      avg_duration_ms,
       success_rate: parseFloat(success_rate.toFixed(2)),
     };
   }
@@ -788,6 +826,8 @@ export class CronManagementService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     try {
       await this.initializeDefaultJobs();
+      // Garantir que jobs ativos/enabled existem no BullMQ (importante após restart/flush do Redis)
+      await this.ensureRepeatableJobsForActiveConfigs();
       console.log('[CronManagement] Jobs padrão inicializados automaticamente');
     } catch (error) {
       console.error('[CronManagement] Erro ao inicializar jobs padrão:', error);
