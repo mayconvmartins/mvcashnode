@@ -46,7 +46,7 @@ export default function SubscribersListPage() {
       render: (row: any) => {
         const sub = row.subscription;
         if (!sub) return <Badge variant="outline">Sem assinatura</Badge>;
-        const isMvmPay = sub.payment_method === 'MVM_PAY' || !!sub.plan?.mvm_pay_plan_id_monthly || !!sub.plan?.mvm_pay_plan_id_quarterly;
+        const isMvmPay = sub.origin_provider === 'mvm_pay';
         return (
           <div className="flex flex-col gap-1">
             <Badge

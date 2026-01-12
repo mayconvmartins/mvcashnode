@@ -44,7 +44,7 @@ export default function SubscriptionsPage() {
           EXPIRED: 'destructive',
           PENDING_PAYMENT: 'outline',
         };
-        const isMvmPay = row.payment_method === 'MVM_PAY' || !!row.plan?.mvm_pay_plan_id_monthly || !!row.plan?.mvm_pay_plan_id_quarterly;
+        const isMvmPay = row.origin_provider === 'mvm_pay';
         return (
           <div className="flex flex-col gap-1">
             <Badge variant={statusColors[row.status] || 'outline'}>

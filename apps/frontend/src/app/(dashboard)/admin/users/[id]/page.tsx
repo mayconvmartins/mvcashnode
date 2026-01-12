@@ -109,7 +109,7 @@ export default function UserDetailPage() {
                     </Badge>
                     {(() => {
                         const sub: any = (user as any).subscription
-                        const isMvmPay = sub?.payment_method === 'MVM_PAY' || !!sub?.plan?.mvm_pay_plan_id_monthly || !!sub?.plan?.mvm_pay_plan_id_quarterly
+                        const isMvmPay = sub?.origin_provider === 'mvm_pay'
                         return isMvmPay ? <Badge variant="secondary">MvM Pay</Badge> : null
                     })()}
                     {user.profile?.twofa_enabled && (

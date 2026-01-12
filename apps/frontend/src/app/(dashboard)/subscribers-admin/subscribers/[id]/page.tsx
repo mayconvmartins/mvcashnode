@@ -89,10 +89,7 @@ export default function SubscriberDetailsPage() {
     );
   }
 
-  const isMvmPay =
-    subscriber.subscription?.payment_method === 'MVM_PAY' ||
-    !!subscriber.subscription?.plan?.mvm_pay_plan_id_monthly ||
-    !!subscriber.subscription?.plan?.mvm_pay_plan_id_quarterly;
+  const isMvmPay = subscriber.subscription?.origin_provider === 'mvm_pay';
 
   return (
     <div className="space-y-6">

@@ -228,6 +228,7 @@ export class SubscriptionsService {
             end_date: null,
             auto_renew: false,
             payment_method: 'PIX',
+            origin_provider: 'native',
           },
         });
 
@@ -1031,6 +1032,7 @@ export class SubscriptionsService {
             end_date: endDate,
             auto_renew: false,
             payment_method: 'MVM_PAY',
+                origin_provider: 'mvm_pay',
           },
         });
       } else {
@@ -1043,6 +1045,7 @@ export class SubscriptionsService {
             end_date: endDate,
             auto_renew: false,
             payment_method: 'MVM_PAY',
+                origin_provider: 'mvm_pay',
           },
         });
       }

@@ -41,10 +41,7 @@ export default function AdminSubscribersPage() {
       render: (row: any) => {
         const sub = row.subscription;
         if (!sub) return 'N/A';
-        const isMvmPay =
-          sub.payment_method === 'MVM_PAY' ||
-          !!sub.plan?.mvm_pay_plan_id_monthly ||
-          !!sub.plan?.mvm_pay_plan_id_quarterly;
+        const isMvmPay = sub.origin_provider === 'mvm_pay';
         return (
           <div className="flex items-center gap-2">
             <Badge

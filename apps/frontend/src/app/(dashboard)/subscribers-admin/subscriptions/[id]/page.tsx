@@ -46,10 +46,7 @@ export default function SubscriptionDetailsPage() {
     PENDING_PAYMENT: 'outline',
   };
 
-  const isMvmPay =
-    subscription.payment_method === 'MVM_PAY' ||
-    !!subscription.plan?.mvm_pay_plan_id_monthly ||
-    !!subscription.plan?.mvm_pay_plan_id_quarterly;
+  const isMvmPay = subscription.origin_provider === 'mvm_pay';
 
   return (
     <div className="space-y-6">
