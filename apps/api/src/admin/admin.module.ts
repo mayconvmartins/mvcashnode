@@ -20,13 +20,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { BullModule } from '@nestjs/bullmq';
-import { MercadoPagoService } from '../subscriptions/mercadopago.service';
-import { TransFiService } from '../subscriptions/transfi.service';
-import { MvmPayService } from '../subscriptions/mvm-pay.service';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
   imports: [
     ConfigModule,
+    SubscriptionsModule,
     BullModule.registerQueue(
       { name: 'trade-execution-real' },
       { name: 'trade-execution-sim' }
@@ -53,9 +52,6 @@ import { MvmPayService } from '../subscriptions/mvm-pay.service';
     AdminService,
     PrismaService,
     TradeJobQueueService,
-    MercadoPagoService,
-    TransFiService,
-    MvmPayService,
     {
       provide: EncryptionService,
       useFactory: (configService: ConfigService) => {

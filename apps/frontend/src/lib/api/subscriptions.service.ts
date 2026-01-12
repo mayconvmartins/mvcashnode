@@ -128,4 +128,9 @@ export const subscriptionsService = {
     });
     return response.data;
   },
+
+  startMvmPayActivation: async (email: string): Promise<{ success: boolean; message: string; expires_at: string }> => {
+    const response = await apiClient.post('/subscriptions/mvm-pay/activate', { email });
+    return response.data;
+  },
 };

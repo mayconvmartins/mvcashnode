@@ -970,6 +970,25 @@ model MvmPayConfig {
 }
 
 // ============================================
+// REGISTRATION TOKENS (MVM PAY ACTIVATION LINK)
+// ============================================
+
+model RegistrationToken {
+  id         Int      @id @default(autoincrement())
+  email      String   @db.VarChar(255)
+  token_hash String   @unique @db.VarChar(64) // sha256 hex
+  purpose    String   @default("MVM_PAY_ACTIVATION") @db.VarChar(50)
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime @default(now())
+
+  @@index([email])
+  @@index([purpose])
+  @@index([expires_at])
+  @@map("registration_tokens")
+}
+
+// ============================================
 // SYSTEM SETTINGS
 // ============================================
 

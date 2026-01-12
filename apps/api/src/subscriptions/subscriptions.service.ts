@@ -922,7 +922,7 @@ export class SubscriptionsService {
    * Finaliza registro do assinante após pagamento
    */
   async completeRegistration(token: string, password: string, email?: string) {
-    // Se o provider for MvM Pay, não usamos token (fluxo por email + validação no MvM Pay)
+    // Se o provider for MvM Pay, exigimos token (24h, uso único) para provar posse do email
     const providerSetting = await this.prisma.systemSetting.findUnique({
       where: { key: 'subscription_provider' },
     });
@@ -931,6 +931,27 @@ export class SubscriptionsService {
     if (provider === 'mvm_pay') {
       if (!email) {
         throw new BadRequestException('Email é obrigatório para finalizar cadastro via MvM Pay');
+      }
+      if (!token) {
+        throw new BadRequestException('Token é obrigatório para finalizar cadastro via MvM Pay');
+      }
+
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const regToken = await this.prisma.registrationToken.findUnique({
+        where: { token_hash: tokenHash },
+      });
+
+      if (!regToken || regToken.purpose !== 'MVM_PAY_ACTIVATION') {
+        throw new BadRequestException('Token inválido');
+      }
+      if (regToken.used_at) {
+        throw new BadRequestException('Token já utilizado');
+      }
+      if (regToken.expires_at.getTime() < Date.now()) {
+        throw new BadRequestException('Token expirado');
+      }
+      if (regToken.email.toLowerCase() !== email.toLowerCase()) {
+        throw new BadRequestException('Token não corresponde ao email informado');
       }
 
       const access = await this.mvmPayService.authAccess(email);
@@ -1020,6 +1041,12 @@ export class SubscriptionsService {
           },
         });
       }
+
+      // Consumir token (uso único)
+      await this.prisma.registrationToken.update({
+        where: { token_hash: tokenHash },
+        data: { used_at: new Date() },
+      });
 
       return {
         message: 'Cadastro concluído com sucesso',
@@ -1122,6 +1149,67 @@ export class SubscriptionsService {
       message: 'Registro concluído com sucesso',
       user_id: user.id,
       email: user.email,
+    };
+  }
+
+  async startMvmPayActivation(
+    email: string,
+    opts?: { returnLink?: boolean },
+  ): Promise<{ success: true; message: string; activation_url?: string; expires_at: string }> {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new BadRequestException('Email é obrigatório');
+    }
+
+    const access = await this.mvmPayService.authAccess(normalizedEmail);
+    const hasAccess = !!access?.data?.has_access;
+    if (!hasAccess) {
+      throw new BadRequestException('Assinatura ativa necessária para ativar a conta');
+    }
+
+    // Token 24h / uso único
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await this.prisma.registrationToken.create({
+      data: {
+        email: normalizedEmail,
+        token_hash: tokenHash,
+        purpose: 'MVM_PAY_ACTIVATION',
+        expires_at: expiresAt,
+      },
+    });
+
+    const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
+    const activationUrl = `${baseUrl}/subscribe/register?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(normalizedEmail)}`;
+
+    // Enviar email se SMTP configurado
+    if (this.emailService) {
+      try {
+        const subject = 'Ative sua conta - MVCash';
+        const html = `
+          <div style="font-family: Arial, sans-serif; line-height: 1.5">
+            <h2>Ativação de conta</h2>
+            <p>Recebemos sua assinatura no MvM Pay. Para criar sua senha e acessar o MVCash, clique no link abaixo:</p>
+            <p><a href="${activationUrl}" target="_blank" rel="noreferrer">Ativar minha conta</a></p>
+            <p>Este link expira em 24 horas e pode ser usado apenas uma vez.</p>
+          </div>
+        `;
+        await this.emailService.sendEmail(normalizedEmail, subject, html);
+      } catch (err) {
+        // não bloquear o fluxo (admin pode copiar link / usuário pode tentar novamente)
+        this.logger.warn(`Falha ao enviar email de ativação para ${normalizedEmail}`);
+      }
+    }
+
+    return {
+      success: true,
+      message: this.emailService
+        ? 'Link de ativação enviado por email'
+        : 'Link de ativação gerado (SMTP não configurado)',
+      ...(opts?.returnLink ? { activation_url: activationUrl } : {}),
+      expires_at: expiresAt.toISOString(),
     };
   }
 

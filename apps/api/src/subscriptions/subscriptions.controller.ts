@@ -200,6 +200,13 @@ export class SubscriptionsController {
     return this.subscriptionsService.completeRegistration(dto.token || '', dto.password, dto.email);
   }
 
+  @Post('mvm-pay/activate')
+  @ApiOperation({ summary: 'Iniciar ativação (MvM Pay) - envia link por email' })
+  @ApiResponse({ status: 200, description: 'Link de ativação gerado/enviado' })
+  async startMvmPayActivation(@Body() dto: { email: string }) {
+    return this.subscriptionsService.startMvmPayActivation(dto.email);
+  }
+
   @Post('webhooks/mercadopago')
   @ApiOperation({ summary: 'Webhook do Mercado Pago para notificações de pagamento' })
   @ApiResponse({ status: 200, description: 'Webhook processado' })

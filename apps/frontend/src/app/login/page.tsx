@@ -17,6 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import Link from 'next/link'
 import { startAuthentication } from '@simplewebauthn/browser'
 import { markLoginTime } from '@/components/auth/PostLoginPrompts'
+import { subscriptionsService } from '@/lib/api/subscriptions.service'
 
 function LoginPageContent() {
     const router = useRouter()
@@ -27,6 +28,7 @@ function LoginPageContent() {
     const [showPassword, setShowPassword] = useState(false)
     const [twoFactorCode, setTwoFactorCode] = useState('')
     const [error, setError] = useState('')
+    const [showMvmActivationCta, setShowMvmActivationCta] = useState(false)
     const [requires2FA, setRequires2FA] = useState(false)
     const [sessionToken, setSessionToken] = useState<string | null>(null)
     const [requiresPasswordChange, setRequiresPasswordChange] = useState(false)
@@ -218,8 +220,17 @@ function LoginPageContent() {
             }
             
             setError(errorMessage)
+            setShowMvmActivationCta(errorMessage.includes('Conta não ativada'))
             toast.error(errorMessage)
         },
+    })
+
+    const activationMutation = useMutation({
+        mutationFn: async () => subscriptionsService.startMvmPayActivation(email),
+        onSuccess: (data: any) => {
+            toast.success(data?.message || 'Link de ativação enviado')
+        },
+        onError: (e: any) => toast.error(e?.response?.data?.message || 'Erro ao enviar link de ativação'),
     })
 
     const passkeyMutation = useMutation({
@@ -567,6 +578,25 @@ function LoginPageContent() {
                                         'Entrar'
                                     )}
                                 </Button>
+
+                                {showMvmActivationCta && email && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="w-full border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10"
+                                        onClick={() => activationMutation.mutate()}
+                                        disabled={activationMutation.isPending || isPending}
+                                    >
+                                        {activationMutation.isPending ? (
+                                            <>
+                                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                Enviando link...
+                                            </>
+                                        ) : (
+                                            'Ativar conta'
+                                        )}
+                                    </Button>
+                                )}
 
                                 {/* Passkey hint */}
                                 {isPasskeySupported && !hasPasskeys && email && !isConditionalUISupported && (

@@ -27,6 +27,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@mvcashnode/shared';
 import * as bcrypt from 'bcrypt';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 @ApiTags('Admin - Subscribers')
 @Controller('admin/subscribers')
@@ -38,7 +39,8 @@ export class AdminSubscribersController {
 
   constructor(
     private prisma: PrismaService,
-    private encryptionService: EncryptionService
+    private encryptionService: EncryptionService,
+    private subscriptionsService: SubscriptionsService,
   ) {}
 
   @Get()
@@ -274,6 +276,24 @@ export class AdminSubscribersController {
         must_change_password: body.must_change_password ?? false,
       },
     });
+  }
+
+  @Post(':id/mvm-pay/activation-link')
+  @ApiOperation({ summary: 'Gerar link de ativação (MvM Pay) para copiar e enviar ao assinante' })
+  @ApiParam({ name: 'id', type: 'number' })
+  @ApiResponse({ status: 200, description: 'Link de ativação gerado' })
+  async generateMvmPayActivationLink(@Param('id', ParseIntPipe) id: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    // Delegar para o mesmo fluxo público, mas retornando o link (admin pode copiar)
+    return this.subscriptionsService.startMvmPayActivation(user.email, { returnLink: true });
   }
 
   @Get(':id/parameters')

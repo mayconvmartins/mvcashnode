@@ -70,6 +70,27 @@ export default function SubscriberDetailsPage() {
     },
   });
 
+  const activationLinkMutation = useMutation({
+    mutationFn: () => adminService.generateMvmPayActivationLinkForSubscriber(subscriberId),
+    onSuccess: async (data: any) => {
+      const url = data?.activation_url;
+      if (!url) {
+        toast.success(data?.message || 'Link gerado');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(url);
+        toast.success('Link de ativação copiado para a área de transferência');
+      } catch {
+        toast.success('Link gerado. Copie manualmente abaixo:');
+        prompt('Link de ativação (copie):', url);
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.message || 'Erro ao gerar link de ativação');
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -88,6 +109,8 @@ export default function SubscriberDetailsPage() {
       </div>
     );
   }
+
+  const isMvmPay = subscriber.subscription?.payment_method === 'MVM_PAY' || !!subscriber.subscription?.plan?.mvm_pay_plan_id;
 
   return (
     <div className="space-y-6">
@@ -199,6 +222,11 @@ export default function SubscriberDetailsPage() {
             {subscriber.subscription ? (
               <>
                 <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Fonte</span>
+                  {isMvmPay ? <Badge variant="secondary">MvM Pay</Badge> : <Badge variant="outline">Nativo</Badge>}
+                </div>
+
+                <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Status</span>
                   <Badge
                     variant={
@@ -215,9 +243,12 @@ export default function SubscriberDetailsPage() {
 
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Plano</span>
-                  <span className="font-medium">
-                    {subscriber.subscription.plan?.name}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{subscriber.subscription.plan?.name}</span>
+                    {subscriber.subscription.plan?.mvm_pay_plan_id ? (
+                      <Badge variant="outline">ID MvM {subscriber.subscription.plan.mvm_pay_plan_id}</Badge>
+                    ) : null}
+                  </div>
                 </div>
 
                 {subscriber.subscription.end_date && (
@@ -293,6 +324,23 @@ export default function SubscriberDetailsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
+            {isMvmPay && (
+              <Button
+                variant="outline"
+                onClick={() => activationLinkMutation.mutate()}
+                disabled={activationLinkMutation.isPending}
+              >
+                {activationLinkMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Gerando link...
+                  </>
+                ) : (
+                  'Copiar link de ativação (MvM Pay)'
+                )}
+              </Button>
+            )}
+
             <AlertDialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
               <AlertDialogTrigger asChild>
                 <Button variant="outline">Trocar Senha</Button>

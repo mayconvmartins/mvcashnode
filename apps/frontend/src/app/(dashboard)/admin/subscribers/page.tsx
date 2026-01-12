@@ -41,18 +41,26 @@ export default function AdminSubscribersPage() {
       render: (row: any) => {
         const sub = row.subscription;
         if (!sub) return 'N/A';
+        const isMvmPay = sub.payment_method === 'MVM_PAY' || !!sub.plan?.mvm_pay_plan_id;
         return (
-          <Badge
-            variant={
-              sub.status === 'ACTIVE'
-                ? 'default'
-                : sub.status === 'EXPIRED'
-                ? 'destructive'
-                : 'secondary'
-            }
-          >
-            {sub.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={
+                sub.status === 'ACTIVE'
+                  ? 'default'
+                  : sub.status === 'EXPIRED'
+                  ? 'destructive'
+                  : 'secondary'
+              }
+            >
+              {sub.status}
+            </Badge>
+            {isMvmPay ? (
+              <Badge variant="secondary">MvM Pay</Badge>
+            ) : (
+              <Badge variant="outline">Nativo</Badge>
+            )}
+          </div>
         );
       },
     },

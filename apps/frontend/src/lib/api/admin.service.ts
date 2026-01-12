@@ -890,6 +890,11 @@ export const adminService = {
         return response.data
     },
 
+    generateMvmPayActivationLinkForSubscriber: async (subscriberId: number): Promise<{ success: boolean; message: string; activation_url?: string; expires_at: string }> => {
+        const response = await apiClient.post(`/admin/subscribers/${subscriberId}/mvm-pay/activation-link`)
+        return response.data
+    },
+
     // Email Management
     getEmailHistory: async (filters?: {
         page?: number;

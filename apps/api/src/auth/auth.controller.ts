@@ -116,6 +116,33 @@ export class AuthController {
       const errorMessage = error?.message || 'Erro ao realizar login';
       
       if (errorMessage.includes('Invalid credentials') || errorMessage.includes('credenciais')) {
+        // Se estiver em modo MvM Pay e o usuário ainda não ativou a conta (sem senha),
+        // mostramos instrução de ativação (CTA no frontend).
+        try {
+          const providerSetting = await this.prisma.systemSetting.findUnique({
+            where: { key: 'subscription_provider' },
+          });
+          const provider = providerSetting?.value || 'native';
+
+          if (provider === 'mvm_pay') {
+            const u = await this.prisma.user.findUnique({
+              where: { email: loginDto.email },
+              select: { must_change_password: true },
+            });
+
+            if (!u || u.must_change_password) {
+              const access = await this.mvmPayService.authAccess(loginDto.email);
+              const hasAccess = !!access?.data?.has_access;
+              if (hasAccess) {
+                throw new UnauthorizedException(
+                  'Conta não ativada. Clique em “Ativar conta” para criar sua senha.',
+                );
+              }
+            }
+          }
+        } catch {
+          // se falhar a checagem externa, manter erro padrão
+        }
         throw new UnauthorizedException('Email ou senha inválidos');
       }
       
