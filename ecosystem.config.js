@@ -6,7 +6,7 @@
  * - API: 8 instâncias (cluster mode) - Alta demanda de requisições
  * - Frontend: 4 instâncias (cluster mode) - SSR e renderização
  * - Executor: 1 instância (fork) - Worker único para execução de trades
- * - Monitors: 1 instância (fork) - Worker único para jobs agendados
+ * - Monitors: 4 instâncias (cluster mode) - Workers BullMQ (mais CPU para filas)
  * - Site: Servido estaticamente pelo nginx (não precisa de PM2)
  * - Backup: 1 instância (fork) - Worker único para backups
  * Total: ~15 instâncias, deixando margem para o SO e MySQL/Redis
@@ -86,9 +86,10 @@ module.exports = {
     {
       name: 'mvcashnode-monitors',
       script: './apps/monitors/dist/main.js',
-      // Fork mode - monitors devem ser únicos para evitar jobs duplicados
-      instances: 1,
-      exec_mode: 'fork',
+      // BullMQ não duplica jobs: vários workers consomem da mesma fila e cada job roda em apenas 1 worker.
+      // Isso permite escalar CPU aqui com segurança.
+      instances: 4,
+      exec_mode: 'cluster',
       env: {
         NODE_ENV: 'production',
         LOG_LEVEL: 'info', // Reduzir logs desnecessários
@@ -108,7 +109,8 @@ module.exports = {
       kill_timeout: 30000, // 30s para finalizar jobs em andamento
       // Node.js flags para otimizar CPU e memória
       node_args: [
-        '--max-old-space-size=63072',
+        // Evitar heap gigantesco por processo; com 4 instâncias, isso já dá bastante memória total
+        '--max-old-space-size=4096',
         '--gc-interval=100',
         '--optimize-for-size'
       ].join(' '),
