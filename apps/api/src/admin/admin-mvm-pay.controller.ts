@@ -92,7 +92,7 @@ export class AdminMvmPayController {
 
         // Só atualiza o secret se foi fornecido (e não for placeholder)
         if (body.api_secret && body.api_secret.trim() !== '' && body.api_secret !== 'KEEP') {
-          updateData.api_secret_enc = await this.encryptionService.encrypt(body.api_secret);
+          updateData.api_secret_enc = await this.encryptionService.encrypt(body.api_secret.trim());
         }
 
         return this.prisma.mvmPayConfig.update({
@@ -105,7 +105,7 @@ export class AdminMvmPayController {
         throw new BadRequestException('api_secret é obrigatório para criar a configuração');
       }
 
-      const apiSecretEnc = await this.encryptionService.encrypt(body.api_secret);
+      const apiSecretEnc = await this.encryptionService.encrypt(body.api_secret.trim());
       return this.prisma.mvmPayConfig.create({
         data: {
           base_url: body.base_url.trim(),

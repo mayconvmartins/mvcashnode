@@ -104,6 +104,15 @@ export default function SubscriptionDetailsPage() {
     PENDING_PAYMENT: 'outline',
   };
 
+  const isMvmPay = subscription.payment_method === 'MVM_PAY' || !!subscription.plan?.mvm_pay_plan_id;
+  const paymentMethodLabel = (method?: string) => {
+    if (!method) return 'N/A';
+    if (method === 'MVM_PAY') return 'MvM Pay';
+    if (method === 'CARD') return 'Cartão';
+    if (method === 'PIX') return 'PIX';
+    return method;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -123,6 +132,11 @@ export default function SubscriptionDetailsPage() {
             <CardTitle>Informações da Assinatura</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Fonte</span>
+              {isMvmPay ? <Badge variant="secondary">MvM Pay</Badge> : <Badge variant="outline">Nativo</Badge>}
+            </div>
+
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Status</span>
               <Badge variant={statusColors[subscription.status] || 'outline'}>
@@ -177,7 +191,7 @@ export default function SubscriptionDetailsPage() {
                 <div className="flex items-center gap-2">
                   <CreditCard className="h-4 w-4" />
                   <span>
-                    {subscription.payment_method === 'CARD' ? 'Cartão' : 'PIX'}
+                    {paymentMethodLabel(subscription.payment_method)}
                   </span>
                 </div>
               </div>

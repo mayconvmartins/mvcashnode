@@ -95,7 +95,7 @@ export class MvmPayService {
 
     if (!cfg) return null;
 
-    const apiSecret = await this.encryptionService.decrypt(cfg.api_secret_enc);
+    const apiSecret = (await this.encryptionService.decrypt(cfg.api_secret_enc)).trim();
     return {
       baseUrl: cfg.base_url,
       checkoutUrl: cfg.checkout_url,
@@ -145,10 +145,16 @@ export class MvmPayService {
       ...(opts.method === 'GET' ? {} : { body }),
     });
 
-    const json = (await res.json().catch(() => null)) as T | null;
+    const text = await res.text();
+    const json = (text ? (JSON.parse(text) as T) : null) as T | null;
     if (!res.ok) {
-      this.logger.warn(`MvM Pay error (${res.status})`, { path: opts.path, body: opts.bodyObj });
-      throw new BadRequestException('Erro ao comunicar com MvM Pay');
+      this.logger.warn(`MvM Pay error (${res.status})`, {
+        path: opts.path,
+        query: opts.query,
+        body: opts.bodyObj,
+        responseText: text?.slice(0, 2000),
+      });
+      throw new BadRequestException(`Erro ao comunicar com MvM Pay (HTTP ${res.status})`);
     }
     if (!json) throw new BadRequestException('Resposta inválida do MvM Pay');
     return json;
