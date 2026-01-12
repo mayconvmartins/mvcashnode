@@ -30,7 +30,8 @@ const planSchema = z.object({
   is_active: z.boolean(),
   features_json: z.any().optional(),
   max_exchange_accounts: z.union([z.number().min(1), z.null()]).optional(),
-  mvm_pay_plan_id: z.union([z.number().min(1), z.null()]).optional(),
+  mvm_pay_plan_id_monthly: z.union([z.number().min(1), z.null()]).optional(),
+  mvm_pay_plan_id_quarterly: z.union([z.number().min(1), z.null()]).optional(),
 });
 
 type PlanFormData = z.infer<typeof planSchema>;
@@ -64,7 +65,14 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
       is_active: plan?.is_active !== undefined ? Boolean(plan.is_active) : true,
       features_json: plan?.features_json || [],
       max_exchange_accounts: plan?.max_exchange_accounts !== undefined && plan?.max_exchange_accounts !== null ? Number(plan.max_exchange_accounts) : null,
-      mvm_pay_plan_id: plan?.mvm_pay_plan_id !== undefined && plan?.mvm_pay_plan_id !== null ? Number(plan.mvm_pay_plan_id) : null,
+      mvm_pay_plan_id_monthly:
+        plan?.mvm_pay_plan_id_monthly !== undefined && plan?.mvm_pay_plan_id_monthly !== null
+          ? Number(plan.mvm_pay_plan_id_monthly)
+          : null,
+      mvm_pay_plan_id_quarterly:
+        plan?.mvm_pay_plan_id_quarterly !== undefined && plan?.mvm_pay_plan_id_quarterly !== null
+          ? Number(plan.mvm_pay_plan_id_quarterly)
+          : null,
     },
   });
 
@@ -79,7 +87,14 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
         is_active: plan.is_active !== undefined ? Boolean(plan.is_active) : true,
         features_json: plan.features_json || [],
         max_exchange_accounts: plan.max_exchange_accounts !== undefined && plan.max_exchange_accounts !== null ? Number(plan.max_exchange_accounts) : null,
-        mvm_pay_plan_id: plan.mvm_pay_plan_id !== undefined && plan.mvm_pay_plan_id !== null ? Number(plan.mvm_pay_plan_id) : null,
+        mvm_pay_plan_id_monthly:
+          plan.mvm_pay_plan_id_monthly !== undefined && plan.mvm_pay_plan_id_monthly !== null
+            ? Number(plan.mvm_pay_plan_id_monthly)
+            : null,
+        mvm_pay_plan_id_quarterly:
+          plan.mvm_pay_plan_id_quarterly !== undefined && plan.mvm_pay_plan_id_quarterly !== null
+            ? Number(plan.mvm_pay_plan_id_quarterly)
+            : null,
       });
       setFeatures(Array.isArray(plan.features_json) ? plan.features_json : []);
     } else {
@@ -92,7 +107,8 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
         is_active: true,
         features_json: [],
         max_exchange_accounts: null,
-        mvm_pay_plan_id: null,
+        mvm_pay_plan_id_monthly: null,
+        mvm_pay_plan_id_quarterly: null,
       });
       setFeatures([]);
     }
@@ -277,27 +293,53 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="mvm_pay_plan_id">MvM Pay plan_id (mapeamento)</Label>
-            <Input
-              id="mvm_pay_plan_id"
-              type="number"
-              min="1"
-              placeholder="Deixe vazio se não usar MvM Pay"
-              value={(() => {
-                const val = watch('mvm_pay_plan_id');
-                return val === null || val === undefined ? '' : String(val);
-              })()}
-              onChange={(e) => {
-                const value = e.target.value === '' ? null : Number(e.target.value);
-                setValue('mvm_pay_plan_id', value);
-              }}
-            />
+            <Label>MvM Pay plan_id (mapeamento por período)</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="mvm_pay_plan_id_monthly" className="text-xs text-muted-foreground">Mensal</Label>
+                <Input
+                  id="mvm_pay_plan_id_monthly"
+                  type="number"
+                  min="1"
+                  placeholder="plan_id mensal"
+                  value={(() => {
+                    const val = watch('mvm_pay_plan_id_monthly');
+                    return val === null || val === undefined ? '' : String(val);
+                  })()}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? null : Number(e.target.value);
+                    setValue('mvm_pay_plan_id_monthly', value);
+                  }}
+                />
+                {errors.mvm_pay_plan_id_monthly && (
+                  <p className="text-sm text-red-500">{errors.mvm_pay_plan_id_monthly.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="mvm_pay_plan_id_quarterly" className="text-xs text-muted-foreground">Trimestral</Label>
+                <Input
+                  id="mvm_pay_plan_id_quarterly"
+                  type="number"
+                  min="1"
+                  placeholder="plan_id trimestral"
+                  value={(() => {
+                    const val = watch('mvm_pay_plan_id_quarterly');
+                    return val === null || val === undefined ? '' : String(val);
+                  })()}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? null : Number(e.target.value);
+                    setValue('mvm_pay_plan_id_quarterly', value);
+                  }}
+                />
+                {errors.mvm_pay_plan_id_quarterly && (
+                  <p className="text-sm text-red-500">{errors.mvm_pay_plan_id_quarterly.message}</p>
+                )}
+              </div>
+            </div>
             <p className="text-xs text-muted-foreground">
-              ID do plano correspondente no MvM Pay (necessário para checkout externo e sync).
+              No MvM Pay existe um <code>plan_id</code> por período. Preencha os dois para a integração funcionar no checkout e no sync.
             </p>
-            {errors.mvm_pay_plan_id && (
-              <p className="text-sm text-red-500">{errors.mvm_pay_plan_id.message}</p>
-            )}
           </div>
 
           <div className="flex items-center space-x-2">

@@ -970,11 +970,16 @@ export class SubscriptionsService {
       }
 
       const localPlan = await this.prisma.subscriptionPlan.findFirst({
-        where: { mvm_pay_plan_id: candidate.plan_id },
+        where: {
+          OR: [
+            { mvm_pay_plan_id_monthly: candidate.plan_id },
+            { mvm_pay_plan_id_quarterly: candidate.plan_id },
+          ],
+        },
       });
       if (!localPlan) {
         throw new BadRequestException(
-          `Plano do MvM Pay (plan_id=${candidate.plan_id}) não está mapeado no MVCash (mvm_pay_plan_id)`
+          `Plano do MvM Pay (plan_id=${candidate.plan_id}) não está mapeado no MVCash (mvm_pay_plan_id_monthly/mvm_pay_plan_id_quarterly)`
         );
       }
 

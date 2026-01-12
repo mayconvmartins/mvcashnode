@@ -1021,15 +1021,17 @@ model SubscriptionPlan {
   is_active             Boolean  @default(true)
   features_json         Json?    @db.Json
   max_exchange_accounts Int?     // null = ilimitado, número = limite específico
-  // ID do plano no MvM Pay (para integração via Partner API)
-  mvm_pay_plan_id       Int?
+  // IDs do plano no MvM Pay (um por período)
+  mvm_pay_plan_id_monthly   Int?
+  mvm_pay_plan_id_quarterly Int?
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt
 
   subscriptions Subscription[]
 
   @@index([is_active])
-  @@index([mvm_pay_plan_id])
+  @@index([mvm_pay_plan_id_monthly])
+  @@index([mvm_pay_plan_id_quarterly])
   @@map("subscription_plans")
 }
 

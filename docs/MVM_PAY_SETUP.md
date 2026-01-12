@@ -33,17 +33,21 @@ No Admin do MVCash: **Admin → MvM Pay**
 
 > Quando `subscription_provider=mvm_pay`, o login e a finalização de cadastro passam a validar acesso via Partner API.
 
-## 3) Mapear planos (obrigatório)
+## 3) Mapear planos (obrigatório) — Mensal/Trimestral
 
 No Admin do MVCash: **Admin → Planos de Assinatura**
 
 Para cada plano local que existe no MVCash, preencha:
-- **ID MvM Pay** (`mvm_pay_plan_id`)
+- **MvM (Mensal)** (`mvm_pay_plan_id_monthly`)
+- **MvM (Trimestral)** (`mvm_pay_plan_id_quarterly`)
 
 Isso cria o mapeamento:
-- Plano do MvM Pay (`plan_id`) → Plano do MVCash (`subscription_plans.id`)
+- Plano do MvM Pay (`plan_id`) → Plano do MVCash (`subscription_plans.id`) **por período**
 
-Sem esse mapeamento, o cadastro/ativação via MvM Pay falha com erro de “plano não mapeado”.
+> No MvM Pay existe um `plan_id` diferente para cada período (mensal/trimestral).  
+> O MVCash escolhe qual `plan_id` usar no checkout conforme o `billing_period`.
+
+Sem esse mapeamento, o checkout/cadastro/ativação via MvM Pay falha com erro de “plano não mapeado”.
 
 ## 4) Fluxo de checkout (usuário)
 

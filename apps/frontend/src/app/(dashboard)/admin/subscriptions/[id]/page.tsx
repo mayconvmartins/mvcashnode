@@ -104,7 +104,10 @@ export default function SubscriptionDetailsPage() {
     PENDING_PAYMENT: 'outline',
   };
 
-  const isMvmPay = subscription.payment_method === 'MVM_PAY' || !!subscription.plan?.mvm_pay_plan_id;
+  const isMvmPay =
+    subscription.payment_method === 'MVM_PAY' ||
+    !!subscription.plan?.mvm_pay_plan_id_monthly ||
+    !!subscription.plan?.mvm_pay_plan_id_quarterly;
   const paymentMethodLabel = (method?: string) => {
     if (!method) return 'N/A';
     if (method === 'MVM_PAY') return 'MvM Pay';

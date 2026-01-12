@@ -38,7 +38,9 @@ export default function AdminSubscriptionsPage() {
       key: 'source',
       label: 'Fonte',
       render: (row: any) =>
-        row.payment_method === 'MVM_PAY' || row.plan?.mvm_pay_plan_id
+        row.payment_method === 'MVM_PAY' ||
+        row.plan?.mvm_pay_plan_id_monthly ||
+        row.plan?.mvm_pay_plan_id_quarterly
           ? <Badge variant="secondary">MvM Pay</Badge>
           : <Badge variant="outline">Nativo</Badge>,
     },

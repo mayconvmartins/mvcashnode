@@ -73,7 +73,8 @@ export class AdminSubscriptionPlansController {
       is_active?: boolean;
       features_json?: any;
       max_exchange_accounts?: number | null;
-      mvm_pay_plan_id?: number | null;
+      mvm_pay_plan_id_monthly?: number | null;
+      mvm_pay_plan_id_quarterly?: number | null;
     }
   ): Promise<any> {
     try {
@@ -92,10 +93,15 @@ export class AdminSubscriptionPlansController {
         }
       }
 
-      // Validar mvm_pay_plan_id: deve ser null ou >= 1
-      if (body.mvm_pay_plan_id !== undefined && body.mvm_pay_plan_id !== null) {
-        if (body.mvm_pay_plan_id < 1) {
-          throw new BadRequestException('mvm_pay_plan_id deve ser maior ou igual a 1, ou null');
+      // Validar mapeamentos MvM Pay: devem ser null ou >= 1
+      if (body.mvm_pay_plan_id_monthly !== undefined && body.mvm_pay_plan_id_monthly !== null) {
+        if (body.mvm_pay_plan_id_monthly < 1) {
+          throw new BadRequestException('mvm_pay_plan_id_monthly deve ser maior ou igual a 1, ou null');
+        }
+      }
+      if (body.mvm_pay_plan_id_quarterly !== undefined && body.mvm_pay_plan_id_quarterly !== null) {
+        if (body.mvm_pay_plan_id_quarterly < 1) {
+          throw new BadRequestException('mvm_pay_plan_id_quarterly deve ser maior ou igual a 1, ou null');
         }
       }
 
@@ -109,7 +115,8 @@ export class AdminSubscriptionPlansController {
           is_active: body.is_active !== undefined ? body.is_active : true,
           features_json: body.features_json || {},
           max_exchange_accounts: body.max_exchange_accounts !== undefined ? body.max_exchange_accounts : null,
-          mvm_pay_plan_id: body.mvm_pay_plan_id !== undefined ? body.mvm_pay_plan_id : null,
+          mvm_pay_plan_id_monthly: body.mvm_pay_plan_id_monthly !== undefined ? body.mvm_pay_plan_id_monthly : null,
+          mvm_pay_plan_id_quarterly: body.mvm_pay_plan_id_quarterly !== undefined ? body.mvm_pay_plan_id_quarterly : null,
         },
       });
     } catch (error: any) {
@@ -145,7 +152,8 @@ export class AdminSubscriptionPlansController {
       is_active?: boolean;
       features_json?: any;
       max_exchange_accounts?: number | null;
-      mvm_pay_plan_id?: number | null;
+      mvm_pay_plan_id_monthly?: number | null;
+      mvm_pay_plan_id_quarterly?: number | null;
     }
   ): Promise<any> {
     const plan = await this.prisma.subscriptionPlan.findUnique({
@@ -171,10 +179,15 @@ export class AdminSubscriptionPlansController {
       }
     }
 
-    // Validar mvm_pay_plan_id: deve ser null ou >= 1
-    if (body.mvm_pay_plan_id !== undefined && body.mvm_pay_plan_id !== null) {
-      if (body.mvm_pay_plan_id < 1) {
-        throw new BadRequestException('mvm_pay_plan_id deve ser maior ou igual a 1, ou null');
+    // Validar mapeamentos MvM Pay: devem ser null ou >= 1
+    if (body.mvm_pay_plan_id_monthly !== undefined && body.mvm_pay_plan_id_monthly !== null) {
+      if (body.mvm_pay_plan_id_monthly < 1) {
+        throw new BadRequestException('mvm_pay_plan_id_monthly deve ser maior ou igual a 1, ou null');
+      }
+    }
+    if (body.mvm_pay_plan_id_quarterly !== undefined && body.mvm_pay_plan_id_quarterly !== null) {
+      if (body.mvm_pay_plan_id_quarterly < 1) {
+        throw new BadRequestException('mvm_pay_plan_id_quarterly deve ser maior ou igual a 1, ou null');
       }
     }
 
@@ -188,7 +201,8 @@ export class AdminSubscriptionPlansController {
     if (body.is_active !== undefined) updateData.is_active = body.is_active;
     if (body.features_json !== undefined) updateData.features_json = body.features_json;
     if (body.max_exchange_accounts !== undefined) updateData.max_exchange_accounts = body.max_exchange_accounts;
-    if (body.mvm_pay_plan_id !== undefined) updateData.mvm_pay_plan_id = body.mvm_pay_plan_id;
+    if (body.mvm_pay_plan_id_monthly !== undefined) updateData.mvm_pay_plan_id_monthly = body.mvm_pay_plan_id_monthly;
+    if (body.mvm_pay_plan_id_quarterly !== undefined) updateData.mvm_pay_plan_id_quarterly = body.mvm_pay_plan_id_quarterly;
 
     return this.prisma.subscriptionPlan.update({
       where: { id },

@@ -87,8 +87,15 @@ export class SubscriptionsController {
       if (!plan || !plan.is_active) {
         throw new BadRequestException('Plano inválido ou inativo');
       }
-      if (!plan.mvm_pay_plan_id) {
-        throw new BadRequestException('Plano sem mapeamento para MvM Pay (mvm_pay_plan_id)');
+
+      const billingPeriod = (dto.billing_period as 'monthly' | 'quarterly') || 'monthly';
+      const mvmPlanId =
+        billingPeriod === 'monthly' ? plan.mvm_pay_plan_id_monthly : plan.mvm_pay_plan_id_quarterly;
+
+      if (!mvmPlanId) {
+        throw new BadRequestException(
+          `Plano sem mapeamento para MvM Pay (${billingPeriod === 'monthly' ? 'mvm_pay_plan_id_monthly' : 'mvm_pay_plan_id_quarterly'})`,
+        );
       }
 
       const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
@@ -97,7 +104,7 @@ export class SubscriptionsController {
 
       const checkoutUrl = await this.mvmPayService.buildSignedCheckoutUrl({
         email: dto.email,
-        planId: plan.mvm_pay_plan_id,
+        planId: mvmPlanId,
         returnUrl,
         state,
       });

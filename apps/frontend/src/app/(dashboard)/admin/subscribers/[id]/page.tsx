@@ -110,7 +110,10 @@ export default function SubscriberDetailsPage() {
     );
   }
 
-  const isMvmPay = subscriber.subscription?.payment_method === 'MVM_PAY' || !!subscriber.subscription?.plan?.mvm_pay_plan_id;
+  const isMvmPay =
+    subscriber.subscription?.payment_method === 'MVM_PAY' ||
+    !!subscriber.subscription?.plan?.mvm_pay_plan_id_monthly ||
+    !!subscriber.subscription?.plan?.mvm_pay_plan_id_quarterly;
 
   return (
     <div className="space-y-6">
@@ -245,8 +248,11 @@ export default function SubscriberDetailsPage() {
                   <span className="text-sm text-muted-foreground">Plano</span>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{subscriber.subscription.plan?.name}</span>
-                    {subscriber.subscription.plan?.mvm_pay_plan_id ? (
-                      <Badge variant="outline">ID MvM {subscriber.subscription.plan.mvm_pay_plan_id}</Badge>
+                    {subscriber.subscription.plan?.mvm_pay_plan_id_monthly ? (
+                      <Badge variant="outline">MvM Mensal {subscriber.subscription.plan.mvm_pay_plan_id_monthly}</Badge>
+                    ) : null}
+                    {subscriber.subscription.plan?.mvm_pay_plan_id_quarterly ? (
+                      <Badge variant="outline">MvM Trimestral {subscriber.subscription.plan.mvm_pay_plan_id_quarterly}</Badge>
                     ) : null}
                   </div>
                 </div>

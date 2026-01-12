@@ -45,12 +45,19 @@ export default function AdminSubscriptionPlansPage() {
       key: 'source',
       label: 'Origem',
       render: (row: any) =>
-        row.mvm_pay_plan_id ? <Badge variant="secondary">MvM Pay</Badge> : <Badge variant="outline">Nativo</Badge>,
+        row.mvm_pay_plan_id_monthly || row.mvm_pay_plan_id_quarterly
+          ? <Badge variant="secondary">MvM Pay</Badge>
+          : <Badge variant="outline">Nativo</Badge>,
     },
     {
-      key: 'mvm_pay_plan_id',
-      label: 'ID MvM Pay',
-      render: (row: any) => row.mvm_pay_plan_id || '-',
+      key: 'mvm_pay_plan_id_monthly',
+      label: 'MvM (Mensal)',
+      render: (row: any) => row.mvm_pay_plan_id_monthly || '-',
+    },
+    {
+      key: 'mvm_pay_plan_id_quarterly',
+      label: 'MvM (Trimestral)',
+      render: (row: any) => row.mvm_pay_plan_id_quarterly || '-',
     },
     {
       key: 'price_monthly',

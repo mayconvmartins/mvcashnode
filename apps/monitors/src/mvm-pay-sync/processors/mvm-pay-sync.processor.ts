@@ -104,7 +104,14 @@ export class MvmPaySyncProcessor extends WorkerHost {
 
         // mapear plano do MvM Pay -> plano local (quando houver)
         const localPlan = u.plan_id
-          ? await this.prisma.subscriptionPlan.findFirst({ where: { mvm_pay_plan_id: u.plan_id } })
+          ? await this.prisma.subscriptionPlan.findFirst({
+              where: {
+                OR: [
+                  { mvm_pay_plan_id_monthly: u.plan_id },
+                  { mvm_pay_plan_id_quarterly: u.plan_id },
+                ],
+              },
+            })
           : null;
 
         // Upsert user (sem password final — usuário define no /subscribe/register)
