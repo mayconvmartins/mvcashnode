@@ -35,11 +35,17 @@ import {
   UpdatePasskeyNameDto,
 } from './dto/passkey.dto';
 import { AuditEntityType, AuditAction } from '@mvcashnode/shared';
+import { PrismaService } from '@mvcashnode/db';
+import { MvmPayService } from '../subscriptions/mvm-pay.service';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private prisma: PrismaService,
+    private mvmPayService: MvmPayService,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -88,6 +94,22 @@ export class AuthController {
         ip,
         userAgent
       );
+
+      // MvM Pay (híbrido): se o usuário é subscriber, validar acesso no login
+      const providerSetting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'subscription_provider' },
+      });
+      const provider = providerSetting?.value || 'native';
+      const roles = (result as any)?.user?.roles || [];
+      const isSubscriber = roles.some((r: string) => r === 'subscriber');
+
+      if (provider === 'mvm_pay' && isSubscriber) {
+        const access = await this.mvmPayService.authAccess(loginDto.email);
+        const hasAccess = !!access?.data?.has_access;
+        if (!hasAccess) {
+          throw new UnauthorizedException('Assinatura ativa necessária para fazer login');
+        }
+      }
 
       return result;
     } catch (error: any) {

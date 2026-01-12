@@ -128,7 +128,13 @@ function CheckoutForm() {
         ? Number(selectedPlan.price_monthly)
         : Number(selectedPlan.price_quarterly);
 
-      const result = await subscriptionsService.createCheckout(checkoutData);
+      const result = await subscriptionsService.createCheckout(checkoutData as any);
+
+      // MvM Pay: checkout externo (redirect)
+      if ((result as any)?.provider === 'mvm_pay' && (result as any)?.checkout_url) {
+        window.location.href = (result as any).checkout_url;
+        return;
+      }
       
       // Salvar dados do checkout no localStorage para usar na página de pagamento
       localStorage.setItem(

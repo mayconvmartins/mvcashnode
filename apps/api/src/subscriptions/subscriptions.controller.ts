@@ -18,11 +18,14 @@ import {
 import { SubscriptionsService } from './subscriptions.service';
 import { MercadoPagoService } from './mercadopago.service';
 import { TransFiService } from './transfi.service';
+import { MvmPayService } from './mvm-pay.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SubscriptionGuard } from './guards/subscription.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { validateCpf } from '../common/utils/cpf-validation';
 import { PrismaService } from '@mvcashnode/db';
+import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 
 @ApiTags('Subscriptions')
 @Controller('subscriptions')
@@ -33,7 +36,9 @@ export class SubscriptionsController {
     private subscriptionsService: SubscriptionsService,
     private mercadoPagoService: MercadoPagoService,
     private transfiService: TransFiService,
-    private prisma: PrismaService
+    private mvmPayService: MvmPayService,
+    private prisma: PrismaService,
+    private configService: ConfigService,
   ) {}
 
   @Get('mercadopago/public-key')
@@ -65,6 +70,45 @@ export class SubscriptionsController {
   @ApiOperation({ summary: 'Criar checkout de assinatura' })
   @ApiResponse({ status: 201, description: 'Checkout criado com sucesso' })
   async createCheckout(@Body() dto: any) {
+    // Se o provider for MvM Pay, o checkout é externo (redirect)
+    const providerSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'subscription_provider' },
+    });
+    const provider = providerSetting?.value || 'native';
+
+    if (provider === 'mvm_pay') {
+      if (!dto.email) {
+        throw new BadRequestException('Email é obrigatório');
+      }
+
+      const plan = await this.prisma.subscriptionPlan.findUnique({
+        where: { id: dto.plan_id },
+      });
+      if (!plan || !plan.is_active) {
+        throw new BadRequestException('Plano inválido ou inativo');
+      }
+      if (!plan.mvm_pay_plan_id) {
+        throw new BadRequestException('Plano sem mapeamento para MvM Pay (mvm_pay_plan_id)');
+      }
+
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
+      const returnUrl = `${frontendUrl}/subscribe/mvm-pay/return`;
+      const state = crypto.randomUUID();
+
+      const checkoutUrl = await this.mvmPayService.buildSignedCheckoutUrl({
+        email: dto.email,
+        planId: plan.mvm_pay_plan_id,
+        returnUrl,
+        state,
+      });
+
+      return {
+        provider: 'mvm_pay',
+        checkout_url: checkoutUrl,
+        state,
+      };
+    }
+
     // Validar CPF
     if (dto.cpf && !validateCpf(dto.cpf)) {
       throw new BadRequestException('CPF inválido. Verifique os dígitos verificadores.');
@@ -152,8 +196,8 @@ export class SubscriptionsController {
   @Post('register')
   @ApiOperation({ summary: 'Finalizar registro após pagamento' })
   @ApiResponse({ status: 200, description: 'Registro concluído' })
-  async completeRegistration(@Body() dto: { token: string; password: string; email: string }) {
-    return this.subscriptionsService.completeRegistration(dto.token, dto.password, dto.email);
+  async completeRegistration(@Body() dto: { token?: string; password: string; email?: string }) {
+    return this.subscriptionsService.completeRegistration(dto.token || '', dto.password, dto.email);
   }
 
   @Post('webhooks/mercadopago')

@@ -950,6 +950,26 @@ model TransFiConfig {
 }
 
 // ============================================
+// MVM PAY CONFIG (PARTNER API + CHECKOUT REDIRECT)
+// ============================================
+
+model MvmPayConfig {
+  id             Int      @id @default(autoincrement())
+  base_url       String   @db.VarChar(500) // ex: https://SEU_DOMINIO.com/api/partner_api.php
+  checkout_url   String   @db.VarChar(500) // ex: https://pay.seudominio.com/checkout
+  api_key        String   @db.VarChar(255)
+  api_secret_enc String   @db.Text
+  product_id     Int
+  is_active      Boolean  @default(false)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([is_active])
+  @@index([product_id])
+  @@map("mvm_pay_config")
+}
+
+// ============================================
 // SYSTEM SETTINGS
 // ============================================
 
@@ -982,12 +1002,15 @@ model SubscriptionPlan {
   is_active             Boolean  @default(true)
   features_json         Json?    @db.Json
   max_exchange_accounts Int?     // null = ilimitado, número = limite específico
+  // ID do plano no MvM Pay (para integração via Partner API)
+  mvm_pay_plan_id       Int?
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt
 
   subscriptions Subscription[]
 
   @@index([is_active])
+  @@index([mvm_pay_plan_id])
   @@map("subscription_plans")
 }
 

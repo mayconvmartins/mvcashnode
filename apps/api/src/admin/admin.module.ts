@@ -9,6 +9,7 @@ import { AdminSubscribersController, AdminSubscriberParametersController } from 
 import { AdminSubscriptionPlansController } from './admin-subscription-plans.controller';
 import { AdminMercadoPagoController } from './admin-mercadopago.controller';
 import { AdminTransFiController } from './admin-transfi.controller';
+import { AdminMvmPayController } from './admin-mvm-pay.controller';
 import { AdminSubscriberWebhooksController } from './admin-subscriber-webhooks.controller';
 import { CcxtLogsController } from './ccxt-logs.controller';
 import { AdminService } from './admin.service';
@@ -21,6 +22,7 @@ import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { BullModule } from '@nestjs/bullmq';
 import { MercadoPagoService } from '../subscriptions/mercadopago.service';
 import { TransFiService } from '../subscriptions/transfi.service';
+import { MvmPayService } from '../subscriptions/mvm-pay.service';
 
 @Module({
   imports: [
@@ -43,6 +45,7 @@ import { TransFiService } from '../subscriptions/transfi.service';
     AdminSubscriptionPlansController,
     AdminMercadoPagoController,
     AdminTransFiController,
+    AdminMvmPayController,
     AdminSubscriberWebhooksController,
     CcxtLogsController,
   ],
@@ -52,6 +55,7 @@ import { TransFiService } from '../subscriptions/transfi.service';
     TradeJobQueueService,
     MercadoPagoService,
     TransFiService,
+    MvmPayService,
     {
       provide: EncryptionService,
       useFactory: (configService: ConfigService) => {

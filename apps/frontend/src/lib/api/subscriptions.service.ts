@@ -61,9 +61,14 @@ export interface CheckoutSubscriptionDto {
 }
 
 export interface CheckoutResponse {
-  preference_id: string;
-  init_point: string;
-  subscription_id: number;
+  // native
+  preference_id?: string;
+  init_point?: string;
+  subscription_id?: number;
+  // mvm_pay
+  provider?: 'mvm_pay';
+  checkout_url?: string;
+  state?: string;
 }
 
 export const subscriptionsService = {
@@ -115,10 +120,11 @@ export const subscriptionsService = {
     return response.data;
   },
 
-  completeRegistration: async (token: string, password: string): Promise<any> => {
+  completeRegistration: async (token: string, password: string, email?: string): Promise<any> => {
     const response = await apiClient.post('/subscriptions/register', {
       token,
       password,
+      email,
     });
     return response.data;
   },

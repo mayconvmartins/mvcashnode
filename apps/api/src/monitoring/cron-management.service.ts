@@ -29,6 +29,7 @@ export class CronManagementService implements OnModuleInit {
     @InjectQueue('positions-sync-quantity') private positionsSyncQuantityQueue: Queue,
     @InjectQueue('positions-sync-fees') private positionsSyncFeesQueue: Queue,
     @InjectQueue('positions-sync-exchange') private positionsSyncExchangeQueue: Queue,
+    @InjectQueue('mvm-pay-sync') private mvmPaySyncQueue: Queue,
   ) {}
 
   /**
@@ -52,6 +53,7 @@ export class CronManagementService implements OnModuleInit {
       'positions-sync-quantity': this.positionsSyncQuantityQueue,
       'positions-sync-fees': this.positionsSyncFeesQueue,
       'positions-sync-exchange': this.positionsSyncExchangeQueue,
+      'mvm-pay-sync': this.mvmPaySyncQueue,
     };
   }
 
@@ -77,6 +79,7 @@ export class CronManagementService implements OnModuleInit {
       'positions-sync-quantity': 'sync-quantity',
       'positions-sync-fees': 'sync-fees',
       'positions-sync-exchange': 'sync-exchange',
+      'mvm-pay-sync': 'sync-mvm-pay-users',
     };
     return nameMap[jobName] || null;
   }
@@ -204,6 +207,13 @@ export class CronManagementService implements OnModuleInit {
         queue_name: 'positions-sync-exchange',
         job_id: 'positions-sync-exchange-repeat',
         interval_ms: 600000, // 10 minutos
+      },
+      {
+        name: 'mvm-pay-sync',
+        description: 'Sincronização de usuários/assinaturas via MvM Pay',
+        queue_name: 'mvm-pay-sync',
+        job_id: 'mvm-pay-sync-repeat',
+        interval_ms: 300000, // 5 minutos
       },
     ];
 

@@ -160,6 +160,7 @@ const adminGroup: MenuGroup = {
         { icon: MessageSquare, label: 'Notificações', href: '/admin/notifications' },
         { icon: CreditCard, label: 'Mercado Pago', href: '/admin/mercadopago' },
         { icon: CreditCard, label: 'TransFi', href: '/admin/transfi' },
+        { icon: CreditCard, label: 'MvM Pay', href: '/admin/mvm-pay' },
         { icon: Wrench, label: 'Debug Tools', href: '/admin/debug-tools' },
         { icon: BookOpen, label: 'API Docs', href: '/api-docs', external: true },
     ],

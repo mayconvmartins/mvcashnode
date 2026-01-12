@@ -73,6 +73,7 @@ export class AdminSubscriptionPlansController {
       is_active?: boolean;
       features_json?: any;
       max_exchange_accounts?: number | null;
+      mvm_pay_plan_id?: number | null;
     }
   ): Promise<any> {
     try {
@@ -91,6 +92,13 @@ export class AdminSubscriptionPlansController {
         }
       }
 
+      // Validar mvm_pay_plan_id: deve ser null ou >= 1
+      if (body.mvm_pay_plan_id !== undefined && body.mvm_pay_plan_id !== null) {
+        if (body.mvm_pay_plan_id < 1) {
+          throw new BadRequestException('mvm_pay_plan_id deve ser maior ou igual a 1, ou null');
+        }
+      }
+
       return await this.prisma.subscriptionPlan.create({
         data: {
           name: body.name.trim(),
@@ -101,6 +109,7 @@ export class AdminSubscriptionPlansController {
           is_active: body.is_active !== undefined ? body.is_active : true,
           features_json: body.features_json || {},
           max_exchange_accounts: body.max_exchange_accounts !== undefined ? body.max_exchange_accounts : null,
+          mvm_pay_plan_id: body.mvm_pay_plan_id !== undefined ? body.mvm_pay_plan_id : null,
         },
       });
     } catch (error: any) {
@@ -136,6 +145,7 @@ export class AdminSubscriptionPlansController {
       is_active?: boolean;
       features_json?: any;
       max_exchange_accounts?: number | null;
+      mvm_pay_plan_id?: number | null;
     }
   ): Promise<any> {
     const plan = await this.prisma.subscriptionPlan.findUnique({
@@ -161,6 +171,13 @@ export class AdminSubscriptionPlansController {
       }
     }
 
+    // Validar mvm_pay_plan_id: deve ser null ou >= 1
+    if (body.mvm_pay_plan_id !== undefined && body.mvm_pay_plan_id !== null) {
+      if (body.mvm_pay_plan_id < 1) {
+        throw new BadRequestException('mvm_pay_plan_id deve ser maior ou igual a 1, ou null');
+      }
+    }
+
     const updateData: any = {};
     
     if (body.name !== undefined) updateData.name = body.name;
@@ -171,6 +188,7 @@ export class AdminSubscriptionPlansController {
     if (body.is_active !== undefined) updateData.is_active = body.is_active;
     if (body.features_json !== undefined) updateData.features_json = body.features_json;
     if (body.max_exchange_accounts !== undefined) updateData.max_exchange_accounts = body.max_exchange_accounts;
+    if (body.mvm_pay_plan_id !== undefined) updateData.mvm_pay_plan_id = body.mvm_pay_plan_id;
 
     return this.prisma.subscriptionPlan.update({
       where: { id },

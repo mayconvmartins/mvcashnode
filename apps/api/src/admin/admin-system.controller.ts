@@ -5691,6 +5691,43 @@ export class AdminSystemController {
     });
   }
 
+  @Get('settings/subscription-provider')
+  @ApiOperation({ summary: 'Obter provedor de assinatura (nativo ou MvM Pay)' })
+  @ApiResponse({ status: 200, description: 'Provedor de assinatura configurado' })
+  async getSubscriptionProvider() {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'subscription_provider' },
+    });
+
+    return {
+      provider: setting?.value || 'native',
+      available_providers: ['native', 'mvm_pay'],
+    };
+  }
+
+  @Put('settings/subscription-provider')
+  @ApiOperation({ summary: 'Definir provedor de assinatura (nativo ou MvM Pay)' })
+  @ApiResponse({ status: 200, description: 'Provedor atualizado' })
+  async setSubscriptionProvider(@Body() body: { provider: 'native' | 'mvm_pay' }) {
+    if (!['native', 'mvm_pay'].includes(body.provider)) {
+      throw new BadRequestException('Provider inválido. Use "native" ou "mvm_pay"');
+    }
+
+    return this.prisma.systemSetting.upsert({
+      where: { key: 'subscription_provider' },
+      create: {
+        key: 'subscription_provider',
+        value: body.provider,
+        description: 'Provedor de assinatura (native ou mvm_pay)',
+        category: 'payment',
+      },
+      update: {
+        value: body.provider,
+        updated_at: new Date(),
+      },
+    });
+  }
+
   @Post('audit-fifo-positions')
   @ApiOperation({
     summary: 'Auditar e corrigir posições FIFO',

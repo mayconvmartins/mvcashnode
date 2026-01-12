@@ -32,6 +32,7 @@ function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
+  const prefilledEmail = searchParams.get('email') || undefined;
   const { setTokens, setUser } = useAuthStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -44,20 +45,21 @@ function RegisterForm() {
   });
 
   const onSubmit = async (data: RegisterFormData) => {
-    if (!token) {
-      toast.error('Token de registro não encontrado');
+    const effectiveEmail = data.email || prefilledEmail;
+    if (!token && !effectiveEmail) {
+      toast.error('Informe o email para finalizar o cadastro');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await subscriptionsService.completeRegistration(token, data.password);
+      await subscriptionsService.completeRegistration(token || '', data.password, effectiveEmail);
 
       // Tentar fazer login automaticamente
-      if (data.email) {
+      if (effectiveEmail) {
         try {
           const loginResult = await authService.login({
-            email: data.email,
+            email: effectiveEmail,
             password: data.password,
           });
 
@@ -107,12 +109,13 @@ function RegisterForm() {
               )}
 
               <div>
-                <Label htmlFor="email">Email (opcional)</Label>
+                <Label htmlFor="email">{token ? 'Email (opcional)' : 'Email *'}</Label>
                 <Input
                   id="email"
                   type="email"
                   {...register('email')}
                   placeholder="seu@email.com"
+                  defaultValue={prefilledEmail}
                 />
                 {errors.email && (
                   <p className="text-sm text-red-500 mt-1">
@@ -151,7 +154,7 @@ function RegisterForm() {
                 )}
               </div>
 
-              <Button type="submit" disabled={isSubmitting || !token} className="w-full">
+              <Button type="submit" disabled={isSubmitting} className="w-full">
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />

@@ -5,6 +5,7 @@ import { EncryptionService } from '@mvcashnode/shared';
 import { EmailService } from '@mvcashnode/notifications';
 import { MercadoPagoService } from './mercadopago.service';
 import { TransFiService } from './transfi.service';
+import { MvmPayService } from './mvm-pay.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -17,7 +18,8 @@ export class SubscriptionsService {
     private configService: ConfigService,
     private encryptionService: EncryptionService,
     private mercadoPagoService: MercadoPagoService,
-    private transfiService: TransFiService
+    private transfiService: TransFiService,
+    private mvmPayService: MvmPayService,
   ) {
     // Inicializar EmailService se configurado
     const smtpHost = this.configService.get<string>('SMTP_HOST');
@@ -920,6 +922,112 @@ export class SubscriptionsService {
    * Finaliza registro do assinante após pagamento
    */
   async completeRegistration(token: string, password: string, email?: string) {
+    // Se o provider for MvM Pay, não usamos token (fluxo por email + validação no MvM Pay)
+    const providerSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'subscription_provider' },
+    });
+    const provider = providerSetting?.value || 'native';
+
+    if (provider === 'mvm_pay') {
+      if (!email) {
+        throw new BadRequestException('Email é obrigatório para finalizar cadastro via MvM Pay');
+      }
+
+      const access = await this.mvmPayService.authAccess(email);
+      const hasAccess = !!access?.data?.has_access;
+      if (!hasAccess) {
+        throw new BadRequestException('Assinatura ativa necessária para finalizar cadastro');
+      }
+
+      // Buscar a assinatura no MvM Pay para obter plan_id e end_date
+      const subs = await this.mvmPayService.getUserSubscriptions(email);
+      const candidate = subs?.data?.subscriptions?.find((s) => ['ativo', 'trial', 'ACTIVE', 'TRIAL'].includes(String(s.status))) ||
+        subs?.data?.subscriptions?.[0];
+
+      if (!candidate?.plan_id) {
+        throw new BadRequestException('Não foi possível identificar o plano no MvM Pay');
+      }
+
+      const localPlan = await this.prisma.subscriptionPlan.findFirst({
+        where: { mvm_pay_plan_id: candidate.plan_id },
+      });
+      if (!localPlan) {
+        throw new BadRequestException(
+          `Plano do MvM Pay (plan_id=${candidate.plan_id}) não está mapeado no MVCash (mvm_pay_plan_id)`
+        );
+      }
+
+      const bcrypt = await import('bcrypt');
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      // Criar/atualizar usuário
+      const user = await this.prisma.user.upsert({
+        where: { email },
+        create: {
+          email,
+          password_hash: passwordHash,
+          is_active: true,
+          must_change_password: false,
+        },
+        update: {
+          password_hash: passwordHash,
+          is_active: true,
+          must_change_password: false,
+        },
+      });
+
+      // Garantir role subscriber
+      await this.prisma.userRole.upsert({
+        where: { user_id_role: { user_id: user.id, role: 'subscriber' } },
+        create: { user_id: user.id, role: 'subscriber' },
+        update: {},
+      });
+
+      const endDate = candidate.end_date ? new Date(candidate.end_date) : (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + localPlan.duration_days);
+        return d;
+      })();
+
+      // Evitar criar múltiplas assinaturas repetidas no cadastro: atualizar a mais recente se existir
+      const lastSub = await this.prisma.subscription.findFirst({
+        where: { user_id: user.id },
+        orderBy: { created_at: 'desc' },
+      });
+
+      if (lastSub) {
+        await this.prisma.subscription.update({
+          where: { id: lastSub.id },
+          data: {
+            plan_id: localPlan.id,
+            status: 'ACTIVE',
+            start_date: lastSub.start_date || new Date(),
+            end_date: endDate,
+            auto_renew: false,
+            payment_method: 'MVM_PAY',
+          },
+        });
+      } else {
+        await this.prisma.subscription.create({
+          data: {
+            user_id: user.id,
+            plan_id: localPlan.id,
+            status: 'ACTIVE',
+            start_date: new Date(),
+            end_date: endDate,
+            auto_renew: false,
+            payment_method: 'MVM_PAY',
+          },
+        });
+      }
+
+      return {
+        message: 'Cadastro concluído com sucesso',
+        user_id: user.id,
+        email: user.email,
+      };
+    }
+
     // Buscar usuário por token (email) ou email fornecido
     // Em produção, seria melhor ter uma tabela de tokens de registro
     let user = null;

@@ -30,6 +30,7 @@ const planSchema = z.object({
   is_active: z.boolean(),
   features_json: z.any().optional(),
   max_exchange_accounts: z.union([z.number().min(1), z.null()]).optional(),
+  mvm_pay_plan_id: z.union([z.number().min(1), z.null()]).optional(),
 });
 
 type PlanFormData = z.infer<typeof planSchema>;
@@ -63,6 +64,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
       is_active: plan?.is_active !== undefined ? Boolean(plan.is_active) : true,
       features_json: plan?.features_json || [],
       max_exchange_accounts: plan?.max_exchange_accounts !== undefined && plan?.max_exchange_accounts !== null ? Number(plan.max_exchange_accounts) : null,
+      mvm_pay_plan_id: plan?.mvm_pay_plan_id !== undefined && plan?.mvm_pay_plan_id !== null ? Number(plan.mvm_pay_plan_id) : null,
     },
   });
 
@@ -77,6 +79,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
         is_active: plan.is_active !== undefined ? Boolean(plan.is_active) : true,
         features_json: plan.features_json || [],
         max_exchange_accounts: plan.max_exchange_accounts !== undefined && plan.max_exchange_accounts !== null ? Number(plan.max_exchange_accounts) : null,
+        mvm_pay_plan_id: plan.mvm_pay_plan_id !== undefined && plan.mvm_pay_plan_id !== null ? Number(plan.mvm_pay_plan_id) : null,
       });
       setFeatures(Array.isArray(plan.features_json) ? plan.features_json : []);
     } else {
@@ -89,6 +92,7 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
         is_active: true,
         features_json: [],
         max_exchange_accounts: null,
+        mvm_pay_plan_id: null,
       });
       setFeatures([]);
     }
@@ -269,6 +273,30 @@ export function PlanForm({ open, onOpenChange, plan, onSuccess }: PlanFormProps)
             </p>
             {errors.max_exchange_accounts && (
               <p className="text-sm text-red-500">{errors.max_exchange_accounts.message}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="mvm_pay_plan_id">MvM Pay plan_id (mapeamento)</Label>
+            <Input
+              id="mvm_pay_plan_id"
+              type="number"
+              min="1"
+              placeholder="Deixe vazio se não usar MvM Pay"
+              value={(() => {
+                const val = watch('mvm_pay_plan_id');
+                return val === null || val === undefined ? '' : String(val);
+              })()}
+              onChange={(e) => {
+                const value = e.target.value === '' ? null : Number(e.target.value);
+                setValue('mvm_pay_plan_id', value);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              ID do plano correspondente no MvM Pay (necessário para checkout externo e sync).
+            </p>
+            {errors.mvm_pay_plan_id && (
+              <p className="text-sm text-red-500">{errors.mvm_pay_plan_id.message}</p>
             )}
           </div>
 

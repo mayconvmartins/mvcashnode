@@ -62,6 +62,9 @@ import { PrismaService } from '@mvcashnode/db';
     BullModule.registerQueue({
       name: 'positions-sync-exchange',
     }),
+    BullModule.registerQueue({
+      name: 'mvm-pay-sync',
+    }),
   ],
   controllers: [MonitoringController, CronManagementController],
   providers: [MonitoringService, CronManagementService, PrismaService],

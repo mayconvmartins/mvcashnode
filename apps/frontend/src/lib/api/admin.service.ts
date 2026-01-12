@@ -856,6 +856,40 @@ export const adminService = {
         return response.data
     },
 
+    // Subscription Provider Settings (native vs mvm_pay)
+    getSubscriptionProvider: async (): Promise<{ provider: string; available_providers: string[] }> => {
+        const response = await apiClient.get('/admin/settings/subscription-provider')
+        return response.data
+    },
+
+    setSubscriptionProvider: async (provider: 'native' | 'mvm_pay'): Promise<any> => {
+        const response = await apiClient.put('/admin/settings/subscription-provider', { provider })
+        return response.data
+    },
+
+    // MvM Pay Config
+    getMvmPayConfig: async (): Promise<any> => {
+        const response = await apiClient.get('/admin/mvm-pay/config')
+        return response.data
+    },
+
+    updateMvmPayConfig: async (data: {
+        base_url: string;
+        checkout_url: string;
+        api_key: string;
+        api_secret: string;
+        product_id: number;
+        is_active?: boolean;
+    }): Promise<any> => {
+        const response = await apiClient.put('/admin/mvm-pay/config', data)
+        return response.data
+    },
+
+    testMvmPayConnection: async (): Promise<any> => {
+        const response = await apiClient.post('/admin/mvm-pay/test-connection')
+        return response.data
+    },
+
     // Email Management
     getEmailHistory: async (filters?: {
         page?: number;

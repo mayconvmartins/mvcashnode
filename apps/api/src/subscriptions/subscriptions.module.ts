@@ -5,6 +5,7 @@ import { EncryptionService } from '@mvcashnode/shared';
 import { SubscriptionsService } from './subscriptions.service';
 import { MercadoPagoService } from './mercadopago.service';
 import { TransFiService } from './transfi.service';
+import { MvmPayService } from './mvm-pay.service';
 import { SubscriptionsController } from './subscriptions.controller';
 import { SubscriptionPaymentsController } from './subscription-payments.controller';
 import { SubscriptionGuard } from './guards/subscription.guard';
@@ -20,6 +21,7 @@ import { BlockSubscribersGuard } from './guards/block-subscribers.guard';
     SubscriptionsService,
     MercadoPagoService,
     TransFiService,
+    MvmPayService,
     PrismaService,
     SubscriptionGuard,
     BlockSubscribersGuard,
@@ -35,6 +37,13 @@ import { BlockSubscribersGuard } from './guards/block-subscribers.guard';
       inject: [ConfigService],
     },
   ],
-  exports: [SubscriptionsService, MercadoPagoService, TransFiService, SubscriptionGuard, BlockSubscribersGuard],
+  exports: [
+    SubscriptionsService,
+    MercadoPagoService,
+    TransFiService,
+    MvmPayService,
+    SubscriptionGuard,
+    BlockSubscribersGuard,
+  ],
 })
 export class SubscriptionsModule {}
