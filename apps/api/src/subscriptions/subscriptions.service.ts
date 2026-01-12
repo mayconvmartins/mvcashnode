@@ -128,6 +128,23 @@ export class SubscriptionsService {
           whatsapp_phone: data.subscriberData.whatsapp,
         },
       });
+    } else {
+      // Usuário já existe - atualizar profile com dados do checkout (incluindo whatsapp)
+      await this.prisma.profile.upsert({
+        where: { user_id: user.id },
+        create: {
+          user_id: user.id,
+          full_name: data.subscriberData.fullName,
+          phone: data.subscriberData.phone,
+          whatsapp_phone: data.subscriberData.whatsapp,
+        },
+        update: {
+          // Só atualizar se os valores forem fornecidos (não sobrescrever com null)
+          ...(data.subscriberData.fullName && { full_name: data.subscriberData.fullName }),
+          ...(data.subscriberData.phone && { phone: data.subscriberData.phone }),
+          ...(data.subscriberData.whatsapp && { whatsapp_phone: data.subscriberData.whatsapp }),
+        },
+      });
     }
 
     // Salvar dados do assinante (temporário, será confirmado após pagamento)
