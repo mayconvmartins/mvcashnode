@@ -275,6 +275,7 @@ export class EmailService {
       'sellTotal': positionData.sellTotal,
       'profit': positionData.profit,
       'profitPct': positionData.profitPct,
+      'profitClass': positionData.profitPct >= 0 ? 'profit-positive' : 'profit-negative',
       'duration': positionData.duration,
       'closeReason': positionData.closeReason,
       'datetime': positionData.datetime,

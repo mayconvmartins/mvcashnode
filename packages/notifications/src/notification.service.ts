@@ -185,7 +185,10 @@ export class NotificationService {
         where: { user_id: admin.id },
       });
 
-      if (config?.[configFlag] && admin.email) {
+      // Se não existe config, usar defaults do schema (true para a maioria)
+      const isEnabled = config ? config[configFlag] : true;
+
+      if (isEnabled && admin.email) {
         recipients.push(admin.email);
       }
     }
@@ -200,7 +203,10 @@ export class NotificationService {
         where: { user_id: accountOwner.id },
       });
 
-      if (ownerConfig?.[configFlag]) {
+      // Se não existe config, usar defaults do schema (true para a maioria)
+      const isEnabled = ownerConfig ? ownerConfig[configFlag] : true;
+
+      if (isEnabled) {
         if (!recipients.includes(accountOwner.email)) {
           recipients.push(accountOwner.email);
         }
@@ -261,7 +267,11 @@ export class NotificationService {
         where: { user_id: admin.id },
       });
 
-      if (config?.[configFlag] && admin.profile?.whatsapp_phone) {
+      // Se não existe config, usar defaults do schema (true para a maioria)
+      // vault_alerts_enabled é o único com default false
+      const isEnabled = config ? config[configFlag] : true;
+
+      if (isEnabled && admin.profile?.whatsapp_phone) {
         recipients.push(admin.profile.whatsapp_phone);
       }
     }
@@ -279,7 +289,10 @@ export class NotificationService {
         where: { user_id: accountOwner.id },
       });
 
-      if (ownerConfig?.[configFlag]) {
+      // Se não existe config, usar defaults do schema (true para a maioria)
+      const isEnabled = ownerConfig ? ownerConfig[configFlag] : true;
+
+      if (isEnabled) {
         // Adicionar se ainda não estiver na lista
         if (!recipients.includes(accountOwner.profile.whatsapp_phone)) {
           recipients.push(accountOwner.profile.whatsapp_phone);

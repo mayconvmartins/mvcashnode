@@ -82,7 +82,7 @@
         <h1>🔴 Posição Fechada</h1>
         
         <div class="content">
-            <div class="profit-box profit-{{#if (gte profitPct 0)}}positive{{else}}negative{{/if}}">
+            <div class="profit-box {{profitClass}}">
                 <strong>Resultado: {{profitPct}}%</strong><br>
                 <span style="font-size: 18px;">{{profit}}</span>
             </div>

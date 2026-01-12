@@ -4,19 +4,34 @@ export interface TemplateVariables {
 
 export class TemplateService {
   /**
-   * Renderiza um template substituindo variáveis pelo formato {variavel}
+   * Renderiza um template substituindo variáveis pelo formato {variavel} ou {{variavel}}
+   * Suporta ambos os formatos para compatibilidade com templates de WhatsApp ({var}) e Email ({{var}})
    */
   renderTemplate(template: string, variables: TemplateVariables): string {
     let rendered = template;
 
-    // Substituir todas as variáveis no formato {variavel}
+    // Substituir todas as variáveis no formato {{variavel}} (chaves duplas - usado em templates de email)
+    // e {variavel} (chaves simples - usado em templates de WhatsApp)
     for (const [key, value] of Object.entries(variables)) {
-      const regex = new RegExp(`\\{${key}\\}`, 'g');
       const formattedValue = this.formatValue(value);
-      rendered = rendered.replace(regex, formattedValue);
+      
+      // Primeiro substituir {{variavel}} (chaves duplas)
+      const doubleRegex = new RegExp(`\\{\\{${this.escapeRegex(key)}\\}\\}`, 'g');
+      rendered = rendered.replace(doubleRegex, formattedValue);
+      
+      // Depois substituir {variavel} (chaves simples)
+      const singleRegex = new RegExp(`\\{${this.escapeRegex(key)}\\}`, 'g');
+      rendered = rendered.replace(singleRegex, formattedValue);
     }
 
     return rendered;
+  }
+
+  /**
+   * Escapa caracteres especiais de regex em uma string
+   */
+  private escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   /**
@@ -68,16 +83,29 @@ export class TemplateService {
   }
 
   /**
-   * Extrai variáveis do template
+   * Extrai variáveis do template (suporta {var} e {{var}})
    */
   extractVariables(template: string): string[] {
-    const regex = /\{([^}]+)\}/g;
+    // Regex que captura tanto {{variavel}} quanto {variavel}
+    // Mas ignora sintaxe Handlebars como {{#if}} ou {{/if}}
+    const doubleRegex = /\{\{([^#/}][^}]*)\}\}/g;
+    const singleRegex = /\{([^{][^}]*)\}/g;
     const variables: string[] = [];
     let match;
 
-    while ((match = regex.exec(template)) !== null) {
-      if (!variables.includes(match[1])) {
-        variables.push(match[1]);
+    // Extrair variáveis com chaves duplas {{var}}
+    while ((match = doubleRegex.exec(template)) !== null) {
+      const varName = match[1].trim();
+      if (varName && !variables.includes(varName) && !varName.startsWith('#') && !varName.startsWith('/')) {
+        variables.push(varName);
+      }
+    }
+
+    // Extrair variáveis com chaves simples {var}
+    while ((match = singleRegex.exec(template)) !== null) {
+      const varName = match[1].trim();
+      if (varName && !variables.includes(varName)) {
+        variables.push(varName);
       }
     }
 
