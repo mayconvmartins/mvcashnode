@@ -33,7 +33,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { TradeJobQueueService } from '../trade-jobs/trade-job-queue.service';
 import { PrismaService } from '@mvcashnode/db';
-import { OrderType, ExchangeType, CacheService, UserRole } from '@mvcashnode/shared';
+import { OrderType, ExchangeType, CacheService, UserRole, normalizeSymbol, isValidSymbol } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { WebSocketService } from '../websocket/websocket.service';
 import { PositionService, TradeParameterService } from '@mvcashnode/domain';
@@ -3024,6 +3024,24 @@ export class PositionsController {
       }
 
       const side = (createDto.side || 'BUY').toUpperCase() as 'BUY' | 'SELL';
+
+      // ✅ Normalizar símbolo (garantir SEM barra) antes de persistir job/posição
+      const rawSymbol = String(symbol || '');
+      const normalizedSymbol = normalizeSymbol(rawSymbol);
+      if (!isValidSymbol(normalizedSymbol)) {
+        throw new BadRequestException(
+          `Símbolo inválido: "${rawSymbol}". Use o formato sem barra, ex: "LTCUSDT".`,
+        );
+      }
+      if (rawSymbol !== normalizedSymbol) {
+        console.warn(`[POSITIONS] Símbolo normalizado: "${rawSymbol}" -> "${normalizedSymbol}"`);
+      }
+      symbol = normalizedSymbol;
+
+      // ✅ SELL manual deve sempre indicar position_id (não permitir operação sem posição vinculada)
+      if (side === 'SELL' && (!createDto.position_id || createDto.position_id <= 0)) {
+        throw new BadRequestException('position_id é obrigatório para operações SELL');
+      }
       
       // Criar TradeJob com status FILLED
       const tradeJob = await this.prisma.tradeJob.create({
@@ -3213,7 +3231,7 @@ export class PositionsController {
       const tradeJob = await tradeJobService.createJob({
         exchangeAccountId: createDto.exchange_account_id,
         tradeMode: tradeMode as any,
-        symbol: createDto.symbol.toUpperCase().trim(),
+        symbol: normalizeSymbol(createDto.symbol),
         side: 'BUY',
         orderType: createDto.order_type,
         quoteAmount: createDto.quote_amount,

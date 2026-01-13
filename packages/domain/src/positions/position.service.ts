@@ -1,5 +1,5 @@
 import { PrismaClient } from '@mvcashnode/db';
-import { TradeMode, PositionStatus, CloseReason, ExchangeType, getBaseAsset, getQuoteAsset, normalizeQuantity } from '@mvcashnode/shared';
+import { TradeMode, PositionStatus, CloseReason, ExchangeType, getBaseAsset, getQuoteAsset, normalizeQuantity, normalizeSymbol } from '@mvcashnode/shared';
 import { ResidueService } from './residue.service';
 
 export interface PositionFill {
@@ -1071,6 +1071,9 @@ export class PositionService {
         throw new Error('Invalid sell job');
       }
 
+      // ✅ Garantir que o símbolo esteja em formato consistente (sem barra) para cálculos auxiliares
+      const normalizedJobSymbol = normalizeSymbol(job.symbol || '');
+
       // ✅ NOVO: Validar que position_id_to_close é obrigatório
       // FIFO foi removido - todas as vendas devem especificar qual posição fechar
       if (!job.position_id_to_close) {
@@ -1137,10 +1140,11 @@ export class PositionService {
       // Calcular taxa em USD para a venda
       let feeUsd = 0;
       if (feeAmount && feeAmount > 0 && feeCurrency) {
-        const quoteAsset = job.symbol.split('/')[1] || 'USDT';
+        const quoteAsset = getQuoteAsset(normalizedJobSymbol);
+        const baseAsset = getBaseAsset(normalizedJobSymbol);
         if (feeCurrency === 'USDT' || feeCurrency === 'USD' || feeCurrency === quoteAsset) {
           feeUsd = feeAmount;
-        } else if (feeCurrency === job.symbol.split('/')[0]) {
+        } else if (feeCurrency === baseAsset) {
           feeUsd = feeAmount * avgPrice;
         } else {
           feeUsd = feeAmount;

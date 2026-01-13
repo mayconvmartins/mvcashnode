@@ -11,7 +11,7 @@ import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole, CacheService, ExchangeType } from '@mvcashnode/shared';
+import { UserRole, CacheService, ExchangeType, normalizeSymbol, isValidSymbol } from '@mvcashnode/shared';
 import { PrismaService } from '@mvcashnode/db';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { EncryptionService } from '@mvcashnode/shared';
@@ -6970,6 +6970,18 @@ export class AdminSystemController {
 
     for (const order of dto.orders) {
       try {
+        // ✅ Normalizar símbolo (garantir SEM barra) antes de persistir job/posição
+        const rawSymbol = String(order.symbol || '');
+        const normalizedSymbol = normalizeSymbol(rawSymbol);
+        if (!isValidSymbol(normalizedSymbol)) {
+          throw new BadRequestException(
+            `Símbolo inválido: "${rawSymbol}". Use o formato sem barra, ex: "LTCUSDT".`,
+          );
+        }
+        if (rawSymbol !== normalizedSymbol) {
+          console.warn(`[ADMIN] Símbolo normalizado: "${rawSymbol}" -> "${normalizedSymbol}"`);
+        }
+
         // Validação: Ordens SELL devem ter positionId
         if (order.side === 'SELL' && (!order.positionId || order.positionId <= 0)) {
           throw new BadRequestException(`Ordem SELL ${order.exchangeOrderId} requer positionId. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close.`);
@@ -6980,7 +6992,7 @@ export class AdminSystemController {
           const job = await tx.tradeJob.create({
             data: {
               exchange_account_id: dto.accountId,
-              symbol: order.symbol,
+              symbol: normalizedSymbol,
               side: order.side,
               base_quantity: order.qty,
               order_type: 'MARKET',
@@ -7021,7 +7033,7 @@ export class AdminSystemController {
                 open_job: {
                   connect: { id: job.id },
                 },
-                symbol: order.symbol,
+                symbol: normalizedSymbol,
                 side: 'LONG',
                 trade_mode: account.is_simulation ? 'SIMULATION' : 'REAL',
                 qty_total: order.qty,

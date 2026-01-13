@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsString, ValidateIf, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsString, ValidateIf, Min, Matches } from 'class-validator';
 
 export class CreateManualBuyDto {
   @ApiProperty({
@@ -14,6 +14,7 @@ export class CreateManualBuyDto {
     example: 'BTCUSDT',
   })
   @IsString()
+  @Matches(/^[^/]+$/, { message: 'Símbolo não pode conter "/". Use o formato sem barra, ex: "LTCUSDT".' })
   symbol: string;
 
   @ApiProperty({

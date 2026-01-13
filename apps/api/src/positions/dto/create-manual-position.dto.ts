@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsString, IsOptional, IsDateString, ValidateIf, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsString, IsOptional, IsDateString, ValidateIf, Min, Matches } from 'class-validator';
 
 export enum CreateManualPositionMethod {
   EXCHANGE_ORDER = 'EXCHANGE_ORDER',
@@ -59,6 +59,7 @@ export class CreateManualPositionDto {
   })
   @ValidateIf((o) => o.method === CreateManualPositionMethod.EXCHANGE_ORDER)
   @IsString()
+  @Matches(/^[^/]+$/, { message: 'Símbolo não pode conter "/". Use o formato sem barra, ex: "LTCUSDT".' })
   symbol?: string;
 
   // Campos para MANUAL
@@ -69,6 +70,7 @@ export class CreateManualPositionDto {
   })
   @ValidateIf((o) => o.method === CreateManualPositionMethod.MANUAL)
   @IsString()
+  @Matches(/^[^/]+$/, { message: 'Símbolo não pode conter "/". Use o formato sem barra, ex: "LTCUSDT".' })
   manual_symbol?: string;
 
   @ApiProperty({
