@@ -8,6 +8,7 @@ import {
   BadRequestException,
   NotFoundException,
   Logger,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -203,8 +204,27 @@ export class SubscriptionsController {
   @Post('register')
   @ApiOperation({ summary: 'Finalizar registro após pagamento' })
   @ApiResponse({ status: 200, description: 'Registro concluído' })
-  async completeRegistration(@Body() dto: { token?: string; password: string; email?: string }) {
-    return this.subscriptionsService.completeRegistration(dto.token || '', dto.password, dto.email);
+  async completeRegistration(@Body() dto: {
+    token?: string;
+    password: string;
+    email?: string;
+    full_name?: string;
+    phone?: string;
+    whatsapp_phone?: string;
+  }) {
+    return this.subscriptionsService.completeRegistration(dto.token || '', dto.password, dto.email, {
+      full_name: dto.full_name,
+      phone: dto.phone,
+      whatsapp_phone: dto.whatsapp_phone,
+    });
+  }
+
+  @Get('register/token-info')
+  @ApiOperation({ summary: 'Obter informações do token de ativação (MvM Pay)' })
+  @ApiResponse({ status: 200, description: 'Token válido e informações retornadas' })
+  async getRegistrationTokenInfo(@Query('token') token?: string) {
+    if (!token) throw new BadRequestException('Token é obrigatório');
+    return this.subscriptionsService.getRegistrationTokenInfo(token);
   }
 
   @Post('mvm-pay/activate')

@@ -922,7 +922,12 @@ export class SubscriptionsService {
   /**
    * Finaliza registro do assinante após pagamento
    */
-  async completeRegistration(token: string, password: string, email?: string) {
+  async completeRegistration(
+    token: string,
+    password: string,
+    email?: string,
+    profileData?: { full_name?: string; phone?: string; whatsapp_phone?: string },
+  ) {
     // Se o provider for MvM Pay, exigimos token (24h, uso único) para provar posse do email
     const providerSetting = await this.prisma.systemSetting.findUnique({
       where: { key: 'subscription_provider' },
@@ -930,9 +935,6 @@ export class SubscriptionsService {
     const provider = providerSetting?.value || 'native';
 
     if (provider === 'mvm_pay') {
-      if (!email) {
-        throw new BadRequestException('Email é obrigatório para finalizar cadastro via MvM Pay');
-      }
       if (!token) {
         throw new BadRequestException('Token é obrigatório para finalizar cadastro via MvM Pay');
       }
@@ -951,37 +953,68 @@ export class SubscriptionsService {
       if (regToken.expires_at.getTime() < Date.now()) {
         throw new BadRequestException('Token expirado');
       }
-      if (regToken.email.toLowerCase() !== email.toLowerCase()) {
+      const effectiveEmail = String(regToken.email || '').trim().toLowerCase();
+      if (!effectiveEmail) throw new BadRequestException('Token inválido (email ausente)');
+      if (email && String(email).trim().toLowerCase() !== effectiveEmail) {
         throw new BadRequestException('Token não corresponde ao email informado');
       }
 
-      const access = await this.mvmPayService.authAccess(email);
+      const access = await this.mvmPayService.authAccess(effectiveEmail);
       const hasAccess = !!access?.data?.has_access;
       if (!hasAccess) {
         throw new BadRequestException('Assinatura ativa necessária para finalizar cadastro');
       }
 
       // Buscar a assinatura no MvM Pay para obter plan_id e end_date
-      const subs = await this.mvmPayService.getUserSubscriptions(email);
-      const candidate = subs?.data?.subscriptions?.find((s) => ['ativo', 'trial', 'ACTIVE', 'TRIAL'].includes(String(s.status))) ||
-        subs?.data?.subscriptions?.[0];
+      const subs = await this.mvmPayService.getUserSubscriptions(effectiveEmail);
+      const list = subs?.data?.subscriptions || [];
 
-          if (!candidate?.plan_id) {
-        throw new BadRequestException('Não foi possível identificar o plano no MvM Pay');
+      const normalizeStatus = (s: any) => String(s || '').trim().toLowerCase();
+      const extractPlanId = (s: any): number | null => {
+        const v =
+          s?.plan_id ??
+          s?.planId ??
+          s?.plan?.id ??
+          s?.plan?.plan_id ??
+          null;
+        const n = v === null || v === undefined ? NaN : Number(v);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      };
+      const extractExternalSubId = (s: any): string | null => {
+        const v = s?.id ?? s?.subscription_id ?? s?.subscriptionId ?? null;
+        return v === null || v === undefined ? null : String(v);
+      };
+
+      const activeStatuses = new Set(['ativo', 'active', 'trial', 'trialing', 'em_teste']);
+
+      const candidate =
+        list.find((s) => activeStatuses.has(normalizeStatus(s?.status)) && !!extractPlanId(s)) ||
+        list.find((s) => !!extractPlanId(s)) ||
+        list[0];
+
+      const planId = extractPlanId(candidate);
+      if (!planId) {
+        this.logger.error('[MvM Pay Activation] plan_id ausente no payload /users/{email}/subscriptions', {
+          email: effectiveEmail,
+          sample: candidate ? { ...candidate, user_email: undefined } : null,
+        });
+        throw new BadRequestException(
+          'Não foi possível identificar o plano no MvM Pay. O endpoint /users/{email}/subscriptions precisa retornar plan_id para a assinatura ativa/trial.',
+        );
       }
-          const externalSubId = candidate?.id ? String(candidate.id) : null;
+      const externalSubId = extractExternalSubId(candidate);
 
       const localPlan = await this.prisma.subscriptionPlan.findFirst({
         where: {
           OR: [
-            { mvm_pay_plan_id_monthly: candidate.plan_id },
-            { mvm_pay_plan_id_quarterly: candidate.plan_id },
+            { mvm_pay_plan_id_monthly: planId },
+            { mvm_pay_plan_id_quarterly: planId },
           ],
         },
       });
       if (!localPlan) {
         throw new BadRequestException(
-          `Plano do MvM Pay (plan_id=${candidate.plan_id}) não está mapeado no MVCash (mvm_pay_plan_id_monthly/mvm_pay_plan_id_quarterly)`
+          `Plano do MvM Pay (plan_id=${planId}) não está mapeado no MVCash (mvm_pay_plan_id_monthly/mvm_pay_plan_id_quarterly)`
         );
       }
 
@@ -990,9 +1023,9 @@ export class SubscriptionsService {
 
       // Criar/atualizar usuário
       const user = await this.prisma.user.upsert({
-        where: { email },
+        where: { email: effectiveEmail },
         create: {
-          email,
+          email: effectiveEmail,
           password_hash: passwordHash,
           is_active: true,
           must_change_password: false,
@@ -1004,6 +1037,24 @@ export class SubscriptionsService {
         },
       });
 
+      // Atualizar dados de perfil (não vêm do MvM Pay)
+      if (profileData?.full_name || profileData?.phone || profileData?.whatsapp_phone) {
+        await this.prisma.profile.upsert({
+          where: { user_id: user.id },
+          create: {
+            user_id: user.id,
+            full_name: (profileData.full_name || '').trim() || effectiveEmail,
+            phone: profileData.phone?.trim() || null,
+            whatsapp_phone: profileData.whatsapp_phone?.trim() || null,
+          },
+          update: {
+            ...(profileData.full_name ? { full_name: profileData.full_name.trim() } : {}),
+            ...(profileData.phone ? { phone: profileData.phone.trim() } : {}),
+            ...(profileData.whatsapp_phone ? { whatsapp_phone: profileData.whatsapp_phone.trim() } : {}),
+          },
+        });
+      }
+
       // Garantir role subscriber
       await this.prisma.userRole.upsert({
         where: { user_id_role: { user_id: user.id, role: 'subscriber' } },
@@ -1011,7 +1062,7 @@ export class SubscriptionsService {
         update: {},
       });
 
-      const endDate = candidate.end_date ? new Date(candidate.end_date) : (() => {
+      const endDate = candidate?.end_date ? new Date(candidate.end_date) : (() => {
         const d = new Date();
         d.setDate(d.getDate() + localPlan.duration_days);
         return d;
@@ -1193,18 +1244,27 @@ export class SubscriptionsService {
     });
 
     const baseUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5010';
-    const activationUrl = `${baseUrl}/subscribe/register?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(normalizedEmail)}`;
+    // Link token-only (email é inferido pelo backend via RegistrationToken)
+    const activationUrl = `${baseUrl}/subscribe/register?token=${encodeURIComponent(rawToken)}`;
 
     // Enviar email se SMTP configurado
     if (this.emailService) {
       try {
         const subject = 'Ative sua conta - MVCash';
         const html = `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5">
-            <h2>Ativação de conta</h2>
-            <p>Recebemos sua assinatura no MvM Pay. Para criar sua senha e acessar o MVCash, clique no link abaixo:</p>
-            <p><a href="${activationUrl}" target="_blank" rel="noreferrer">Ativar minha conta</a></p>
-            <p>Este link expira em 24 horas e pode ser usado apenas uma vez.</p>
+          <div style="font-family: Arial, sans-serif; line-height: 1.5; max-width: 560px; margin: 0 auto;">
+            <h2 style="margin: 0 0 12px;">Ativação de conta</h2>
+            <p style="margin: 0 0 12px;">Recebemos sua assinatura no <b>MvM Pay</b>.</p>
+            <p style="margin: 0 0 16px;">Para criar sua senha e acessar o MVCash, clique no botão abaixo:</p>
+            <p style="margin: 0 0 20px;">
+              <a href="${activationUrl}" target="_blank" rel="noreferrer"
+                 style="display:inline-block;padding:12px 16px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;">
+                Ativar minha conta
+              </a>
+            </p>
+            <p style="margin: 0 0 8px; color:#64748b; font-size: 13px;">
+              Este link expira em 24 horas e pode ser usado apenas uma vez.
+            </p>
           </div>
         `;
         await this.emailService.sendEmail(normalizedEmail, subject, html);
@@ -1221,6 +1281,31 @@ export class SubscriptionsService {
         : 'Link de ativação gerado (SMTP não configurado)',
       ...(opts?.returnLink ? { activation_url: activationUrl } : {}),
       expires_at: expiresAt.toISOString(),
+    };
+  }
+
+  async getRegistrationTokenInfo(token: string): Promise<{ email: string; expires_at: string }> {
+    const raw = String(token || '').trim();
+    if (!raw) throw new BadRequestException('Token inválido');
+
+    const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
+    const regToken = await this.prisma.registrationToken.findUnique({
+      where: { token_hash: tokenHash },
+    });
+
+    if (!regToken || regToken.purpose !== 'MVM_PAY_ACTIVATION') {
+      throw new BadRequestException('Token inválido');
+    }
+    if (regToken.used_at) {
+      throw new BadRequestException('Token já utilizado');
+    }
+    if (regToken.expires_at.getTime() < Date.now()) {
+      throw new BadRequestException('Token expirado');
+    }
+
+    return {
+      email: regToken.email,
+      expires_at: regToken.expires_at.toISOString(),
     };
   }
 

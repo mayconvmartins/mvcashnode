@@ -71,6 +71,11 @@ export interface CheckoutResponse {
   state?: string;
 }
 
+export interface RegistrationTokenInfo {
+  email: string;
+  expires_at: string;
+}
+
 export const subscriptionsService = {
   getPlans: async (): Promise<SubscriptionPlan[]> => {
     const response = await apiClient.get<SubscriptionPlan[]>('/subscriptions/plans');
@@ -120,12 +125,24 @@ export const subscriptionsService = {
     return response.data;
   },
 
-  completeRegistration: async (token: string, password: string, email?: string): Promise<any> => {
-    const response = await apiClient.post('/subscriptions/register', {
-      token,
-      password,
-      email,
+  getRegistrationTokenInfo: async (token: string): Promise<RegistrationTokenInfo> => {
+    const response = await apiClient.get('/subscriptions/register/token-info', {
+      params: { token },
     });
+    return response.data;
+  },
+
+  completeRegistration: async (data: {
+    token?: string;
+    password: string;
+    // nativo (sem token)
+    email?: string;
+    // dados de perfil (MvM Pay)
+    full_name?: string;
+    phone?: string;
+    whatsapp_phone?: string;
+  }): Promise<any> => {
+    const response = await apiClient.post('/subscriptions/register', data);
     return response.data;
   },
 
