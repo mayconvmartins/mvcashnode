@@ -369,16 +369,19 @@ function RouteGuardContent({ children, requireAuth = true, requireAdmin = false 
         return roleValue === UserRole.ADMIN || roleValue === 'admin'
     })
     
-    // Rotas bloqueadas para assinantes (exceto admin)
-    const blockedRoutesForSubscribers = [
-        '/webhooks',
-        '/operations',
-        '/trade-jobs',
+    // SUBSCRIBER (não-admin): allowlist estrita (fecha bypass por URL direta)
+    const allowedRoutesForSubscribers = [
+        '/subscriber-dashboard',
+        '/accounts',
+        '/heatmap',
+        '/reports',
+        '/settings/position-value',
+        '/my-plan',
     ]
-    
+
     if (isSubscriber && !isAdmin) {
-        const isBlockedRoute = blockedRoutesForSubscribers.some(route => pathname.startsWith(route))
-        if (isBlockedRoute) {
+        const isAllowed = allowedRoutesForSubscribers.some((route) => pathname === route || pathname.startsWith(route + '/'))
+        if (!isAllowed) {
             router.push('/my-plan?error=access_denied')
             return (
                 <div className="flex min-h-screen items-center justify-center">

@@ -1416,6 +1416,8 @@ export class PositionsController {
     summary: 'Monitorar posições com TP/SL ativado',
     description: 'Retorna posições abertas com Take Profit ou Stop Loss habilitado, incluindo cálculo de proximidade de execução e status de lucro/perda.',
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.USER)
   @ApiQuery({ 
     name: 'trade_mode', 
     required: false, 

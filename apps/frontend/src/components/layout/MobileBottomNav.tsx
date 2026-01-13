@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
     LayoutDashboard,
-    LineChart,
+    Wallet,
+    FileBarChart,
     Target,
     Flame,
     Menu,
@@ -33,34 +34,63 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
         return roleValue?.toLowerCase?.() === 'admin'
     })
 
-    const navItems: NavItem[] = [
-        { 
-            icon: LayoutDashboard, 
-            label: 'Home', 
-            href: isSubscriber ? '/subscriber-dashboard' : '/' 
-        },
-        { 
-            icon: LineChart, 
-            label: 'Posições', 
-            href: '/positions' 
-        },
-        { 
-            icon: Target, 
-            label: 'SL+TP', 
-            href: isAdmin ? '/subscribers-admin/monitoring-tp-sl' : '/monitoring',
-            isAction: true 
-        },
-        { 
-            icon: Flame, 
-            label: 'Mapa de Calor', 
-            href: isAdmin ? '/subscribers-admin/heatmap' : '/heatmap' 
-        },
-        { 
-            icon: Menu, 
-            label: 'Menu', 
-            href: '#menu' 
-        },
-    ]
+    const navItems: NavItem[] = isSubscriber && !isAdmin
+        ? [
+            {
+                icon: LayoutDashboard,
+                label: 'Home',
+                href: '/subscriber-dashboard',
+            },
+            {
+                icon: Wallet,
+                label: 'Contas',
+                href: '/accounts',
+            },
+            {
+                icon: Flame,
+                label: 'Mapa de Calor',
+                href: '/heatmap',
+                isAction: true,
+            },
+            {
+                icon: FileBarChart,
+                label: 'Relatórios',
+                href: '/reports',
+            },
+            {
+                icon: Menu,
+                label: 'Menu',
+                href: '#menu',
+            },
+        ]
+        : [
+            {
+                icon: LayoutDashboard,
+                label: 'Home',
+                href: '/',
+            },
+            {
+                icon: Wallet,
+                label: 'Contas',
+                href: '/accounts',
+            },
+            {
+                icon: Target,
+                label: 'SL+TP',
+                href: '/monitoring-positionstp-sl',
+                isAction: true,
+            },
+            {
+                icon: Flame,
+                label: 'Mapa de Calor',
+                href: '/heatmap',
+            },
+            {
+                icon: Menu,
+                label: 'Menu',
+                href: '#menu',
+            },
+        ]
 
     return (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border safe-area-bottom">
