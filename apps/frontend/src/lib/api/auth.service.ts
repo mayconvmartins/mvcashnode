@@ -12,6 +12,18 @@ export interface Verify2FADto {
     token: string
 }
 
+export interface LoginPreflightResponse {
+    email: string
+    provider: 'native' | 'mvm_pay'
+    exists_local: boolean
+    has_mvm_access: boolean
+    pending_activation: boolean
+    allow_password: boolean
+    allow_passkey: boolean
+    has_passkeys: boolean
+    suggested_action: 'activate' | 'passkey' | 'password'
+}
+
 export interface ChangePasswordRequiredDto {
     email: string
     currentPassword: string
@@ -42,6 +54,11 @@ export interface SessionInfo {
 export const authService = {
     login: async (data: LoginDto): Promise<LoginResponse> => {
         const response = await apiClient.post<LoginResponse>('/auth/login', data)
+        return response.data
+    },
+
+    loginPreflight: async (email: string): Promise<LoginPreflightResponse> => {
+        const response = await apiClient.post<LoginPreflightResponse>('/auth/login-preflight', { email })
         return response.data
     },
 

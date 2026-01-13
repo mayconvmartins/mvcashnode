@@ -29,6 +29,8 @@ function LoginPageContent() {
     const [twoFactorCode, setTwoFactorCode] = useState('')
     const [error, setError] = useState('')
     const [showMvmActivationCta, setShowMvmActivationCta] = useState(false)
+    const [loginStep, setLoginStep] = useState<'email' | 'options'>('email')
+    const [preflight, setPreflight] = useState<any>(null)
     const [requires2FA, setRequires2FA] = useState(false)
     const [sessionToken, setSessionToken] = useState<string | null>(null)
     const [requiresPasswordChange, setRequiresPasswordChange] = useState(false)
@@ -37,7 +39,6 @@ function LoginPageContent() {
     const [rememberMe, setRememberMe] = useState(false)
     const [hasPasskeys, setHasPasskeys] = useState(false)
     const [isPasskeySupported, setIsPasskeySupported] = useState(false)
-    const [isCheckingPasskeys, setIsCheckingPasskeys] = useState(false)
     const [isConditionalUISupported, setIsConditionalUISupported] = useState(false)
     const [isConditionalUIActive, setIsConditionalUIActive] = useState(false)
     
@@ -143,12 +144,18 @@ function LoginPageContent() {
         }
     }, [isConditionalUISupported, isConditionalUIActive, rememberMe])
 
-    // Ativar Conditional UI UMA VEZ quando o componente montar e suporte for detectado
+    // Ativar Conditional UI SOMENTE após validar email (preflight) e quando passkey for permitida
     useEffect(() => {
-        console.log('[ConditionalUI Effect] isSupported:', isConditionalUISupported, 'requires2FA:', requires2FA, 'started:', conditionalUIStartedRef.current)
-        
-        // Só iniciar se suportado, não estiver em 2FA, e não tiver sido iniciado ainda
-        if (isConditionalUISupported && !requires2FA && !conditionalUIStartedRef.current) {
+        console.log('[ConditionalUI Effect] isSupported:', isConditionalUISupported, 'requires2FA:', requires2FA, 'loginStep:', loginStep, 'started:', conditionalUIStartedRef.current)
+
+        const canStart =
+            isConditionalUISupported &&
+            !requires2FA &&
+            loginStep === 'options' &&
+            !!preflight?.allow_passkey &&
+            !conditionalUIStartedRef.current
+
+        if (canStart) {
             console.log('[ConditionalUI Effect] Chamando startConditionalUI...')
             startConditionalUI()
         }
@@ -159,27 +166,12 @@ function LoginPageContent() {
                 conditionalUIAbortController.current.abort()
             }
         }
-    }, [isConditionalUISupported, requires2FA, startConditionalUI])
+    }, [isConditionalUISupported, requires2FA, loginStep, preflight, startConditionalUI])
 
-    // Verificar se o email tem passkeys (para mostrar botão manual)
+    // Passkeys agora são decididas no preflight (para só mostrar opções após validar o email)
     useEffect(() => {
-        if (email && email.includes('@') && isPasskeySupported) {
-            const timer = setTimeout(async () => {
-                setIsCheckingPasskeys(true)
-                try {
-                    const result = await authService.checkEmailHasPasskeys(email)
-                    setHasPasskeys(result.hasPasskeys)
-                } catch {
-                    setHasPasskeys(false)
-                } finally {
-                    setIsCheckingPasskeys(false)
-                }
-            }, 500)
-            return () => clearTimeout(timer)
-        } else {
-            setHasPasskeys(false)
-        }
-    }, [email, isPasskeySupported])
+        setHasPasskeys(!!preflight?.has_passkeys)
+    }, [preflight])
 
     // Limpar qualquer token de impersonation ao carregar a página de login
     useEffect(() => {
@@ -220,8 +212,37 @@ function LoginPageContent() {
             }
             
             setError(errorMessage)
-            setShowMvmActivationCta(errorMessage.includes('Conta não ativada'))
+            // Fallback: se o backend detectar conta MvM Pay não ativada no login, força modo ativação
+            if (errorMessage.includes('Conta não ativada')) {
+                setLoginStep('options')
+                setPreflight({
+                    pending_activation: true,
+                    allow_password: false,
+                    allow_passkey: false,
+                    has_passkeys: false,
+                    suggested_action: 'activate',
+                })
+                setShowMvmActivationCta(true)
+            } else {
+                setShowMvmActivationCta(false)
+            }
             toast.error(errorMessage)
+        },
+    })
+
+    const preflightMutation = useMutation({
+        mutationFn: async (emailToCheck: string) => authService.loginPreflight(emailToCheck),
+        onSuccess: (data) => {
+            setPreflight(data)
+            setLoginStep('options')
+            setShowMvmActivationCta(!!data?.pending_activation)
+            setError('')
+        },
+        onError: (e: any) => {
+            setPreflight(null)
+            setLoginStep('email')
+            setShowMvmActivationCta(false)
+            setError(e?.response?.data?.message || 'Não foi possível validar o email')
         },
     })
 
@@ -332,6 +353,18 @@ function LoginPageContent() {
         // Cancelar Conditional UI ao fazer login manual
         if (conditionalUIAbortController.current) {
             conditionalUIAbortController.current.abort()
+        }
+
+        // Passo 1: validar email antes de mostrar opções
+        if (!requires2FA) {
+            if (loginStep === 'email') {
+                preflightMutation.mutate(email)
+                return
+            }
+            // Se está pendente de ativação, não tenta login por senha/passkey
+            if (preflight?.pending_activation) {
+                return
+            }
         }
 
         if (requires2FA && sessionToken) {
@@ -458,20 +491,32 @@ function LoginPageContent() {
                                         type="email"
                                         placeholder="seu@email.com"
                                         value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        disabled={isPending}
+                                        onChange={(e) => {
+                                            setEmail(e.target.value)
+                                            setLoginStep('email')
+                                            setPreflight(null)
+                                            setShowMvmActivationCta(false)
+                                            // permitir reiniciar Conditional UI para o novo email (após novo preflight)
+                                            conditionalUIStartedRef.current = false
+                                        }}
+                                        onBlur={() => {
+                                            if (email && email.includes('@') && loginStep === 'email') {
+                                                preflightMutation.mutate(email)
+                                            }
+                                        }}
+                                        disabled={isPending || preflightMutation.isPending}
                                         required
                                         autoFocus
                                         autoComplete="username webauthn"
                                         className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500"
                                     />
-                                    {isCheckingPasskeys && (
+                                    {preflightMutation.isPending && (
                                         <p className="text-xs text-slate-500 flex items-center gap-1">
                                             <Loader2 className="h-3 w-3 animate-spin" />
-                                            Verificando Passkeys...
+                                            Validando email...
                                         </p>
                                     )}
-                                    {isConditionalUISupported && !hasPasskeys && !isCheckingPasskeys && (
+                                    {isConditionalUISupported && !hasPasskeys && !preflightMutation.isPending && (
                                         <p className="text-xs text-slate-500 flex items-center gap-1">
                                             <Fingerprint className="h-3 w-3" />
                                             Passkeys disponíveis aparecerão no autofill
@@ -479,130 +524,165 @@ function LoginPageContent() {
                                     )}
                                 </div>
 
-                                {/* Passkey Button - mostrar sempre que dispositivo suportar */}
-                                {isPasskeySupported && (
+                                {loginStep === 'email' ? (
                                     <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="w-full bg-gradient-to-r from-purple-500/10 to-blue-500/10 border-purple-500/30 hover:border-purple-500/50 text-white hover:bg-purple-500/20 transition-all"
-                                        onClick={handlePasskeyLogin}
-                                        disabled={isPending}
+                                        type="submit"
+                                        className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg shadow-blue-500/25 transition-all"
+                                        disabled={isPending || preflightMutation.isPending || !email.includes('@')}
                                     >
-                                        {passkeyMutation.isPending ? (
-                                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                        ) : (
-                                            <Fingerprint className="h-5 w-5 mr-2" />
-                                        )}
-                                        Entrar com Passkey
-                                    </Button>
-                                )}
-
-                                {/* Divider quando dispositivo suporta Passkey */}
-                                {isPasskeySupported && (
-                                    <div className="relative">
-                                        <div className="absolute inset-0 flex items-center">
-                                            <span className="w-full border-t border-slate-700" />
-                                        </div>
-                                        <div className="relative flex justify-center text-xs uppercase">
-                                            <span className="bg-slate-900 px-2 text-slate-500">ou com senha</span>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Password */}
-                                <div className="space-y-2">
-                                    <Label htmlFor="password" className="text-slate-300 flex items-center gap-2">
-                                        <KeyRound className="h-4 w-4" />
-                                        Senha
-                                    </Label>
-                                    <div className="relative">
-                                        <Input
-                                            id="password"
-                                            name="password"
-                                            type={showPassword ? 'text' : 'password'}
-                                            placeholder="••••••••"
-                                            value={password}
-                                            onChange={(e) => setPassword(e.target.value)}
-                                            disabled={isPending}
-                                            required
-                                            autoComplete="current-password"
-                                            className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 pr-10"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowPassword(!showPassword)}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                                        >
-                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Remember Me */}
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center space-x-2">
-                                        <Checkbox
-                                            id="rememberMe"
-                                            checked={rememberMe}
-                                            onCheckedChange={(checked) => setRememberMe(checked === true)}
-                                            disabled={isPending}
-                                            className="border-slate-600 data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
-                                        />
-                                        <Label
-                                            htmlFor="rememberMe"
-                                            className="text-sm text-slate-400 cursor-pointer"
-                                        >
-                                            Lembrar de mim
-                                        </Label>
-                                    </div>
-                                    <Link
-                                        href="/forgot-password"
-                                        className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-                                    >
-                                        Esqueci a senha
-                                    </Link>
-                                </div>
-
-                                {/* Submit Button */}
-                                <Button
-                                    type="submit"
-                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg shadow-blue-500/25 transition-all"
-                                    disabled={isPending || !email || !password}
-                                >
-                                    {loginMutation.isPending ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                            Verificando...
-                                        </>
-                                    ) : (
-                                        'Entrar'
-                                    )}
-                                </Button>
-
-                                {showMvmActivationCta && email && (
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="w-full border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10"
-                                        onClick={() => activationMutation.mutate()}
-                                        disabled={activationMutation.isPending || isPending}
-                                    >
-                                        {activationMutation.isPending ? (
+                                        {preflightMutation.isPending ? (
                                             <>
                                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                                Enviando link...
+                                                Validando...
                                             </>
                                         ) : (
-                                            'Ativar conta'
+                                            'Continuar'
                                         )}
                                     </Button>
-                                )}
+                                ) : preflight?.pending_activation ? (
+                                    <>
+                                        <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-sm p-3 rounded-lg">
+                                            Identificamos sua assinatura no MvM Pay, mas sua conta ainda não foi ativada. Clique abaixo para receber o link e definir sua senha.
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="w-full border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10"
+                                            onClick={() => activationMutation.mutate()}
+                                            disabled={activationMutation.isPending || isPending}
+                                        >
+                                            {activationMutation.isPending ? (
+                                                <>
+                                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                    Enviando link...
+                                                </>
+                                            ) : (
+                                                'Ativar conta'
+                                            )}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            className="w-full text-slate-300 hover:text-white"
+                                            onClick={() => {
+                                                setLoginStep('email')
+                                                setPreflight(null)
+                                                setShowMvmActivationCta(false)
+                                            }}
+                                            disabled={isPending || preflightMutation.isPending}
+                                        >
+                                            Usar outro email
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        {/* Passkey Button - somente após validar email e quando permitido */}
+                                        {isPasskeySupported && !!preflight?.allow_passkey && hasPasskeys && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="w-full bg-gradient-to-r from-purple-500/10 to-blue-500/10 border-purple-500/30 hover:border-purple-500/50 text-white hover:bg-purple-500/20 transition-all"
+                                                onClick={handlePasskeyLogin}
+                                                disabled={isPending}
+                                            >
+                                                {passkeyMutation.isPending ? (
+                                                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                                ) : (
+                                                    <Fingerprint className="h-5 w-5 mr-2" />
+                                                )}
+                                                Entrar com Passkey
+                                            </Button>
+                                        )}
 
-                                {/* Passkey hint */}
-                                {isPasskeySupported && !hasPasskeys && email && !isConditionalUISupported && (
-                                    <p className="text-xs text-center text-slate-500">
-                                        Dica: Configure Passkeys no seu perfil para login mais rápido e seguro
-                                    </p>
+                                        {/* Divider quando Passkey estiver disponível */}
+                                        {isPasskeySupported && !!preflight?.allow_passkey && hasPasskeys && (
+                                            <div className="relative">
+                                                <div className="absolute inset-0 flex items-center">
+                                                    <span className="w-full border-t border-slate-700" />
+                                                </div>
+                                                <div className="relative flex justify-center text-xs uppercase">
+                                                    <span className="bg-slate-900 px-2 text-slate-500">ou com senha</span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Password */}
+                                        <div className="space-y-2">
+                                            <Label htmlFor="password" className="text-slate-300 flex items-center gap-2">
+                                                <KeyRound className="h-4 w-4" />
+                                                Senha
+                                            </Label>
+                                            <div className="relative">
+                                                <Input
+                                                    id="password"
+                                                    name="password"
+                                                    type={showPassword ? 'text' : 'password'}
+                                                    placeholder="••••••••"
+                                                    value={password}
+                                                    onChange={(e) => setPassword(e.target.value)}
+                                                    disabled={isPending}
+                                                    required
+                                                    autoComplete="current-password"
+                                                    className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 pr-10"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPassword(!showPassword)}
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                                                >
+                                                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Remember Me */}
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center space-x-2">
+                                                <Checkbox
+                                                    id="rememberMe"
+                                                    checked={rememberMe}
+                                                    onCheckedChange={(checked) => setRememberMe(checked === true)}
+                                                    disabled={isPending}
+                                                    className="border-slate-600 data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                                                />
+                                                <Label
+                                                    htmlFor="rememberMe"
+                                                    className="text-sm text-slate-400 cursor-pointer"
+                                                >
+                                                    Lembrar de mim
+                                                </Label>
+                                            </div>
+                                            <Link
+                                                href="/forgot-password"
+                                                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                                            >
+                                                Esqueci a senha
+                                            </Link>
+                                        </div>
+
+                                        {/* Submit Button */}
+                                        <Button
+                                            type="submit"
+                                            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg shadow-blue-500/25 transition-all"
+                                            disabled={isPending || !email || !password}
+                                        >
+                                            {loginMutation.isPending ? (
+                                                <>
+                                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                    Verificando...
+                                                </>
+                                            ) : (
+                                                'Entrar'
+                                            )}
+                                        </Button>
+
+                                        {/* Passkey hint */}
+                                        {isPasskeySupported && !hasPasskeys && email && !isConditionalUISupported && (
+                                            <p className="text-xs text-center text-slate-500">
+                                                Dica: Configure Passkeys no seu perfil para login mais rápido e seguro
+                                            </p>
+                                        )}
+                                    </>
                                 )}
                             </>
                         ) : (

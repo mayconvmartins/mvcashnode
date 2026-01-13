@@ -47,6 +47,85 @@ export class AuthController {
     private mvmPayService: MvmPayService,
   ) {}
 
+  @Post('login-preflight')
+  @Throttle({ default: { limit: 12, ttl: 60000 } }) // 12/min por IP (além do Nginx/infra)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Pré-validação de email para login',
+    description: 'Valida email e retorna quais opções de login devem ser exibidas (senha/passkey/ativação MvM Pay).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Resultado do preflight',
+  })
+  async loginPreflight(@Body() body: { email: string }, @Request() req: any): Promise<{
+    email: string;
+    provider: 'native' | 'mvm_pay';
+    exists_local: boolean;
+    has_mvm_access: boolean;
+    pending_activation: boolean;
+    allow_password: boolean;
+    allow_passkey: boolean;
+    has_passkeys: boolean;
+    suggested_action: 'activate' | 'passkey' | 'password';
+  }> {
+    const rawEmail = String(body?.email || '').trim().toLowerCase();
+    if (!rawEmail || !rawEmail.includes('@')) {
+      throw new BadRequestException('Email inválido');
+    }
+
+    const providerSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'subscription_provider' },
+    });
+    const provider = (providerSetting?.value || 'native') as 'native' | 'mvm_pay';
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: rawEmail },
+      select: { id: true, must_change_password: true },
+    });
+
+    let hasMvmAccess = false;
+    if (provider === 'mvm_pay') {
+      try {
+        const access = await this.mvmPayService.authAccess(rawEmail);
+        hasMvmAccess = !!access?.data?.has_access;
+      } catch {
+        hasMvmAccess = false;
+      }
+    }
+
+    // Regra prática: se tem acesso MvM Pay e não tem senha definida (ou nem existe local ainda), só pode ativar.
+    const pendingActivation = provider === 'mvm_pay' && hasMvmAccess && (!user || user.must_change_password === true);
+
+    // Passkeys: só faz sentido quando não está pendente de ativação
+    let hasPasskeys = false;
+    if (!pendingActivation) {
+      try {
+        hasPasskeys = await this.authService.getPasskeyService().emailHasPasskeys(rawEmail);
+      } catch {
+        hasPasskeys = false;
+      }
+    }
+
+    const allowPassword = !pendingActivation;
+    const allowPasskey = !pendingActivation && hasPasskeys;
+
+    const suggested: 'activate' | 'passkey' | 'password' =
+      pendingActivation ? 'activate' : allowPasskey ? 'passkey' : 'password';
+
+    return {
+      email: rawEmail,
+      provider,
+      exists_local: !!user,
+      has_mvm_access: hasMvmAccess,
+      pending_activation: pendingActivation,
+      allow_password: allowPassword,
+      allow_passkey: allowPasskey,
+      has_passkeys: hasPasskeys,
+      suggested_action: suggested,
+    };
+  }
+
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
