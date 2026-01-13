@@ -12,6 +12,7 @@ export type TemplateType =
   | 'TP_HIT'
   | 'SG_HIT'
   | 'TSG_HIT'
+  | 'PARTIAL_TP'
   | 'TRADE_ERROR'
   | 'PASSWORD_RESET'
   | 'WELCOME'
@@ -162,6 +163,19 @@ const DEFAULT_TEMPLATES: Record<TemplateType, Partial<Record<NotificationChannel
       name: 'TSG Atingido',
       subject: 'TSG Atingido: {symbol}',
       body: 'PnL: ${pnl} ({pnl_pct}%)',
+      iconUrl: '/icons/icon-192x192.png',
+      actionUrl: '/positions',
+    },
+  },
+  PARTIAL_TP: {
+    whatsapp: {
+      name: 'Take Profit Parcial',
+      body: '💰 *Take Profit Parcial*\n\nSímbolo: {symbol}\nQty vendida: {qtySold}\nRestante: {qtyRemaining}\nPnL: {profitPct}%',
+    },
+    webpush: {
+      name: 'TP Parcial',
+      subject: 'TP Parcial: {symbol}',
+      body: 'Qty vendida: {qtySold}',
       iconUrl: '/icons/icon-192x192.png',
       actionUrl: '/positions',
     },

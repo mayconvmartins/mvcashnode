@@ -26,13 +26,30 @@ export class NotificationService {
 
 
   /**
-   * Busca template ativo por tipo
+   * Mapeia tipos de template legados para unificados
+   */
+  private mapLegacyTemplateType(type: NotificationTemplateType): string {
+    const typeMapping: Record<string, string> = {
+      'STOP_LOSS_TRIGGERED': 'SL_HIT',
+      'STOP_GAIN_TRIGGERED': 'SG_HIT',
+      'TRAILING_STOP_GAIN_TRIGGERED': 'TSG_HIT',
+      'PARTIAL_TP_TRIGGERED': 'PARTIAL_TP',
+    };
+    return typeMapping[type] || type;
+  }
+
+  /**
+   * Busca template ativo por tipo da tabela UNIFICADA (notification_templates)
    */
   private async getTemplate(type: NotificationTemplateType): Promise<string | null> {
+    const unifiedType = this.mapLegacyTemplateType(type);
+
+    // Buscar da tabela UNIFICADA (notification_templates)
     // @ts-ignore - Prisma client será regenerado após migration
-    const template = await this.prisma.whatsAppNotificationTemplate.findFirst({
+    const template = await this.prisma.notificationTemplate.findFirst({
       where: {
-        template_type: type,
+        template_type: unifiedType,
+        channel: 'whatsapp',
         is_active: true,
       },
       orderBy: {
@@ -64,12 +81,14 @@ export class NotificationService {
     const template = await this.getTemplate(type);
     
     if (!template) {
-      console.warn(`[NOTIFICATIONS] Template ${type} não encontrado ou inativo`);
+      const unifiedType = this.mapLegacyTemplateType(type);
+      console.warn(`[NOTIFICATIONS] Template ${unifiedType} não encontrado ou inativo na tabela unificada`);
       console.warn(`[NOTIFICATIONS] Verificando templates no banco...`);
-      // Verificar se existe algum template do tipo
+      // Verificar se existe algum template do tipo na tabela unificada
       try {
-        const allTemplates = await this.prisma.whatsAppNotificationTemplate.findMany({
-          where: { template_type: type },
+        // @ts-ignore
+        const allTemplates = await this.prisma.notificationTemplate.findMany({
+          where: { template_type: unifiedType, channel: 'whatsapp' },
         });
         console.warn(`[NOTIFICATIONS] Templates encontrados:`, allTemplates.map((t: any) => ({
           id: t.id,
@@ -79,7 +98,7 @@ export class NotificationService {
       } catch (err) {
         console.error(`[NOTIFICATIONS] Erro ao verificar templates:`, err);
       }
-      throw new Error(`Template ${type} não encontrado ou inativo. Verifique se o template existe e está ativo no banco de dados.`);
+      throw new Error(`Template ${unifiedType} (WhatsApp) não encontrado ou inativo. Configure o template em Admin > Notificações > Templates Unificados.`);
     }
 
     const message = this.templateService.renderTemplate(template, variables);
@@ -620,6 +639,10 @@ export class NotificationService {
       closeReasonText = '🔄 *Venda auto-ajustada*';
     }
 
+    // Determinar tipo de resultado (LUCRO ou PREJUÍZO)
+    const resultType = profit >= 0 ? 'LUCRO' : 'PREJUÍZO';
+    const resultEmoji = profit >= 0 ? '🟢' : '🔴';
+
     const variables: TemplateVariables = {
       'account.label': position.exchange_account.label || 'Conta',
       'symbol': position.symbol,
@@ -635,6 +658,8 @@ export class NotificationService {
       'profit': profit,
       'duration': duration,
       'closeReason': closeReasonText,
+      'resultType': resultType,
+      'resultEmoji': resultEmoji,
       'datetime': position.closed_at || position.updated_at,
     };
 
