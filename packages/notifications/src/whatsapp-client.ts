@@ -19,6 +19,32 @@ export class WhatsAppClient {
     });
   }
 
+  /**
+   * Normaliza número de telefone para formato internacional (55XXXXXXXXXXX)
+   * Aceita qualquer formato de entrada: (83) 98141-4963, 83 98141-4963, +55 83 98141-4963, etc.
+   */
+  private normalizePhoneNumber(phone: string): string {
+    // Remove TODOS os caracteres não-numéricos
+    let digits = phone.replace(/\D/g, '');
+    
+    // Se começa com 0, remover (ex: 083... -> 83...)
+    if (digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+    
+    // Se tem 10-11 dígitos (DDD + número), adicionar DDI 55 (Brasil)
+    if (digits.length === 10 || digits.length === 11) {
+      digits = '55' + digits;
+    }
+    
+    // Validar formato final (deve ter 12-13 dígitos: 55 + DDD + número)
+    if (digits.length < 12 || digits.length > 13) {
+      console.warn(`[WHATSAPP-CLIENT] Número com formato inesperado: ${phone} -> ${digits} (${digits.length} dígitos)`);
+    }
+    
+    return digits;
+  }
+
   async sendMessage(phone: string, message: string): Promise<void> {
     // Obter a baseURL atual do cliente
     const currentBaseURL = this.client.defaults.baseURL || '';
@@ -33,8 +59,8 @@ export class WhatsAppClient {
       throw new Error('API URL not found. Verifique a configuração da Evolution API.');
     }
 
-    // Normalizar número de telefone (remover + e espaços, garantir formato correto)
-    const normalizedPhone = phone.replace(/[+\s-]/g, '');
+    // Normalizar número de telefone para formato internacional
+    const normalizedPhone = this.normalizePhoneNumber(phone);
     const phoneWithSuffix = `${normalizedPhone}@s.whatsapp.net`;
 
     console.log(`[WHATSAPP-CLIENT] Enviando mensagem para ${normalizedPhone} via Evolution API`);
