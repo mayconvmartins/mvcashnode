@@ -44,6 +44,12 @@ export class TradeJobQueueService {
         throw new Error(`Trade job ${tradeJobId} não encontrado`);
       }
 
+      // ✅ HARD-BLOCK: Jobs importados do sync são apenas registro histórico e nunca devem ser executados
+      if (tradeJob.created_by === 'EXCHANGE_SYNC') {
+        this.logger.warn(`[SEGURANÇA] Trade job ${tradeJobId} criado por EXCHANGE_SYNC - não enfileirando (registro histórico)`);
+        return;
+      }
+
       // ✅ VALIDAÇÃO 1: Verificar se job já está em status final (previne reprocessamento)
       if (FINAL_STATUSES.includes(tradeJob.status as TradeJobStatus)) {
         this.logger.warn(`[SEGURANÇA] Trade job ${tradeJobId} já está em status final (${tradeJob.status}), não enfileirando para evitar reprocessamento`);

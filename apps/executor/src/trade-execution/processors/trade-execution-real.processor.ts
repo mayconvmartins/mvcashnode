@@ -180,6 +180,20 @@ export class TradeExecutionRealProcessor extends WorkerHost {
         throw new Error(`Trade job ${tradeJobId} não encontrado`);
       }
 
+      // ✅ HARD-BLOCK: Jobs importados do sync são apenas registro histórico e nunca devem executar na exchange
+      if (tradeJob.created_by === 'EXCHANGE_SYNC') {
+        this.logger.warn(`[EXECUTOR] [SEGURANÇA] Job ${tradeJobId} criado por EXCHANGE_SYNC - não executando`);
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.SKIPPED,
+            reason_code: 'EXCHANGE_SYNC_NO_EXECUTE',
+            reason_message: 'Job importado via EXCHANGE_SYNC (registro histórico). Execução bloqueada por segurança.',
+          },
+        });
+        return { success: false, skipped: true, reason: 'EXCHANGE_SYNC_NO_EXECUTE' };
+      }
+
       // ✅ CRITICAL FIX: Verificar se job já foi processado (previne reprocessamento)
       const finalStatuses: string[] = [
         TradeJobStatus.FILLED,

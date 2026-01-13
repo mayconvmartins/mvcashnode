@@ -288,6 +288,7 @@ export class OperationsController {
             limit_order_expires_at: true,
             position_id_to_close: true,
             webhook_event_id: true,
+            created_by: true,
             created_at: true,
             updated_at: true,
             exchange_account: {
@@ -351,6 +352,7 @@ export class OperationsController {
           position_id_to_close: job.position_id_to_close,
           exchange_account: job.exchange_account,
           webhook_event_id: job.webhook_event_id,
+          created_by: job.created_by,
           created_at: job.created_at,
           updated_at: job.updated_at,
         },
@@ -505,6 +507,7 @@ export class OperationsController {
               },
             },
           },
+          // include created_by on job (part of model) - no-op, kept here for clarity
         },
       });
 
@@ -707,6 +710,7 @@ export class OperationsController {
           exchange_account: jobWithRelations.exchange_account,
           webhook_event_id: jobWithRelations.webhook_event_id,
           position_id_to_close: jobWithRelations.position_id_to_close,
+          created_by: (jobWithRelations as any).created_by || null,
           created_at: jobWithRelations.created_at,
           updated_at: jobWithRelations.updated_at,
         },

@@ -3,7 +3,7 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '@mvcashnode/db';
 import { ExchangeAccountService, PositionService } from '@mvcashnode/domain';
-import { EncryptionService } from '@mvcashnode/shared';
+import { EncryptionService, normalizeSymbol, ensureSymbolFormat, isValidSymbol } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
@@ -105,7 +105,9 @@ export class PositionsSyncExchangeProcessor extends WorkerHost {
           
           for (const symbol of symbols) {
             try {
-              const trades = await adapter.fetchMyTrades(symbol, since, 1000);
+              // A exchange (CCXT) geralmente espera formato BASE/QUOTE, enquanto no banco queremos BASEQUOTE (sem barra)
+              const exchangeSymbol = ensureSymbolFormat(symbol);
+              const trades = await adapter.fetchMyTrades(exchangeSymbol, since, 1000);
               allTrades.push(...trades);
             } catch (error: any) {
               this.logger.warn(`[POSITIONS-SYNC-EXCHANGE] Erro ao buscar trades para ${symbol}: ${error.message}`);
@@ -176,12 +178,21 @@ export class PositionsSyncExchangeProcessor extends WorkerHost {
               // Não existe, criar nova execução e job se necessário
               // Extrair informações do primeiro trade
               const firstTrade = trades[0];
-              const symbol = firstTrade.symbol || firstTrade.info?.symbol;
+              const rawSymbol = firstTrade.symbol || firstTrade.info?.symbol;
               const side = firstTrade.side?.toUpperCase() || (firstTrade.info?.side?.toUpperCase());
 
-              if (!symbol || !side || (side !== 'BUY' && side !== 'SELL')) {
+              if (!rawSymbol || !side || (side !== 'BUY' && side !== 'SELL')) {
                 this.logger.warn(
                   `[POSITIONS-SYNC-EXCHANGE] Trade com orderId ${orderId} sem símbolo ou lado válido, pulando`
+                );
+                continue;
+              }
+
+              // ✅ Normalizar símbolo antes de persistir (nunca gravar com "/")
+              const normalizedSymbol = normalizeSymbol(String(rawSymbol));
+              if (!isValidSymbol(normalizedSymbol)) {
+                this.logger.warn(
+                  `[POSITIONS-SYNC-EXCHANGE] Símbolo inválido ao normalizar: "${rawSymbol}" -> "${normalizedSymbol}", pulando orderId ${orderId}`
                 );
                 continue;
               }
@@ -199,12 +210,15 @@ export class PositionsSyncExchangeProcessor extends WorkerHost {
                   data: {
                     exchange_account_id: account.id,
                     trade_mode: 'REAL',
-                    symbol: symbol,
+                    symbol: normalizedSymbol,
                     side: side as 'BUY' | 'SELL',
                     order_type: 'MARKET',
                     status: 'FILLED',
                     base_quantity: totalQty,
                     created_by: 'EXCHANGE_SYNC',
+                    // ✅ Marca explícita: importado da exchange (registro histórico, nunca deve executar)
+                    reason_code: 'EXCHANGE_SYNC_IMPORTED',
+                    reason_message: `Importado via EXCHANGE_SYNC a partir do histórico de trades da corretora (orderId=${orderId}). Não executar.`,
                   },
                 });
 

@@ -187,6 +187,28 @@ export default function OperationsPage() {
         return 'outline'
     }
 
+    const getOriginLabel = (createdBy: string | null | undefined): string => {
+        const v = (createdBy || '').toUpperCase()
+        if (!v) return 'Sistema'
+        const map: Record<string, string> = {
+            EXCHANGE_SYNC: 'Importado',
+            WEBHOOK: 'Webhook',
+            SLTP_MONITOR: 'SL/TP',
+            LIMIT_ORDERS_MONITOR: 'SL/TP',
+            USER_MANUAL: 'Manual',
+        }
+        return map[v] || v
+    }
+
+    const getOriginVariant = (createdBy: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' => {
+        const v = (createdBy || '').toUpperCase()
+        if (!v) return 'outline'
+        if (v === 'EXCHANGE_SYNC') return 'secondary'
+        if (v === 'WEBHOOK') return 'default'
+        if (v === 'USER_MANUAL') return 'outline'
+        return 'outline'
+    }
+
     const columns: Column<any>[] = [
         { 
             key: '_sort_id', 
@@ -255,6 +277,16 @@ export default function OperationsPage() {
                         : 'secondary'
                 return <Badge variant={variant}>{op.job.status}</Badge>
             },
+        },
+        {
+            key: 'created_by',
+            label: 'Origem',
+            sortable: false,
+            render: (op) => (
+                <Badge variant={getOriginVariant(op.job.created_by)}>
+                    {getOriginLabel(op.job.created_by)}
+                </Badge>
+            ),
         },
         {
             key: 'status_reason',

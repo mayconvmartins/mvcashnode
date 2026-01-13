@@ -116,6 +116,26 @@ export default function OperationDetailPage() {
 
     const { job, executions, position, positions_closed, sell_jobs, webhook_event, timeline } = operation
 
+    // Helpers: símbolo pode vir como "LTC/USDT" ou "LTCUSDT" (padrão interno é sem "/")
+    const getQuoteAsset = (symbol: string): string => {
+        const s = (symbol || '').trim().toUpperCase()
+        if (!s) return 'USDT'
+        if (s.includes('/')) return s.split('/')[1] || 'USDT'
+        const quotes = ['USDT', 'BTC', 'ETH', 'BNB']
+        for (const q of quotes) {
+            if (s.endsWith(q)) return q
+        }
+        return 'USDT'
+    }
+
+    const getBaseAsset = (symbol: string): string => {
+        const s = (symbol || '').trim().toUpperCase()
+        if (!s) return ''
+        if (s.includes('/')) return s.split('/')[0] || ''
+        const quote = getQuoteAsset(s)
+        return s.endsWith(quote) ? s.slice(0, -quote.length) : s
+    }
+
     // Calcular métricas
     const totalExecutedQty = executions.reduce((sum, exec) => sum + (exec.executed_qty || 0), 0)
     const totalValue = executions.reduce((sum, exec) => sum + (exec.cumm_quote_qty || 0), 0)
@@ -123,12 +143,12 @@ export default function OperationDetailPage() {
     const totalFees = executions.reduce((sum, exec) => {
         if (exec.fee_amount && exec.fee_currency) {
             // Se a taxa é em quote currency, usar diretamente
-            const quoteAsset = job.symbol.split('/')[1] || 'USDT'
+            const quoteAsset = getQuoteAsset(job.symbol)
             if (exec.fee_currency === quoteAsset) {
                 return sum + exec.fee_amount
             }
             // Se é em base currency, converter usando preço médio
-            if (exec.fee_currency === job.symbol.split('/')[0]) {
+            if (exec.fee_currency === getBaseAsset(job.symbol)) {
                 return sum + (exec.fee_amount * avgPrice)
             }
         }
@@ -152,6 +172,20 @@ export default function OperationDetailPage() {
                             <span className="font-mono">{job.symbol}</span>
                             <span>•</span>
                             {getSideBadge(job.side)}
+                            <span>•</span>
+                            <Badge variant="secondary">
+                                {(() => {
+                                    const v = (job.created_by || '').toUpperCase()
+                                    const map: Record<string, string> = {
+                                        EXCHANGE_SYNC: 'Importado',
+                                        WEBHOOK: 'Webhook',
+                                        SLTP_MONITOR: 'SL/TP',
+                                        LIMIT_ORDERS_MONITOR: 'SL/TP',
+                                        USER_MANUAL: 'Manual',
+                                    }
+                                    return map[v] || (v || 'Sistema')
+                                })()}
+                            </Badge>
                         </p>
                     </div>
                 </div>
@@ -197,7 +231,7 @@ export default function OperationDetailPage() {
                                 <div className="text-2xl font-bold">{formatCurrency(totalValue)}</div>
                                 {totalExecutedQty > 0 && (
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        {formatAssetAmount(totalExecutedQty, job.symbol.split('/')[0])} @ {formatCurrency(avgPrice)}
+                                        {formatAssetAmount(totalExecutedQty)} {getBaseAsset(job.symbol)} @ {formatCurrency(avgPrice)}
                                     </p>
                                 )}
                             </>
@@ -238,7 +272,7 @@ export default function OperationDetailPage() {
                                     </Badge>
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    {formatAssetAmount(position.qty_remaining, job.symbol.split('/')[0])} restante
+                                    {formatAssetAmount(position.qty_remaining)} {getBaseAsset(job.symbol)} restante
                                 </p>
                             </>
                         ) : job.side === 'SELL' && (job.position_id_to_close || (positions_closed && positions_closed.length > 0)) ? (
