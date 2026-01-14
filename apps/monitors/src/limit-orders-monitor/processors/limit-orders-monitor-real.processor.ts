@@ -7,6 +7,7 @@ import { EncryptionService, getQuoteAsset } from '@mvcashnode/shared';
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
+import { releaseSellLock } from '../utils/sell-lock';
 
 @Processor('limit-orders-monitor-real')
 export class LimitOrdersMonitorRealProcessor extends WorkerHost {
@@ -128,7 +129,7 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
 
             // Liberar sell lock se este job era dono
             if (pos?.sell_lock_job_id === order.id) {
-              await positionService.releaseSellLock(pos.id, order.id);
+              await releaseSellLock(this.prisma, pos.id, order.id);
             }
 
             canceled++;
