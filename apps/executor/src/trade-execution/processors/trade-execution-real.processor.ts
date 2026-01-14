@@ -169,8 +169,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
     this.logger.log(`[EXECUTOR] Processando trade job ${tradeJobId}`);
 
+    // Precisamos manter referência para o job no catch (ex: liberar sell-lock em erro)
+    let tradeJob: any = null;
+
     try {
-      const tradeJob = await this.prisma.tradeJob.findUnique({
+      tradeJob = await this.prisma.tradeJob.findUnique({
         where: { id: tradeJobId },
         include: {
           exchange_account: true,
