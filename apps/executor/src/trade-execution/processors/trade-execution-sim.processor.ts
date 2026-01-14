@@ -10,6 +10,7 @@ import {
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode, getBaseAsset, getQuoteAsset } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
+import { acquireSellLock, releaseSellLock } from '../utils/sell-lock';
 
 @Processor('trade-execution-sim')
 export class TradeExecutionSimProcessor extends WorkerHost {
@@ -742,7 +743,7 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         } else {
           // ✅ SELL LOCK (sequencial): adquirir antes de prosseguir (mesma lógica do REAL)
           if (tradeJob.position_id_to_close) {
-            const locked = await positionService.acquireSellLock(tradeJob.position_id_to_close, tradeJobId, 10 * 60);
+            const locked = await acquireSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId, 10 * 60);
             if (!locked) {
               this.logger.warn(`[EXECUTOR-SIM] [SELL-LOCK] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} já possui SELL ativo, SKIPANDO`);
               await this.prisma.tradeJob.update({
@@ -892,6 +893,11 @@ export class TradeExecutionSimProcessor extends WorkerHost {
           data: { status: TradeJobStatus.FILLED },
         });
         this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} atualizado para status: FILLED`);
+      }
+
+      // ✅ liberar sell lock quando finalizar
+      if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
+        await releaseSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId);
       }
 
       const duration = Date.now() - startTime;

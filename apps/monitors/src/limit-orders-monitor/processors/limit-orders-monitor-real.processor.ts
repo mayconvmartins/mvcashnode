@@ -95,7 +95,7 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
         if (order.side === 'SELL' && order.position_id_to_close) {
           const pos = await this.prisma.tradePosition.findUnique({
             where: { id: order.position_id_to_close },
-            select: { id: true, status: true, qty_remaining: true, sell_lock_job_id: true },
+            select: { id: true, status: true, qty_remaining: true },
           });
 
           if (!pos || pos.status !== 'OPEN' || pos.qty_remaining.toNumber() <= 0) {
@@ -127,9 +127,9 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
               },
             });
 
-            // Liberar sell lock se este job era dono
-            if (pos?.sell_lock_job_id === order.id) {
-              await releaseSellLock(this.prisma, pos.id, order.id);
+            // Liberar sell lock (só remove se este job era o dono)
+            if (order.position_id_to_close) {
+              await releaseSellLock(this.prisma, order.position_id_to_close, order.id);
             }
 
             canceled++;

@@ -18,7 +18,7 @@ export class PositionService {
    */
   async acquireSellLock(positionId: number, jobId: number, ttlSeconds = 600): Promise<boolean> {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-    const result = await this.prisma.tradePosition.updateMany({
+    const result = await (this.prisma as any).tradePosition.updateMany({
       where: {
         id: positionId,
         status: 'OPEN',
@@ -41,7 +41,7 @@ export class PositionService {
 
   async extendSellLock(positionId: number, jobId: number, ttlSeconds = 600): Promise<boolean> {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-    const result = await this.prisma.tradePosition.updateMany({
+    const result = await (this.prisma as any).tradePosition.updateMany({
       where: {
         id: positionId,
         sell_lock_job_id: jobId,
@@ -54,7 +54,7 @@ export class PositionService {
   }
 
   async releaseSellLock(positionId: number, jobId: number): Promise<boolean> {
-    const result = await this.prisma.tradePosition.updateMany({
+    const result = await (this.prisma as any).tradePosition.updateMany({
       where: {
         id: positionId,
         sell_lock_job_id: jobId,

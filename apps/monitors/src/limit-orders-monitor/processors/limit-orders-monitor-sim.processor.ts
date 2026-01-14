@@ -7,6 +7,7 @@ import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { randomUUID } from 'crypto';
 import { CronExecutionService, CronExecutionStatus } from '../../shared/cron-execution.service';
+import { releaseSellLock } from '../utils/sell-lock';
 
 @Processor('limit-orders-monitor-sim')
 export class LimitOrdersMonitorSimProcessor extends WorkerHost {
@@ -62,7 +63,7 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
         if (order.side === 'SELL' && order.position_id_to_close) {
           const pos = await this.prisma.tradePosition.findUnique({
             where: { id: order.position_id_to_close },
-            select: { id: true, status: true, qty_remaining: true, sell_lock_job_id: true },
+            select: { id: true, status: true, qty_remaining: true },
           });
 
           if (!pos || pos.status !== 'OPEN' || pos.qty_remaining.toNumber() <= 0) {
@@ -74,9 +75,7 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
                 reason_message: `Cancelado: posição ${order.position_id_to_close} não está OPEN (ou sem qty)`,
               },
             });
-            if (pos?.sell_lock_job_id === order.id) {
-              await positionService.releaseSellLock(pos.id, order.id);
-            }
+            await releaseSellLock(this.prisma, order.position_id_to_close, order.id);
             canceled++;
             continue;
           }
@@ -148,7 +147,7 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
 
           // Liberar sell lock se este job era dono
           if (order.side === 'SELL' && order.position_id_to_close) {
-            await positionService.releaseSellLock(order.position_id_to_close, order.id);
+            await releaseSellLock(this.prisma, order.position_id_to_close, order.id);
           }
 
           filled++;

@@ -12,6 +12,7 @@ import { EncryptionService, getBaseAsset, getQuoteAsset, normalizeQuantity, floo
 import { AdapterFactory } from '@mvcashnode/exchange';
 import { ExchangeType, TradeJobStatus, TradeMode } from '@mvcashnode/shared';
 import { NotificationHttpService } from '@mvcashnode/notifications';
+import { acquireSellLock, releaseSellLock } from '../utils/sell-lock';
 @Processor('trade-execution-real')
 export class TradeExecutionRealProcessor extends WorkerHost {
   private readonly logger = new Logger(TradeExecutionRealProcessor.name);
@@ -976,8 +977,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
         // `orderType` aqui é normalizado em minúsculo ('limit' | 'market')
         const lockTtlSec = orderType === 'limit' ? 20 * 60 : 5 * 60; // LIMIT fica vivo mais tempo
-        const positionService = new PositionService(this.prisma);
-        const locked = await positionService.acquireSellLock(tradeJob.position_id_to_close, tradeJobId, lockTtlSec);
+        const locked = await acquireSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId, lockTtlSec);
         if (!locked) {
           this.logger.warn(`[EXECUTOR] [SELL-LOCK] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} já possui SELL ativo, SKIPANDO antes de criar ordem`);
           await this.prisma.tradeJob.update({
@@ -2109,6 +2109,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const duration = Date.now() - startTime;
       this.logger.log(`[EXECUTOR] Trade job ${tradeJobId} concluído com sucesso em ${duration}ms. Status: ${finalStatus}`);
 
+      // ✅ liberar sell lock quando o job terminou com status final (FILLED/PARTIALLY_FILLED)
+      if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
+        await releaseSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId);
+      }
+
       return {
         success: true,
         executionId: execution?.id || null,
@@ -2156,6 +2161,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             },
           });
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para SKIPPED (saldo insuficiente)`);
+
+          // ✅ liberar lock se existir (job finalizado)
+          if (tradeJob?.side === 'SELL' && tradeJob?.position_id_to_close) {
+            await releaseSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId);
+          }
           return; // Retornar sem lançar erro
         } catch (updateError: any) {
           this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao atualizar status: ${updateError?.message}`);
@@ -2226,6 +2236,11 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             },
           });
           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Status atualizado para ${statusLabel} com reason_code: ${reasonCode}`);
+
+          // ✅ liberar lock se existir (job finalizado por erro)
+          if (tradeJob?.side === 'SELL' && tradeJob?.position_id_to_close) {
+            await releaseSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId);
+          }
         } else {
           if (this.isDebugEnabled) {
             this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já atualizado (${currentJob?.status}), não atualizando novamente`);
