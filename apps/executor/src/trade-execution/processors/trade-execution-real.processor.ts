@@ -969,6 +969,27 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // ============================================
       // amountToUse já foi normalizado na inicialização acima
       this.logger.log(`[EXECUTOR] [SEGURANÇA] ✅ VALIDAÇÃO FINAL: Job ${tradeJobId} - Criando ordem ${orderType} ${tradeJob.side} ${amountToUse} ${tradeJob.symbol} @ ${limitPriceToUse || 'MARKET'}`);
+
+      // ============================================
+      // ✅ SELL LOCK (SEQUENCIAL) - adquirir ANTES de enviar ordem
+      // ============================================
+      if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
+        const lockTtlSec = orderType === 'LIMIT' ? 20 * 60 : 5 * 60; // LIMIT fica vivo mais tempo
+        const positionService = new PositionService(this.prisma);
+        const locked = await positionService.acquireSellLock(tradeJob.position_id_to_close, tradeJobId, lockTtlSec);
+        if (!locked) {
+          this.logger.warn(`[EXECUTOR] [SELL-LOCK] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} já possui SELL ativo, SKIPANDO antes de criar ordem`);
+          await this.prisma.tradeJob.update({
+            where: { id: tradeJobId },
+            data: {
+              status: TradeJobStatus.SKIPPED,
+              reason_code: 'SELL_LOCKED',
+              reason_message: `Venda bloqueada: já existe uma SELL ativa para a posição ${tradeJob.position_id_to_close}`,
+            },
+          });
+          return { success: false, skipped: true, reason: 'SELL_LOCKED' };
+        }
+      }
       
       let order: any;
       let orderCreatedAfterAdjustment = false;
@@ -2047,8 +2068,21 @@ export class TradeExecutionRealProcessor extends WorkerHost {
 
       let finalStatus: string;
 
+      // ✅ REGRA A0: se houve execução, nunca manter SKIPPED
+      if (currentJob?.status === TradeJobStatus.SKIPPED && finalExecutedQty > 0) {
+        finalStatus = isPartiallyFilled ? TradeJobStatus.PARTIALLY_FILLED : TradeJobStatus.FILLED;
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: finalStatus,
+            reason_code: 'ANOMALY_SKIPPED_BUT_EXECUTED',
+            reason_message: `Anomalia: job estava SKIPPED mas execution executou qty=${finalExecutedQty}. Status corrigido pelo executor.`,
+          },
+        });
+        this.logger.warn(`[EXECUTOR] [ANOMALY] Job ${tradeJobId} SKIPPED mas executado. Corrigido para ${finalStatus}.`);
+      }
       // Se o job já foi marcado como SKIPPED por onSellExecuted (quando não há posições elegíveis), não sobrescrever
-      if (currentJob?.status === TradeJobStatus.SKIPPED) {
+      else if (currentJob?.status === TradeJobStatus.SKIPPED) {
         finalStatus = TradeJobStatus.SKIPPED;
         this.logger.log(`[EXECUTOR] Job ${tradeJobId} já está como SKIPPED (marcado por onSellExecuted), não atualizando status`);
       }

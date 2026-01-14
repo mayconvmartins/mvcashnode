@@ -539,19 +539,56 @@ export class CronManagementService implements OnModuleInit {
       throw new NotFoundException(`Job ${name} não encontrado`);
     }
 
-    // Se o intervalo mudou, precisamos recriar o job no BullMQ
-    if (dto.interval_ms && dto.interval_ms !== job.interval_ms) {
-      await this.rescheduleJob(job, dto.interval_ms);
-    }
+    const nextEnabled = dto.enabled ?? job.enabled;
+    let nextStatus: CronJobStatus = (dto.status ?? job.status) as CronJobStatus;
+    const nextIntervalMs = dto.interval_ms ?? job.interval_ms;
 
-    // Se o status mudou para PAUSED, pausar job
-    if (dto.status === CronJobStatus.PAUSED && job.status !== CronJobStatus.PAUSED) {
+    // ✅ DISABLE/ENABLE (inativar/ativar) = controlar repeatable job no BullMQ + persistência no DB
+    // - DISABLED: enabled=false e remove repeatable
+    // - ENABLE: enabled=true e (se ACTIVE) recria repeatable
+    if (dto.enabled === false && job.enabled !== false) {
+      // Inativar: remover repeatable
       await this.pauseJobInBullMQ(job);
+      nextStatus = CronJobStatus.DISABLED;
+      dto.status = CronJobStatus.DISABLED;
     }
 
-    // Se o status mudou de PAUSED para ACTIVE, retomar job
+    if (dto.enabled === true && job.enabled === false) {
+      // Ativar: por padrão volta a ACTIVE (a não ser que o caller envie PAUSED)
+      if (!dto.status || dto.status === CronJobStatus.DISABLED) {
+        nextStatus = CronJobStatus.ACTIVE;
+        dto.status = CronJobStatus.ACTIVE;
+      }
+      if (nextStatus === CronJobStatus.ACTIVE) {
+        await this.resumeJobInBullMQ({ ...job, interval_ms: nextIntervalMs });
+      }
+    }
+
+    // Se o intervalo mudou, reagendar apenas quando estiver ENABLED+ACTIVE
+    if (dto.interval_ms && dto.interval_ms !== job.interval_ms) {
+      if (nextEnabled && nextStatus === CronJobStatus.ACTIVE) {
+        await this.rescheduleJob(job, dto.interval_ms);
+      }
+    }
+
+    // Se o status mudou para PAUSED, pausar job (somente se enabled)
+    if (dto.status === CronJobStatus.PAUSED && job.status !== CronJobStatus.PAUSED) {
+      if (nextEnabled) {
+        await this.pauseJobInBullMQ(job);
+      }
+    }
+
+    // Se o status mudou de PAUSED para ACTIVE, retomar job (somente se enabled)
     if (dto.status === CronJobStatus.ACTIVE && job.status === CronJobStatus.PAUSED) {
-      await this.resumeJobInBullMQ(job);
+      if (nextEnabled) {
+        await this.resumeJobInBullMQ({ ...job, interval_ms: nextIntervalMs });
+      }
+    }
+
+    // Se o status foi setado para DISABLED via API, garantir enabled=false e remover repeatable
+    if (dto.status === CronJobStatus.DISABLED && job.status !== CronJobStatus.DISABLED) {
+      await this.pauseJobInBullMQ(job);
+      dto.enabled = false;
     }
 
     return this.prisma.cronJobConfig.update({

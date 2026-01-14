@@ -484,7 +484,11 @@ export default function OperationDetailPage() {
                                     <div className="md:col-span-2">
                                         <label className="text-sm font-medium text-muted-foreground">Motivo</label>
                                         <div className="mt-1">
-                                            <Badge variant="outline">{job.reason_code}</Badge>
+                                            <Badge
+                                                variant={job.reason_code.startsWith('ANOMALY_') ? 'destructive' : 'outline'}
+                                            >
+                                                {job.reason_code}
+                                            </Badge>
                                             {job.reason_message && (
                                                 <p className="text-sm text-muted-foreground mt-1">{job.reason_message}</p>
                                             )}

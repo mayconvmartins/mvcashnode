@@ -599,6 +599,9 @@ model TradePosition {
   trailing_triggered    Boolean   @default(false)
   partial_tp_triggered  Boolean   @default(false)
   lock_sell_by_webhook  Boolean   @default(false)
+  // ✅ NOVO: lock de venda (garante no máximo 1 SELL ativo por posição, mas permite vendas parciais sequenciais)
+  sell_lock_job_id      Int?
+  sell_lock_expires_at  DateTime?
   is_grouped            Boolean   @default(false)
   group_started_at      DateTime?
   is_dust               Boolean   @default(false)

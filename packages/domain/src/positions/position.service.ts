@@ -12,6 +12,61 @@ export interface PositionFill {
 export class PositionService {
   constructor(private prisma: PrismaClient) {}
 
+  /**
+   * ✅ Sell lock (sequencial): garante no máximo 1 SELL ativo por posição.
+   * Usado para prevenir corrida onde uma ordem é enviada para a exchange e depois o job vira SKIPPED.
+   */
+  async acquireSellLock(positionId: number, jobId: number, ttlSeconds = 600): Promise<boolean> {
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    const result = await this.prisma.tradePosition.updateMany({
+      where: {
+        id: positionId,
+        status: 'OPEN',
+        qty_remaining: { gt: 0 },
+        OR: [
+          { sell_lock_job_id: null },
+          { sell_lock_expires_at: null },
+          { sell_lock_expires_at: { lt: new Date() } },
+          { sell_lock_job_id: jobId }, // reentrante (mesmo job)
+        ],
+      },
+      data: {
+        sell_lock_job_id: jobId,
+        sell_lock_expires_at: expiresAt,
+      },
+    });
+
+    return result.count > 0;
+  }
+
+  async extendSellLock(positionId: number, jobId: number, ttlSeconds = 600): Promise<boolean> {
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    const result = await this.prisma.tradePosition.updateMany({
+      where: {
+        id: positionId,
+        sell_lock_job_id: jobId,
+      },
+      data: {
+        sell_lock_expires_at: expiresAt,
+      },
+    });
+    return result.count > 0;
+  }
+
+  async releaseSellLock(positionId: number, jobId: number): Promise<boolean> {
+    const result = await this.prisma.tradePosition.updateMany({
+      where: {
+        id: positionId,
+        sell_lock_job_id: jobId,
+      },
+      data: {
+        sell_lock_job_id: null,
+        sell_lock_expires_at: null,
+      },
+    });
+    return result.count > 0;
+  }
+
   async onBuyExecuted(
     jobId: number, 
     executionId: number, 
@@ -1126,6 +1181,23 @@ export class PositionService {
           `[POSITION-SERVICE] [POSITION-CLOSED] Posição ${lockedPosition.id} não está mais OPEN ` +
           `(status: ${lockedPosition.status}), abortando venda`
         );
+
+        // ✅ REGRA A0: se houve execução (executedQty > 0), NÃO pode virar SKIPPED.
+        // Nesses casos, registramos como anomalia para auditoria.
+        if (executedQty && executedQty > 0) {
+          await tx.tradeJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'FILLED',
+              reason_code: 'ANOMALY_SKIPPED_BUT_EXECUTED',
+              reason_message:
+                `Anomalia: ordem executada (qty=${executedQty}) mas posição ${lockedPosition.id} estava ${lockedPosition.status}. ` +
+                `Provável corrida/ordem pendente. Mantendo FILLED para consistência.`,
+            },
+          });
+          return;
+        }
+
         await tx.tradeJob.update({
           where: { id: jobId },
           data: {

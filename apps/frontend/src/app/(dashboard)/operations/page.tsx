@@ -171,7 +171,9 @@ export default function OperationsPage() {
             'NO_ELIGIBLE_POSITIONS': 'Sem Posições',
             'POSITION_NOT_AVAILABLE': 'Posição Indisponível',
             'POSITION_ALREADY_CLOSED': 'Posição Fechada',
+            'ANOMALY_SKIPPED_BUT_EXECUTED': 'Anomalia (executado)',
             'WEBHOOK_LOCK': 'Bloqueado por Webhook',
+            'SELL_LOCKED': 'Venda em andamento',
             'SKIPPED': 'Ignorado',
             'DEBUG_BREAKEVEN': 'Debug Breakeven',
         }
@@ -184,6 +186,7 @@ export default function OperationsPage() {
         if (reasonCode === 'INVALID_PRECISION') return 'default' // amarelo/laranja
         if (reasonCode === 'NO_ELIGIBLE_POSITIONS' || reasonCode === 'SKIPPED') return 'secondary' // cinza
         if (reasonCode === 'POSITION_NOT_AVAILABLE' || reasonCode === 'POSITION_ALREADY_CLOSED') return 'destructive' // vermelho
+        if (reasonCode.startsWith('ANOMALY_')) return 'destructive'
         return 'outline'
     }
 

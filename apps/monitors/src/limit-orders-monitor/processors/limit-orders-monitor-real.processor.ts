@@ -42,6 +42,7 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
         exchange_account_id: true,
         trade_mode: true,
         limit_order_expires_at: true,
+        position_id_to_close: true,
         exchange_account: {
           select: {
             id: true,
@@ -88,6 +89,52 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
         // Get API keys
         const keys = await accountService.decryptApiKeys(order.exchange_account_id);
         if (!keys) continue;
+
+        // ✅ Se for SELL e a posição alvo já fechou, cancelar ordem LIMIT na exchange para evitar execução tardia
+        if (order.side === 'SELL' && order.position_id_to_close) {
+          const pos = await this.prisma.tradePosition.findUnique({
+            where: { id: order.position_id_to_close },
+            select: { id: true, status: true, qty_remaining: true, sell_lock_job_id: true },
+          });
+
+          if (!pos || pos.status !== 'OPEN' || pos.qty_remaining.toNumber() <= 0) {
+            const existingExecution = order.executions && order.executions.length > 0 ? order.executions[0] : null;
+            const exchangeOrderId = existingExecution?.exchange_order_id;
+
+            // Cancelar na exchange quando possível
+            if (exchangeOrderId) {
+              try {
+                const adapter = AdapterFactory.createAdapter(
+                  order.exchange_account.exchange as ExchangeType,
+                  keys.apiKey,
+                  keys.apiSecret,
+                  { testnet: order.exchange_account.testnet }
+                );
+                await adapter.cancelOrder(exchangeOrderId, order.symbol);
+                this.logger.warn(`[LIMIT-ORDERS-MONITOR] Ordem LIMIT SELL ${order.id} cancelada na exchange (${exchangeOrderId}) pois posição ${order.position_id_to_close} não está OPEN`);
+              } catch (cancelErr: any) {
+                this.logger.error(`[LIMIT-ORDERS-MONITOR] Falha ao cancelar ordem ${exchangeOrderId} na exchange: ${cancelErr.message}`);
+              }
+            }
+
+            await this.prisma.tradeJob.update({
+              where: { id: order.id },
+              data: {
+                status: TradeJobStatus.CANCELED,
+                reason_code: 'POSITION_CLOSED_CANCELLED',
+                reason_message: `Cancelado: posição ${order.position_id_to_close} não está OPEN (ou sem qty)`,
+              },
+            });
+
+            // Liberar sell lock se este job era dono
+            if (pos?.sell_lock_job_id === order.id) {
+              await positionService.releaseSellLock(pos.id, order.id);
+            }
+
+            canceled++;
+            continue;
+          }
+        }
 
         // Se não há execution ainda, significa que a ordem ainda não foi criada na exchange
         // Isso pode acontecer se o job foi criado mas não foi processado pelo executor ainda

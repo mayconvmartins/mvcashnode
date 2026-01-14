@@ -58,6 +58,30 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
           continue;
         }
 
+        // ✅ Se for SELL e a posição alvo já fechou, cancelar o job LIMIT para evitar execução tardia no sim
+        if (order.side === 'SELL' && order.position_id_to_close) {
+          const pos = await this.prisma.tradePosition.findUnique({
+            where: { id: order.position_id_to_close },
+            select: { id: true, status: true, qty_remaining: true, sell_lock_job_id: true },
+          });
+
+          if (!pos || pos.status !== 'OPEN' || pos.qty_remaining.toNumber() <= 0) {
+            await this.prisma.tradeJob.update({
+              where: { id: order.id },
+              data: {
+                status: TradeJobStatus.CANCELED,
+                reason_code: 'POSITION_CLOSED_CANCELLED',
+                reason_message: `Cancelado: posição ${order.position_id_to_close} não está OPEN (ou sem qty)`,
+              },
+            });
+            if (pos?.sell_lock_job_id === order.id) {
+              await positionService.releaseSellLock(pos.id, order.id);
+            }
+            canceled++;
+            continue;
+          }
+        }
+
         // Create read-only adapter
         const adapter = AdapterFactory.createAdapter(
           order.exchange_account.exchange as ExchangeType
@@ -121,6 +145,11 @@ export class LimitOrdersMonitorSimProcessor extends WorkerHost {
             where: { id: order.id },
             data: { status: TradeJobStatus.FILLED },
           });
+
+          // Liberar sell lock se este job era dono
+          if (order.side === 'SELL' && order.position_id_to_close) {
+            await positionService.releaseSellLock(order.position_id_to_close, order.id);
+          }
 
           filled++;
         }

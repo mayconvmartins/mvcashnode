@@ -92,6 +92,28 @@ export function CronJobsManager() {
         },
     })
 
+    const disableMutation = useMutation({
+        mutationFn: (name: string) => cronService.updateJob(name, { enabled: false, status: 'DISABLED' }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['cron', 'jobs'] })
+            toast.success('Job desabilitado com sucesso')
+        },
+        onError: () => {
+            toast.error('Erro ao desabilitar job')
+        },
+    })
+
+    const enableMutation = useMutation({
+        mutationFn: (name: string) => cronService.updateJob(name, { enabled: true, status: 'ACTIVE' }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['cron', 'jobs'] })
+            toast.success('Job habilitado com sucesso')
+        },
+        onError: () => {
+            toast.error('Erro ao habilitar job')
+        },
+    })
+
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'ACTIVE':
@@ -182,6 +204,27 @@ export function CronJobsManager() {
                                         <p className="text-xs text-muted-foreground">{job.description}</p>
                                     </div>
                                     <div className="flex items-center space-x-1">
+                                        {job.enabled === false || job.status === 'DISABLED' ? (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => enableMutation.mutate(job.name)}
+                                                disabled={enableMutation.isPending}
+                                            >
+                                                <Play className="h-3 w-3 mr-1" />
+                                                Habilitar
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => disableMutation.mutate(job.name)}
+                                                disabled={disableMutation.isPending}
+                                            >
+                                                <XCircle className="h-3 w-3 mr-1" />
+                                                Desabilitar
+                                            </Button>
+                                        )}
                                         {job.status === 'PAUSED' ? (
                                             <Button
                                                 size="sm"
@@ -197,7 +240,7 @@ export function CronJobsManager() {
                                                 size="sm"
                                                 variant="outline"
                                                 onClick={() => pauseMutation.mutate(job.name)}
-                                                disabled={pauseMutation.isPending}
+                                                disabled={pauseMutation.isPending || job.enabled === false || job.status === 'DISABLED'}
                                             >
                                                 <Pause className="h-3 w-3 mr-1" />
                                                 Pausar
@@ -207,7 +250,7 @@ export function CronJobsManager() {
                                             size="sm"
                                             variant="outline"
                                             onClick={() => executeMutation.mutate(job.name)}
-                                            disabled={executeMutation.isPending}
+                                            disabled={executeMutation.isPending || job.enabled === false || job.status === 'DISABLED'}
                                         >
                                             <Play className="h-3 w-3 mr-1" />
                                             Executar

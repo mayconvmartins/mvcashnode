@@ -740,6 +740,23 @@ export class TradeExecutionSimProcessor extends WorkerHost {
           );
           this.logger.log(`[EXECUTOR-SIM] Posição de compra atualizada para job ${tradeJobId}`);
         } else {
+          // ✅ SELL LOCK (sequencial): adquirir antes de prosseguir (mesma lógica do REAL)
+          if (tradeJob.position_id_to_close) {
+            const locked = await positionService.acquireSellLock(tradeJob.position_id_to_close, tradeJobId, 10 * 60);
+            if (!locked) {
+              this.logger.warn(`[EXECUTOR-SIM] [SELL-LOCK] Job ${tradeJobId} - Posição ${tradeJob.position_id_to_close} já possui SELL ativo, SKIPANDO`);
+              await this.prisma.tradeJob.update({
+                where: { id: tradeJobId },
+                data: {
+                  status: TradeJobStatus.SKIPPED,
+                  reason_code: 'SELL_LOCKED',
+                  reason_message: `Venda bloqueada: já existe uma SELL ativa para a posição ${tradeJob.position_id_to_close}`,
+                },
+              });
+              return { success: false, skipped: true, reason: 'SELL_LOCKED' };
+            }
+          }
+
           // Determinar origin baseado na posição vinculada ou posições elegíveis
           let sellOrigin: 'WEBHOOK' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'MANUAL' | 'TRAILING' = 'WEBHOOK';
           
@@ -851,7 +868,17 @@ export class TradeExecutionSimProcessor extends WorkerHost {
       });
 
       // Se o job já foi marcado como SKIPPED por onSellExecuted (quando não há posições elegíveis), não sobrescrever
-      if (currentJob?.status === TradeJobStatus.SKIPPED) {
+      if (currentJob?.status === TradeJobStatus.SKIPPED && adjustedExecutedQty > 0) {
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.FILLED,
+            reason_code: 'ANOMALY_SKIPPED_BUT_EXECUTED',
+            reason_message: `Anomalia: job estava SKIPPED mas execution executou qty=${adjustedExecutedQty}. Status corrigido pelo executor-sim.`,
+          },
+        });
+        this.logger.warn(`[EXECUTOR-SIM] [ANOMALY] Job ${tradeJobId} SKIPPED mas executado. Corrigido para FILLED.`);
+      } else if (currentJob?.status === TradeJobStatus.SKIPPED) {
         this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} já está como SKIPPED (marcado por onSellExecuted), não atualizando status`);
       }
       // Se o job já foi marcado como FILLED ou PARTIALLY_FILLED por onSellExecuted, manter esse status
