@@ -974,7 +974,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // ✅ SELL LOCK (SEQUENCIAL) - adquirir ANTES de enviar ordem
       // ============================================
       if (tradeJob.side === 'SELL' && tradeJob.position_id_to_close) {
-        const lockTtlSec = orderType === 'LIMIT' ? 20 * 60 : 5 * 60; // LIMIT fica vivo mais tempo
+        // `orderType` aqui é normalizado em minúsculo ('limit' | 'market')
+        const lockTtlSec = orderType === 'limit' ? 20 * 60 : 5 * 60; // LIMIT fica vivo mais tempo
         const positionService = new PositionService(this.prisma);
         const locked = await positionService.acquireSellLock(tradeJob.position_id_to_close, tradeJobId, lockTtlSec);
         if (!locked) {
