@@ -43,8 +43,8 @@ module.exports = {
       max_memory_restart: '12G',
       // Graceful shutdown
       kill_timeout: 5000,
-      wait_ready: true,
-      listen_timeout: 10000,
+      // wait_ready: true, // ✅ REMOVIDO: API não envia process.send('ready')
+      // listen_timeout: 10000,
       // Node.js flags para performance
       // Aumentar heap do Node (old space) para aguentar rotas pesadas e cargas maiores
       node_args: '--max-old-space-size=8128',
