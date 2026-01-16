@@ -52,19 +52,39 @@ Sistema de automação de trading para exchanges com suporte a webhooks, execuç
 
 ### Instalação
 
+> **IMPORTANTE - Segurança**: Este projeto usa `ignore-scripts=true` no `.npmrc` para prevenir execução de código malicioso durante a instalação. Isso é uma medida de segurança contra dependências NPM comprometidas.
+
 ```bash
-# Instalar dependências
+# Instalar dependências (scripts são bloqueados automaticamente por segurança)
 pnpm install
+
+# Executar pós-instalação segura (gera Prisma Client)
+pnpm run postinstall:safe
 
 # Configurar variáveis de ambiente
 cp .env.example .env
 # Editar .env com suas configurações
 
 # Executar migrations
-pnpm db:migrate
+pnpm db:migrate:deploy
+```
 
-# Gerar Prisma Client
-pnpm db:generate
+#### Instalação Manual (Servidores de Produção)
+
+Se preferir controle total sobre a instalação:
+
+```bash
+# 1. Limpar instalação anterior (se houver)
+rm -rf node_modules apps/*/node_modules packages/*/node_modules
+
+# 2. Instalar sem executar scripts
+pnpm install --ignore-scripts
+
+# 3. Gerar Prisma Client manualmente
+cd packages/db && npx prisma generate && cd ../..
+
+# 4. Compilar o projeto
+pnpm build
 ```
 
 ### Desenvolvimento
@@ -110,6 +130,44 @@ pnpm dev:monitors
 - **API**: A documentação completa da API está disponível em `/api-docs` quando a API estiver rodando
 - **Setup Local**: Veja [docs/SETUP.md](docs/SETUP.md) para instruções detalhadas de instalação e configuração
 - **Documentação Adicional**: Consulte o diretório [docs/](docs/) para mais documentação do projeto
+
+## Segurança
+
+### Scripts de Instalação Bloqueados
+
+Este projeto bloqueia a execução automática de scripts `postinstall`/`preinstall` durante o `pnpm install` como medida de segurança contra dependências NPM comprometidas.
+
+**Por que isso é necessário?**
+- Dependências NPM podem ser comprometidas e executar código malicioso durante a instalação
+- Crypto miners e outros malwares são frequentemente distribuídos via scripts postinstall
+- Bloquear scripts automáticos e executá-los manualmente garante controle total
+
+**O que é executado manualmente?**
+- `pnpm run postinstall:safe` - Gera o Prisma Client (único script necessário)
+
+### Limpeza de Servidor Comprometido
+
+Se você suspeitar que o servidor foi comprometido (processos com nomes aleatórios usando 100%+ CPU):
+
+```bash
+# 1. Identificar e matar processos suspeitos
+ps aux | grep -E "cpu|miner" | grep -v grep
+pkill -9 <nome_do_processo>
+
+# 2. Limpar crontabs (malware se reinstala via cron)
+crontab -r
+cat /etc/crontab
+
+# 3. Verificar arquivos temporários suspeitos
+ls -la /tmp/.*
+ls -la /var/tmp/.*
+ls -la /dev/shm/
+
+# 4. Reinstalar dependências de forma segura
+rm -rf node_modules apps/*/node_modules packages/*/node_modules
+pnpm install --ignore-scripts
+pnpm run postinstall:safe
+```
 
 ## Licença
 

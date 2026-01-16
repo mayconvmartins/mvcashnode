@@ -40,7 +40,8 @@
     "cleanup-orphan-jobs:dry": "ts-node -r tsconfig-paths/register scripts/cleanup-orphan-jobs.ts --dry-run",
     "pm2:optimize": "bash scripts/pm2-optimize.sh --auto",
     "pm2:optimize:interactive": "bash scripts/pm2-optimize.sh",
-    "clean": "pnpm -r clean && rm -rf node_modules"
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "postinstall:safe": "bash scripts/postinstall-safe.sh"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
