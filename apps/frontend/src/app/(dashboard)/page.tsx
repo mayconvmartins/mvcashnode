@@ -469,7 +469,7 @@ export default function DashboardPage() {
                                     />
                                     <YAxis tickFormatter={(value) => `$${value}`} className="text-xs" />
                                     <Tooltip 
-                                        formatter={(value: number) => formatCurrency(value)}
+                                        formatter={(value) => formatCurrency(typeof value === 'number' ? value : 0)}
                                         labelFormatter={(label) => {
                                             const date = new Date(label)
                                             return date.toLocaleDateString('pt-BR')
