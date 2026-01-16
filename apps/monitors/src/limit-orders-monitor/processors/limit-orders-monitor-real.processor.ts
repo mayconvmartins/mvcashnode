@@ -91,7 +91,7 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
         const keys = await accountService.decryptApiKeys(order.exchange_account_id);
         if (!keys) continue;
 
-        // ✅ Se for SELL e a posição alvo já fechou, cancelar ordem LIMIT na exchange para evitar execução tardia
+        // ✅ Se for SELL e a posição alvo já fechou, verificar status da ordem na exchange ANTES de cancelar
         if (order.side === 'SELL' && order.position_id_to_close) {
           const pos = await this.prisma.tradePosition.findUnique({
             where: { id: order.position_id_to_close },
@@ -102,7 +102,7 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
             const existingExecution = order.executions && order.executions.length > 0 ? order.executions[0] : null;
             const exchangeOrderId = existingExecution?.exchange_order_id;
 
-            // Cancelar na exchange quando possível
+            // ✅ CORREÇÃO CRÍTICA: Verificar status da ordem na exchange ANTES de decidir cancelar
             if (exchangeOrderId) {
               try {
                 const adapter = AdapterFactory.createAdapter(
@@ -111,13 +111,116 @@ export class LimitOrdersMonitorRealProcessor extends WorkerHost {
                   keys.apiSecret,
                   { testnet: order.exchange_account.testnet }
                 );
-                await adapter.cancelOrder(exchangeOrderId, order.symbol);
-                this.logger.warn(`[LIMIT-ORDERS-MONITOR] Ordem LIMIT SELL ${order.id} cancelada na exchange (${exchangeOrderId}) pois posição ${order.position_id_to_close} não está OPEN`);
-              } catch (cancelErr: any) {
-                this.logger.error(`[LIMIT-ORDERS-MONITOR] Falha ao cancelar ordem ${exchangeOrderId} na exchange: ${cancelErr.message}`);
+                
+                // PRIMEIRO: Buscar status atual da ordem na exchange
+                const exchangeOrder = await adapter.fetchOrder(exchangeOrderId, order.symbol);
+                
+                // Se a ordem JÁ FOI EXECUTADA na exchange, processar como FILLED (não cancelar!)
+                if (exchangeOrder.status === 'FILLED' || exchangeOrder.status === 'closed') {
+                  this.logger.warn(
+                    `[LIMIT-ORDERS-MONITOR] ⚠️ Ordem ${order.id} (${exchangeOrderId}) já foi EXECUTADA na exchange ` +
+                    `mesmo com posição ${order.position_id_to_close} fechada. Processando como FILLED...`
+                  );
+                  
+                  // Extrair dados da execução
+                  const executedQty = exchangeOrder.filled || exchangeOrder.amount || 0;
+                  const avgPrice = exchangeOrder.average || exchangeOrder.price || 0;
+                  let cummQuoteQty = exchangeOrder.cost || 0;
+                  
+                  // Extrair taxas
+                  let feeAmount: number | null = null;
+                  let feeCurrency: string | null = null;
+                  let feeRate: number | null = null;
+                  try {
+                    const fees = adapter.extractFeesFromOrder(exchangeOrder, 'sell');
+                    feeAmount = fees.feeAmount;
+                    feeCurrency = fees.feeCurrency;
+                    if (feeAmount && feeAmount > 0 && cummQuoteQty > 0) {
+                      feeRate = (feeAmount / cummQuoteQty) * 100;
+                    }
+                    // Ajustar cumm_quote_qty se taxa for em quote asset
+                    const quoteAsset = getQuoteAsset(order.symbol);
+                    if (feeCurrency === quoteAsset && feeAmount) {
+                      cummQuoteQty = Math.max(0, cummQuoteQty - feeAmount);
+                    }
+                  } catch (feeErr: any) {
+                    this.logger.warn(`[LIMIT-ORDERS-MONITOR] Erro ao extrair taxas: ${feeErr.message}`);
+                  }
+                  
+                  // Atualizar execution existente
+                  if (existingExecution) {
+                    await this.prisma.tradeExecution.update({
+                      where: { id: existingExecution.id },
+                      data: {
+                        status_exchange: exchangeOrder.status,
+                        executed_qty: executedQty,
+                        cumm_quote_qty: cummQuoteQty,
+                        avg_price: avgPrice,
+                        fee_amount: feeAmount || undefined,
+                        fee_currency: feeCurrency || undefined,
+                        fee_rate: feeRate || undefined,
+                        raw_response_json: JSON.parse(JSON.stringify(exchangeOrder)),
+                      },
+                    });
+                  }
+                  
+                  // Marcar job como FILLED com reason de anomalia para auditoria
+                  await this.prisma.tradeJob.update({
+                    where: { id: order.id },
+                    data: {
+                      status: TradeJobStatus.FILLED,
+                      reason_code: 'ANOMALY_EXECUTED_AFTER_POSITION_CLOSED',
+                      reason_message: `Ordem executada na exchange após posição ${order.position_id_to_close} ser fechada. Qty=${executedQty}, Price=${avgPrice}`,
+                    },
+                  });
+                  
+                  // Liberar sell lock
+                  await releaseSellLock(this.prisma, order.position_id_to_close, order.id);
+                  
+                  filled++;
+                  continue;
+                }
+                
+                // Se a ordem ainda está pendente na exchange, cancelar
+                if (exchangeOrder.status === 'open' || exchangeOrder.status === 'NEW' || exchangeOrder.status === 'PENDING') {
+                  try {
+                    await adapter.cancelOrder(exchangeOrderId, order.symbol);
+                    this.logger.warn(`[LIMIT-ORDERS-MONITOR] Ordem LIMIT SELL ${order.id} cancelada na exchange (${exchangeOrderId}) pois posição ${order.position_id_to_close} não está OPEN`);
+                  } catch (cancelErr: any) {
+                    // Se falhou ao cancelar, pode ser que a ordem foi executada entre o fetchOrder e o cancelOrder
+                    // Verificar novamente
+                    this.logger.error(`[LIMIT-ORDERS-MONITOR] Falha ao cancelar ordem ${exchangeOrderId}: ${cancelErr.message}`);
+                    
+                    try {
+                      const recheckOrder = await adapter.fetchOrder(exchangeOrderId, order.symbol);
+                      if (recheckOrder.status === 'FILLED' || recheckOrder.status === 'closed') {
+                        this.logger.warn(`[LIMIT-ORDERS-MONITOR] Ordem ${order.id} foi executada durante tentativa de cancelamento. Processando como FILLED...`);
+                        // Processar como FILLED (similar ao código acima)
+                        await this.prisma.tradeJob.update({
+                          where: { id: order.id },
+                          data: {
+                            status: TradeJobStatus.FILLED,
+                            reason_code: 'ANOMALY_EXECUTED_DURING_CANCEL',
+                            reason_message: `Ordem executada durante tentativa de cancelamento`,
+                          },
+                        });
+                        await releaseSellLock(this.prisma, order.position_id_to_close, order.id);
+                        filled++;
+                        continue;
+                      }
+                    } catch (recheckErr: any) {
+                      this.logger.error(`[LIMIT-ORDERS-MONITOR] Erro ao reverificar ordem: ${recheckErr.message}`);
+                    }
+                  }
+                }
+              } catch (fetchErr: any) {
+                this.logger.error(`[LIMIT-ORDERS-MONITOR] Erro ao buscar ordem ${exchangeOrderId} na exchange: ${fetchErr.message}`);
+                // Se não conseguiu verificar, não cancelar para evitar perda
+                continue;
               }
             }
 
+            // Marcar job como CANCELED (só chega aqui se a ordem foi cancelada com sucesso)
             await this.prisma.tradeJob.update({
               where: { id: order.id },
               data: {

@@ -3,6 +3,37 @@ import { AppModule } from './app.module';
 import { getQueueToken } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { NtpService, TimezoneService } from '@mvcashnode/shared';
+import { PrismaService } from '@mvcashnode/db';
+
+// Mapeamento de nome do job para nome da queue
+interface JobConfig {
+  name: string; // Nome do job na tabela cron_job_configs
+  queueName: string; // Nome da queue BullMQ
+  bullJobName: string; // Nome do job dentro da queue
+  jobId: string; // ID do job repetitivo
+  defaultInterval: number; // Intervalo padrão em ms
+  description: string; // Descrição para log
+}
+
+const JOB_CONFIGS: JobConfig[] = [
+  { name: 'sl-tp-monitor-real', queueName: 'sl-tp-monitor-real', bullJobName: 'monitor-sl-tp', jobId: 'sl-tp-monitor-real-repeat', defaultInterval: 30000, description: 'SL/TP Monitor REAL (a cada 30s)' },
+  { name: 'sl-tp-monitor-sim', queueName: 'sl-tp-monitor-sim', bullJobName: 'monitor-sl-tp', jobId: 'sl-tp-monitor-sim-repeat', defaultInterval: 30000, description: 'SL/TP Monitor SIMULATION (a cada 30s)' },
+  { name: 'limit-orders-monitor-real', queueName: 'limit-orders-monitor-real', bullJobName: 'monitor-limit-orders', jobId: 'limit-orders-monitor-real-repeat', defaultInterval: 60000, description: 'Limit Orders Monitor REAL (a cada 60s)' },
+  { name: 'limit-orders-monitor-sim', queueName: 'limit-orders-monitor-sim', bullJobName: 'monitor-limit-orders', jobId: 'limit-orders-monitor-sim-repeat', defaultInterval: 60000, description: 'Limit Orders Monitor SIMULATION (a cada 60s)' },
+  { name: 'balances-sync-real', queueName: 'balances-sync-real', bullJobName: 'sync-balances', jobId: 'balances-sync-real-repeat', defaultInterval: 300000, description: 'Balances Sync REAL (a cada 5min)' },
+  { name: 'system-monitor', queueName: 'system-monitor', bullJobName: 'monitor-system', jobId: 'system-monitor-repeat', defaultInterval: 30000, description: 'System Monitor (a cada 30s)' },
+  { name: 'webhook-monitor', queueName: 'webhook-monitor', bullJobName: 'monitor-webhook-alerts', jobId: 'webhook-monitor-repeat', defaultInterval: 30000, description: 'Webhook Monitor (a cada 30s)' },
+  { name: 'price-sync', queueName: 'price-sync', bullJobName: 'sync-prices', jobId: 'price-sync-repeat', defaultInterval: 22000, description: 'Price Sync (a cada 22s, TTL cache: 25s)' },
+  { name: 'positions-sync-missing', queueName: 'positions-sync-missing', bullJobName: 'sync-missing-positions', jobId: 'positions-sync-missing-repeat', defaultInterval: 300000, description: 'Positions Sync Missing (a cada 5min)' },
+  { name: 'positions-sync-duplicates', queueName: 'positions-sync-duplicates', bullJobName: 'sync-duplicates', jobId: 'positions-sync-duplicates-repeat', defaultInterval: 300000, description: 'Positions Sync Duplicates (a cada 5min)' },
+  { name: 'positions-sync-quantity', queueName: 'positions-sync-quantity', bullJobName: 'sync-quantity', jobId: 'positions-sync-quantity-repeat', defaultInterval: 600000, description: 'Positions Sync Quantity (a cada 10min)' },
+  { name: 'positions-sync-fees', queueName: 'positions-sync-fees', bullJobName: 'sync-fees', jobId: 'positions-sync-fees-repeat', defaultInterval: 1800000, description: 'Positions Sync Fees (a cada 30min)' },
+  { name: 'positions-sync-exchange', queueName: 'positions-sync-exchange', bullJobName: 'sync-exchange', jobId: 'positions-sync-exchange-repeat', defaultInterval: 600000, description: 'Positions Sync Exchange (a cada 10min)' },
+  { name: 'positions-params-fix', queueName: 'positions-params-fix', bullJobName: 'fix-positions-params', jobId: 'positions-params-fix-repeat', defaultInterval: 60000, description: 'Positions Params Fix (a cada 1min)' },
+  { name: 'positions-sell-sync', queueName: 'positions-sell-sync', bullJobName: 'sync-positions-sell', jobId: 'positions-sell-sync-repeat', defaultInterval: 300000, description: 'Positions Sell Sync (a cada 5min)' },
+  { name: 'dust-positions-monitor', queueName: 'dust-positions-monitor', bullJobName: 'monitor-dust-positions', jobId: 'dust-positions-monitor-repeat', defaultInterval: 300000, description: 'Dust Positions Monitor (a cada 5min)' },
+  { name: 'mercadopago-sync', queueName: 'mercadopago-sync', bullJobName: 'sync-mercadopago-payments', jobId: 'mercadopago-sync-repeat', defaultInterval: 600000, description: 'Mercado Pago Sync (a cada 10min)' },
+];
 
 async function bootstrap() {
   // Inicializar serviços de tempo
@@ -54,279 +85,79 @@ async function bootstrap() {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  // Configurar SL/TP Monitor REAL - executa a cada 30 segundos
-  const slTpRealQueue = app.get<Queue>(getQueueToken('sl-tp-monitor-real'));
-  await slTpRealQueue.add(
-    'monitor-sl-tp',
-    {},
-    {
-      repeat: {
-        every: 30000, // 30 segundos
-      },
-      jobId: 'sl-tp-monitor-real-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ SL/TP Monitor REAL configurado (a cada 30s)');
+  // ✅ CORREÇÃO CRÍTICA: Buscar configurações do banco antes de adicionar jobs
+  const prisma = app.get(PrismaService);
+  
+  // Buscar todas as configurações de cron jobs do banco
+  const dbConfigs = await prisma.cronJobConfig.findMany({
+    select: {
+      name: true,
+      enabled: true,
+      status: true,
+      interval_ms: true,
+    },
+  });
+  
+  // Criar um mapa para lookup rápido
+  const configMap = new Map(dbConfigs.map(c => [c.name, c]));
+  
+  console.log(`[Monitors] Encontradas ${dbConfigs.length} configurações no banco de dados`);
 
-  // Configurar SL/TP Monitor SIMULATION - executa a cada 30 segundos
-  const slTpSimQueue = app.get<Queue>(getQueueToken('sl-tp-monitor-sim'));
-  await slTpSimQueue.add(
-    'monitor-sl-tp',
-    {},
-    {
-      repeat: {
-        every: 30000, // 30 segundos
-      },
-      jobId: 'sl-tp-monitor-sim-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ SL/TP Monitor SIMULATION configurado (a cada 30s)');
+  let enabledCount = 0;
+  let disabledCount = 0;
 
-  // Configurar Limit Orders Monitor REAL - executa a cada 60 segundos
-  const limitOrdersRealQueue = app.get<Queue>(getQueueToken('limit-orders-monitor-real'));
-  await limitOrdersRealQueue.add(
-    'monitor-limit-orders',
-    {},
-    {
-      repeat: {
-        every: 60000, // 60 segundos (1 minuto)
-      },
-      jobId: 'limit-orders-monitor-real-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
+  // Iterar sobre cada job e verificar se está habilitado
+  for (const jobConfig of JOB_CONFIGS) {
+    const dbConfig = configMap.get(jobConfig.name);
+    
+    // Verificar se o job está enabled=true E status='ACTIVE'
+    const isEnabled = dbConfig?.enabled === true && dbConfig?.status === 'ACTIVE';
+    const interval = dbConfig?.interval_ms || jobConfig.defaultInterval;
+    
+    if (!isEnabled) {
+      // Job desabilitado - NÃO adicionar ao BullMQ
+      const reason = !dbConfig 
+        ? 'não encontrado no banco' 
+        : !dbConfig.enabled 
+          ? 'enabled=false' 
+          : `status=${dbConfig.status}`;
+      console.log(`⏸️ ${jobConfig.description} - DESABILITADO (${reason})`);
+      disabledCount++;
+      continue;
     }
-  );
-  console.log('✅ Limit Orders Monitor REAL configurado (a cada 60s)');
-
-  // Configurar Limit Orders Monitor SIMULATION - executa a cada 60 segundos
-  const limitOrdersSimQueue = app.get<Queue>(getQueueToken('limit-orders-monitor-sim'));
-  await limitOrdersSimQueue.add(
-    'monitor-limit-orders',
-    {},
-    {
-      repeat: {
-        every: 60000, // 60 segundos (1 minuto)
-      },
-      jobId: 'limit-orders-monitor-sim-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
+    
+    // Job habilitado - adicionar ao BullMQ
+    try {
+      const queue = app.get<Queue>(getQueueToken(jobConfig.queueName));
+      
+      // Remover job repetitivo existente para evitar duplicatas
+      const repeatableJobs = await queue.getRepeatableJobs();
+      for (const rj of repeatableJobs) {
+        if (rj.id === jobConfig.jobId || rj.key?.includes(jobConfig.jobId)) {
+          await queue.removeRepeatableByKey(rj.key);
+        }
+      }
+      
+      // Adicionar novo job repetitivo
+      await queue.add(
+        jobConfig.bullJobName,
+        {},
+        {
+          repeat: { every: interval },
+          jobId: jobConfig.jobId,
+          removeOnComplete: true,
+          removeOnFail: false,
+        }
+      );
+      console.log(`✅ ${jobConfig.description}`);
+      enabledCount++;
+    } catch (err: any) {
+      console.error(`❌ Erro ao configurar ${jobConfig.name}: ${err.message}`);
     }
-  );
-  console.log('✅ Limit Orders Monitor SIMULATION configurado (a cada 60s)');
+  }
 
-  // Configurar Balances Sync REAL - executa a cada 5 minutos
-  const balancesSyncQueue = app.get<Queue>(getQueueToken('balances-sync-real'));
-  await balancesSyncQueue.add(
-    'sync-balances',
-    {},
-    {
-      repeat: {
-        every: 300000, // 5 minutos
-      },
-      jobId: 'balances-sync-real-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Balances Sync REAL configurado (a cada 5min)');
-
-  // Configurar System Monitor - executa a cada 30 segundos
-  const systemMonitorQueue = app.get<Queue>(getQueueToken('system-monitor'));
-  await systemMonitorQueue.add(
-    'monitor-system',
-    {},
-    {
-      repeat: {
-        every: 30000, // 30 segundos
-      },
-      jobId: 'system-monitor-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ System Monitor configurado (a cada 30s)');
-
-  // Configurar Webhook Monitor - executa a cada 30 segundos
-  const webhookMonitorQueue = app.get<Queue>(getQueueToken('webhook-monitor'));
-  await webhookMonitorQueue.add(
-    'monitor-webhook-alerts',
-    {},
-    {
-      repeat: {
-        every: 30000, // 30 segundos
-      },
-      jobId: 'webhook-monitor-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Webhook Monitor configurado (a cada 30s)');
-
-  // Configurar Price Sync - executa a cada 22 segundos (garante TTL de 25s)
-  const priceSyncQueue = app.get<Queue>(getQueueToken('price-sync'));
-  await priceSyncQueue.add(
-    'sync-prices',
-    {},
-    {
-      repeat: {
-        every: 22000, // 22 segundos (garante que o cache de 25s seja atualizado antes de expirar)
-      },
-      jobId: 'price-sync-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Price Sync configurado (a cada 22s, TTL cache: 25s)');
-
-  // Configurar Positions Sync Missing - executa a cada 5 minutos
-  const positionsSyncMissingQueue = app.get<Queue>(getQueueToken('positions-sync-missing'));
-  await positionsSyncMissingQueue.add(
-    'sync-missing-positions',
-    {},
-    {
-      repeat: {
-        every: 300000, // 5 minutos
-      },
-      jobId: 'positions-sync-missing-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Positions Sync Missing configurado (a cada 5min)');
-
-  // Configurar Positions Sync Duplicates - executa a cada 5 minutos
-  const positionsSyncDuplicatesQueue = app.get<Queue>(getQueueToken('positions-sync-duplicates'));
-  await positionsSyncDuplicatesQueue.add(
-    'sync-duplicates',
-    {},
-    {
-      repeat: {
-        every: 300000, // 5 minutos
-      },
-      jobId: 'positions-sync-duplicates-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Positions Sync Duplicates configurado (a cada 5min)');
-
-  // Configurar Positions Sync Quantity - executa a cada 10 minutos
-  const positionsSyncQuantityQueue = app.get<Queue>(getQueueToken('positions-sync-quantity'));
-  await positionsSyncQuantityQueue.add(
-    'sync-quantity',
-    {},
-    {
-      repeat: {
-        every: 600000, // 10 minutos
-      },
-      jobId: 'positions-sync-quantity-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Positions Sync Quantity configurado (a cada 10min)');
-
-  // Configurar Positions Sync Fees - executa a cada 30 minutos
-  const positionsSyncFeesQueue = app.get<Queue>(getQueueToken('positions-sync-fees'));
-  await positionsSyncFeesQueue.add(
-    'sync-fees',
-    {},
-    {
-      repeat: {
-        every: 1800000, // 30 minutos
-      },
-      jobId: 'positions-sync-fees-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Positions Sync Fees configurado (a cada 30min)');
-
-  // Configurar Positions Sync Exchange - executa a cada 10 minutos
-  const positionsSyncExchangeQueue = app.get<Queue>(getQueueToken('positions-sync-exchange'));
-  await positionsSyncExchangeQueue.add(
-    'sync-exchange',
-    {},
-    {
-      repeat: {
-        every: 600000, // 10 minutos
-      },
-      jobId: 'positions-sync-exchange-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Positions Sync Exchange configurado (a cada 10min)');
-
-  // Configurar Positions Params Fix - executa a cada 60 segundos (1 minuto)
-  const positionsParamsFixQueue = app.get<Queue>(getQueueToken('positions-params-fix'));
-  await positionsParamsFixQueue.add(
-    'fix-positions-params',
-    {},
-    {
-      repeat: {
-        every: 60000, // 60 segundos (1 minuto)
-      },
-      jobId: 'positions-params-fix-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Positions Params Fix configurado (a cada 1min)');
-
-  // Configurar Positions Sell Sync - executa a cada 5 minutos
-  const positionsSellSyncQueue = app.get<Queue>(getQueueToken('positions-sell-sync'));
-  await positionsSellSyncQueue.add(
-    'sync-positions-sell',
-    {},
-    {
-      repeat: {
-        every: 300000, // 5 minutos
-      },
-      jobId: 'positions-sell-sync-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Positions Sell Sync configurado (a cada 5min)');
-
-  // Configurar Dust Positions Monitor - executa a cada 5 minutos
-  const dustPositionsMonitorQueue = app.get<Queue>(getQueueToken('dust-positions-monitor'));
-  await dustPositionsMonitorQueue.add(
-    'monitor-dust-positions',
-    {},
-    {
-      repeat: {
-        every: 300000, // 5 minutos
-      },
-      jobId: 'dust-positions-monitor-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Dust Positions Monitor configurado (a cada 5min)');
-
-  // Configurar Mercado Pago Sync - executa a cada 10 minutos
-  const mercadoPagoSyncQueue = app.get<Queue>(getQueueToken('mercadopago-sync'));
-  await mercadoPagoSyncQueue.add(
-    'sync-mercadopago-payments',
-    {},
-    {
-      repeat: {
-        every: 600000, // 10 minutos
-      },
-      jobId: 'mercadopago-sync-repeat',
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-  console.log('✅ Mercado Pago Sync configurado (a cada 10min)');
-
-  console.log('🎉 Todos os monitores configurados e rodando!');
+  console.log(`\n📊 Resumo: ${enabledCount} jobs habilitados, ${disabledCount} jobs desabilitados`);
+  console.log('🎉 Monitores configurados e rodando!');
 }
 
 bootstrap().catch((error) => {

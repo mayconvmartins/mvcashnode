@@ -212,13 +212,15 @@ export class PositionsSyncExchangeProcessor extends WorkerHost {
                     trade_mode: 'REAL',
                     symbol: normalizedSymbol,
                     side: side as 'BUY' | 'SELL',
-                    order_type: 'MARKET',
+                    // ✅ CORREÇÃO CRÍTICA: Usar 'IMPORTED' em vez de 'MARKET' para evitar execução acidental
+                    // 'IMPORTED' indica que este é um registro histórico importado, não uma ordem a ser executada
+                    order_type: 'IMPORTED',
                     status: 'FILLED',
                     base_quantity: totalQty,
                     created_by: 'EXCHANGE_SYNC',
                     // ✅ Marca explícita: importado da exchange (registro histórico, nunca deve executar)
                     reason_code: 'EXCHANGE_SYNC_IMPORTED',
-                    reason_message: `Importado via EXCHANGE_SYNC a partir do histórico de trades da corretora (orderId=${orderId}). Não executar.`,
+                    reason_message: `Importado via EXCHANGE_SYNC a partir do histórico de trades da corretora (orderId=${orderId}). Registro histórico - NÃO EXECUTAR.`,
                   },
                 });
 

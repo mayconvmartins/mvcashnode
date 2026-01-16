@@ -50,6 +50,13 @@ export class TradeJobQueueService {
         return;
       }
 
+      // ✅ HARD-BLOCK: Jobs com order_type='IMPORTED' são registros históricos importados
+      // Nunca devem ser enfileirados para execução (camada adicional de segurança)
+      if (tradeJob.order_type === 'IMPORTED') {
+        this.logger.warn(`[SEGURANÇA] Trade job ${tradeJobId} com order_type=IMPORTED - não enfileirando (registro histórico)`);
+        return;
+      }
+
       // ✅ VALIDAÇÃO 1: Verificar se job já está em status final (previne reprocessamento)
       if (FINAL_STATUSES.includes(tradeJob.status as TradeJobStatus)) {
         this.logger.warn(`[SEGURANÇA] Trade job ${tradeJobId} já está em status final (${tradeJob.status}), não enfileirando para evitar reprocessamento`);

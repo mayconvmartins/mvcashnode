@@ -55,6 +55,21 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         return { success: false, skipped: true, reason: 'EXCHANGE_SYNC_NO_EXECUTE' };
       }
 
+      // ✅ HARD-BLOCK: Jobs com order_type='IMPORTED' são registros históricos importados
+      // Nunca devem ser executados na exchange (camada adicional de segurança)
+      if (tradeJob.order_type === 'IMPORTED') {
+        this.logger.warn(`[EXECUTOR-SIM] [SEGURANÇA] Job ${tradeJobId} com order_type=IMPORTED - não executando`);
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.SKIPPED,
+            reason_code: 'IMPORTED_ORDER_NO_EXECUTE',
+            reason_message: 'Job com order_type=IMPORTED (registro histórico importado). Execução bloqueada por segurança.',
+          },
+        });
+        return { success: false, skipped: true, reason: 'IMPORTED_ORDER_NO_EXECUTE' };
+      }
+
       // ✅ CRITICAL FIX: Verificar se job já foi processado (previne reprocessamento)
       const finalStatuses: string[] = [
         TradeJobStatus.FILLED,
