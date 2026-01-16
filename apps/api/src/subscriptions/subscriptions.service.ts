@@ -109,7 +109,7 @@ export class SubscriptionsService {
       // Gerar senha temporária (será alterada no registro)
       const tempPassword = crypto.randomBytes(16).toString('hex');
       // Usar bcrypt diretamente já que hashPassword não é exportado
-      const bcrypt = await import('bcrypt');
+      const bcrypt = await import('bcryptjs');
       const passwordHash = await bcrypt.hash(tempPassword, 12);
 
       user = await this.prisma.user.create({
@@ -1018,7 +1018,7 @@ export class SubscriptionsService {
         );
       }
 
-      const bcrypt = await import('bcrypt');
+      const bcrypt = await import('bcryptjs');
       const passwordHash = await bcrypt.hash(password, 12);
 
       // Criar/atualizar usuário
@@ -1176,7 +1176,7 @@ export class SubscriptionsService {
     }
 
     // Atualizar senha
-    const bcrypt = await import('bcrypt');
+    const bcrypt = await import('bcryptjs');
     const passwordHash = await bcrypt.hash(password, 12);
 
     await this.prisma.user.update({
