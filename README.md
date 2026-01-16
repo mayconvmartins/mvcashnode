@@ -80,10 +80,13 @@ rm -rf node_modules apps/*/node_modules packages/*/node_modules
 # 2. Instalar sem executar scripts
 pnpm install --ignore-scripts
 
-# 3. Gerar Prisma Client manualmente
+# 3. Reconstruir pacotes nativos (bcrypt precisa compilar binários)
+pnpm rebuild bcrypt
+
+# 4. Gerar Prisma Client manualmente
 cd packages/db && npx prisma generate && cd ../..
 
-# 4. Compilar o projeto
+# 5. Compilar o projeto
 pnpm build
 ```
 

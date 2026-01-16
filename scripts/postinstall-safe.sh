@@ -37,10 +37,26 @@ if [ ! -d "node_modules" ]; then
     exit 1
 fi
 
+# ============================================
+# 1. Reconstruir pacotes nativos (bcrypt, etc)
+# ============================================
+echo -e "${YELLOW}🔧 Reconstruindo pacotes nativos (bcrypt)...${NC}"
+
+# bcrypt precisa ser compilado para a arquitetura atual
+pnpm rebuild bcrypt 2>/dev/null || {
+    echo -e "${YELLOW}⚠️  Tentando rebuild individual do bcrypt...${NC}"
+    cd node_modules/.pnpm/bcrypt@*/node_modules/bcrypt 2>/dev/null && npm run install 2>/dev/null && cd - || true
+}
+echo -e "${GREEN}✅ Pacotes nativos reconstruídos${NC}"
+echo ""
+
+# ============================================
+# 2. Gerar Prisma Client
+# ============================================
 echo -e "${YELLOW}📦 Gerando Prisma Client...${NC}"
 cd packages/db
 
-# Gerar Prisma Client (único postinstall realmente necessário)
+# Gerar Prisma Client
 if [ -f "prisma/schema.prisma" ]; then
     npx prisma generate --schema=./prisma/schema.prisma
     echo -e "${GREEN}✅ Prisma Client gerado com sucesso${NC}"
