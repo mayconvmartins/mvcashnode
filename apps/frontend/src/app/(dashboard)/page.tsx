@@ -571,7 +571,7 @@ export default function DashboardPage() {
                                             <Cell fill="#10b981" />
                                             <Cell fill="#3b82f6" />
                                         </Pie>
-                                        <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                                        <Tooltip formatter={(value) => formatCurrency(typeof value === 'number' ? value : 0)} />
                                     </RechartsPieChart>
                                 </ResponsiveContainer>
                             ) : (
