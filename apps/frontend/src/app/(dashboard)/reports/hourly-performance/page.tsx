@@ -278,10 +278,10 @@ export default function HourlyPerformanceReportPage() {
                                 <YAxis stroke="hsl(var(--muted-foreground))" />
                                 <Tooltip 
                                     contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
-                                    formatter={(value: any, name: string) => {
-                                        if (name === 'pnl') return formatCurrency(value)
+                                    formatter={(value, name) => {
+                                        if (name === 'pnl') return formatCurrency(typeof value === 'number' ? value : 0)
                                         if (name === 'trades') return `${value} trades`
-                                        if (name === 'winRate') return `${value.toFixed(1)}%`
+                                        if (name === 'winRate') return `${typeof value === 'number' ? value.toFixed(1) : 0}%`
                                         return value
                                     }}
                                     labelFormatter={(label) => `Hora: ${label}`}
