@@ -5,6 +5,7 @@ import { use } from 'react';
 import { ArrowLeft, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { sanitizeHtml } from '@/lib/utils/sanitize';
 
 const manuals: Record<string, { title: string; content: string }> = {
   'login': {
@@ -254,7 +255,7 @@ export default function ManualPage({ params }: { params: Promise<{ slug: string 
               </div>
               <div
                 className="prose max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-a:text-primary prose-strong:text-gray-900 prose-ul:text-gray-700 prose-ol:text-gray-700 prose-li:text-gray-700"
-                dangerouslySetInnerHTML={{ __html: manual.content }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(manual.content) }}
                 style={{
                   lineHeight: '1.75',
                 }}

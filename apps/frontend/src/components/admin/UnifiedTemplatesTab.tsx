@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { sanitizePreviewHtml } from '@/lib/utils/sanitize'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { notificationsService, type NotificationTemplateType, type NotificationChannel, type UnifiedTemplate, type UnifiedTemplateListItem } from '@/lib/api/notifications.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -640,7 +641,7 @@ function WhatsAppPreview({ body }: { body: string }) {
                 <div className="bg-[#dcf8c6] dark:bg-[#005c4b] text-black dark:text-white p-3 rounded-lg max-w-[80%] shadow-sm">
                     <div 
                         className="text-sm whitespace-pre-wrap"
-                        dangerouslySetInnerHTML={{ __html: formattedBody }}
+                        dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(formattedBody) }}
                     />
                     <div className="text-[10px] text-black/50 dark:text-white/50 text-right mt-1">
                         {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
@@ -681,7 +682,7 @@ function EmailPreview({
                 {bodyHtml ? (
                     <div 
                         className="prose prose-sm max-w-none dark:prose-invert"
-                        dangerouslySetInnerHTML={{ __html: bodyHtml }}
+                        dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(bodyHtml) }}
                     />
                 ) : (
                     <pre className="whitespace-pre-wrap text-sm font-sans">{body}</pre>

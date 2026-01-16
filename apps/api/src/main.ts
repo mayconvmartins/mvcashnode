@@ -74,6 +74,41 @@ async function bootstrap() {
     bodyParser: false, // Desabilitar body parser padrão globalmente
   });
   
+  // ============================================
+  // CLOUDFLARE: Trust Proxy e IP Real
+  // ============================================
+  // Habilitar trust proxy para Cloudflare (e nginx se usado)
+  app.set('trust proxy', true);
+  
+  // Middleware para extrair IP real do cliente via Cloudflare
+  app.use((req: any, res: any, next: any) => {
+    // CF-Connecting-IP é o IP real do cliente via Cloudflare
+    const cfConnectingIp = req.headers['cf-connecting-ip'];
+    const xRealIp = req.headers['x-real-ip'];
+    const xForwardedFor = req.headers['x-forwarded-for'];
+    
+    // Prioridade: CF-Connecting-IP > X-Real-IP > primeiro IP do X-Forwarded-For
+    if (cfConnectingIp) {
+      req.realIp = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp;
+    } else if (xRealIp) {
+      req.realIp = Array.isArray(xRealIp) ? xRealIp[0] : xRealIp;
+    } else if (xForwardedFor) {
+      const forwardedIps = Array.isArray(xForwardedFor) 
+        ? xForwardedFor[0] 
+        : xForwardedFor.split(',')[0].trim();
+      req.realIp = forwardedIps;
+    } else {
+      req.realIp = req.ip;
+    }
+    
+    // Também armazenar país do Cloudflare se disponível
+    req.cfCountry = req.headers['cf-ipcountry'];
+    req.cfRay = req.headers['cf-ray'];
+    
+    next();
+  });
+  console.log('[Cloudflare] ✅ Trust proxy habilitado e extração de IP real configurada');
+  
   // Configurar timeout do servidor para operações longas (auditoria, etc)
   const server = app.getHttpServer();
   server.timeout = 1800000; // 30 minutos

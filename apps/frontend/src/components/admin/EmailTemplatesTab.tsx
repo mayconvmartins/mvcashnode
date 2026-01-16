@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { sanitizePreviewHtml } from '@/lib/utils/sanitize'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminService } from '@/lib/api/admin.service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -284,7 +285,7 @@ function EmailTemplatePreviewDialog({
                             <div className="p-4 bg-muted rounded-lg border">
                                 <div 
                                     className="prose max-w-none"
-                                    dangerouslySetInnerHTML={{ __html: previewData.rendered }}
+                                    dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(previewData.rendered) }}
                                 />
                             </div>
                             <div className="text-xs text-muted-foreground">

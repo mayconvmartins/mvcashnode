@@ -1,8 +1,28 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
+// Domínios permitidos para CORS
+const ALLOWED_ORIGINS = [
+    'https://mvcash.com.br',
+    'https://www.mvcash.com.br',
+    'https://core.mvcash.com.br',
+    'https://webhook.mvcash.com.br',
+]
+
+// Verifica se a origem é um subdomínio de mvcash.com.br
+function isAllowedOrigin(origin: string | null): boolean {
+    if (!origin) return true // Permitir requests sem origin
+    if (ALLOWED_ORIGINS.includes(origin)) return true
+    // Permitir qualquer subdomínio de mvcash.com.br (HTTPS)
+    if (origin.startsWith('https://') && origin.endsWith('.mvcash.com.br')) return true
+    // Permitir localhost em desenvolvimento
+    if (origin.startsWith('http://localhost:')) return true
+    return false
+}
+
 export function middleware(request: NextRequest) {
     const pathname = request.nextUrl.pathname
+    const origin = request.headers.get('origin')
     
     // Permitir arquivos estáticos e manifest.json sem processamento
     if (
@@ -12,10 +32,12 @@ export function middleware(request: NextRequest) {
         pathname === '/sw.js' ||
         pathname.match(/\.(ico|png|jpg|jpeg|svg|gif|webp|woff|woff2|ttf|otf|eot)$/)
     ) {
-        // Adicionar headers CORS para manifest.json
+        // Adicionar headers CORS para manifest.json (restrito a *.mvcash.com.br)
         if (pathname === '/manifest.json') {
             const response = NextResponse.next()
-            response.headers.set('Access-Control-Allow-Origin', '*')
+            if (isAllowedOrigin(origin)) {
+                response.headers.set('Access-Control-Allow-Origin', origin || 'https://mvcash.com.br')
+            }
             response.headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
             response.headers.set('Access-Control-Allow-Headers', 'Content-Type')
             return response

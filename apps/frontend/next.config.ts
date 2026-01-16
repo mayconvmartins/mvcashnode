@@ -83,15 +83,47 @@ const nextConfig: NextConfig = {
     remotePatterns: [],
   },
   
-  // Headers de cache para assets estáticos
+  // Headers de segurança e cache
   headers: async () => [
     {
-      // Manifest.json - CORS headers
+      // Headers de segurança para todas as rotas
+      source: '/:path*',
+      headers: [
+        // Previne clickjacking
+        { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        // Previne MIME sniffing
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        // Controle de referrer
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        // HSTS (backup - Cloudflare gerencia)
+        { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+        // Permissions Policy
+        { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        // CSP - Content Security Policy
+        { 
+          key: 'Content-Security-Policy', 
+          value: [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://static.cloudflareinsights.com",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: https: blob:",
+            "font-src 'self' data:",
+            "connect-src 'self' https://*.mvcash.com.br wss://*.mvcash.com.br https://cloudflareinsights.com",
+            "frame-src 'self' https://challenges.cloudflare.com",
+            "frame-ancestors 'self'",
+            "form-action 'self'",
+            "base-uri 'self'",
+          ].join('; ')
+        },
+      ],
+    },
+    {
+      // Manifest.json - CORS headers (restrito a *.mvcash.com.br)
       source: '/manifest.json',
       headers: [
         {
           key: 'Access-Control-Allow-Origin',
-          value: '*',
+          value: 'https://mvcash.com.br',
         },
         {
           key: 'Access-Control-Allow-Methods',
