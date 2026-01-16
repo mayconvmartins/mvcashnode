@@ -268,55 +268,19 @@ export class TradeExecutionSimProcessor extends WorkerHost {
         }
       }
 
-      // Se não tem quantidade e é SELL, tentar buscar da posição aberta
+      // ✅ BUG-010 FIX: FIFO removido - SELL sem quantidade deve ter position_id_to_close
+      // Mantendo consistência com executor REAL
       if (baseQty <= 0 && quoteAmount <= 0 && tradeJob.side === 'SELL') {
-        this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} SELL sem quantidade, tentando buscar da posição aberta...`);
-        try {
-          const openPosition = await this.prisma.tradePosition.findFirst({
-            where: {
-              exchange_account_id: tradeJob.exchange_account_id,
-              symbol: tradeJob.symbol,
-              trade_mode: tradeJob.trade_mode,
-              status: 'OPEN',
-              qty_remaining: { gt: 0 },
-              lock_sell_by_webhook: false, // Não vender se estiver bloqueado
-            },
-            orderBy: {
-              created_at: 'asc', // FIFO - vender a posição mais antiga primeiro
-            },
-          });
-
-          if (openPosition) {
-            baseQty = openPosition.qty_remaining.toNumber();
-            this.logger.log(`[EXECUTOR-SIM] Posição aberta encontrada: ID ${openPosition.id}, quantidade: ${baseQty}`);
-            
-            // Atualizar o job com a quantidade encontrada
-            await this.prisma.tradeJob.update({
-              where: { id: tradeJobId },
-              data: { base_quantity: baseQty },
-            });
-          } else {
-            // Não há posição aberta - marcar como SKIPPED
-            this.logger.warn(`[EXECUTOR-SIM] Nenhuma posição aberta encontrada para vender ${tradeJob.symbol} na conta ${tradeJob.exchange_account_id}`);
-            await this.prisma.tradeJob.update({
-              where: { id: tradeJobId },
-              data: {
-                status: TradeJobStatus.SKIPPED,
-                reason_code: 'NO_ELIGIBLE_POSITIONS',
-                reason_message: `Nenhuma posição aberta encontrada para vender ${tradeJob.symbol}`,
-              },
-            });
-            return {
-              success: false,
-              skipped: true,
-              reason: 'NO_ELIGIBLE_POSITIONS',
-              message: 'Nenhuma posição aberta encontrada para vender',
-            };
-          }
-        } catch (error: any) {
-          this.logger.error(`[EXECUTOR-SIM] Erro ao buscar posição aberta: ${error.message}`);
-          throw new Error(`Quantidade inválida para trade job ${tradeJobId} e não foi possível buscar posição aberta: ${error.message}`);
-        }
+        this.logger.error(`[EXECUTOR-SIM] ❌ ERRO CRÍTICO: Job ${tradeJobId} é uma ordem SELL sem quantidade e sem position_id_to_close. FIFO foi removido - todas as ordens SELL devem ter position_id_to_close ou quantidade definida.`);
+        await this.prisma.tradeJob.update({
+          where: { id: tradeJobId },
+          data: {
+            status: TradeJobStatus.FAILED,
+            reason_code: 'INVALID_QUANTITY',
+            reason_message: 'Ordem SELL sem quantidade e sem position_id_to_close. FIFO foi removido - todas as ordens SELL devem especificar posição ou quantidade.',
+          },
+        });
+        throw new Error('Ordem SELL sem quantidade e sem position_id_to_close. FIFO foi removido - todas as ordens SELL devem especificar posição ou quantidade.');
       }
 
       if (baseQty <= 0 && quoteAmount <= 0) {

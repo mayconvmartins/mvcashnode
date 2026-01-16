@@ -1351,12 +1351,39 @@ export class PositionService {
         return;
       }
 
-      // Re-buscar posição dentro da transação para garantir dados atualizados
-      const currentPosition = await tx.tradePosition.findUnique({
-        where: { id: targetPosition.id },
-      });
+      // ✅ BUG-012 FIX: Re-buscar posição com FOR UPDATE para prevenir race conditions
+      // FOR UPDATE garante que nenhuma outra transação possa ler/modificar esta posição até commit
+      const currentPositionRaw = await tx.$queryRaw<any[]>`
+        SELECT * FROM trade_positions 
+        WHERE id = ${targetPosition.id}
+        FOR UPDATE
+      `.then(rows => rows[0] || null);
 
-      if (!currentPosition || currentPosition.status !== PositionStatus.OPEN || currentPosition.qty_remaining.toNumber() <= 0) {
+      if (!currentPositionRaw) {
+        console.warn(`[POSITION-SERVICE] Posição ${targetPosition.id} não encontrada após FOR UPDATE`);
+        await tx.tradeJob.update({
+          where: { id: jobId },
+          data: {
+            status: 'SKIPPED',
+            reason_code: 'POSITION_NOT_FOUND',
+            reason_message: `Position ${targetPosition.id} not found`,
+          },
+        });
+        return;
+      }
+
+      // Converter campos Decimal para objetos compatíveis
+      const currentPosition = {
+        ...currentPositionRaw,
+        qty_total: { toNumber: () => Number(currentPositionRaw.qty_total) },
+        qty_remaining: { toNumber: () => Number(currentPositionRaw.qty_remaining) },
+        price_open: { toNumber: () => Number(currentPositionRaw.price_open) },
+        realized_profit_usd: { toNumber: () => Number(currentPositionRaw.realized_profit_usd) },
+        fees_on_sell_usd: { toNumber: () => Number(currentPositionRaw.fees_on_sell_usd) },
+        total_fees_paid_usd: { toNumber: () => Number(currentPositionRaw.total_fees_paid_usd) },
+      };
+
+      if (currentPosition.status !== PositionStatus.OPEN || currentPosition.qty_remaining.toNumber() <= 0) {
         console.warn(`[POSITION-SERVICE] Posição ${targetPosition.id} não está mais disponível`);
         await tx.tradeJob.update({
           where: { id: jobId },

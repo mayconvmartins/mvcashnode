@@ -197,6 +197,36 @@ export class PositionsSyncExchangeProcessor extends WorkerHost {
                 continue;
               }
 
+              // ✅ BUG-011 FIX: Verificar se já existe job IMPORTED para essa ordem
+              // Isso previne criação de jobs duplicados quando sync roda múltiplas vezes
+              const existingImportedJob = await this.prisma.tradeJob.findFirst({
+                where: {
+                  exchange_account_id: account.id,
+                  symbol: normalizedSymbol,
+                  side: side as 'BUY' | 'SELL',
+                  created_by: 'EXCHANGE_SYNC',
+                  created_at: {
+                    // Buscar jobs criados nas últimas 48h (2x o período de sync)
+                    gte: new Date(Date.now() - 48 * 60 * 60 * 1000),
+                  },
+                },
+                include: {
+                  executions: {
+                    where: {
+                      exchange_order_id: orderId,
+                    },
+                    take: 1,
+                  },
+                },
+              });
+
+              if (existingImportedJob && existingImportedJob.executions.length > 0) {
+                this.logger.log(
+                  `[POSITIONS-SYNC-EXCHANGE] ⏭️ Job IMPORTED ${existingImportedJob.id} já existe para orderId ${orderId}, pulando`
+                );
+                continue;
+              }
+
               const totalQty = trades.reduce((sum, t) => sum + (t.amount || 0), 0);
               const totalCost = trades.reduce((sum, t) => sum + (t.cost || 0), 0);
               const avgPrice = totalQty > 0 ? totalCost / totalQty : 0;

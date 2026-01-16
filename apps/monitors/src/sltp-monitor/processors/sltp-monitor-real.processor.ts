@@ -719,17 +719,49 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             position.tsg_drop_pct &&
             !position.tp_triggered) {
           
-          // Se tsg_triggered está true mas não há job válido, verificar se ainda é viável
+          // ✅ BUG-013 FIX: Melhorar lógica de reset de flags TSG
+          // Se tsg_triggered está true, verificar se há job ativo OU se deve resetar
           if (position.tsg_triggered) {
-            const existingJob = await this.prisma.tradeJob.findFirst({
+            // Verificar se há job ativo
+            const activeJob = await this.prisma.tradeJob.findFirst({
               where: {
                 position_id_to_close: position.id,
+                side: 'SELL',
                 status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] },
               },
             });
             
-            if (!existingJob) {
-              // Não há job válido, verificar se ainda é viável vender
+            if (activeJob) {
+              // Há job ativo, manter flag e não processar novamente
+              continue;
+            }
+
+            // Não há job ativo, verificar se há job recente FAILED/SKIPPED (últimos 5 minutos)
+            const recentFailedJob = await this.prisma.tradeJob.findFirst({
+              where: {
+                position_id_to_close: position.id,
+                side: 'SELL',
+                status: { in: ['FAILED', 'SKIPPED'] },
+                created_at: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+              },
+              orderBy: { created_at: 'desc' },
+            });
+
+            // Se há job recente que falhou, resetar flags para permitir nova tentativa
+            if (recentFailedJob) {
+              this.logger.warn(
+                `[SL-TP-MONITOR-REAL] ✅ BUG-013 FIX: Flag tsg_triggered resetada para posição ${position.id}: ` +
+                `job ${recentFailedJob.id} falhou recentemente (${recentFailedJob.status}), permitindo nova tentativa`
+              );
+              await this.prisma.tradePosition.update({
+                where: { id: position.id },
+                data: { 
+                  tsg_triggered: false,
+                },
+              });
+              // Não continuar, deixar processar novamente
+            } else {
+              // Não há job recente, verificar se preço ainda é viável
               const tsgActivationPct = position.tsg_activation_pct.toNumber();
               const tsgDropPct = position.tsg_drop_pct.toNumber();
               const currentMax = position.tsg_max_pnl_pct?.toNumber() || tsgActivationPct;
@@ -750,9 +782,15 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                   `preço não está mais viável (${pnlPct.toFixed(2)}%, threshold: ${sellThreshold.toFixed(2)}%)`
                 );
                 continue;
+              } else {
+                // Preço ainda viável mas sem job ativo, continuar para criar novo job
+                this.logger.log(
+                  `[SL-TP-MONITOR-REAL] ✅ BUG-013 FIX: Posição ${position.id} com tsg_triggered=true mas sem job ativo, ` +
+                  `criando novo job (preço viável: ${pnlPct.toFixed(2)}%)`
+                );
+                continue;
               }
             }
-            continue; // Já está triggered, não processar novamente
           }
           
           const tsgActivationPct = position.tsg_activation_pct.toNumber();
