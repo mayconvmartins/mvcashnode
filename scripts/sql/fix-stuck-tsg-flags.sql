@@ -5,7 +5,7 @@
 -- Execução: Manual, uma vez após deploy da correção BUG-013
 -- ============================================
 
--- 1. Verificar posições afetadas (ANTES DA CORREÇÃO)
+-- 1. Verificar posições afetadas (ANTES DA CORREÇÃOs)
 SELECT 
   p.id, 
   p.symbol, 
