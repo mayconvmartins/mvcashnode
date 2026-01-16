@@ -159,7 +159,7 @@ export default function SubscriberStrategyPerformanceReportPage() {
                                     <CartesianGrid strokeDasharray="3 3" />
                                     <XAxis type="number" tickFormatter={(value) => formatCurrency(value)} />
                                     <YAxis type="category" dataKey="strategy" width={120} />
-                                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                                    <Tooltip formatter={(value) => formatCurrency(typeof value === 'number' ? value : 0)} />
                                     <Legend />
                                     <Bar dataKey="total_pnl" name="PnL Total" fill="#6366f1" />
                                 </BarChart>

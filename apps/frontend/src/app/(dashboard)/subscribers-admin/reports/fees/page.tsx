@@ -187,7 +187,7 @@ export default function SubscriberFeesReportPage() {
                                             <Cell key={entry.type} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                                    <Tooltip formatter={(value) => formatCurrency(typeof value === 'number' ? value : 0)} />
                                     <Legend />
                                 </PieChart>
                             </ResponsiveContainer>

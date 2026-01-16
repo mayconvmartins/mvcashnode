@@ -194,7 +194,7 @@ export default function SubscriberOpenPositionsReportPage() {
                                             <Cell key={entry.symbol} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                                    <Tooltip formatter={(value) => formatCurrency(typeof value === 'number' ? value : 0)} />
                                     <Legend />
                                 </RechartsPie>
                             </ResponsiveContainer>

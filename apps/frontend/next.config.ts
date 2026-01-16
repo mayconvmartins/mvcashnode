@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 /**
  * Next.js Configuration otimizado para produção
@@ -16,6 +17,9 @@ const nextConfig: NextConfig = {
   ...(process.env.NEXT_OUTPUT_STANDALONE === 'true' && process.platform !== 'win32' 
     ? { output: 'standalone' as const }
     : {}),
+  
+  // Definir raiz do workspace para monorepo
+  outputFileTracingRoot: path.join(__dirname, '../../'),
   
   // Compressão habilitada por padrão no Next.js
   compress: true,

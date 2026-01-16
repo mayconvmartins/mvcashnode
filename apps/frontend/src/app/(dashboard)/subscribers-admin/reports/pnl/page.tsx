@@ -246,7 +246,7 @@ export default function SubscriberPnLReportPage() {
                                     />
                                     <YAxis tickFormatter={(value) => formatCurrency(value)} />
                                     <Tooltip 
-                                        formatter={(value: number) => formatCurrency(value)}
+                                        formatter={(value) => formatCurrency(typeof value === 'number' ? value : 0)}
                                         labelFormatter={(date) => new Date(date).toLocaleDateString('pt-BR')}
                                     />
                                     <Line 
@@ -283,7 +283,7 @@ export default function SubscriberPnLReportPage() {
                                     <CartesianGrid strokeDasharray="3 3" />
                                     <XAxis type="number" tickFormatter={(value) => formatCurrency(value)} />
                                     <YAxis type="category" dataKey="symbol" width={80} />
-                                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                                    <Tooltip formatter={(value) => formatCurrency(typeof value === 'number' ? value : 0)} />
                                     <Bar 
                                         dataKey="pnl_usd" 
                                         fill="#6366f1"

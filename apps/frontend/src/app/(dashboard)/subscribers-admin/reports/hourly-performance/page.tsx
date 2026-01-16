@@ -169,7 +169,7 @@ export default function SubscriberHourlyPerformanceReportPage() {
                                 />
                                 <YAxis tickFormatter={(value) => formatCurrency(value)} />
                                 <Tooltip 
-                                    formatter={(value: number) => formatCurrency(value)}
+                                    formatter={(value) => formatCurrency(typeof value === 'number' ? value : 0)}
                                     labelFormatter={(hour) => `${hour}:00 - ${hour}:59`}
                                 />
                                 <Bar dataKey="pnl" name="PnL">

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 /**
  * Next.js Configuration para Export Estático
@@ -10,6 +11,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Habilitar export estático - gera arquivos HTML/CSS/JS na pasta 'out'
   output: 'export',
+  
+  // Definir raiz do workspace para monorepo
+  outputFileTracingRoot: path.join(__dirname, '../../'),
   
   // Compressão será feita pelo nginx
   compress: true,

@@ -165,7 +165,7 @@ export default function SubscriberDrawdownReportPage() {
                                     domain={['dataMin', 0]}
                                 />
                                 <Tooltip 
-                                    formatter={(value: number) => [`${value.toFixed(2)}%`, 'Drawdown']}
+                                    formatter={(value) => [`${typeof value === 'number' ? value.toFixed(2) : 0}%`, 'Drawdown']}
                                     labelFormatter={(date) => new Date(date).toLocaleDateString('pt-BR')}
                                 />
                                 <Area 
