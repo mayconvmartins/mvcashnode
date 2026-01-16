@@ -110,15 +110,40 @@ export class TradeExecutionRealProcessor extends WorkerHost {
   /**
    * ✅ OTIMIZAÇÃO CPU: Reverte flags triggered quando job falha permanentemente
    * Isso previne loop infinito de retry onde monitor recria jobs que sempre falham
+   * ✅ BUG-008 FIX: Lista expandida de erros permanentes
    */
   private async revertTriggeredFlags(positionId: number, reasonCode: string): Promise<void> {
     try {
       // Apenas reverter para erros permanentes (não erros de rede/temporários)
+      // ✅ BUG-008 FIX: Lista expandida de erros permanentes que justificam reset de flags
       const permanentErrors = [
+        // Erros de validação interna
         'MIN_PROFIT_NOT_MET_PRE_ORDER',
         'INVALID_QUANTITY',
-        'INSUFFICIENT_BALANCE',
+        'INVALID_QUANTITY_CALCULATED',
         'MIN_AMOUNT_THRESHOLD',
+        'DUST_AMOUNT',
+        // Erros de saldo/quantidade
+        'INSUFFICIENT_BALANCE',
+        'BALANCE_NOT_FOUND',
+        // Erros de símbolo/preço
+        'INVALID_SYMBOL',
+        'INVALID_PRICE',
+        'INVALID_PRECISION',
+        // Erros de exchange
+        'MIN_NOTIONAL_NOT_MET',
+        'INVALID_LOT_SIZE',
+        // Erros de parâmetros
+        'MISSING_TRADE_PARAMETER',
+        'INVALID_TRADE_PARAMETER',
+        // Erros de posição
+        'POSITION_CLOSED',
+        'POSITION_NOT_FOUND',
+        'POSITION_NOT_OPEN',
+        'POSITION_NO_QUANTITY',
+        // Erros de importação (não devem executar)
+        'EXCHANGE_SYNC_NO_EXECUTE',
+        'IMPORTED_NO_EXECUTE',
       ];
 
       if (!permanentErrors.includes(reasonCode)) {
@@ -300,6 +325,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               reason_message: `Posição ${tradeJob.position_id_to_close} não encontrada`,
             },
           });
+          // ✅ BUG-008 FIX: Posição pode ter sido deletada mas flags podem estar em outra estrutura
           return { success: false, skipped: true, reason: 'POSITION_NOT_FOUND' };
         }
 
@@ -313,6 +339,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               reason_message: `Posição ${tradeJob.position_id_to_close} não está aberta (status: ${targetPosition.status})`,
             },
           });
+          // ✅ BUG-008 FIX: Reverter flags para posições fechadas
+          await this.revertTriggeredFlags(tradeJob.position_id_to_close, 'POSITION_NOT_OPEN');
           return { success: false, skipped: true, reason: 'POSITION_NOT_OPEN' };
         }
 
@@ -327,6 +355,8 @@ export class TradeExecutionRealProcessor extends WorkerHost {
               reason_message: `Posição ${tradeJob.position_id_to_close} sem quantidade restante para vender`,
             },
           });
+          // ✅ BUG-008 FIX: Reverter flags para posições sem quantidade
+          await this.revertTriggeredFlags(tradeJob.position_id_to_close, 'POSITION_NO_QUANTITY');
           return { success: false, skipped: true, reason: 'POSITION_NO_QUANTITY' };
         }
 
@@ -921,6 +951,12 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             reason_message: `Quantidade muito pequena (dust): ${amountToUse} < ${MIN_AMOUNT_THRESHOLD}`,
           },
         });
+        
+        // ✅ BUG-008 FIX: Reverter flags triggered para prevenir loop infinito
+        if (positionIdToClose) {
+          await this.revertTriggeredFlags(positionIdToClose, 'DUST_AMOUNT');
+        }
+        
         return { success: false, skipped: true, reason: 'DUST_AMOUNT' };
       }
       
@@ -2237,6 +2273,10 @@ export class TradeExecutionRealProcessor extends WorkerHost {
           if (this.isDebugEnabled) {
             this.logger.debug(`[EXECUTOR] Job ${tradeJobId} - Status já é SKIPPED, não atualizando`);
           }
+          // ✅ BUG-005 FIX: Liberar lock mesmo quando retornando cedo (status já SKIPPED)
+          if (tradeJob?.side === 'SELL' && tradeJob?.position_id_to_close) {
+            await releaseSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId);
+          }
           return; // Retornar sem lançar erro
         }
 
@@ -2271,10 +2311,29 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // Se for erro não recuperável, retornar sem lançar (evita retry do BullMQ)
       if (nonRecoverableErrors.includes(reasonCode)) {
         this.logger.warn(`[EXECUTOR] Job ${tradeJobId} - Erro não recuperável (${reasonCode}), não será retentado`);
+        // ✅ BUG-005 FIX: Garantir liberação de lock em TODOS os cenários de saída
+        if (tradeJob?.side === 'SELL' && tradeJob?.position_id_to_close) {
+          try {
+            await releaseSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId);
+            this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Sell lock liberado (erro não recuperável)`);
+          } catch (lockErr: any) {
+            this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao liberar sell lock: ${lockErr.message}`);
+          }
+        }
         return; // Retornar sem lançar erro
       }
 
-      // Para erros recuperáveis, lançar para permitir retry do BullMQ
+      // Para erros recuperáveis, liberar lock também (BullMQ não vai re-tentar com attempts:1)
+      if (tradeJob?.side === 'SELL' && tradeJob?.position_id_to_close) {
+        try {
+          await releaseSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId);
+          this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Sell lock liberado (erro recuperável, mas sem retry)`);
+        } catch (lockErr: any) {
+          this.logger.error(`[EXECUTOR] Job ${tradeJobId} - Erro ao liberar sell lock: ${lockErr.message}`);
+        }
+      }
+
+      // Para erros recuperáveis, lançar para permitir retry do BullMQ (se attempts > 1)
       throw error;
     }
   }

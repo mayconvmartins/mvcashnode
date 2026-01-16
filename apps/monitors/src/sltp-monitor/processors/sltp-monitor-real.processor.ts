@@ -25,6 +25,46 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
 
   // ✅ REMOVIDO: Método getCurrentPrice não é mais necessário após remoção da seção de retry
 
+  /**
+   * ✅ BUG-006 FIX: Verifica se existe job ativo OU job criado recentemente para a posição
+   * Isso previne criação de jobs duplicados quando um job é processado muito rapidamente
+   * @param positionId ID da posição
+   * @param recentSeconds Segundos para considerar um job como "recente" (default: 60)
+   * @returns Job encontrado ou null
+   */
+  private async findExistingOrRecentJob(positionId: number, recentSeconds = 60): Promise<any> {
+    // 1. Verificar jobs ativos (ainda não processados)
+    const activeJob = await this.prisma.tradeJob.findFirst({
+      where: {
+        position_id_to_close: positionId,
+        side: 'SELL',
+        status: { 
+          in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED']
+        }
+      },
+      select: { id: true, status: true, order_type: true, base_quantity: true, created_at: true }
+    });
+
+    if (activeJob) {
+      return activeJob;
+    }
+
+    // 2. Verificar jobs criados recentemente (mesmo que já processados)
+    // Isso previne race condition onde job é criado e processado muito rápido
+    const recentCutoff = new Date(Date.now() - recentSeconds * 1000);
+    const recentJob = await this.prisma.tradeJob.findFirst({
+      where: {
+        position_id_to_close: positionId,
+        side: 'SELL',
+        created_at: { gte: recentCutoff }
+      },
+      orderBy: { created_at: 'desc' },
+      select: { id: true, status: true, order_type: true, base_quantity: true, created_at: true }
+    });
+
+    return recentJob;
+  }
+
   async process(_job: Job<any>): Promise<any> {
     const startTime = Date.now();
     const jobName = 'sl-tp-monitor-real';
@@ -192,22 +232,13 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
         // Check Stop Loss
         if (position.sl_enabled && position.sl_pct && pnlPct <= -position.sl_pct.toNumber()) {
           if (!position.sl_triggered) {
-            // ========== ETAPA 1: Verificar job existente ANTES do lock ==========
-            const existingJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { 
-                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] // ← INCLUIR PARTIALLY_FILLED
-                }
-              },
-              select: { id: true, status: true, order_type: true, base_quantity: true }
-            });
+            // ========== ETAPA 1: Verificar job existente OU recente ANTES do lock ==========
+            const existingJob = await this.findExistingOrRecentJob(position.id);
 
             if (existingJob) {
               this.logger.warn(
                 `[MONITOR] [DUPLICATE-PREVENTION] Job ${existingJob.id} (${existingJob.status}, ${existingJob.order_type}) ` +
-                `já existe para posição ${position.id}, pulando criação. ` +
+                `já existe ou foi criado recentemente para posição ${position.id}, pulando criação. ` +
                 `Quantidade: ${existingJob.base_quantity}`
               );
               continue; // ← NÃO fazer lock nem criar job
@@ -264,15 +295,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               continue;
             }
 
-            // ========== ETAPA 4: Double-check jobs após lock ==========
-            const doubleCheckJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] }
-              },
-              select: { id: true, status: true }
-            });
+            // ========== ETAPA 4: Double-check jobs após lock (usando helper para incluir recentes) ==========
+            const doubleCheckJob = await this.findExistingOrRecentJob(position.id, 30); // 30s para double-check
 
             if (doubleCheckJob) {
               // Reverter lock
@@ -281,7 +305,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 data: { sl_triggered: false }
               });
               this.logger.warn(
-                `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} criado por outro processo ` +
+                `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} (${doubleCheckJob.status}) criado por outro processo ` +
                 `durante lock, FLAG REVERTIDA`
               );
               continue;
@@ -346,22 +370,13 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           const tpPct = position.tp_pct.toNumber();
           
           if (pnlPct >= tpPct) {
-            // ========== ETAPA 1: Verificar job existente ANTES do lock ==========
-            const existingJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { 
-                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED']
-                }
-              },
-              select: { id: true, status: true, order_type: true, base_quantity: true }
-            });
+            // ========== ETAPA 1: Verificar job existente OU recente ANTES do lock ==========
+            const existingJob = await this.findExistingOrRecentJob(position.id);
 
             if (existingJob) {
               this.logger.warn(
                 `[MONITOR] [DUPLICATE-PREVENTION] Job ${existingJob.id} (${existingJob.status}, ${existingJob.order_type}) ` +
-                `já existe para posição ${position.id}, pulando criação. ` +
+                `já existe ou foi criado recentemente para posição ${position.id}, pulando criação. ` +
                 `Quantidade: ${existingJob.base_quantity}`
               );
             } else {
@@ -396,15 +411,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                   });
 
                   if (lockResult.count > 0) {
-                    // ========== ETAPA 4: Double-check jobs após lock ==========
-                    const doubleCheckJob = await this.prisma.tradeJob.findFirst({
-                      where: {
-                        position_id_to_close: position.id,
-                        side: 'SELL',
-                        status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] }
-                      },
-                      select: { id: true, status: true }
-                    });
+                    // ========== ETAPA 4: Double-check jobs após lock (usando helper para incluir recentes) ==========
+                    const doubleCheckJob = await this.findExistingOrRecentJob(position.id, 30);
 
                     if (doubleCheckJob) {
                       // Reverter lock
@@ -413,7 +421,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                         data: { tp_triggered: false }
                       });
                       this.logger.warn(
-                        `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} criado por outro processo ` +
+                        `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} (${doubleCheckJob.status}) criado por outro processo ` +
                         `durante lock, FLAG REVERTIDA`
                       );
                     } else {
@@ -558,22 +566,13 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           
           // Etapa 2: Verificar se deve vender (já ativado + caiu abaixo do threshold)
           if (position.sg_activated && pnlPct <= sellThreshold && pnlPct < tpPct) {
-            // ========== ETAPA 1: Verificar job existente ANTES do lock ==========
-            const existingJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { 
-                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED']
-                }
-              },
-              select: { id: true, status: true, order_type: true, base_quantity: true }
-            });
+            // ========== ETAPA 1: Verificar job existente OU recente ANTES do lock ==========
+            const existingJob = await this.findExistingOrRecentJob(position.id);
 
             if (existingJob) {
               this.logger.warn(
                 `[MONITOR] [DUPLICATE-PREVENTION] Job ${existingJob.id} (${existingJob.status}, ${existingJob.order_type}) ` +
-                `já existe para posição ${position.id}, pulando criação. ` +
+                `já existe ou foi criado recentemente para posição ${position.id}, pulando criação. ` +
                 `Quantidade: ${existingJob.base_quantity}`
               );
               continue;
@@ -630,15 +629,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               continue;
             }
 
-            // ========== ETAPA 4: Double-check jobs após lock ==========
-            const doubleCheckJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] }
-              },
-              select: { id: true, status: true }
-            });
+            // ========== ETAPA 4: Double-check jobs após lock (usando helper para incluir recentes) ==========
+            const doubleCheckJob = await this.findExistingOrRecentJob(position.id, 30);
 
             if (doubleCheckJob) {
               // Reverter lock
@@ -647,7 +639,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 data: { sg_triggered: false }
               });
               this.logger.warn(
-                `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} criado por outro processo ` +
+                `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} (${doubleCheckJob.status}) criado por outro processo ` +
                 `durante lock, FLAG REVERTIDA`
               );
               continue;
@@ -657,6 +649,22 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             try {
               const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
               
+              // ✅ BUG-009 FIX: VALIDAÇÃO DE LUCRO MÍNIMO para Stop Gain
+              const validationResult = await positionService.validateMinProfit(
+                position.id,
+                limitPrice
+              );
+
+              if (!validationResult.valid) {
+                this.logger.warn(`[SL-TP-MONITOR-REAL] ⚠️ Stop Gain SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+                // Reverter lock
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { sg_triggered: false }
+                });
+                continue;
+              }
+
               const tradeJob = await tradeJobService.createJob({
                 exchangeAccountId: position.exchange_account_id,
                 tradeMode: TradeMode.REAL,
@@ -785,22 +793,13 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
             
             // Só vende se caiu abaixo do threshold
             if (pnlPct <= sellThreshold) {
-              // ========== ETAPA 1: Verificar job existente ANTES do lock ==========
-              const existingJob = await this.prisma.tradeJob.findFirst({
-                where: {
-                  position_id_to_close: position.id,
-                  side: 'SELL',
-                  status: { 
-                    in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED']
-                  }
-                },
-                select: { id: true, status: true, order_type: true, base_quantity: true }
-              });
+              // ========== ETAPA 1: Verificar job existente OU recente ANTES do lock ==========
+              const existingJob = await this.findExistingOrRecentJob(position.id);
 
               if (existingJob) {
                 this.logger.warn(
                   `[MONITOR] [DUPLICATE-PREVENTION] Job ${existingJob.id} (${existingJob.status}, ${existingJob.order_type}) ` +
-                  `já existe para posição ${position.id}, pulando criação. ` +
+                  `já existe ou foi criado recentemente para posição ${position.id}, pulando criação. ` +
                   `Quantidade: ${existingJob.base_quantity}`
                 );
                 continue;
@@ -857,15 +856,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 continue;
               }
 
-              // ========== ETAPA 4: Double-check jobs após lock ==========
-              const doubleCheckJob = await this.prisma.tradeJob.findFirst({
-                where: {
-                  position_id_to_close: position.id,
-                  side: 'SELL',
-                  status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] }
-                },
-                select: { id: true, status: true }
-              });
+              // ========== ETAPA 4: Double-check jobs após lock (usando helper para incluir recentes) ==========
+              const doubleCheckJob = await this.findExistingOrRecentJob(position.id, 30);
 
               if (doubleCheckJob) {
                 // Reverter lock
@@ -874,7 +866,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                   data: { tsg_triggered: false }
                 });
                 this.logger.warn(
-                  `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} criado por outro processo ` +
+                  `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} (${doubleCheckJob.status}) criado por outro processo ` +
                   `durante lock, FLAG REVERTIDA`
                 );
                 continue;
@@ -884,6 +876,22 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               try {
                 const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
                 
+                // ✅ BUG-009 FIX: VALIDAÇÃO DE LUCRO MÍNIMO para TSG
+                const validationResult = await positionService.validateMinProfit(
+                  position.id,
+                  limitPrice
+                );
+
+                if (!validationResult.valid) {
+                  this.logger.warn(`[SL-TP-MONITOR-REAL] ⚠️ Trailing Stop Gain SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+                  // Reverter lock
+                  await this.prisma.tradePosition.update({
+                    where: { id: position.id },
+                    data: { tsg_triggered: false }
+                  });
+                  continue;
+                }
+
                 const tradeJob = await tradeJobService.createJob({
                   exchangeAccountId: position.exchange_account_id,
                   tradeMode: TradeMode.REAL,
@@ -947,22 +955,13 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
           const trailingTriggerPrice = trailingMaxPrice * (1 - trailingDistance / 100);
 
           if (currentPrice <= trailingTriggerPrice && !position.trailing_triggered) {
-            // ========== ETAPA 1: Verificar job existente ANTES do lock ==========
-            const existingJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { 
-                  in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED']
-                }
-              },
-              select: { id: true, status: true, order_type: true, base_quantity: true }
-            });
+            // ========== ETAPA 1: Verificar job existente OU recente ANTES do lock ==========
+            const existingJob = await this.findExistingOrRecentJob(position.id);
 
             if (existingJob) {
               this.logger.warn(
                 `[MONITOR] [DUPLICATE-PREVENTION] Job ${existingJob.id} (${existingJob.status}, ${existingJob.order_type}) ` +
-                `já existe para posição ${position.id}, pulando criação. ` +
+                `já existe ou foi criado recentemente para posição ${position.id}, pulando criação. ` +
                 `Quantidade: ${existingJob.base_quantity}`
               );
               continue;
@@ -1019,15 +1018,8 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
               continue;
             }
 
-            // ========== ETAPA 4: Double-check jobs após lock ==========
-            const doubleCheckJob = await this.prisma.tradeJob.findFirst({
-              where: {
-                position_id_to_close: position.id,
-                side: 'SELL',
-                status: { in: ['PENDING', 'PENDING_LIMIT', 'EXECUTING', 'PARTIALLY_FILLED'] }
-              },
-              select: { id: true, status: true }
-            });
+            // ========== ETAPA 4: Double-check jobs após lock (usando helper para incluir recentes) ==========
+            const doubleCheckJob = await this.findExistingOrRecentJob(position.id, 30);
 
             if (doubleCheckJob) {
               // Reverter lock
@@ -1036,7 +1028,7 @@ export class SLTPMonitorRealProcessor extends WorkerHost {
                 data: { trailing_triggered: false }
               });
               this.logger.warn(
-                `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} criado por outro processo ` +
+                `[MONITOR] [RACE-DETECTED] Job ${doubleCheckJob.id} (${doubleCheckJob.status}) criado por outro processo ` +
                 `durante lock, FLAG REVERTIDA`
               );
               continue;

@@ -43,6 +43,31 @@ export class WebhookEventService {
       return { event: existing, jobsCreated: 0, jobIds: [] };
     }
 
+    // ✅ BUG-007 FIX: Verificar eventos recentes com mesmo conteúdo (deduplicação por conteúdo)
+    // Isso previne webhooks duplicados enviados em sequência rápida
+    const recentCutoff = new Date(Date.now() - 30 * 1000); // 30 segundos
+    
+    const recentDuplicate = await this.prisma.webhookEvent.findFirst({
+      where: {
+        webhook_source_id: dto.webhookSourceId,
+        target_account_id: dto.targetAccountId,
+        symbol_normalized: parsed.symbolNormalized,
+        action: parsed.action,
+        created_at: { gte: recentCutoff },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    if (recentDuplicate) {
+      console.log(
+        `[WEBHOOK-EVENT] [DEDUP] Evento duplicado detectado: ` +
+        `evento recente ${recentDuplicate.id} com mesmo símbolo (${parsed.symbolNormalized}) ` +
+        `e ação (${parsed.action}) criado há ${Math.round((Date.now() - recentDuplicate.created_at.getTime()) / 1000)}s. ` +
+        `Retornando evento existente.`
+      );
+      return { event: recentDuplicate, jobsCreated: 0, jobIds: [] };
+    }
+
     // Create event
     console.log(`[WEBHOOK-EVENT] Criando evento com priceReference: ${parsed.priceReference}`);
     const event = await this.prisma.webhookEvent.create({
@@ -581,5 +606,6 @@ export class WebhookEventService {
     }
     return { count: jobsCreated, jobIds, skipReasons };
   }
+
 }
 

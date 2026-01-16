@@ -29,8 +29,11 @@ export class TradeExecutionSimProcessor extends WorkerHost {
 
     this.logger.log(`[EXECUTOR-SIM] Processando trade job ${tradeJobId} (SIMULATION)`);
 
+    // ✅ BUG-005 FIX: Manter referência para o job no catch (ex: liberar sell-lock em erro)
+    let tradeJob: any = null;
+
     try {
-      const tradeJob = await this.prisma.tradeJob.findUnique({
+      tradeJob = await this.prisma.tradeJob.findUnique({
         where: { id: tradeJobId },
         include: {
           exchange_account: true,
@@ -964,6 +967,12 @@ export class TradeExecutionSimProcessor extends WorkerHost {
             reason_message: reasonMessage,
           },
         });
+
+        // ✅ BUG-005 FIX: Liberar sell lock quando job falha
+        if (tradeJob?.side === 'SELL' && tradeJob?.position_id_to_close) {
+          await releaseSellLock(this.prisma, tradeJob.position_id_to_close, tradeJobId);
+          this.logger.log(`[EXECUTOR-SIM] Job ${tradeJobId} - Sell lock liberado após falha`);
+        }
       } catch (updateError) {
         this.logger.error(`[EXECUTOR-SIM] Erro ao atualizar status do job para FAILED: ${updateError}`);
       }
