@@ -1,4 +1,4 @@
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
 import { PrismaClient } from '@mvcashnode/db';

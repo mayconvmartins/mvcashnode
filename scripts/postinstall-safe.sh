@@ -38,58 +38,7 @@ if [ ! -d "node_modules" ]; then
 fi
 
 # ============================================
-# 1. Reconstruir pacotes nativos (bcrypt, etc)
-# ============================================
-echo -e "${YELLOW}🔧 Reconstruindo pacotes nativos (bcrypt)...${NC}"
-
-# bcrypt precisa ser compilado para a arquitetura atual
-# Método 1: pnpm rebuild (pode não funcionar com ignore-scripts)
-if pnpm rebuild bcrypt 2>/dev/null; then
-    echo -e "${GREEN}✅ bcrypt reconstruído via pnpm${NC}"
-else
-    echo -e "${YELLOW}⚠️  pnpm rebuild falhou, tentando método direto...${NC}"
-    
-    # Método 2: Compilar diretamente no diretório do bcrypt
-    BCRYPT_DIR=$(find node_modules/.pnpm -type d -name "bcrypt" -path "*/node_modules/bcrypt" 2>/dev/null | head -1)
-    
-    if [ -n "$BCRYPT_DIR" ] && [ -d "$BCRYPT_DIR" ]; then
-        echo -e "${YELLOW}📁 Encontrado bcrypt em: $BCRYPT_DIR${NC}"
-        CURRENT_DIR=$(pwd)
-        cd "$BCRYPT_DIR"
-        
-        # Tentar node-gyp rebuild
-        if command -v node-gyp &> /dev/null; then
-            echo -e "${YELLOW}🔨 Executando node-gyp rebuild...${NC}"
-            node-gyp rebuild 2>&1 || {
-                echo -e "${YELLOW}⚠️  node-gyp falhou, tentando npm rebuild...${NC}"
-                npm rebuild 2>&1 || true
-            }
-        else
-            echo -e "${YELLOW}🔨 Executando npm rebuild...${NC}"
-            npm rebuild 2>&1 || true
-        fi
-        
-        cd "$CURRENT_DIR"
-        echo -e "${GREEN}✅ bcrypt recompilado${NC}"
-    else
-        echo -e "${RED}❌ Diretório do bcrypt não encontrado!${NC}"
-        echo -e "${YELLOW}💡 Tente: rm -rf node_modules && pnpm install${NC}"
-    fi
-fi
-
-# Verificar se o binding existe
-BINDING_PATH=$(find node_modules/.pnpm -name "bcrypt_lib.node" 2>/dev/null | head -1)
-if [ -n "$BINDING_PATH" ]; then
-    echo -e "${GREEN}✅ Binding nativo encontrado: $BINDING_PATH${NC}"
-else
-    echo -e "${RED}❌ AVISO: bcrypt_lib.node não encontrado!${NC}"
-    echo -e "${YELLOW}💡 Execute manualmente:${NC}"
-    echo -e "${YELLOW}   cd node_modules/.pnpm/bcrypt@*/node_modules/bcrypt && node-gyp rebuild${NC}"
-fi
-echo ""
-
-# ============================================
-# 2. Gerar Prisma Client
+# 1. Gerar Prisma Client
 # ============================================
 echo -e "${YELLOW}📦 Gerando Prisma Client...${NC}"
 cd packages/db

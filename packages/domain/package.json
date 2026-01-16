@@ -16,13 +16,13 @@
     "@mvcashnode/shared": "workspace:*",
     "@mvcashnode/exchange": "workspace:*",
     "@simplewebauthn/server": "^10.0.1",
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
     "otplib": "^12.0.1"
   },
   "devDependencies": {
     "@simplewebauthn/types": "^10.0.0",
-    "@types/bcrypt": "^5.0.2",
+    "@types/bcryptjs": "^2.4.6",
     "@types/jest": "^29.5.11",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.11.0",
