@@ -619,8 +619,21 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
               // Calcular preço LIMIT (preço atual ou ligeiramente abaixo para garantir execução)
               const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
               
-              // Stop Gain NÃO valida min_profit_pct pois já foi ativado em um lucro maior
-              // e deve proteger os lucros obtidos mesmo que caiam abaixo do mínimo configurado
+              // ✅ VALIDAÇÃO DE LUCRO MÍNIMO para Stop Gain (alinhado com monitor REAL)
+              const validationResult = await positionService.validateMinProfit(
+                position.id,
+                limitPrice
+              );
+
+              if (!validationResult.valid) {
+                this.logger.warn(`[SL-TP-MONITOR-SIM] ⚠️ Stop Gain SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+                // Reverter lock
+                await this.prisma.tradePosition.update({
+                  where: { id: position.id },
+                  data: { sg_triggered: false }
+                });
+                continue;
+              }
               
               const tradeJob = await tradeJobService.createJob({
                 exchangeAccountId: position.exchange_account_id,
@@ -903,6 +916,22 @@ export class SLTPMonitorSimProcessor extends WorkerHost {
                 
                 // IMPORTANTE: Calcular preço LIMIT com pequeno spread para garantir execução
                 const limitPrice = currentPrice * SELL_LIMIT_PRICE_MULTIPLIER;
+                
+                // ✅ VALIDAÇÃO DE LUCRO MÍNIMO para Trailing Stop Gain (alinhado com monitor REAL)
+                const validationResult = await positionService.validateMinProfit(
+                  position.id,
+                  limitPrice
+                );
+
+                if (!validationResult.valid) {
+                  this.logger.warn(`[SL-TP-MONITOR-SIM] ⚠️ Trailing Stop Gain SKIPADO para posição ${position.id}: ${validationResult.reason}`);
+                  // Reverter lock
+                  await this.prisma.tradePosition.update({
+                    where: { id: position.id },
+                    data: { tsg_triggered: false }
+                  });
+                  continue;
+                }
                 
                 const tradeJob = await tradeJobService.createJob({
                   exchangeAccountId: position.exchange_account_id,
