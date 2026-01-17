@@ -1,6 +1,15 @@
 /**
- * PM2 Ecosystem Configuration - v2.1.1
+ * PM2 Ecosystem Configuration - v2.1.2
  * Otimizado para VPS com 20 núcleos e 64GB RAM
+ * 
+ * ⚠️ SEGURANÇA CRÍTICA - NÃO RODAR COMO ROOT!
+ * Vulnerabilidades como CVE-2025-55182 (React2Shell) permitem RCE via Next.js.
+ * Se PM2 rodar como root, o atacante ganha acesso total ao sistema.
+ * 
+ * Configuração recomendada no servidor:
+ *   useradd -m -s /bin/bash mvcash
+ *   chown -R mvcash:mvcash /opt/mvcashnode
+ *   su - mvcash -c "cd /opt/mvcashnode && pm2 start ecosystem.config.js"
  * 
  * ⚠️ IMPORTANTE: Flags de heap movidas para NODE_OPTIONS (não node_args)
  * Isso evita SIGKILL no spawn em ambientes VMware/kernel 5.15+

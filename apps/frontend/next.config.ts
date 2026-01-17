@@ -40,6 +40,16 @@ const nextConfig: NextConfig = {
   
   // Otimização de imports de pacotes (tree-shaking mais agressivo)
   experimental: {
+    // SEGURANÇA: Restringir Server Actions apenas para domínios permitidos
+    // Previne CVE-2025-55182 (React2Shell) - RCE via Server Components
+    serverActions: {
+      allowedOrigins: [
+        'app.mvcash.com.br',
+        'mvcash.com.br',
+        'www.mvcash.com.br',
+        'localhost:5010', // Desenvolvimento
+      ],
+    },
     optimizePackageImports: [
       // UI Components
       'lucide-react',
