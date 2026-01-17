@@ -777,7 +777,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
             }
           }
 
-          if (stepSize) {
+          // Apenas BUY precisa truncar quantidade (calculada de USD/preço)
+          // SELL: NÃO truncar - quantidade vem de execução válida na exchange
+          if (stepSize && tradeJob.side === 'BUY') {
             const adjustedQty = floorToStep(amountToUse, stepSize);
             if (adjustedQty !== amountToUse) {
               this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Ajustando quantidade pela stepSize (${stepSize}): ${amountToUse} -> ${adjustedQty}`);
@@ -1159,7 +1161,9 @@ export class TradeExecutionRealProcessor extends WorkerHost {
                           retryLimitPrice = adjustedPrice;
                         }
                       }
-                      if (stepSize) {
+                      // Apenas BUY precisa truncar quantidade
+                      // SELL: NÃO truncar - quantidade vem de execução válida na exchange
+                      if (stepSize && tradeJob.side === 'BUY') {
                         const adjustedQty = floorToStep(retryAmount, stepSize);
                         if (adjustedQty !== retryAmount) {
                           this.logger.log(`[EXECUTOR] Job ${tradeJobId} - Retry: ajustando quantidade pela stepSize (${stepSize}): ${retryAmount} -> ${adjustedQty}`);
