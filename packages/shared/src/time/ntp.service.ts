@@ -1,4 +1,4 @@
-import * as sntp from 'sntp';
+import { queryNtpOffsetMs } from './ntp-udp.client';
 
 export interface NtpSyncResult {
   offset: number;
@@ -41,12 +41,13 @@ export class NtpService {
     }
 
     try {
-      const result = await sntp.time({
+      const result = await queryNtpOffsetMs({
         host: this.ntpServer,
         port: 123,
+        timeoutMs: 3000,
       });
 
-      this.timeOffset = result.t || 0;
+      this.timeOffset = result.offsetMs || 0;
       this.lastSync = new Date();
 
       const serverTime = new Date(Date.now() + this.timeOffset);

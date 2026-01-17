@@ -77,8 +77,9 @@ async function bootstrap() {
   // ============================================
   // CLOUDFLARE: Trust Proxy e IP Real
   // ============================================
-  // Habilitar trust proxy para Cloudflare (e nginx se usado)
-  app.set('trust proxy', true);
+  // Trust only the local reverse proxy (nginx) to avoid IP spoofing via X-Forwarded-*.
+  // Cloudflare -> nginx -> API: nginx roda em loopback, então confiar apenas em loopback é suficiente.
+  app.set('trust proxy', 'loopback');
   
   // Middleware para extrair IP real do cliente via Cloudflare
   app.use((req: any, res: any, next: any) => {
@@ -265,7 +266,10 @@ async function bootstrap() {
   console.log('[WEBHOOK-MIDDLEWARE] ✅ Middleware de raw body configurado para /webhooks/*, /subscriptions/webhooks/* e /subscriptions/webhook/*');
 
   // Configuração de CORS
-  const corsDisabled = process.env.CORS_DISABLED === 'true' || process.env.CORS_DISABLED === '1';
+  const corsDisabledRaw = process.env.CORS_DISABLED === 'true' || process.env.CORS_DISABLED === '1';
+  // Segurança: em produção, não permitir "CORS_DISABLED=true" (vira allow-all) por engano.
+  // Para permitir tudo em dev, use CORS_DISABLED=true com NODE_ENV!=production.
+  const corsDisabled = corsDisabledRaw && process.env.NODE_ENV !== 'production';
   console.log(`[CORS] CORS_DISABLED=${process.env.CORS_DISABLED}, corsDisabled=${corsDisabled}`);
   
   if (corsDisabled) {

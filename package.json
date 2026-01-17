@@ -58,5 +58,13 @@
   "packageManager": "pnpm@8.15.0",
   "dependencies": {
     "redis": "^4.6.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "web-push>jws": "4.0.1",
+      "jsonwebtoken>jws": "3.2.3",
+      "qs": "6.14.1",
+      "js-yaml": "4.1.1"
+    }
   }
 }
