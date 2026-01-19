@@ -119,6 +119,7 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       const permanentErrors = [
         // Erros de validação interna
         'MIN_PROFIT_NOT_MET_PRE_ORDER',
+        'MIN_PROFIT_NOT_MET', // ✅ BUG-012 FIX: Adicionado para segurança extra
         'INVALID_QUANTITY',
         'INVALID_QUANTITY_CALCULATED',
         'MIN_AMOUNT_THRESHOLD',
@@ -1456,56 +1457,14 @@ export class TradeExecutionRealProcessor extends WorkerHost {
       // Log para debug
       this.logger.log(`[EXECUTOR] Ordem LIMIT status: ${orderStatus}, filled: ${order.filled}, amount: ${order.amount}, executedQty calculado: ${executedQty}, isOrderFilled: ${isOrderFilled}`);
 
-      // VALIDAÇÃO DE SEGURANÇA: Verificar lucro mínimo antes de executar venda (apenas se ordem foi preenchida)
-      if (tradeJob.side === 'SELL' && executedQty > 0 && !skipMinProfitValidation) {
-        try {
-          const { PositionService } = await import('@mvcashnode/domain');
-          const positionService = new PositionService(this.prisma);
-          
-          const openPosition = await this.prisma.tradePosition.findFirst({
-            where: {
-              exchange_account_id: tradeJob.exchange_account_id,
-              symbol: tradeJob.symbol,
-              trade_mode: tradeJob.trade_mode,
-              status: 'OPEN',
-              qty_remaining: { gt: 0 },
-            },
-            orderBy: {
-              created_at: 'asc',
-            },
-          });
-
-          if (openPosition) {
-            // Ignorar validação de lucro mínimo para posições resíduo (is_dust = true)
-            if (!openPosition.is_dust) {
-              const validationResult = await positionService.validateMinProfit(openPosition.id, avgPrice);
-
-              if (!validationResult.valid) {
-                this.logger.warn(`[EXECUTOR] ⚠️ Validação de lucro mínimo FALHOU: ${validationResult.reason}`);
-                await this.prisma.tradeJob.update({
-                  where: { id: tradeJobId },
-                  data: {
-                    status: TradeJobStatus.FAILED,
-                    reason_code: 'MIN_PROFIT_NOT_MET',
-                    reason_message: validationResult.reason,
-                  },
-                });
-                throw new Error(`Venda não permitida: ${validationResult.reason}`);
-              } else {
-                this.logger.log(`[EXECUTOR] ✅ Validação de lucro mínimo PASSOU: ${validationResult.reason}`);
-              }
-            } else {
-              this.logger.log(`[EXECUTOR] ✅ Validação de lucro mínimo IGNORADA (posição resíduo)`);
-            }
-          }
-        } catch (validationError: any) {
-          if (validationError.message.includes('MIN_PROFIT_NOT_MET') || validationError.message.includes('Venda não permitida')) {
-            throw validationError;
-          }
-          // Se for outro erro, apenas logar e continuar (não bloquear execução)
-          this.logger.warn(`[EXECUTOR] Erro ao validar lucro mínimo (continuando): ${validationError.message}`);
-        }
-      }
+      // ✅ BUG-012 FIX: REMOVIDA validação pós-ordem que causava vendas duplicadas
+      // A validação de lucro mínimo DEVE ser feita ANTES de criar a ordem (linhas 878-917)
+      // Validar APÓS a ordem estar na exchange é inútil e perigoso:
+      // - A ordem já foi executada na Binance
+      // - Se falhar aqui, não cancela a ordem existente
+      // - Job vira FAILED mas ordem continua executando
+      // - Monitor recria job -> DUPLICAÇÃO de vendas
+      // A validação PRE-ORDER já garante que a venda só ocorre se lucro mínimo for atendido
 
       // ✅ REMOVIDO: Early return para ordens LIMIT não preenchidas
       // Agora o código continua normalmente. Se executedQty === 0, não será chamado onBuyExecuted/onSellExecuted
